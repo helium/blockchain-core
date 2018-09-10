@@ -197,6 +197,8 @@ init(Args) ->
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
     {ok, #state{swarm=Swarm}}.
 
+handle_call(_, _From, #state{blockchain=undefined}=State) ->
+    {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
     CurrentBlock = blockchain:current_block(Chain),
     Height = blockchain_block:height(CurrentBlock),
@@ -224,6 +226,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
+            lager:warning("~p is not a genesis block", [GenesisBlock]),
             {noreply, State};
         true ->
             GenesisHash = blockchain_block:hash_block(GenesisBlock),
@@ -233,6 +236,8 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
             % TODO: Save blockchain
             {noreply, State#state{blockchain=Blockchain}}
     end;
+handle_cast(_, #state{blockchain=undefined}=State) ->
+    {noreply, State};
 handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm}=State) ->
     Head = blockchain:head(Chain),
     Hash = blockchain_block:hash_block(Block),
