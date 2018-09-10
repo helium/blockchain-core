@@ -36,9 +36,13 @@ all() ->
 basic(_Config) ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SeedNodes = [],
+    Opts = [
+        {key, {PubKey, SigFun}}
+        ,{seed_nodes, []}
+        ,{port, 0}
+    ],
 
-    {ok, _Sup} = blockchain_sup:start_link([PubKey, SigFun, SeedNodes]),
+    {ok, _Sup} = blockchain_sup:start_link(Opts),
 
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 

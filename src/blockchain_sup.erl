@@ -47,22 +47,26 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
-init([PublicKey, SigFun, SeedNodes]=_Args) ->
+init(Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
 
-    lager:info("~p init with ~p", [?MODULE, _Args]),
+    lager:info("~p init with ~p", [?MODULE, Args]),
     SwarmWorkerOpts = [
-        {key, {PublicKey, SigFun}}
+        {key, proplists:get_value(key, Args)}
+        ,{base_dir, proplists:get_value(base_dir, Args, "data")}
         ,{libp2p_group_gossip, [
             {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}}
-            ,{seed_nodes, SeedNodes}
+            ,{seed_nodes, proplists:get_value(seed_nodes, Args, [])}
         ]}
+    ],
+    BWorkerOpts = [
+        {port, proplists:get_value(port, Args, 0)}
     ],
 
     ChildSpecs = [
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts])
-        ,?WORKER(blockchain_worker, [])
+        ,?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 

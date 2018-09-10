@@ -11,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/0
+    start_link/1
     ,height/0
     ,blockchain/0
     ,head/0
@@ -55,8 +55,8 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, [], []).
+start_link(Args) ->
+    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
 %%--------------------------------------------------------------------
 %% @doc
