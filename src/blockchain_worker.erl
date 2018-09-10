@@ -233,8 +233,13 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
             Transactions = blockchain_block:transactions(GenesisBlock),
             {ok, Ledger} = blockchain_transaction:absorb_transactions(Transactions, #{}),
             Blockchain = blockchain:new(GenesisHash, GenesisBlock, Ledger),
+            % TODO: review this consensus stuff
+            [ConsensusAddrs] = [blockchain_transaction:genesis_consensus_group_members(T)
+                              || T <- blockchain_block:transactions(GenesisBlock)
+                              ,blockchain_transaction:is_genesis_consensus_group_txn(T)],
+            lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             % TODO: Save blockchain
-            {noreply, State#state{blockchain=Blockchain}}
+            {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
     end;
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};

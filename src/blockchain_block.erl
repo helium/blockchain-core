@@ -126,7 +126,7 @@ is_block(Block) ->
 %%--------------------------------------------------------------------
 -spec hash_block(block()) -> hash().
 hash_block(Block) ->
-    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Block))).
+    crypto:hash(sha256, erlang:term_to_binary(?MODULE:remove_signature(Block))).
 
 %%--------------------------------------------------------------------
 %% @doc
