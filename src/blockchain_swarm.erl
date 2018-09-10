@@ -80,6 +80,8 @@ init(Args) ->
     true = erlang:link(Pid),
     {ok, #state{swarm=Pid}}.
 
+handle_call(address, _From, #state{swarm=Swarm}=State) ->
+    {reply, libp2p_swarm:address(Swarm), State};
 handle_call(swarm, _From, #state{swarm=Swarm}=State) ->
     {reply, Swarm, State};
 handle_call(key, _From, #state{swarm=Swarm}=State)  ->
