@@ -14,6 +14,7 @@
     ,head/1
     ,current_block/1
     ,add_block/2
+    ,get_block/2
 ]).
 
 -record(blockchain, {
@@ -78,7 +79,8 @@ head(Blockchain) ->
 %%--------------------------------------------------------------------
 -spec current_block(blockchain()) -> blockchain_block:block().
 current_block(Blockchain) ->
-    maps:get(Blockchain#blockchain.head, Blockchain#blockchain.blocks, Blockchain#blockchain.genesis_hash).
+    Head = ?MODULE:head(Blockchain),
+    ?MODULE:get_block(Blockchain, Head).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -92,6 +94,16 @@ add_block(Blockchain, Block) ->
     Ledger0 = ?MODULE:ledger(Blockchain),
     {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
     Blockchain#blockchain{blocks=Blocks1, ledger=Ledger1, head=Hash}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec get_block(blockchain(), blockchain_block:hash()) -> blockchain_block:block().
+get_block(Blockchain, Hash) ->
+    Blocks = ?MODULE:blocks(Blockchain),
+    GenesisHash = ?MODULE:genesis_hash(Blockchain),
+    maps:get(Hash, Blocks, ?MODULE:get_block(Blockchain, GenesisHash)).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

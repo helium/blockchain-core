@@ -27,6 +27,7 @@
     ,payment_txn/4
     ,add_gateway_txn/1, add_gateway_txn/2
     ,assert_location_txn/1, assert_location_txn/3
+    ,peer_height/3
 ]).
 
 %% ------------------------------------------------------------------
@@ -40,6 +41,8 @@
     ,terminate/2
     ,code_change/3
 ]).
+
+-include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -161,10 +164,17 @@ add_gateway_txn(PrivKey, Address) ->
 %% @end
 %%--------------------------------------------------------------------
 assert_location_txn(Location) ->
-    gen_server:cast(?MODULE, {assert_location_txn, Location}).
+    gen_server:cast(?SERVER, {assert_location_txn, Location}).
 
 assert_location_txn(PrivKey, Address, Location) ->
-    gen_server:cast(?MODULE, {assert_location_txn, PrivKey, Address, Location}).
+    gen_server:cast(?SERVER, {assert_location_txn, PrivKey, Address, Location}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+peer_height(Height, Head, Session) ->
+    gen_server:cast(?SERVER, {peer_height, Height, Head, Session}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -174,7 +184,16 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
-    % TODO: Add stream handler
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?GOSSIP_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_gossip_handler, ?SERVER]}
+    ),
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?SYNC_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
+    ),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
     {ok, #state{swarm=Swarm}}.
 
@@ -325,6 +344,22 @@ handle_cast({assert_location_txn, PrivKey, Address, Location}, State) ->
     SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, PrivKey),
     ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State),
     {noreply, State};
+handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State) ->
+    lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
+    LocalHead = blockchain:head(Chain),
+    LocalHeight = blockchain_block:height(blockchain:get_block(Chain, LocalHead)),
+    case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
+        true ->
+            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(LocalHeight) ++ "/" ++ blockchain_util:hexdump(LocalHead),
+            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
+                {ok, _Stream} ->
+                    ok;
+                _ ->
+                    lager:notice("Failed to dial sync service on ~p", [Session])
+            end;
+        false -> ok
+    end,
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -357,8 +392,8 @@ send_txn(Type, Txn, #state{swarm=Swarm, consensus_addrs=Addresses}) ->
         Swarm
         ,Addresses
         ,erlang:term_to_binary({Type, Txn})
-        ,"blockchain_txn/1.0.0"
-        ,blockchain_txn_handle
+        ,?TX_PROTOCOL
+        ,blockchain_txn_handler
         ,[self()]
         ,false
     ).
