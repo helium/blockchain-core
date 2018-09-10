@@ -35,6 +35,8 @@
     ,period => 5
 }).
 
+-include("blockchain.hrl").
+
 %% ------------------------------------------------------------------
 %% API functions
 %% ------------------------------------------------------------------
@@ -45,20 +47,22 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
-init([PublicKey, SigFun]=_Args) ->
+init([PublicKey, SigFun, SeedNodes]=_Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
 
     lager:info("~p init with ~p", [?MODULE, _Args]),
-    % TODO: Add group gossip
-    SwarmWorkerOpts = [{key, {PublicKey, SigFun}}],
-    SwarmWorker = ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
-
-    BlockchainWorker = ?WORKER(blockchain_worker, []),
+    SwarmWorkerOpts = [
+        {key, {PublicKey, SigFun}}
+        ,{libp2p_group_gossip, [
+            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}}
+            ,{seed_nodes, SeedNodes}
+        ]}
+    ],
 
     ChildSpecs = [
-        SwarmWorker
-        ,BlockchainWorker
+        ?WORKER(blockchain_swarm, [SwarmWorkerOpts])
+        ,?WORKER(blockchain_worker, [])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
