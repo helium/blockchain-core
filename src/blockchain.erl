@@ -102,8 +102,12 @@ add_block(Blockchain, Block) ->
 -spec get_block(blockchain(), blockchain_block:hash()) -> blockchain_block:block().
 get_block(Blockchain, Hash) ->
     Blocks = ?MODULE:blocks(Blockchain),
-    GenesisHash = ?MODULE:genesis_hash(Blockchain),
-    maps:get(Hash, Blocks, ?MODULE:get_block(Blockchain, GenesisHash)).
+    case ?MODULE:genesis_hash(Blockchain) of
+        Hash ->
+            maps:get(Hash, Blocks);
+        GenesisHash ->
+            maps:get(Hash, Blocks, ?MODULE:get_block(Blockchain, GenesisHash))
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
