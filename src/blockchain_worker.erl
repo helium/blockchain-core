@@ -50,6 +50,7 @@
     blockchain :: undefined | blockchain:blockchain()
     ,swarm :: undefined | pid()
     ,consensus_addrs = [] :: [libp2p_crypto:address()]
+    ,n :: integer()
 }).
 
 %% ------------------------------------------------------------------
@@ -184,6 +185,7 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
+    N = proplists:get_value(num_consensus_members, Args, 0),
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?GOSSIP_PROTOCOL
@@ -195,7 +197,7 @@ init(Args) ->
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
-    {ok, #state{swarm=Swarm}}.
+    {ok, #state{swarm=Swarm, n=N}}.
 
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};
@@ -243,10 +245,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
     end;
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
-handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm}=State) ->
+handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm, n=N}=State) ->
     Head = blockchain:head(Chain),
     Hash = blockchain_block:hash_block(Block),
-    N = num_consensus_members(),
     F = ((N-1) div 3),
     case blockchain_block:prev_hash(Block) == Head of
         true ->
@@ -276,9 +277,8 @@ handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm}=
             % TODO: Sync here
             {noreply, State}
     end;
-handle_cast({sync_blocks, {sync, Blocks}}, State0) when is_list(Blocks) ->
+handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Blocks) ->
     lager:info("got sync_blocks msg ~p", [Blocks]),
-    N = num_consensus_members(),
     F = ((N-1) div 3),
     % TODO: Too much nesting
     State1 =
@@ -387,11 +387,6 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-% TODO: Replace this
-num_consensus_members() ->
-    {ok, N} = application:get_env(blockchain, num_consensus_members),
-    N.
 
 %%--------------------------------------------------------------------
 %% @doc
