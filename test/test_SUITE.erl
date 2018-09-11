@@ -40,20 +40,21 @@ basic(_Config) ->
         {key, {PubKey, SigFun}}
         ,{seed_nodes, []}
         ,{port, 0}
+        ,{num_consensus_members, 3}
     ],
     Balance = 5000,
 
     {ok, _Sup} = blockchain_sup:start_link(Opts),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
-    RandomKeys = generate_keys(3),
+    RandomKeys = generate_keys(10),
     Address = blockchain_swarm:address(),
     ConsensusMembers = [
         {Address, {PubKey, PrivKey, SigFun}}
     ] ++ RandomKeys,
 
     GenPaymentTxs = [blockchain_transaction:new_coinbase_txn(libp2p_crypto:address_to_b58(Addr), Balance)
-                         || {Addr, _} <- ConsensusMembers],
+                     || {Addr, _} <- ConsensusMembers],
     GenConsensusGroupTx = blockchain_transaction:new_genesis_consensus_group([Addr || {Addr, _} <- ConsensusMembers]),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
@@ -65,6 +66,29 @@ basic(_Config) ->
           ,?assertEqual(0, blockchain_ledger:nonce(Entry))}
          || Entry <- Entries],
 
+    [{Payer, {_, PayerPrivKey, _}}|_] = RandomKeys,
+    Recipient = Address,
+    Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
+    SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
+
+    PrevHash = blockchain_worker:head(),
+    Height = blockchain_worker:height() + 1,
+    Block0 = blockchain_block:new(PrevHash, Height, [SignedTx], <<>>),
+    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+    Signatures = signatures(ConsensusMembers, BinBlock),
+    Block1 = blockchain_block:sign_block(Block0, erlang:term_to_binary(Signatures)),
+
+    ok = blockchain_worker:add_block(Block1, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block1), blockchain_worker:head()),
+    ?assertEqual(2, blockchain_worker:height()),
+
+    NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_worker:ledger()),
+    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
+
+    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
+    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
+    
     ok.
 
 % NOTE: We should be able to mock another blockchain node just with libp2p
@@ -83,4 +107,14 @@ generate_keys(N) ->
         end
         ,[]
         ,lists:seq(1, N)
+    ).
+
+signatures(ConsensusMembers, BinBlock) ->
+    lists:foldl(
+        fun({A, {_, _, F}}, Acc) ->
+            Sig = F(BinBlock),
+            [{A, Sig}|Acc]
+        end
+        ,[]
+        ,ConsensusMembers
     ).
