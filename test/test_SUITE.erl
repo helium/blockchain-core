@@ -68,7 +68,7 @@ basic(_Config) ->
     ok.
 
 % NOTE: We should be able to mock another blockchain node just with libp2p
-% frame stream stuff so that I can play with blocks
+% frame stream stuff so that I can play with blocks OR use rpc ...
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

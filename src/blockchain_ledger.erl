@@ -47,6 +47,7 @@
 -spec empty_entry() -> entry().
 empty_entry() ->
     #entry{}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -54,6 +55,7 @@ empty_entry() ->
 -spec balance(entry()) -> non_neg_integer().
 balance(Entry) when Entry /= undefined ->
     Entry#entry.balance.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -61,6 +63,7 @@ balance(Entry) when Entry /= undefined ->
 -spec nonce(entry()) -> non_neg_integer().
 nonce(Entry) when Entry /= undefined ->
     Entry#entry.nonce.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -68,6 +71,7 @@ nonce(Entry) when Entry /= undefined ->
 -spec new_entry(non_neg_integer(), non_neg_integer()) -> entry().
 new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
     #entry{nonce=Nonce, balance=Balance}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -75,6 +79,7 @@ new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined -
 -spec find_entry(libp2p_crypto:address(), ledger()) -> entry().
 find_entry(Address, Ledger) ->
     maps:get(Address, Ledger, blockchain_ledger:empty_entry()).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -82,6 +87,7 @@ find_entry(Address, Ledger) ->
 -spec consensus_members(ledger()) -> [libp2p_crypto:address()].
 consensus_members(Ledger) ->
     maps:get(consensus_members, Ledger, []).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -96,6 +102,7 @@ add_consensus_members(Members, Ledger) ->
 -spec active_gateways(ledger()) -> active_gateways().
 active_gateways(Ledger) ->
     maps:get(active_gateways, Ledger, #{}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -110,13 +117,14 @@ add_gateway(Address, Ledger) ->
         false ->
             maps:put(active_gateways, maps:put(Address, undefined, ActiveGateways), Ledger)
     end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), ledger()) -> ledger() | false.
+-spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), ledger()) -> false | ledger().
 add_gateway_location(Address, Location, Ledger) ->
-    ActiveGateways = active_gateways(Ledger),
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(Address, ActiveGateways) of
         false ->
             false;

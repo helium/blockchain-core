@@ -107,7 +107,7 @@ new_coinbase_txn(Payee, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new_assert_location_txn(libp2p_crypto:address(), location()) -> assert_location_txn().
+-spec new_assert_location_txn(string(), location()) -> assert_location_txn().
 new_assert_location_txn(Address, Location) ->
     #assert_location_txn{address=libp2p_crypto:b58_to_address(Address), location=Location, signature = <<>>}.
 
@@ -315,10 +315,10 @@ absorb_transactions([#coinbase_txn{payee=Address, amount=Amount} | Tail], Ledger
     absorb_transactions(Tail, blockchain_ledger:credit_account(Address, Amount, Ledger));
 absorb_transactions([#payment_txn{amount=Amount} | _Tail], _Ledger) when Amount =< 0 ->
     {error, invalid_transaction};
-absorb_transactions([PaymentTxn=#payment_txn{payer=Payer
-                                             ,payee=Payee
-                                             ,amount=Amount
-                                             ,nonce=Nonce} | Tail], Ledger0) ->
+absorb_transactions([#payment_txn{payer=Payer
+                                  ,payee=Payee
+                                  ,amount=Amount
+                                  ,nonce=Nonce}=PaymentTxn | Tail], Ledger0) ->
     case blockchain_transaction:is_valid_payment_txn(PaymentTxn) of
         true ->
             case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger0) of
