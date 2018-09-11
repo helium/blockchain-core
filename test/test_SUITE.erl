@@ -40,7 +40,7 @@ basic(_Config) ->
         {key, {PubKey, SigFun}}
         ,{seed_nodes, []}
         ,{port, 0}
-        ,{num_consensus_members, 3}
+        ,{num_consensus_members, 7}
     ],
     Balance = 5000,
 
@@ -88,7 +88,7 @@ basic(_Config) ->
 
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
-    
+
     ok.
 
 % NOTE: We should be able to mock another blockchain node just with libp2p
