@@ -52,6 +52,7 @@
     ,consensus_addrs = [] :: [libp2p_crypto:address()]
     ,n :: integer()
     ,dir :: string()
+    ,trim_blocks = {50, 60*60*100} :: {non_neg_integer(), non_neg_integer()}
 }).
 
 %% ------------------------------------------------------------------
@@ -188,7 +189,10 @@ init(Args) ->
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
     N = proplists:get_value(num_consensus_members, Args, 0),
     Dir = proplists:get_value(base_dir, Args, "data"),
+    TrimBlocks = proplists:get_value(trim_blocks, Args, {50, 60*60*1000}),
+    {_, When} = TrimBlocks,
     Blockchain = blockchain:load(Dir),
+
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?GOSSIP_PROTOCOL
@@ -200,7 +204,9 @@ init(Args) ->
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
-    {ok, #state{swarm=Swarm, n=N, dir=Dir, blockchain=Blockchain}}.
+
+    _ = erlang:send_after(When, self(), trim_blocks),
+    {ok, #state{swarm=Swarm, n=N, dir=Dir, blockchain=Blockchain, trim_blocks=TrimBlocks}}.
 
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};
@@ -383,6 +389,11 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(trim_blocks, #state{blockchain=Blockchain0
+                                ,trim_blocks={Limit, When}}=State) ->
+    Blockchain1 = blockchain:trim_blocks(Blockchain0, Limit),
+    _ = erlang:send_after(When, self(), trim_blocks),
+    {noreply, State#state{blockchain=Blockchain1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.

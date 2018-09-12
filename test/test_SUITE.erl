@@ -76,17 +76,9 @@ basic(_Config) ->
     Recipient = Address,
     Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
     SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
+    Block = add_block(ConsensusMembers, [SignedTx]),
 
-    PrevHash = blockchain_worker:head(),
-    Height = blockchain_worker:height() + 1,
-    Block0 = blockchain_block:new(PrevHash, Height, [SignedTx], <<>>),
-    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
-    Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:sign_block(Block0, erlang:term_to_binary(Signatures)),
-
-    ok = blockchain_worker:add_block(Block1, self()),
-
-    ?assertEqual(blockchain_block:hash_block(Block1), blockchain_worker:head()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head()),
     ?assertEqual(2, blockchain_worker:height()),
 
     NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_worker:ledger()),
@@ -107,6 +99,19 @@ basic(_Config) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     ?assertEqual(Chain, blockchain_worker:blockchain()),
+
+    % Test trim_blocks: make sure there are maximum 50 blocks in chain
+    lists:foreach(fun(_) -> add_block(ConsensusMembers, []) end, lists:seq(1, 200)),
+    ok = wait_until(fun() ->
+        C = blockchain_worker:blockchain(),
+        202 =:= blockchain:blocks_size(C)
+    end),
+    blockchain_worker ! trim_blocks,
+    ok = wait_until(fun() ->
+        C = blockchain_worker:blockchain(),
+        50 =:= blockchain:blocks_size(C)
+    end),
+
     ok.
 
 %% ------------------------------------------------------------------
@@ -123,6 +128,16 @@ generate_keys(N) ->
         ,[]
         ,lists:seq(1, N)
     ).
+
+add_block(ConsensusMembers, Txs) ->
+    PrevHash = blockchain_worker:head(),
+    Height = blockchain_worker:height() + 1,
+    Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>),
+    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+    Signatures = signatures(ConsensusMembers, BinBlock),
+    Block1 = blockchain_block:sign_block(Block0, erlang:term_to_binary(Signatures)),
+    ok = blockchain_worker:add_block(Block1, self()),
+    Block1.
 
 signatures(ConsensusMembers, BinBlock) ->
     lists:foldl(

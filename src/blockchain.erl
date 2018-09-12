@@ -10,12 +10,15 @@
     new/3
     ,genesis_hash/1
     ,blocks/1
+    ,blocks_size/1
     ,ledger/1
     ,head/1
     ,current_block/1
     ,add_block/3
     ,get_block/2
+    ,trim_blocks/2
     ,save/2, load/1
+
 ]).
 
 -include("blockchain.hrl").
@@ -64,6 +67,15 @@ blocks(Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec blocks_size(blockchain()) -> integer().
+blocks_size(Blockchain) ->
+    Blocks = ?MODULE:blocks(Blockchain),
+    maps:size(Blocks).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec ledger(blockchain()) -> blockchain_ledger:ledger().
 ledger(Blockchain) ->
     Blockchain#blockchain.ledger.
@@ -94,10 +106,10 @@ add_block(Blockchain, Block, BaseDir) ->
     Hash = blockchain_block:hash_block(Block),
     Blocks0 = ?MODULE:blocks(Blockchain),
     Blocks1 = maps:put(Hash, Block, Blocks0),
-    Dir = base_dir(BaseDir),
-    ok = blockchain_block:save(Hash, Block, Dir),
     Ledger0 = ?MODULE:ledger(Blockchain),
     {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
+    Dir = base_dir(BaseDir),
+    ok = blockchain_block:save(Hash, Block, Dir),
     ok = blockchain_ledger:save(Ledger1, Dir),
     ok = save_head(Hash, Dir),
     Blockchain#blockchain{blocks=Blocks1, ledger=Ledger1, head=Hash}.
@@ -113,8 +125,39 @@ get_block(Blockchain, Hash) ->
         Hash ->
             maps:get(Hash, Blocks);
         GenesisHash ->
-            maps:get(Hash, Blocks, ?MODULE:get_block(Blockchain, GenesisHash))
+            GenesisBlock = ?MODULE:get_block(Blockchain, GenesisHash),
+            maps:get(Hash, Blocks, GenesisBlock)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec trim_blocks(blockchain(), non_neg_integer()) -> blockchain().
+trim_blocks(Blockchain, Limit) ->
+    Head = blockchain:head(Blockchain),
+    GenesisHash = ?MODULE:genesis_hash(Blockchain),
+    {_, Hashs} = lists:foldl(
+        fun(_, {Hash, Acc}) ->
+            Block = ?MODULE:get_block(Blockchain, Hash),
+            case blockchain_block:height(Block) of
+                1 ->
+                    {Hash, Acc};
+                _ ->
+                    PrevHash = blockchain_block:prev_hash(Block),
+                    {PrevHash, [Hash|Acc]}
+            end
+        end
+        ,{Head, [GenesisHash]}
+        ,lists:seq(1, Limit-1)
+    ),
+    Blocks = maps:filter(
+        fun(Hash, _Block) ->
+            lists:member(Hash, Hashs)
+        end
+        ,?MODULE:blocks(Blockchain)
+    ),
+    Blockchain#blockchain{blocks=Blocks}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -243,7 +286,6 @@ save_head(Head, BaseDir) ->
     File = filename:join(BaseDir, ?HEAD_FILE),
     ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Head)),
     ok.
-
 
 %%--------------------------------------------------------------------
 %% @doc
