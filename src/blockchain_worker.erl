@@ -263,8 +263,7 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
                                                    ,N-F)
             of
                 {true, _} ->
-                    NewChain = blockchain:add_block(Chain, Block),
-                    ok = blockchain:save(NewChain, Dir),
+                    NewChain = blockchain:add_block(Chain, Block, Dir),
                     SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
                     libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
@@ -307,8 +306,7 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N, dir=Dir}=State0) when is_
                                                                ,N-F)
                         of
                             {true, _} ->
-                                NewChain = blockchain:add_block(Chain, Block),
-                                ok = blockchain:save(NewChain, Dir),
+                                NewChain = blockchain:add_block(Chain, Block, Dir),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State

@@ -13,7 +13,7 @@
     ,ledger/1
     ,head/1
     ,current_block/1
-    ,add_block/2
+    ,add_block/3
     ,get_block/2
     ,save/2, load/1
 ]).
@@ -22,13 +22,14 @@
 
 -record(blockchain, {
     genesis_hash :: blockchain_block:hash()
-    ,blocks = #{} :: #{blockchain_block:hash() => blockchain_block:block()}
+    ,blocks = #{} :: blocks()
     ,ledger = #{} :: blockchain_ledger:ledger()
     ,head :: blockchain_block:hash()
 }).
 
+-type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
--export_type([blockchain/0]).
+-export_type([blockchain/0, blocks/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -88,13 +89,17 @@ current_block(Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain(), blockchain_block:block()) -> blockchain().
-add_block(Blockchain, Block) ->
+-spec add_block(blockchain(), blockchain_block:block(), string()) -> blockchain().
+add_block(Blockchain, Block, BaseDir) ->
     Hash = blockchain_block:hash_block(Block),
     Blocks0 = ?MODULE:blocks(Blockchain),
     Blocks1 = maps:put(Hash, Block, Blocks0),
+    Dir = base_dir(BaseDir),
+    ok = blockchain_block:save(Hash, Block, Dir),
     Ledger0 = ?MODULE:ledger(Blockchain),
     {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
+    ok = blockchain_ledger:save(Ledger1, Dir),
+    ok = save_head(Hash, Dir),
     Blockchain#blockchain{blocks=Blocks1, ledger=Ledger1, head=Hash}.
 
 %%--------------------------------------------------------------------
@@ -117,10 +122,10 @@ get_block(Blockchain, Hash) ->
 %%--------------------------------------------------------------------
 -spec save(blockchain(), string()) -> ok.
 save(Blockchain, BaseDir) ->
-    Dir = filename:join(BaseDir, ?BASE_DIR),
-    ok = save_blocks(Blockchain, Dir),
-    ok = save_genesis_hash(Blockchain, Dir),
-    ok = save_head(Blockchain, Dir),
+    Dir = base_dir(BaseDir),
+    ok = save_blocks(blockchain:blocks(Blockchain), Dir),
+    ok = save_genesis_hash(blockchain:genesis_hash(Blockchain), Dir),
+    ok = save_head(blockchain:head(Blockchain), Dir),
     ok = blockchain_ledger:save(?MODULE:ledger(Blockchain), Dir),
     ok.
 
@@ -130,7 +135,7 @@ save(Blockchain, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load(string()) -> blockchain().
 load(BaseDir) ->
-    Dir = filename:join(BaseDir, ?BASE_DIR),
+    Dir = base_dir(BaseDir),
     case
         {load_genesis_hash(Dir)
          ,load_blocks(Dir)
@@ -158,15 +163,23 @@ load(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_blocks(blockchain:blockchain(), string()) -> ok.
-save_blocks(Blockchain, BaseDir) ->
+-spec base_dir(string()) -> string().
+base_dir(BaseDir) ->
+    filename:join(BaseDir, ?BASE_DIR).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec save_blocks(blocks(), string()) -> ok.
+save_blocks(Blocks, BaseDir) ->
     maps:fold(
         fun(Hash, Block, _Acc) ->
             ok = blockchain_block:save(Hash, Block, BaseDir),
             ok
         end
         ,ok
-        ,blockchain:blocks(Blockchain)
+        ,Blocks
     ),
     ok.
 
@@ -174,7 +187,7 @@ save_blocks(Blockchain, BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_blocks(string()) -> #{blockchain_block:hash() => blockchain_block:block()} | undefined.
+-spec load_blocks(string()) -> blocks() | undefined.
 load_blocks(BaseDir) ->
     Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     case file:list_dir(Dir) of
@@ -201,9 +214,8 @@ load_blocks(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_genesis_hash(blockchain:blockchain(), string()) -> ok.
-save_genesis_hash(Blockchain, BaseDir) ->
-    Hash = blockchain:genesis_hash(Blockchain),
+-spec save_genesis_hash(blockchain_block:hash(), string()) -> ok.
+save_genesis_hash(Hash, BaseDir) ->
     File = filename:join(BaseDir, ?GEN_HASH_FILE),
     ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Hash)),
     ok.
@@ -226,9 +238,8 @@ load_genesis_hash(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_head(blockchain:blockchain(), string()) -> ok.
-save_head(Blockchain, BaseDir) ->
-    Head = blockchain:head(Blockchain),
+-spec save_head(blockchain_block:hash(), string()) -> ok.
+save_head(Head, BaseDir) ->
     File = filename:join(BaseDir, ?HEAD_FILE),
     ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Head)),
     ok.
