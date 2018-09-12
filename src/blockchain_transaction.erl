@@ -56,7 +56,7 @@
 }).
 
 -record(assert_location_txn, {
-    address :: libp2p_crypto:adddress()
+    address :: libp2p_crypto:address()
     ,signature :: binary()
     ,location :: location()
 }).
