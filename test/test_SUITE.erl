@@ -49,12 +49,14 @@ basic(_Config) ->
     {ok, Sup} = blockchain_sup:start_link(Opts),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
+    % Generate fake blockchains (just the keys)
     RandomKeys = generate_keys(10),
     Address = blockchain_swarm:address(),
     ConsensusMembers = [
         {Address, {PubKey, PrivKey, SigFun}}
     ] ++ RandomKeys,
 
+    % Create genesis block
     GenPaymentTxs = [blockchain_transaction:new_coinbase_txn(libp2p_crypto:address_to_b58(Addr), Balance)
                      || {Addr, _} <- ConsensusMembers],
     GenConsensusGroupTx = blockchain_transaction:new_genesis_consensus_group([Addr || {Addr, _} <- ConsensusMembers]),
@@ -62,12 +64,14 @@ basic(_Config) ->
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
+    % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
     Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
     _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
           ,?assertEqual(0, blockchain_ledger:nonce(Entry))}
          || Entry <- Entries],
 
+    % Test a payment transaction, add a block and check balances
     [{Payer, {_, PayerPrivKey, _}}|_] = RandomKeys,
     Recipient = Address,
     Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
@@ -91,9 +95,11 @@ basic(_Config) ->
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
+    % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
     ?assertEqual(Chain, blockchain:load(BaseDir)),
 
+    % Restart blockchain and make sure nothing has changed
     true = erlang:exit(Sup, normal),
     ok = wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
 
@@ -102,9 +108,6 @@ basic(_Config) ->
 
     ?assertEqual(Chain, blockchain_worker:blockchain()),
     ok.
-
-% NOTE: We should be able to mock another blockchain node just with libp2p
-% frame stream stuff so that I can play with blocks OR use rpc ...
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
