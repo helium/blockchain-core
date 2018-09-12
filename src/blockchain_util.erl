@@ -9,7 +9,11 @@
     hexdump/1
     ,atomic_save/2
     ,serialize_hash/1, deserialize_hash/1
+    ,serial_version/1
 ]).
+
+-type serial_version() :: v1 | v2 | v3.
+-export_type([serial_version/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -45,3 +49,20 @@ serialize_hash(Hash) ->
 -spec deserialize_hash(string()) -> binary().
 deserialize_hash(String) ->
     base58:base58_to_binary(String).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec serial_version(string()) -> serial_version().
+serial_version(Dir) ->
+    case
+        {string:find(Dir, "v1")
+         ,string:find(Dir, "v2")
+         ,string:find(Dir, "v3")}
+    of
+        {"v1", _, _} -> v1;
+        {_, "v2", _} -> v2;
+        {_, _, "v3"} -> v3;
+        _ -> v1
+    end.

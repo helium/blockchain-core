@@ -244,7 +244,8 @@ load_blocks(BaseDir) ->
                             Acc;
                         {ok, Binary} ->
                             Hash = blockchain_util:deserialize_hash(File),
-                            Block = blockchain_block:deserialize(Binary),
+                            V = blockchain_util:serial_version(BaseDir),
+                            Block = blockchain_block:deserialize(V, Binary),
                             maps:put(Hash, Block, Acc)
                     end
                 end

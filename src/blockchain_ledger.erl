@@ -19,8 +19,8 @@
     ,credit_account/3
     ,debit_account/4
     ,save/2, load/1
-    ,serialize/1
-    ,deserialize/1
+    ,serialize/2
+    ,deserialize/2
 ]).
 
 -include("blockchain.hrl").
@@ -175,7 +175,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %%--------------------------------------------------------------------
 -spec save(ledger(), string()) -> ok | {error, any()}.
 save(Ledger, BaseDir) ->
-    BinLedger = ?MODULE:serialize(Ledger),
+    BinLedger = serialize(blockchain_util:serial_version(BaseDir), Ledger),
     File = filename:join(BaseDir, ?LEDGER_FILE),
     blockchain_util:atomic_save(File, BinLedger).
 
@@ -190,21 +190,25 @@ load(BaseDir) ->
         {error, _Reason} ->
             undefined;
         {ok, Binary} ->
-            ?MODULE:deserialize(Binary)
+            deserialize(blockchain_util:serial_version(BaseDir), Binary)
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(ledger()) -> binary().
-serialize(Ledger) ->
+-spec serialize(blockchain_util:serial_version(), ledger()) -> binary().
+serialize(_Version, Ledger) ->
     erlang:term_to_binary(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec deserialize(binary()) -> ledger().
-deserialize(Bin) ->
+-spec deserialize(blockchain_util:serial_version(), binary()) -> ledger().
+deserialize(_Version, Bin) ->
     erlang:binary_to_term(Bin).
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------

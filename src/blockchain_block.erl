@@ -19,8 +19,8 @@
     ,hash_block/1
     ,verify_signature/4
     ,save/3, load/2
-    ,serialize/1
-    ,deserialize/1
+    ,serialize/2
+    ,deserialize/2
 ]).
 
 -include("blockchain.hrl").
@@ -170,7 +170,7 @@ verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
 -spec save(hash(), block(), string()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
     Dir = filename:join(BaseDir, ?BLOCKS_DIR),
-    BinBlock = ?MODULE:serialize(Block),
+    BinBlock = serialize(blockchain_util:serial_version(BaseDir), Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     blockchain_util:atomic_save(File, BinBlock).
 
@@ -186,23 +186,22 @@ load(Hash, BaseDir) ->
         {error, _Reason} ->
             undefined;
         {ok, Binary} ->
-            ?MODULE:deserialize(Binary)
+            deserialize(blockchain_util:serial_version(BaseDir), Binary)
     end.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(block()) -> binary().
-serialize(Block) ->
+-spec serialize(blockchain_util:serial_version(), block()) -> binary().
+serialize(_Version, Block) ->
     erlang:term_to_binary(Block).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec deserialize(binary()) -> block().
-deserialize(Bin) ->
+-spec deserialize(blockchain_util:serial_version(), binary()) -> block().
+deserialize(_Version, Bin) ->
     erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
