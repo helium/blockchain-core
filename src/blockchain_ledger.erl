@@ -18,6 +18,9 @@
     ,add_gateway_location/3
     ,credit_account/3
     ,debit_account/4
+    ,save/2, load/1
+    ,serialize/1
+    ,deserialize/1
 ]).
 
 -record(entry, {
@@ -163,3 +166,43 @@ debit_account(Address, Amount, Nonce, Ledger) ->
         false ->
             {error, {bad_nonce, Nonce, ?MODULE:nonce(Entry)}}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec save(ledger(), string()) -> ok | {error, any()}.
+save(Ledger, BaseDir) ->
+    BinLedger = ?MODULE:serialize(Ledger),
+    File = filename:join(BaseDir, "ledger"),
+    blockchain_util:atomic_save(File, BinLedger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec load(string()) -> ledger() | undefined.
+load(BaseDir) ->
+    File = filename:join(BaseDir, "ledger"),
+    case file:read_file(File) of
+        {error, _Reason} ->
+            undefined;
+        {ok, Binary} ->
+            ?MODULE:deserialize(Binary)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec serialize(ledger()) -> binary().
+serialize(Ledger) ->
+    erlang:term_to_binary(Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec deserialize(binary()) -> ledger().
+deserialize(Bin) ->
+    erlang:binary_to_term(Bin).

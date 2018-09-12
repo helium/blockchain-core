@@ -18,6 +18,9 @@
     ,is_block/1
     ,hash_block/1
     ,verify_signature/4
+    ,save/3, load/2
+    ,serialize/1
+    ,deserialize/1
 ]).
 
 -record(block, {
@@ -157,6 +160,48 @@ verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
             %% missing some signatures?
             false
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec save(hash(), block(), string()) -> ok | {error, any()}.
+save(Hash, Block, BaseDir) ->
+    Dir = filename:join(BaseDir, "blocks"),
+    BinBlock = ?MODULE:serialize(Block),
+    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
+    blockchain_util:atomic_save(File, BinBlock).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec load(hash(), string()) -> block() | undefined.
+load(Hash, BaseDir) ->
+    Dir = filename:join(BaseDir, "blocks"),
+    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
+    case file:read_file(File) of
+        {error, _Reason} ->
+            undefined;
+        {ok, Binary} ->
+            ?MODULE:deserialize(Binary)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec serialize(block()) -> binary().
+serialize(Block) ->
+    erlang:term_to_binary(Block).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec deserialize(binary()) -> block().
+deserialize(Bin) ->
+    erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

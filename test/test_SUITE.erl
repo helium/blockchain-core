@@ -36,11 +36,13 @@ all() ->
 basic(_Config) ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    BaseDir = "data",
     Opts = [
         {key, {PubKey, SigFun}}
         ,{seed_nodes, []}
         ,{port, 0}
         ,{num_consensus_members, 7}
+        ,{base_dir, BaseDir}
     ],
     Balance = 5000,
 
@@ -89,6 +91,7 @@ basic(_Config) ->
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
+    ?assertEqual(blockchain_worker:blockchain(), blockchain:load(BaseDir)),
     ok.
 
 % NOTE: We should be able to mock another blockchain node just with libp2p

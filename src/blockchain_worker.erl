@@ -51,6 +51,7 @@
     ,swarm :: undefined | pid()
     ,consensus_addrs = [] :: [libp2p_crypto:address()]
     ,n :: integer()
+    ,dir :: string()
 }).
 
 %% ------------------------------------------------------------------
@@ -186,6 +187,7 @@ init(Args) ->
     Swarm = blockchain_swarm:swarm(),
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
     N = proplists:get_value(num_consensus_members, Args, 0),
+    Dir = proplists:get_value(base_dir, Args, "data"),
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?GOSSIP_PROTOCOL
@@ -197,7 +199,7 @@ init(Args) ->
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
-    {ok, #state{swarm=Swarm, n=N}}.
+    {ok, #state{swarm=Swarm, n=N, dir=Dir}}.
 
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};
@@ -225,7 +227,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined}=State) ->
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined, dir=Dir}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
             lager:warning("~p is not a genesis block", [GenesisBlock]),
@@ -235,17 +237,17 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
             Transactions = blockchain_block:transactions(GenesisBlock),
             {ok, Ledger} = blockchain_transaction:absorb_transactions(Transactions, #{}),
             Blockchain = blockchain:new(GenesisHash, GenesisBlock, Ledger),
-            % TODO: review this consensus stuff
             [ConsensusAddrs] = [blockchain_transaction:genesis_consensus_group_members(T)
                               || T <- blockchain_block:transactions(GenesisBlock)
                               ,blockchain_transaction:is_genesis_consensus_group_txn(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
-            % TODO: Save blockchain
+            ok = blockchain:save(Blockchain, Dir),
             {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
     end;
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
-handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm, n=N}=State) ->
+handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm
+                                                 ,n=N, dir=Dir}=State) ->
     Head = blockchain:head(Chain),
     Hash = blockchain_block:hash_block(Block),
     F = ((N-1) div 3),
@@ -261,7 +263,7 @@ handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm, 
             of
                 {true, _} ->
                     NewChain = blockchain:add_block(Chain, Block),
-                    % TODO: should store new chain
+                    ok = blockchain:save(NewChain, Dir),
                     SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
                     libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
@@ -277,7 +279,7 @@ handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm, 
             % TODO: Sync here
             {noreply, State}
     end;
-handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Blocks) ->
+handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N, dir=Dir}=State0) when is_list(Blocks) ->
     lager:info("got sync_blocks msg ~p", [Blocks]),
     F = ((N-1) div 3),
     % TODO: Too much nesting
@@ -297,6 +299,7 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Bloc
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Chain, Block),
+                                ok = blockchain:save(NewChain, Dir),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
@@ -308,7 +311,6 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Bloc
             ,State0
             ,Blocks
         ),
-    % TODO: should store new chain if any
     {noreply, State1};
 handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),

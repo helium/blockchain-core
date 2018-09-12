@@ -63,6 +63,7 @@ init(Args) ->
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)}
         ,{num_consensus_members, proplists:get_value(num_consensus_members, Args, 0)}
+        ,{base_dir, proplists:get_value(base_dir, Args, "data")}
     ],
 
     ChildSpecs = [
