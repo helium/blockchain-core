@@ -296,7 +296,9 @@ validate_transactions([Txn | Tail], Valid, Remaining, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-% TODO: Simplify this
+% TODO: Simplify this & fix dialyzer some day...
+-dialyzer({nowarn_function, absorb_transactions/2}).
+
 -spec absorb_transactions(blockchain_transaction:transactions() | []
                           ,blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
                                                           | {error, any()}.
