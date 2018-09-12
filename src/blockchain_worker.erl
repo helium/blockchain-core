@@ -247,7 +247,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
     end;
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
-handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm
+handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
                                                  ,n=N, dir=Dir}=State) ->
     Head = blockchain:head(Chain),
     Hash = blockchain_block:hash_block(Block),
@@ -277,7 +277,15 @@ handle_cast({add_block, Block, _Session}, #state{blockchain=Chain, swarm=Swarm
             lager:info("already have this block"),
             {noreply, State};
         false ->
-            % TODO: Sync here
+            lager:warning("gossipped block doesn't fit with our chain"),
+            lager:info("syncing with the sender ~p", [Session]),
+            Height = blockchain_block:height(blockchain:get_block(Chain, Head)),
+            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(Height)
+                       ++ "/" ++ blockchain_util:hexdump(Head),
+            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
+                {ok, _Stream} -> ok;
+                _ -> lager:notice("Failed to dial sync service on ~p", [Session])
+            end,
             {noreply, State}
     end;
 handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N, dir=Dir}=State0) when is_list(Blocks) ->
