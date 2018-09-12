@@ -18,6 +18,8 @@
     ,save/2, load/1
 ]).
 
+-include("blockchain.hrl").
+
 -record(blockchain, {
     genesis_hash :: blockchain_block:hash()
     ,blocks = #{} :: #{blockchain_block:hash() => blockchain_block:block()}
@@ -26,7 +28,6 @@
 }).
 
 -type blockchain() :: #blockchain{}.
-
 -export_type([blockchain/0]).
 
 %%--------------------------------------------------------------------
@@ -116,7 +117,7 @@ get_block(Blockchain, Hash) ->
 %%--------------------------------------------------------------------
 -spec save(blockchain(), string()) -> ok.
 save(Blockchain, BaseDir) ->
-    Dir = filename:join(BaseDir, "blockchain"),
+    Dir = filename:join(BaseDir, ?BASE_DIR),
     ok = save_blocks(Blockchain, Dir),
     ok = save_genesis_hash(Blockchain, Dir),
     ok = save_head(Blockchain, Dir),
@@ -129,13 +130,25 @@ save(Blockchain, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load(string()) -> blockchain().
 load(BaseDir) ->
-    Dir = filename:join(BaseDir, "blockchain"),
-    #blockchain{
-        genesis_hash=load_genesis_hash(Dir)
-        ,blocks=load_blocks(Dir)
-        ,ledger=blockchain_ledger:load(Dir)
-        ,head=load_head(Dir)
-    }.
+    Dir = filename:join(BaseDir, ?BASE_DIR),
+    case
+        {load_genesis_hash(Dir)
+         ,load_blocks(Dir)
+         ,blockchain_ledger:load(Dir)
+         ,load_head(Dir)}
+    of
+        {undefined, _, _, _} -> undefined;
+        {_, undefined, _, _} -> undefined;
+        {_, _, undefined, _} -> undefined;
+        {_, _, _, undefined} -> undefined;
+        {GenesisHash, Blocks, Ledger, Head} ->
+            #blockchain{
+                genesis_hash=GenesisHash
+                ,blocks=Blocks
+                ,ledger=Ledger
+                ,head=Head
+            }
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -161,21 +174,19 @@ save_blocks(Blockchain, BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_blocks(string()) -> #{blockchain_block:hash() => blockchain_block:block()}.
+-spec load_blocks(string()) -> #{blockchain_block:hash() => blockchain_block:block()} | undefined.
 load_blocks(BaseDir) ->
-    Dir = filename:join(BaseDir, "blocks"),
+    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     case file:list_dir(Dir) of
         {error, _Reason} ->
-            #{};
+            undefined;
         {ok, Filenames} ->
-            lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, Filenames]),
             lists:foldl(
                 fun(File, Acc) ->
                     case file:read_file(filename:join(Dir, File)) of
                         {error, _Reason} ->
                             Acc;
                         {ok, Binary} ->
-
                             Hash = blockchain_util:deserialize_hash(File),
                             Block = blockchain_block:deserialize(Binary),
                             maps:put(Hash, Block, Acc)
@@ -193,7 +204,7 @@ load_blocks(BaseDir) ->
 -spec save_genesis_hash(blockchain:blockchain(), string()) -> ok.
 save_genesis_hash(Blockchain, BaseDir) ->
     Hash = blockchain:genesis_hash(Blockchain),
-    File = filename:join(BaseDir, "genesis_hash"),
+    File = filename:join(BaseDir, ?GEN_HASH_FILE),
     ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Hash)),
     ok.
 
@@ -203,7 +214,7 @@ save_genesis_hash(Blockchain, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load_genesis_hash(string()) -> blockchain_block:hash() | undefined.
 load_genesis_hash(BaseDir) ->
-    File = filename:join(BaseDir, "genesis_hash"),
+    File = filename:join(BaseDir, ?GEN_HASH_FILE),
     case file:read_file(File) of
         {error, _Reason} ->
             undefined;
@@ -218,7 +229,7 @@ load_genesis_hash(BaseDir) ->
 -spec save_head(blockchain:blockchain(), string()) -> ok.
 save_head(Blockchain, BaseDir) ->
     Head = blockchain:head(Blockchain),
-    File = filename:join(BaseDir, "head"),
+    File = filename:join(BaseDir, ?HEAD_FILE),
     ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Head)),
     ok.
 
@@ -229,7 +240,7 @@ save_head(Blockchain, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load_head(string()) -> blockchain_block:hash() | undefined.
 load_head(BaseDir) ->
-    File = filename:join(BaseDir, "head"),
+    File = filename:join(BaseDir, ?HEAD_FILE),
     case file:read_file(File) of
         {error, _Reason} ->
             undefined;

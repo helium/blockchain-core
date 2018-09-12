@@ -188,6 +188,7 @@ init(Args) ->
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
     N = proplists:get_value(num_consensus_members, Args, 0),
     Dir = proplists:get_value(base_dir, Args, "data"),
+    Blockchain = blockchain:load(Dir),
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?GOSSIP_PROTOCOL
@@ -199,7 +200,7 @@ init(Args) ->
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
-    {ok, #state{swarm=Swarm, n=N, dir=Dir}}.
+    {ok, #state{swarm=Swarm, n=N, dir=Dir, blockchain=Blockchain}}.
 
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};

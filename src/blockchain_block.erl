@@ -23,6 +23,8 @@
     ,deserialize/1
 ]).
 
+-include("blockchain.hrl").
+
 -record(block, {
     prev_hash :: blockchain_block:hash()
     ,height = 0 :: non_neg_integer()
@@ -167,7 +169,7 @@ verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
 %%--------------------------------------------------------------------
 -spec save(hash(), block(), string()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
-    Dir = filename:join(BaseDir, "blocks"),
+    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     BinBlock = ?MODULE:serialize(Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     blockchain_util:atomic_save(File, BinBlock).
@@ -178,7 +180,7 @@ save(Hash, Block, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load(hash(), string()) -> block() | undefined.
 load(Hash, BaseDir) ->
-    Dir = filename:join(BaseDir, "blocks"),
+    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     case file:read_file(File) of
         {error, _Reason} ->

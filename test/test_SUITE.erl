@@ -46,7 +46,7 @@ basic(_Config) ->
     ],
     Balance = 5000,
 
-    {ok, _Sup} = blockchain_sup:start_link(Opts),
+    {ok, Sup} = blockchain_sup:start_link(Opts),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     RandomKeys = generate_keys(10),
@@ -91,7 +91,16 @@ basic(_Config) ->
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
-    ?assertEqual(blockchain_worker:blockchain(), blockchain:load(BaseDir)),
+    Chain = blockchain_worker:blockchain(),
+    ?assertEqual(Chain, blockchain:load(BaseDir)),
+
+    true = erlang:exit(Sup, normal),
+    ok = wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
+
+    {ok, _Sup1} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    ?assertEqual(Chain, blockchain_worker:blockchain()),
     ok.
 
 % NOTE: We should be able to mock another blockchain node just with libp2p
@@ -121,3 +130,18 @@ signatures(ConsensusMembers, BinBlock) ->
         ,[]
         ,ConsensusMembers
     ).
+
+wait_until(Fun) ->
+    wait_until(Fun, 40, 100).
+
+wait_until(Fun, Retry, Delay) when Retry > 0 ->
+    Res = Fun(),
+    case Res of
+        true ->
+            ok;
+        _ when Retry == 1 ->
+            {fail, Res};
+        _ ->
+            timer:sleep(Delay),
+            wait_until(Fun, Retry-1, Delay)
+    end.

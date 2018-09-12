@@ -23,6 +23,8 @@
     ,deserialize/1
 ]).
 
+-include("blockchain.hrl").
+
 -record(entry, {
     nonce = 0 :: non_neg_integer()
     ,balance = 0 :: non_neg_integer()
@@ -174,7 +176,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 -spec save(ledger(), string()) -> ok | {error, any()}.
 save(Ledger, BaseDir) ->
     BinLedger = ?MODULE:serialize(Ledger),
-    File = filename:join(BaseDir, "ledger"),
+    File = filename:join(BaseDir, ?LEDGER_FILE),
     blockchain_util:atomic_save(File, BinLedger).
 
 %%--------------------------------------------------------------------
@@ -183,7 +185,7 @@ save(Ledger, BaseDir) ->
 %%--------------------------------------------------------------------
 -spec load(string()) -> ledger() | undefined.
 load(BaseDir) ->
-    File = filename:join(BaseDir, "ledger"),
+    File = filename:join(BaseDir, ?LEDGER_FILE),
     case file:read_file(File) of
         {error, _Reason} ->
             undefined;
