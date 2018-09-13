@@ -25,8 +25,10 @@
     ,sync_blocks/1
     ,spend/2
     ,payment_txn/4
-    ,add_gateway_txn/1, add_gateway_txn/2
-    ,assert_location_txn/1, assert_location_txn/3
+    ,submit_txn/2
+    ,add_gateway_request/1
+    ,add_gateway_txn/1
+    ,assert_location_txn/1
     ,peer_height/3
 ]).
 
@@ -156,11 +158,22 @@ payment_txn(PrivKey, Address, Recipient, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-add_gateway_txn(Address) ->
-    gen_server:cast(?SERVER, {add_gateway_txn, Address}).
+submit_txn(Type, Txn) ->
+    gen_server:cast(?MODULE, {submit_txn, Type, Txn}).
 
-add_gateway_txn(PrivKey, Address) ->
-    gen_server:cast(?SERVER, {add_gateway_txn, PrivKey, Address}).
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+add_gateway_request(OwnerAddress) ->
+    gen_server:call(?MODULE, {add_gateway_request, OwnerAddress}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+add_gateway_txn(AddGatewayRequest) ->
+    gen_server:cast(?SERVER, {add_gateway_txn, AddGatewayRequest}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -168,9 +181,6 @@ add_gateway_txn(PrivKey, Address) ->
 %%--------------------------------------------------------------------
 assert_location_txn(Location) ->
     gen_server:cast(?SERVER, {assert_location_txn, Location}).
-
-assert_location_txn(PrivKey, Address, Location) ->
-    gen_server:cast(?SERVER, {assert_location_txn, PrivKey, Address, Location}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -230,6 +240,11 @@ handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call(consensus_addrs, _From, #state{consensus_addrs=Addresses}=State) ->
     {reply, Addresses, State};
+handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
+    Address = libp2p_swarm:address(Swarm),
+    AddGwTxn = blockchain_transaction:new_add_gateway_txn(OwnerAddress, Address),
+    SignedAddGwTxn = blockchain_transaction:sign_add_gateway_request(AddGwTxn, Swarm),
+    {reply, SignedAddGwTxn, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -329,7 +344,7 @@ handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=St
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
     Entry = blockchain_ledger:find_entry(Address, Ledger),
-    Nonce = blockchain_ledger:nonce(Entry),
+    Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_transaction:new_payment_txn(Address
                                                         ,Recipient
                                                         ,Amount
@@ -340,7 +355,7 @@ handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=St
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Entry = blockchain_ledger:find_entry(Address, Ledger),
-    Nonce = blockchain_ledger:nonce(Entry),
+    Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_transaction:new_payment_txn(Address
                                                         ,Recipient
                                                         ,Amount
@@ -348,26 +363,26 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchai
     SignedPaymentTxn = blockchain_transaction:sign_payment_txn(PaymentTxn, PrivKey),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
-handle_cast({add_gateway_txn, Address}, #state{swarm=Swarm}=State) ->
-    AddGwTxn = blockchain_transaction:new_add_gateway_txn(Address),
+handle_cast({submit_txn, Type, Txn}, State) ->
+    ok = send_txn(Type, Txn, State),
+    {noreply, State};
+handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
     SignedAddGwTxn = blockchain_transaction:sign_add_gateway_txn(AddGwTxn, Swarm),
     ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
     {noreply, State};
-handle_cast({add_gateway_txn, PrivKey, Address}, State) ->
-    AddGwTxn = blockchain_transaction:new_add_gateway_txn(Address),
-    SignedAddGwTxn = blockchain_transaction:sign_add_gateway_txn(AddGwTxn, PrivKey),
-    ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
-    {noreply, State};
-handle_cast({assert_location_txn, Location}, #state{swarm=Swarm}=State) ->
+handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Address = libp2p_swarm:address(Swarm),
-    AssertLocationTxn = blockchain_transaction:new_assert_location_txn(Address, Location),
-    SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, Swarm),
-    ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State),
-    {noreply, State};
-handle_cast({assert_location_txn, PrivKey, Address, Location}, State) ->
-    AssertLocationTxn = blockchain_transaction:new_assert_location_txn(Address, Location),
-    SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, PrivKey),
-    ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger:find_gateway_info(Address, Ledger) of
+        undefined ->
+            lager:info("gateway not found in ledger.");
+        GwInfo ->
+            Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
+            AssertLocationTxn = blockchain_transaction:new_assert_location_txn(Address, Location, Nonce+1),
+            SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, Swarm),
+            lager:info("assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p", [Address, Location, Nonce, SignedAssertLocationTxn]),
+            ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State)
+    end,
     {noreply, State};
 handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),

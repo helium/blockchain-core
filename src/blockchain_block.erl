@@ -18,6 +18,9 @@
     ,is_block/1
     ,hash_block/1
     ,verify_signature/4
+    ,payment_transactions/1
+    ,add_gateway_transactions/1
+    ,assert_location_transactions/1
     ,save/3, load/2
     ,serialize/2
     ,deserialize/2
@@ -162,6 +165,33 @@ verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
             %% missing some signatures?
             false
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payment_transactions(block()) -> [blockchain_transaction:payment_txn()].
+payment_transactions(Block) ->
+    lists:filter(fun(Txn) ->blockchain_transaction:is_payment_txn(Txn) end
+                 ,?MODULE:transactions(Block)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_gateway_transactions(block()) -> [blockchain_transaction:add_gateway_txn()].
+add_gateway_transactions(Block) ->
+    lists:filter(fun(Txn) -> blockchain_transaction:is_add_gateway_txn(Txn) end
+                 ,?MODULE:transactions(Block)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec assert_location_transactions(block()) -> [blockchain_transaction:assert_location_transactions()].
+assert_location_transactions(Block) ->
+    lists:filter(fun(Txn) -> blockchain_transaction:is_assert_location_txn(Txn) end
+                 ,?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
 %% @doc

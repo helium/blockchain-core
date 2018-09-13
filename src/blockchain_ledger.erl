@@ -8,14 +8,18 @@
 -export([
     empty_entry/0
     ,balance/1
-    ,nonce/1
+    ,payment_nonce/1
+    ,assert_location_nonce/1
     ,new_entry/2
     ,find_entry/2
+    ,find_gateway_info/2
     ,consensus_members/1
     ,add_consensus_members/2
     ,active_gateways/1
-    ,add_gateway/2
-    ,add_gateway_location/3
+    ,add_gateway/3
+    ,add_gateway_location/4
+    ,gateway_location/1
+    ,gateway_owner/1
     ,credit_account/3
     ,debit_account/4
     ,save/2, load/1
@@ -31,7 +35,9 @@
 }).
 
 -record(gw_info, {
-    location :: undefined | non_neg_integer()
+    owner_address :: libp2p_crypto:address()
+    ,location :: undefined | pos_integer()
+    ,nonce = 0 :: non_neg_integer()
 }).
 
 -type ledger() :: #{
@@ -65,9 +71,17 @@ balance(Entry) when Entry /= undefined ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(entry()) -> non_neg_integer().
-nonce(Entry) when Entry /= undefined ->
+-spec payment_nonce(entry()) -> non_neg_integer().
+payment_nonce(Entry) when Entry /= undefined ->
     Entry#entry.nonce.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec assert_location_nonce(gw_info()) -> non_neg_integer().
+assert_location_nonce(GwInfo) when GwInfo /= undefined ->
+    GwInfo#gw_info.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,6 +98,15 @@ new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined -
 -spec find_entry(libp2p_crypto:address(), ledger()) -> entry().
 find_entry(Address, Ledger) ->
     maps:get(Address, Ledger, blockchain_ledger:empty_entry()).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_gateway_info(libp2p_crypto:address(), ledger()) -> undefined | gw_info().
+find_gateway_info(GatewayAddress, Ledger) ->
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
+    maps:get(GatewayAddress, ActiveGateways, undefined).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -112,30 +135,66 @@ active_gateways(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway(libp2p_crypto:address(), ledger()) -> ledger().
-add_gateway(Address, Ledger) ->
-    ActiveGateways = active_gateways(Ledger),
-    case maps:is_key(Address, ActiveGateways) of
+-spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> false | ledger().
+add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
+    case maps:is_key(GatewayAddress, ActiveGateways) of
         true ->
             %% GW already active
-            Ledger;
+            false;
         false ->
-            maps:put(active_gateways, maps:put(Address, undefined, ActiveGateways), Ledger)
+            GwInfo = #gw_info{owner_address=OwnerAddr, location=undefined},
+            maps:put(active_gateways, maps:put(GatewayAddress, GwInfo, ActiveGateways), Ledger)
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), ledger()) -> false | ledger().
-add_gateway_location(Address, Location, Ledger) ->
+-spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> false | ledger().
+add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:is_key(Address, ActiveGateways) of
+    case maps:is_key(GatewayAddress, ActiveGateways) of
         false ->
             false;
         true ->
-            maps:put(active_gateways, maps:update(Address, Location, ActiveGateways), Ledger)
+            case maps:get(GatewayAddress, ActiveGateways, undefined) of
+                undefined ->
+                    %% there is no GwInfo for this gateway, assert_location sould not be allowed
+                    false;
+                GwInfo ->
+                    NewGwInfo =
+                        case ?MODULE:gateway_location(GwInfo) of
+                            undefined ->
+                                GwInfo#gw_info{location=Location, nonce=Nonce};
+                            _Loc ->
+                                %%XXX: this gw already had a location asserted, do something about it here
+                                GwInfo#gw_info{location=Location, nonce=Nonce}
+                        end,
+                    maps:put(active_gateways, maps:put(GatewayAddress, NewGwInfo, ActiveGateways), Ledger)
+            end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec gateway_location(undefined | gw_info()) -> undefined | pos_integer().
+gateway_location(undefined) ->
+    undefined;
+gateway_location(GwInfo) ->
+    GwInfo#gw_info.location.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec gateway_owner(undefined | gw_info()) -> libp2p_crypto:address().
+gateway_owner(undefined) ->
+    undefined;
+gateway_owner(GwInfo) ->
+    GwInfo#gw_info.owner_address.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -144,7 +203,7 @@ add_gateway_location(Address, Location, Ledger) ->
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ledger().
 credit_account(Address, Amount, Ledger) ->
     Entry = ?MODULE:find_entry(Address, Ledger),
-    NewEntry = ?MODULE:new_entry(?MODULE:nonce(Entry), ?MODULE:balance(Entry) + Amount),
+    NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
     maps:put(Address, NewEntry, Ledger).
 
 %%--------------------------------------------------------------------
@@ -154,7 +213,7 @@ credit_account(Address, Amount, Ledger) ->
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ledger() | {error, any()}.
 debit_account(Address, Amount, Nonce, Ledger) ->
     Entry = ?MODULE:find_entry(Address, Ledger),
-    case Nonce == ?MODULE:nonce(Entry) + 1 of
+    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of
         true ->
             case (?MODULE:balance(Entry) - Amount) >= 0 of
                 true ->
@@ -166,7 +225,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                     {error, {insufficient_balance, Amount, ?MODULE:balance(Entry)}}
             end;
         false ->
-            {error, {bad_nonce, Nonce, ?MODULE:nonce(Entry)}}
+            {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
     end.
 
 %%--------------------------------------------------------------------

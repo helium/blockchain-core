@@ -57,7 +57,7 @@ basic(_Config) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    GenPaymentTxs = [blockchain_transaction:new_coinbase_txn(libp2p_crypto:address_to_b58(Addr), Balance)
+    GenPaymentTxs = [blockchain_transaction:new_coinbase_txn(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
     GenConsensusGroupTx = blockchain_transaction:new_genesis_consensus_group([Addr || {Addr, _} <- ConsensusMembers]),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
@@ -68,7 +68,7 @@ basic(_Config) ->
     Ledger = blockchain_worker:ledger(),
     Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
     _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
-          ,?assertEqual(0, blockchain_ledger:nonce(Entry))}
+          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
          || Entry <- Entries],
 
     % Test a payment transaction, add a block and check balances
