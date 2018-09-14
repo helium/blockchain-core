@@ -2,4 +2,4 @@
 if [ -t 0 ] ; then
     export CLIQUE_COLUMNS=`stty size | cut -d ' ' -f 2`
 fi
-relx_nodetool rpc blockchain_console command ledger $@
+relx_nodetool rpc blockchain_console command peer $@
