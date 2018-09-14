@@ -19,7 +19,7 @@
     ,blocks/0
     ,blocks/2
     ,ledger/0
-    ,consensus_addrs/0
+    ,consensus_addrs/0, consensus_addrs/1
     ,integrate_genesis_block/1
     ,add_block/2
     ,sync_blocks/1
@@ -118,6 +118,13 @@ ledger() ->
 %%--------------------------------------------------------------------
 consensus_addrs() ->
     gen_server:call(?MODULE, consensus_addrs).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+consensus_addrs(Addresses) ->
+    gen_server:cast(?MODULE, {consensus_addrs, Addresses}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -266,6 +273,8 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain=undefined
             ok = blockchain:save(Blockchain, Dir),
             {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
     end;
+handle_cast({consensus_addrs, Addresses}, State) ->
+    {noreply, State#state{consensus_addrs=Addresses}};
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
 handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
