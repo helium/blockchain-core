@@ -23,7 +23,6 @@ register_all_usage() ->
                   peer_addr_usage(),
                   peer_connect_usage(),
                   peer_book_usage(),
-                  peer_assert_location_usage(),
                   peer_gossip_peers_usage(),
                   peer_disconnect_usage(),
                   peer_gossip_peers_usage(),
@@ -40,7 +39,6 @@ register_all_cmds() ->
                   peer_addr_cmd(),
                   peer_connect_cmd(),
                   peer_book_cmd(),
-                  peer_assert_location_cmd(),
                   peer_gossip_peers_cmd(),
                   peer_disconnect_cmd(),
                   peer_gossip_peers_cmd(),
@@ -58,7 +56,6 @@ peer_usage() ->
       "  peer connect           - Connnect this node to another node.\n",
       "  peer addr              - Display the p2p address of this node.\n"
       "  peer book              - Display informatiom from the peerbook of this node.\n"
-      "  peer assert_location   - Submit assert location transaction for this peer.\n"
       "  peer disconnect        - Disconnect from a connected peer.\n"
       "  peer gossip_peers      - Display gossip peers of this node.\n"
      ]
@@ -233,28 +230,6 @@ peer_book(_CmdBase, [], [{all, _}]) ->
     Peerbook = libp2p_swarm:peerbook(Swarm),
     [format_peers(libp2p_peerbook:values(Peerbook))];
 peer_book(_CmdBase, [], []) ->
-    usage.
-
-%%
-%% peer assert_location
-%%
-
-peer_assert_location_cmd() ->
-    [
-     [["peer", "assert_location", '*'], [], [], fun peer_assert_location/3]
-    ].
-
-peer_assert_location_usage() ->
-    [["peer", "assert_location"],
-     ["peer assert_location <location>\n\n",
-      "  Submits assert location transaction for the peer with given <location>.\n\n"
-     ]
-    ].
-
-peer_assert_location(["peer", "assert_location", Location], [], []) ->
-    blockchain_worker:assert_location_txn(Location),
-    [clique_status:text("ok")];
-peer_assert_location([], [], []) ->
     usage.
 
 %%
