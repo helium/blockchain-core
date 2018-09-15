@@ -10,6 +10,7 @@
     ,atomic_save/2
     ,serialize_hash/1, deserialize_hash/1
     ,serial_version/1
+    ,index_of/2
 ]).
 
 -type serial_version() :: v1 | v2 | v3.
@@ -66,3 +67,15 @@ serial_version(Dir) ->
         {_, _, "v3"} -> v3;
         _ -> v1
     end.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec index_of(any(), [any()]) -> pos_integer().
+index_of(Item, List) -> index_of(Item, List, 1).
+
+index_of(_, [], _)  -> not_found;
+index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
