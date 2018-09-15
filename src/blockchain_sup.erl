@@ -50,6 +50,7 @@ start_link(Args) ->
 init(Args) ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
+    application:ensure_all_started(clique),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
     SwarmWorkerOpts = [
