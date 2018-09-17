@@ -250,7 +250,7 @@ peer_gossip_peers_usage() ->
 
 peer_gossip_peers(["peer", "gossip_peers"], [], []) ->
     %% TODO: tabularize this
-    clique_status:text(io_lib:format("~p", [blockchain_swarm:gossip_peers()]));
+    [clique_status:text(io_lib:format("~p", [blockchain_swarm:gossip_peers()]))];
 peer_gossip_peers([], [], []) ->
     usage.
 
