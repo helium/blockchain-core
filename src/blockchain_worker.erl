@@ -252,7 +252,7 @@ handle_call(num_consensus_members, _From, #state{n=N}=State) ->
     {reply, N, State};
 handle_call(consensus_addrs, _From, #state{consensus_addrs=Addresses}=State) ->
     {reply, Addresses, State};
-handle_call(_, _From, #state{blockchain={undefined, _}}}=State) ->
+handle_call(_, _From, #state{blockchain={undefined, _}}=State) ->
     {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
     CurrentBlock = blockchain:head_block(Chain),
