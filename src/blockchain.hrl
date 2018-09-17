@@ -6,6 +6,6 @@
 % Directory / File
 -define(BASE_DIR, "blockchain").
 -define(BLOCKS_DIR, "blocks").
--define(GEN_HASH_FILE, "genesis_hash").
+-define(GEN_HASH_FILE, "genesis").
 -define(HEAD_FILE, "head").
 -define(LEDGER_FILE, "ledger").

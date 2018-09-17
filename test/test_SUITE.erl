@@ -64,6 +64,12 @@ basic(_Config) ->
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_worker:head_hash()),
+    ?assertEqual(GenesisBlock, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_worker:genesis_hash()),
+    ?assertEqual(GenesisBlock, blockchain_worker:genesis_block()),
+    ?assertEqual(1, blockchain_worker:height()),
+
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
     Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
@@ -78,7 +84,8 @@ basic(_Config) ->
     SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
     Block = add_block(ConsensusMembers, [SignedTx]),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
+    ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
 
     NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_worker:ledger()),
@@ -89,7 +96,7 @@ basic(_Config) ->
 
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(Chain, blockchain:load(BaseDir)),
+    ok = compare_chains(Chain, blockchain:load(BaseDir)),
 
     % Restart blockchain and make sure nothing has changed
     true = erlang:exit(Sup, normal),
@@ -98,20 +105,7 @@ basic(_Config) ->
     {ok, _Sup1} = blockchain_sup:start_link(Opts),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
-    ?assertEqual(Chain, blockchain_worker:blockchain()),
-
-    % Test trim_blocks: make sure there are maximum 50 blocks in chain
-    lists:foreach(fun(_) -> add_block(ConsensusMembers, []) end, lists:seq(1, 200)),
-    ok = wait_until(fun() ->
-        C = blockchain_worker:blockchain(),
-        202 =:= blockchain:blocks_size(C)
-    end),
-    blockchain_worker ! trim_blocks,
-    ok = wait_until(fun() ->
-        C = blockchain_worker:blockchain(),
-        50 =:= blockchain:blocks_size(C)
-    end),
-
+    ok = compare_chains(Chain, blockchain_worker:blockchain()),
     ok.
 
 %% ------------------------------------------------------------------
@@ -130,7 +124,7 @@ generate_keys(N) ->
     ).
 
 add_block(ConsensusMembers, Txs) ->
-    PrevHash = blockchain_worker:head(),
+    PrevHash = blockchain_worker:head_hash(),
     Height = blockchain_worker:height() + 1,
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
@@ -163,3 +157,12 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             timer:sleep(Delay),
             wait_until(Fun, Retry-1, Delay)
     end.
+
+compare_chains(Expected, Got) ->
+    ?assertEqual(blockchain:dir(Expected), blockchain:dir(Got)),
+    ?assertEqual(blockchain:head_hash(Expected), blockchain:head_hash(Got)),
+    ?assertEqual(blockchain:head_block(Expected), blockchain:head_block(Got)),
+    ?assertEqual(blockchain:genesis_hash(Expected), blockchain:genesis_hash(Got)),
+    ?assertEqual(blockchain:genesis_block(Expected), blockchain:genesis_block(Got)),
+    ?assertEqual(blockchain:ledger(Expected), blockchain:ledger(Got)),
+    ok.

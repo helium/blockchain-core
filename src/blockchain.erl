@@ -5,30 +5,30 @@
 %%%-------------------------------------------------------------------
 -module(blockchain).
 
-
 -export([
     new/3
-    ,genesis_hash/1
+    ,genesis_hash/1 ,genesis_block/1
+    ,head_hash/1, head_block/1
+    ,ledger/1
+    ,dir/1
     ,blocks/1
     ,blocks_size/1
-    ,ledger/1
-    ,head/1
-    ,current_block/1
-    ,add_block/3
+    ,add_block/2
     ,get_block/2
-    ,trim_blocks/2
-    ,save/2, load/1
+    ,save/1, load/1
 
 ]).
 
 -include("blockchain.hrl").
 
 -record(blockchain, {
-    genesis_hash :: blockchain_block:hash()
-    ,blocks = #{} :: blocks()
-    ,ledger = #{} :: blockchain_ledger:ledger()
-    ,head :: blockchain_block:hash()
+    genesis :: {blockchain_block:hash(), blockchain_block:block()}
+    ,head :: {blockchain_block:hash(), blockchain_block:block()}
+    ,ledger :: blockchain_ledger:ledger()
+    ,dir :: file:filename_all()
 }).
+
+% TODO: Make ledger a record instead of simply a map
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -38,13 +38,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_block:hash(), blockchain_block:block(), blockchain_ledger:ledger()) -> blockchain().
-new(GenesisHash, GenesisBlock, Ledger) ->
+-spec new(blockchain_block:block(), blockchain_ledger:ledger(), file:filename_all()) -> blockchain().
+new(GenesisBlock, Ledger, Dir) ->
+    Hash = blockchain_block:hash_block(GenesisBlock),
     #blockchain{
-        genesis_hash=GenesisHash
-        ,blocks=#{GenesisHash => GenesisBlock}
+        genesis={Hash, GenesisBlock}
+        ,head={Hash, GenesisBlock}
         ,ledger=Ledger
-        ,head=GenesisHash
+        ,dir=base_dir(Dir)
     }.
 
 %%--------------------------------------------------------------------
@@ -52,25 +53,32 @@ new(GenesisHash, GenesisBlock, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec genesis_hash(blockchain()) -> blockchain_block:hash().
-genesis_hash(Blockchain) ->
-    Blockchain#blockchain.genesis_hash.
+genesis_hash(#blockchain{genesis={Hash, _}}) ->
+    Hash.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec blocks(blockchain()) -> #{blockchain_block:hash() => blockchain_block:block()}.
-blocks(Blockchain) ->
-    Blockchain#blockchain.blocks.
+-spec genesis_block(blockchain()) -> blockchain_block:block().
+genesis_block(#blockchain{genesis={_, Block}}) ->
+    Block.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec blocks_size(blockchain()) -> integer().
-blocks_size(Blockchain) ->
-    Blocks = ?MODULE:blocks(Blockchain),
-    maps:size(Blocks).
+-spec head_hash(blockchain()) -> blockchain_block:hash().
+head_hash(#blockchain{head={Hash, _}}) ->
+    Hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec head_block(blockchain()) -> blockchain_block:block().
+head_block(#blockchain{head={_, Block}}) ->
+    Block.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,91 +92,82 @@ ledger(Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec head(blockchain()) -> blockchain_block:hash().
-head(Blockchain) ->
-    Blockchain#blockchain.head.
+-spec dir(blockchain()) -> file:filename_all().
+dir(Blockchain) ->
+    Blockchain#blockchain.dir.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_block(blockchain()) -> blockchain_block:block().
-current_block(Blockchain) ->
-    Head = ?MODULE:head(Blockchain),
-    ?MODULE:get_block(Blockchain, Head).
+-spec blocks(blockchain()) -> #{blockchain_block:hash() => blockchain_block:block()}.
+blocks(Blockchain) ->
+    Dir = blocks_dir(Blockchain),
+    lists:foldl(
+        fun(File, Acc) ->
+            case file:read_file(filename:join(Dir, File)) of
+                {error, _Reason} ->
+                    Acc;
+                {ok, Binary} ->
+                    Hash = blockchain_util:deserialize_hash(File),
+                    V = blockchain_util:serial_version(Dir),
+                    Block = blockchain_block:deserialize(V, Binary),
+                    maps:put(Hash, Block, Acc)
+            end
+        end
+        ,#{}
+        ,list_block_files(Blockchain)
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain(), blockchain_block:block(), string()) -> blockchain().
-add_block(Blockchain, Block, BaseDir) ->
+-spec blocks_size(blockchain()) -> integer().
+blocks_size(Blockchain) ->
+    erlang:length(list_block_files(Blockchain)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_block(blockchain_block:block(), blockchain()) -> blockchain().
+add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
-    Blocks0 = ?MODULE:blocks(Blockchain),
-    Blocks1 = maps:put(Hash, Block, Blocks0),
     Ledger0 = ?MODULE:ledger(Blockchain),
     {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
-    Dir = base_dir(BaseDir),
-    ok = blockchain_block:save(Hash, Block, Dir),
+    ok = blockchain_block:save(Hash, Block, blocks_dir(Blockchain)),
+    Dir = ?MODULE:dir(Blockchain),
     ok = blockchain_ledger:save(Ledger1, Dir),
-    ok = save_head(Hash, Dir),
-    Blockchain#blockchain{blocks=Blocks1, ledger=Ledger1, head=Hash}.
+    ok = save_head(Block, Dir),
+    Blockchain#blockchain{head={Hash, Block}, ledger=Ledger1}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain(), blockchain_block:hash()) -> blockchain_block:block().
-get_block(Blockchain, Hash) ->
-    Blocks = ?MODULE:blocks(Blockchain),
-    case ?MODULE:genesis_hash(Blockchain) of
-        Hash ->
-            maps:get(Hash, Blocks);
-        GenesisHash ->
-            GenesisBlock = ?MODULE:get_block(Blockchain, GenesisHash),
-            maps:get(Hash, Blocks, GenesisBlock)
+-spec get_block(blockchain_block:hash(), blockchain()) -> {ok, blockchain_block:block()}
+                                                          | {error, any()}.
+get_block(Hash, Blockchain) ->
+    Dir = blocks_dir(Blockchain),
+    File = blockchain_util:serialize_hash(Hash),
+    case file:read_file(filename:join(Dir, File)) of
+        {error, _Reason}=Error -> Error;
+        {ok, Binary} ->
+            V = blockchain_util:serial_version(Dir),
+            Block = blockchain_block:deserialize(V, Binary),
+            {ok, Block}
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec trim_blocks(blockchain(), non_neg_integer()) -> blockchain().
-trim_blocks(Blockchain, Limit) ->
-    Head = blockchain:head(Blockchain),
-    GenesisHash = ?MODULE:genesis_hash(Blockchain),
-    {_, Hashs} = lists:foldl(
-        fun(_, {Hash, Acc}) ->
-            Block = ?MODULE:get_block(Blockchain, Hash),
-            case blockchain_block:height(Block) of
-                1 ->
-                    {Hash, Acc};
-                _ ->
-                    PrevHash = blockchain_block:prev_hash(Block),
-                    {PrevHash, [Hash|Acc]}
-            end
-        end
-        ,{Head, [GenesisHash]}
-        ,lists:seq(1, Limit-1)
-    ),
-    Blocks = maps:filter(
-        fun(Hash, _Block) ->
-            lists:member(Hash, Hashs)
-        end
-        ,?MODULE:blocks(Blockchain)
-    ),
-    Blockchain#blockchain{blocks=Blocks}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec save(blockchain(), string()) -> ok.
-save(Blockchain, BaseDir) ->
-    Dir = base_dir(BaseDir),
-    ok = save_blocks(blockchain:blocks(Blockchain), Dir),
-    ok = save_genesis_hash(blockchain:genesis_hash(Blockchain), Dir),
-    ok = save_head(blockchain:head(Blockchain), Dir),
+-spec save(blockchain()) -> ok.
+save(Blockchain) ->
+    Dir = ?MODULE:dir(Blockchain),
+    ok = save_genesis(blockchain:genesis_block(Blockchain), Dir),
+    ok = save_head(blockchain:head_block(Blockchain), Dir),
     ok = blockchain_ledger:save(?MODULE:ledger(Blockchain), Dir),
     ok.
 
@@ -176,25 +175,25 @@ save(Blockchain, BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(string()) -> blockchain().
+-spec load(file:filename_all()) -> blockchain() | undefined.
 load(BaseDir) ->
     Dir = base_dir(BaseDir),
     case
-        {load_genesis_hash(Dir)
-         ,load_blocks(Dir)
-         ,blockchain_ledger:load(Dir)
-         ,load_head(Dir)}
+        {load_genesis(Dir)
+         ,load_head(Dir)
+         ,blockchain_ledger:load(Dir)}
     of
-        {undefined, _, _, _} -> undefined;
-        {_, undefined, _, _} -> undefined;
-        {_, _, undefined, _} -> undefined;
-        {_, _, _, undefined} -> undefined;
-        {GenesisHash, Blocks, Ledger, Head} ->
+        {undefined, _, _} -> undefined;
+        {_, undefined, _} -> undefined;
+        {_, _, undefined} -> undefined;
+        {GenesisBlock, HeadBlock, Ledger} ->
+            GenesisHash = blockchain_block:hash_block(GenesisBlock),
+            HeadHash = blockchain_block:hash_block(HeadBlock),
             #blockchain{
-                genesis_hash=GenesisHash
-                ,blocks=Blocks
+                genesis={GenesisHash, GenesisBlock}
+                ,head={HeadHash, HeadBlock}
                 ,ledger=Ledger
-                ,head=Head
+                ,dir=Dir
             }
     end.
 
@@ -206,7 +205,7 @@ load(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec base_dir(string()) -> string().
+-spec base_dir(file:filename_all()) -> file:filename_all().
 base_dir(BaseDir) ->
     filename:join(BaseDir, ?BASE_DIR).
 
@@ -214,90 +213,69 @@ base_dir(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_blocks(blocks(), string()) -> ok.
-save_blocks(Blocks, BaseDir) ->
-    maps:fold(
-        fun(Hash, Block, _Acc) ->
-            ok = blockchain_block:save(Hash, Block, BaseDir),
-            ok
-        end
-        ,ok
-        ,Blocks
-    ),
-    ok.
+-spec blocks_dir(blockchain()) -> file:filename_all().
+blocks_dir(Blockchain) ->
+    BaseDir = ?MODULE:dir(Blockchain),
+    filename:join(BaseDir, ?BLOCKS_DIR).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_blocks(string()) -> blocks() | undefined.
-load_blocks(BaseDir) ->
-    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
+-spec list_block_files(blockchain()) -> [file:filename_all()].
+list_block_files(Blockchain) ->
+    Dir = blocks_dir(Blockchain),
     case file:list_dir(Dir) of
-        {error, _Reason} ->
-            undefined;
-        {ok, Filenames} ->
-            lists:foldl(
-                fun(File, Acc) ->
-                    case file:read_file(filename:join(Dir, File)) of
-                        {error, _Reason} ->
-                            Acc;
-                        {ok, Binary} ->
-                            Hash = blockchain_util:deserialize_hash(File),
-                            V = blockchain_util:serial_version(BaseDir),
-                            Block = blockchain_block:deserialize(V, Binary),
-                            maps:put(Hash, Block, Acc)
-                    end
-                end
-                ,#{}
-                ,Filenames
-            )
+        {error, _Reason} -> [];
+        {ok, Filenames} -> Filenames
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_genesis_hash(blockchain_block:hash(), string()) -> ok.
-save_genesis_hash(Hash, BaseDir) ->
-    File = filename:join(BaseDir, ?GEN_HASH_FILE),
-    ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Hash)),
+-spec save_genesis(blockchain_block:block(), file:filename_all()) -> ok.
+save_genesis(Block, Dir) ->
+    File = filename:join(Dir, ?GEN_HASH_FILE),
+    V = blockchain_util:serial_version(Dir),
+    ok = blockchain_util:atomic_save(File, blockchain_block:serialize(V, Block)),
     ok.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_genesis_hash(string()) -> blockchain_block:hash() | undefined.
-load_genesis_hash(BaseDir) ->
-    File = filename:join(BaseDir, ?GEN_HASH_FILE),
+-spec load_genesis(file:filename_all()) -> blockchain_block:block() | undefined.
+load_genesis(Dir) ->
+    File = filename:join(Dir, ?GEN_HASH_FILE),
     case file:read_file(File) of
         {error, _Reason} ->
             undefined;
         {ok, Binary} ->
-            blockchain_util:deserialize_hash(binary:bin_to_list(Binary))
+            blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_head(blockchain_block:hash(), string()) -> ok.
-save_head(Head, BaseDir) ->
-    File = filename:join(BaseDir, ?HEAD_FILE),
-    ok = blockchain_util:atomic_save(File, blockchain_util:serialize_hash(Head)),
+-spec save_head(blockchain_block:block(), file:filename_all()) -> ok.
+save_head(Block, Dir) ->
+    File = filename:join(Dir, ?HEAD_FILE),
+    V = blockchain_util:serial_version(Dir),
+    ok = blockchain_util:atomic_save(File, blockchain_block:serialize(V, Block)),
     ok.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_head(string()) -> blockchain_block:hash() | undefined.
-load_head(BaseDir) ->
-    File = filename:join(BaseDir, ?HEAD_FILE),
+-spec load_head(file:filename_all()) -> blockchain_block:block() | undefined.
+load_head(Dir) ->
+    File = filename:join(Dir, ?HEAD_FILE),
     case file:read_file(File) of
         {error, _Reason} ->
             undefined;
         {ok, Binary} ->
-            blockchain_util:deserialize_hash(binary:bin_to_list(Binary))
+            blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
     end.

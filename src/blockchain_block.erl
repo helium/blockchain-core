@@ -140,8 +140,11 @@ hash_block(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec verify_signature(binary(), [libp2p_crypto:address()], binary(), pos_integer()) ->
+-spec verify_signature(binary() | block(), [libp2p_crypto:address()], binary(), pos_integer()) ->
     false | {true, [{libp2p_crypto:address(), binary()}]}.
+verify_signature(#block{}=Block, ConsensusMembers, Signature, Threshold) ->
+    BinBlock = erlang:term_to_binary(?MODULE:remove_signature(Block)),
+    verify_signature(BinBlock, ConsensusMembers, Signature, Threshold);
 verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
     ValidSignatures = lists:foldl(
         fun({Addr, Sig}, Acc) ->
@@ -200,7 +203,7 @@ assert_location_transactions(Block) ->
 -spec save(hash(), block(), string()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
     Dir = filename:join(BaseDir, ?BLOCKS_DIR),
-    BinBlock = serialize(blockchain_util:serial_version(BaseDir), Block),
+    BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     blockchain_util:atomic_save(File, BinBlock).
 
@@ -216,7 +219,7 @@ load(Hash, BaseDir) ->
         {error, _Reason} ->
             undefined;
         {ok, Binary} ->
-            deserialize(blockchain_util:serial_version(BaseDir), Binary)
+            ?MODULE:deserialize(blockchain_util:serial_version(BaseDir), Binary)
     end.
 %%--------------------------------------------------------------------
 %% @doc
