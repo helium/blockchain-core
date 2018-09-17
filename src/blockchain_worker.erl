@@ -19,6 +19,7 @@
     ,blocks/0
     ,blocks/2
     ,ledger/0
+    ,num_consensus_members/0
     ,consensus_addrs/0, consensus_addrs/1
     ,integrate_genesis_block/1
     ,add_block/2
@@ -116,15 +117,22 @@ ledger() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+num_consensus_members() ->
+    gen_server:call(?SERVER, num_consensus_members).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 consensus_addrs() ->
-    gen_server:call(?MODULE, consensus_addrs).
+    gen_server:call(?SERVER, consensus_addrs).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 consensus_addrs(Addresses) ->
-    gen_server:cast(?MODULE, {consensus_addrs, Addresses}).
+    gen_server:cast(?SERVER, {consensus_addrs, Addresses}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -166,14 +174,14 @@ payment_txn(PrivKey, Address, Recipient, Amount) ->
 %% @end
 %%--------------------------------------------------------------------
 submit_txn(Type, Txn) ->
-    gen_server:cast(?MODULE, {submit_txn, Type, Txn}).
+    gen_server:cast(?SERVER, {submit_txn, Type, Txn}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 add_gateway_request(OwnerAddress) ->
-    gen_server:call(?MODULE, {add_gateway_request, OwnerAddress}).
+    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -225,6 +233,11 @@ init(Args) ->
     _ = erlang:send_after(When, self(), trim_blocks),
     {ok, #state{swarm=Swarm, n=N, dir=Dir, blockchain=Blockchain, trim_blocks=TrimBlocks}}.
 
+%% NOTE: num_consensus_members and consensus_addrs can be called before there is a blockchain
+handle_call(num_consensus_members, _From, #state{n=N}=State) ->
+    {reply, N, State};
+handle_call(consensus_addrs, _From, #state{consensus_addrs=Addresses}=State) ->
+    {reply, Addresses, State};
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
@@ -245,8 +258,6 @@ handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
 %     {reply, {ok, Blocks}, State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
-handle_call(consensus_addrs, _From, #state{consensus_addrs=Addresses}=State) ->
-    {reply, Addresses, State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
     AddGwTxn = blockchain_transaction:new_add_gateway_txn(OwnerAddress, Address),
