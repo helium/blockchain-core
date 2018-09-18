@@ -126,7 +126,7 @@ generate_keys(N) ->
 add_block(ConsensusMembers, Txs) ->
     PrevHash = blockchain_worker:head_hash(),
     Height = blockchain_worker:height() + 1,
-    Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>),
+    Block0 = blockchain_block:new(PrevHash, Height, 0, Txs, <<>>),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),
     Block1 = blockchain_block:sign_block(Block0, erlang:term_to_binary(Signatures)),

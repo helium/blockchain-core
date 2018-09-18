@@ -6,8 +6,9 @@
 -module(blockchain_block).
 
 -export([
-    new/4
+    new/5
     ,height/1
+    ,hbbft_round/1
     ,transactions/1
     ,signature/1
     ,prev_hash/1
@@ -33,6 +34,7 @@
     ,height = 0 :: non_neg_integer()
     ,transactions = [] :: blockchain_transaction:transactions()
     ,signature :: binary()
+    ,hbbft_round = 0 :: non_neg_integer()
 }).
 
 -type block() :: #block{}.
@@ -44,11 +46,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(hash(), non_neg_integer(), blockchain_transaction:transactions(), binary()) -> block().
-new(PrevHash, Height, Transactions, Signature) ->
+-spec new(hash(), non_neg_integer(), non_neg_integer(), blockchain_transaction:transactions(), binary()) -> block().
+new(PrevHash, Height, HBBFTRound, Transactions, Signature) ->
     #block{
         prev_hash=PrevHash
         ,height=Height
+        ,hbbft_round=HBBFTRound
         ,transactions=Transactions
         ,signature=Signature
     }.
@@ -60,6 +63,14 @@ new(PrevHash, Height, Transactions, Signature) ->
 -spec height(block()) -> non_neg_integer().
 height(Block) ->
     Block#block.height.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hbbft_round(block()) -> non_neg_integer().
+hbbft_round(Block) ->
+    Block#block.hbbft_round.
 
 %%--------------------------------------------------------------------
 %% @doc

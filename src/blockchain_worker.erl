@@ -341,6 +341,7 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
                     SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
                     libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
+                    ok = gen_event:notify(blockchain_event, {add_block, Hash}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
                     lager:warning("signature on block ~p is invalid", [Block]),

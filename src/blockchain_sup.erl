@@ -68,8 +68,11 @@ init(Args) ->
         ,{trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
     ],
 
+    BEventOpts = [],
+
     ChildSpecs = [
-        ?WORKER(blockchain_swarm, [SwarmWorkerOpts])
+        ?WORKER(blockchain_event, [BEventOpts])
+        ,?WORKER(blockchain_swarm, [SwarmWorkerOpts])
         ,?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
