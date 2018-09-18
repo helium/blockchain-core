@@ -381,6 +381,7 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Bloc
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
+                                ok = gen_event:notify(blockchain_event, {add_block, blockchain_block:hash_block(Block)}),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
