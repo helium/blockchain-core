@@ -18,6 +18,7 @@
     ,genesis_hash/0, genesis_block/0
     ,blocks/0
     ,blocks/2
+    ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
     ,consensus_addrs/0, consensus_addrs/1
@@ -124,6 +125,13 @@ blocks() ->
 %%--------------------------------------------------------------------
 blocks(Height, Hash) ->
     gen_server:call(?SERVER, {blocks, Height, Hash}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_block(Hash) ->
+    gen_server:call(?SERVER, {get_block, Hash}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -291,6 +299,8 @@ handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:genesis_block(Chain), State};
 handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:blocks(Chain), State};
+handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
+    {reply, blockchain:get_block(Hash, Chain), State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
