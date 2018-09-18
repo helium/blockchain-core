@@ -102,7 +102,8 @@ dir(Blockchain) ->
 %%--------------------------------------------------------------------
 -spec blocks(blockchain()) -> #{blockchain_block:hash() => blockchain_block:block()}.
 blocks(Blockchain) ->
-    Dir = blocks_dir(Blockchain),
+    BaseDir = ?MODULE:dir(Blockchain),
+    Dir = blockchain_block:dir(BaseDir),
     lists:foldl(
         fun(File, Acc) ->
             case file:read_file(filename:join(Dir, File)) of
@@ -136,8 +137,8 @@ add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     Ledger0 = ?MODULE:ledger(Blockchain),
     {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
-    ok = blockchain_block:save(Hash, Block, blocks_dir(Blockchain)),
     Dir = ?MODULE:dir(Blockchain),
+    ok = blockchain_block:save(Hash, Block, Dir),
     ok = blockchain_ledger:save(Ledger1, Dir),
     ok = save_head(Block, Dir),
     Blockchain#blockchain{head={Hash, Block}, ledger=Ledger1}.
@@ -149,7 +150,8 @@ add_block(Block, Blockchain) ->
 -spec get_block(blockchain_block:hash(), blockchain()) -> {ok, blockchain_block:block()}
                                                           | {error, any()}.
 get_block(Hash, Blockchain) ->
-    Dir = blocks_dir(Blockchain),
+    BaseDir = ?MODULE:dir(Blockchain),
+    Dir = blockchain_block:dir(BaseDir),
     File = blockchain_util:serialize_hash(Hash),
     case file:read_file(filename:join(Dir, File)) of
         {error, _Reason}=Error -> Error;
@@ -213,18 +215,10 @@ base_dir(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec blocks_dir(blockchain()) -> file:filename_all().
-blocks_dir(Blockchain) ->
-    BaseDir = ?MODULE:dir(Blockchain),
-    filename:join(BaseDir, ?BLOCKS_DIR).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec list_block_files(blockchain()) -> [file:filename_all()].
 list_block_files(Blockchain) ->
-    Dir = blocks_dir(Blockchain),
+    BaseDir = ?MODULE:dir(Blockchain),
+    Dir = blockchain_block:dir(BaseDir),
     case file:list_dir(Dir) of
         {error, _Reason} -> [];
         {ok, Filenames} -> Filenames

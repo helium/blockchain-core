@@ -22,6 +22,7 @@
     ,payment_transactions/1
     ,add_gateway_transactions/1
     ,assert_location_transactions/1
+    ,dir/1
     ,save/3, load/2
     ,serialize/2
     ,deserialize/2
@@ -213,9 +214,17 @@ assert_location_transactions(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec dir(file:filename_all()) -> file:filename_all().
+dir(Dir) ->
+    filename:join(Dir, ?BLOCKS_DIR).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec save(hash(), block(), string()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
-    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
+    Dir = ?MODULE:dir(BaseDir),
     BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     blockchain_util:atomic_save(File, BinBlock).
