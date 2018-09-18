@@ -6,10 +6,11 @@
 -module(blockchain_block).
 
 -export([
-    new/4
+    new/5
     ,height/1
     ,transactions/1
     ,signature/1
+    ,meta/1
     ,prev_hash/1
     ,remove_signature/1
     ,sign_block/2
@@ -21,6 +22,7 @@
     ,payment_transactions/1
     ,add_gateway_transactions/1
     ,assert_location_transactions/1
+    ,dir/1
     ,save/3, load/2
     ,serialize/2
     ,deserialize/2
@@ -33,24 +35,28 @@
     ,height = 0 :: non_neg_integer()
     ,transactions = [] :: blockchain_transaction:transactions()
     ,signature :: binary()
+    ,meta = #{} :: #{any() => any()}
 }).
 
 -type block() :: #block{}.
 -type hash() :: <<_:256>>. %% SHA256 digest
+-type meta() :: #{any() => any()}.
 
--export_type([block/0, hash/0]).
+-export_type([block/0, hash/0, meta/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(hash(), non_neg_integer(), blockchain_transaction:transactions(), binary()) -> block().
-new(PrevHash, Height, Transactions, Signature) ->
+-spec new(hash(), non_neg_integer() ,blockchain_transaction:transactions()
+          ,binary(), meta()) -> block().
+new(PrevHash, Height, Transactions, Signature, Meta) ->
     #block{
         prev_hash=PrevHash
         ,height=Height
         ,transactions=Transactions
         ,signature=Signature
+        ,meta=Meta
     }.
 
 %%--------------------------------------------------------------------
@@ -76,6 +82,14 @@ transactions(Block) ->
 -spec signature(block()) -> binary().
 signature(Block) ->
     Block#block.signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec meta(block()) -> meta().
+meta(Block) ->
+    Block#block.meta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -107,7 +121,7 @@ sign_block(Block, Signature) ->
 %%--------------------------------------------------------------------
 -spec new_genesis_block(blockchain_transaction:transactions()) -> block().
 new_genesis_block(Transactions) ->
-    #block{prev_hash = <<0:256>>, height=1, transactions=Transactions, signature = <<>>}.
+    ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, #{}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -200,9 +214,17 @@ assert_location_transactions(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec dir(file:filename_all()) -> file:filename_all().
+dir(Dir) ->
+    filename:join(Dir, ?BLOCKS_DIR).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec save(hash(), block(), string()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
-    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
+    Dir = ?MODULE:dir(BaseDir),
     BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     blockchain_util:atomic_save(File, BinBlock).

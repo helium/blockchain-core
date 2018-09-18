@@ -18,6 +18,7 @@
     ,genesis_hash/0, genesis_block/0
     ,blocks/0
     ,blocks/2
+    ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
     ,consensus_addrs/0, consensus_addrs/1
@@ -124,6 +125,13 @@ blocks() ->
 %%--------------------------------------------------------------------
 blocks(Height, Hash) ->
     gen_server:call(?SERVER, {blocks, Height, Hash}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_block(Hash) ->
+    gen_server:call(?SERVER, {get_block, Hash}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -291,6 +299,8 @@ handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:genesis_block(Chain), State};
 handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:blocks(Chain), State};
+handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
+    {reply, blockchain:get_block(Hash, Chain), State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
@@ -341,6 +351,7 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
                     SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
                     libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
+                    ok = notify({add_block, Hash}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
                     lager:warning("signature on block ~p is invalid", [Block]),
@@ -380,6 +391,7 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Bloc
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
+                                ok = notify({add_block, blockchain_block:hash_block(Block)}),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
@@ -471,6 +483,14 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec notify(any()) -> ok.
+notify(Msg) ->
+    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %%--------------------------------------------------------------------
 %% @doc

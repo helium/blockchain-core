@@ -9,3 +9,6 @@
 -define(GEN_HASH_FILE, "genesis").
 -define(HEAD_FILE, "head").
 -define(LEDGER_FILE, "ledger").
+
+% Misc
+-define(EVT_MGR, blockchain_event_mgr).

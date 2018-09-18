@@ -21,6 +21,7 @@
     ,type => supervisor
     ,modules => [I]
 }).
+
 -define(WORKER(I, Args), #{
     id => I
     ,start => {I, start_link, Args}
@@ -29,6 +30,16 @@
     ,type => worker
     ,modules => [I]
 }).
+
+-define(WORKER(I, Mod, Args), #{
+    id => I
+    ,start => {Mod, start_link, Args}
+    ,restart => permanent
+    ,shutdown => 5000
+    ,type => worker
+    ,modules => [I]
+}).
+
 -define(FLAGS, #{
     strategy => rest_for_one
     ,intensity => 1
@@ -68,8 +79,11 @@ init(Args) ->
         ,{trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
     ],
 
+    BEventOpts = [],
+
     ChildSpecs = [
-        ?WORKER(blockchain_swarm, [SwarmWorkerOpts])
+        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])
+        ,?WORKER(blockchain_swarm, [SwarmWorkerOpts])
         ,?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
