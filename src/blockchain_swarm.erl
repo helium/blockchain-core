@@ -14,7 +14,7 @@
     start_link/1
     ,address/0
     ,swarm/0
-    ,key/0
+    ,keys/0
     ,gossip_peers/0
 ]).
 
@@ -46,6 +46,7 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec address() -> libp2p_crypto:address().
 address() ->
     gen_server:call(?MODULE, address).
 
@@ -53,6 +54,7 @@ address() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec swarm() -> pid().
 swarm() ->
     gen_server:call(?MODULE, swarm).
 
@@ -60,13 +62,15 @@ swarm() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-key() ->
+-spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()} | {error, term()}.
+keys() ->
     gen_server:call(?MODULE, key).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec gossip_peers() -> [{string(), pid()}].
 gossip_peers() ->
     gen_server:call(?MODULE, gossip_peers).
 

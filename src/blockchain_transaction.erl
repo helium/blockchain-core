@@ -312,6 +312,7 @@ coinbase_amount(CoinbaseTxn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec genesis_consensus_group_members(genesis_consensus_group_txn()) -> [libp2p_crypto:address()].
 genesis_consensus_group_members(#genesis_consensus_group_txn{members=Members}) ->
     Members.
 

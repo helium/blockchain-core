@@ -45,9 +45,11 @@ server(Connection, Path, _TID, Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec send(pid(), binary()) ->  ok | {error, term()}.
 send(Pid, Bin) ->
     send(Pid, Bin, 1000).
 
+-spec send(pid(), binary(), integer()) ->  ok | {error, term()}.
 send(Pid, Bin, Timeout) ->
     gen_server:call(Pid, {send, Bin, Timeout}).
 

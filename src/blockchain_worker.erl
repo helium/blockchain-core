@@ -66,6 +66,7 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec height() -> integer()  | undefined.
 height() ->
     gen_server:call(?SERVER, height).
 
@@ -73,6 +74,7 @@ height() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec blockchain() -> blockchain:blockchain()  | undefined.
 blockchain() ->
     gen_server:call(?SERVER, blockchain).
 
@@ -80,6 +82,7 @@ blockchain() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec head_hash() -> blockchain_block:hash()  | undefined.
 head_hash() ->
     gen_server:call(?SERVER, head_hash).
 
@@ -87,6 +90,7 @@ head_hash() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec head_block() -> blockchain_block:block()  | undefined.
 head_block() ->
     gen_server:call(?SERVER, head_block).
 
@@ -94,6 +98,7 @@ head_block() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec genesis_hash() -> blockchain_block:hash()  | undefined.
 genesis_hash() ->
     gen_server:call(?SERVER, genesis_hash).
 
@@ -101,6 +106,7 @@ genesis_hash() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec genesis_block() -> blockchain_block:block()  | undefined.
 genesis_block() ->
     gen_server:call(?SERVER, genesis_block).
 
@@ -108,6 +114,7 @@ genesis_block() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec  blocks() -> #{blockchain_block:hash() => blockchain_block:block()}.
 blocks() ->
     gen_server:call(?SERVER, blocks).
 
@@ -122,6 +129,7 @@ blocks(Height, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec ledger() -> blockchain_ledger:ledger() | undefined.
 ledger() ->
     gen_server:call(?SERVER, ledger).
 
@@ -129,6 +137,7 @@ ledger() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec num_consensus_members() -> integer().
 num_consensus_members() ->
     gen_server:call(?SERVER, num_consensus_members).
 
@@ -136,6 +145,7 @@ num_consensus_members() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec consensus_addrs() -> [libp2p_crypto:address()].
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs).
 
@@ -143,6 +153,7 @@ consensus_addrs() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec consensus_addrs(libp2p_crypto:address()) -> ok.
 consensus_addrs(Addresses) ->
     gen_server:cast(?SERVER, {consensus_addrs, Addresses}).
 
@@ -150,6 +161,7 @@ consensus_addrs(Addresses) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec integrate_genesis_block(blockchain_block:block()) -> ok.
 integrate_genesis_block(Block) ->
     gen_server:cast(?SERVER, {integrate_genesis_block, Block}).
 
@@ -157,6 +169,7 @@ integrate_genesis_block(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_block(blockchain_block:block(), pid()) -> ok.
 add_block(Block, Sender) ->
     gen_server:cast(?SERVER, {add_block, Block, Sender}).
 
@@ -164,6 +177,7 @@ add_block(Block, Sender) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec sync_blocks([blockchain_block:block()]) -> ok.
 sync_blocks(Blocks) ->
     gen_server:cast(?SERVER, {sync_blocks, Blocks}).
 
@@ -171,6 +185,7 @@ sync_blocks(Blocks) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec spend(libp2p_crypto:address(), integer()) -> ok.
 spend(Recipient, Amount) ->
     gen_server:cast(?SERVER, {spend, Recipient, Amount}).
 
@@ -178,6 +193,7 @@ spend(Recipient, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer()) -> ok.
 payment_txn(PrivKey, Address, Recipient, Amount) ->
     gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount}).
 
@@ -185,6 +201,7 @@ payment_txn(PrivKey, Address, Recipient, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec submit_txn(atom(), blockchain_transaction:transaction()) -> ok.
 submit_txn(Type, Txn) ->
     gen_server:cast(?SERVER, {submit_txn, Type, Txn}).
 
@@ -192,6 +209,7 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_gateway_request(libp2p_crypto:address()) -> ok.
 add_gateway_request(OwnerAddress) ->
     gen_server:call(?SERVER, {add_gateway_request, OwnerAddress}).
 
@@ -199,6 +217,7 @@ add_gateway_request(OwnerAddress) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_gateway_txn(blockchain_transaction:transaction()) -> ok.
 add_gateway_txn(AddGatewayRequest) ->
     gen_server:cast(?SERVER, {add_gateway_txn, AddGatewayRequest}).
 
@@ -206,6 +225,7 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec assert_location_txn(integer()) -> ok.
 assert_location_txn(Location) ->
     gen_server:cast(?SERVER, {assert_location_txn, Location}).
 
@@ -213,6 +233,7 @@ assert_location_txn(Location) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec peer_height(integer(), blockchain_block:hash(), pid()) -> ok.
 peer_height(Height, Head, Session) ->
     gen_server:cast(?SERVER, {peer_height, Height, Head, Session}).
 
@@ -411,7 +432,10 @@ handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chai
             Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
             AssertLocationTxn = blockchain_transaction:new_assert_location_txn(Address, Location, Nonce+1),
             SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, Swarm),
-            lager:info("assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p", [Address, Location, Nonce, SignedAssertLocationTxn]),
+            lager:info(
+                "assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
+                ,[Address, Location, Nonce, SignedAssertLocationTxn]
+            ),
             ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State)
     end,
     {noreply, State};
@@ -421,12 +445,11 @@ handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State
     LocalHeight = blockchain_block:height(blockchain:head_block(Chain)),
     case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
         true ->
-            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(LocalHeight) ++ "/" ++ blockchain_util:hexdump(LocalHead),
+            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(LocalHeight)
+                       ++ "/" ++ blockchain_util:hexdump(LocalHead),
             case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
-                {ok, _Stream} ->
-                    ok;
-                _ ->
-                    lager:notice("Failed to dial sync service on ~p", [Session])
+                {ok, _Stream} -> ok;
+                _ -> lager:notice("Failed to dial sync service on ~p", [Session])
             end;
         false -> ok
     end,
