@@ -56,7 +56,7 @@ send(Pid, Bin, Timeout) ->
 %% ------------------------------------------------------------------
 init(server, Connection, [Path, Parent]) ->
     Height = blockchain_worker:height(),
-    Head = blockchain_worker:head(),
+    Head = blockchain_worker:head_hash(),
     {ok, #state{connection=Connection, path=Path, parent=Parent}, erlang:term_to_binary({height, Height, Head})};
 init(client, Connection, []) ->
     {ok, #state{connection=Connection}}.
