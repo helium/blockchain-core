@@ -351,7 +351,7 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
                     SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
                     libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
-                    ok = gen_event:notify(blockchain_event, {add_block, Hash}),
+                    ok = notify({add_block, Hash}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
                     lager:warning("signature on block ~p is invalid", [Block]),
@@ -391,7 +391,7 @@ handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Bloc
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
-                                ok = gen_event:notify(blockchain_event, {add_block, blockchain_block:hash_block(Block)}),
+                                ok = notify({add_block, blockchain_block:hash_block(Block)}),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
@@ -483,6 +483,14 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec notify(any()) -> ok.
+notify(Msg) ->
+    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %%--------------------------------------------------------------------
 %% @doc

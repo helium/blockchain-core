@@ -7,41 +7,63 @@
 
 -behaviour(gen_event).
 
--export([add_handler/1]).
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+-export([
+    start_link/1
+    ,add_handler/1
+]).
 
 %% ------------------------------------------------------------------
 %% gen_event Function Exports
 %% ------------------------------------------------------------------
--export([start_link/1
-         ,init/1
-         ,handle_event/2
-         ,handle_call/2
-         ,handle_info/2
-         ,code_change/3
-         ,terminate/2]).
+-export([
+    init/1
+    ,handle_event/2
+    ,handle_call/2
+    ,handle_info/2
+    ,code_change/3
+    ,terminate/2
+]).
 
+-include("blockchain.hrl").
+
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_event:start_link({local, ?MODULE}, Args).
+    gen_event:start_link({local, ?EVT_MGR}, Args).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec add_handler(pid()) -> ok | any().
 add_handler(Pid) ->
-    gen_event:add_handler(?MODULE, {?MODULE, make_ref()}, [Pid]).
+    gen_event:add_handler(?EVT_MGR, {?MODULE, make_ref()}, [Pid]).
 
+%% ------------------------------------------------------------------
+%% gen_event Function Definitions
+%% ------------------------------------------------------------------
 init([Pid]) ->
     {ok, Pid}.
 
 handle_event(Event, Pid) ->
-    Pid ! {blockchain_event, Event},
+    Pid ! {?MODULE, Event},
     {ok, Pid}.
 
-handle_call(_, Pid) ->
-    {ok, ok, Pid}.
+handle_call(_Msg, Pid) ->
+    lager:debug("rcv unhandled msg ~p", [_Msg]),
+    {'ok', 'ok', Pid}.
 
-handle_info(_, Pid) ->
-    {ok, Pid}.
+handle_info(_Msg, Pid) ->
+    lager:debug("rcv unhandled msg ~p", [_Msg]),
+    {'ok', Pid}.
 
 code_change(_OldVsn, Pid, _Extra) ->
-    {ok, Pid}.
+    {'ok', Pid}.
 
 terminate(_Reason, _Pid) ->
-    ok.
+    lager:warning("terminating ~p", [_Reason]),
+    'ok'.
