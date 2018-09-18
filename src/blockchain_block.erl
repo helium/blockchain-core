@@ -8,9 +8,9 @@
 -export([
     new/5
     ,height/1
-    ,hbbft_round/1
     ,transactions/1
     ,signature/1
+    ,meta/1
     ,prev_hash/1
     ,remove_signature/1
     ,sign_block/2
@@ -34,26 +34,28 @@
     ,height = 0 :: non_neg_integer()
     ,transactions = [] :: blockchain_transaction:transactions()
     ,signature :: binary()
-    ,hbbft_round = 0 :: non_neg_integer()
+    ,meta = #{} :: #{any() => any()}
 }).
 
 -type block() :: #block{}.
 -type hash() :: <<_:256>>. %% SHA256 digest
+-type meta() :: #{any() => any()}.
 
--export_type([block/0, hash/0]).
+-export_type([block/0, hash/0, meta/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(hash(), non_neg_integer(), non_neg_integer(), blockchain_transaction:transactions(), binary()) -> block().
-new(PrevHash, Height, HBBFTRound, Transactions, Signature) ->
+-spec new(hash(), non_neg_integer() ,blockchain_transaction:transactions()
+          ,binary(), meta()) -> block().
+new(PrevHash, Height, Transactions, Signature, Meta) ->
     #block{
         prev_hash=PrevHash
         ,height=Height
-        ,hbbft_round=HBBFTRound
         ,transactions=Transactions
         ,signature=Signature
+        ,meta=Meta
     }.
 
 %%--------------------------------------------------------------------
@@ -63,14 +65,6 @@ new(PrevHash, Height, HBBFTRound, Transactions, Signature) ->
 -spec height(block()) -> non_neg_integer().
 height(Block) ->
     Block#block.height.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec hbbft_round(block()) -> non_neg_integer().
-hbbft_round(Block) ->
-    Block#block.hbbft_round.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -87,6 +81,14 @@ transactions(Block) ->
 -spec signature(block()) -> binary().
 signature(Block) ->
     Block#block.signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec meta(block()) -> meta().
+meta(Block) ->
+    Block#block.meta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -118,7 +120,7 @@ sign_block(Block, Signature) ->
 %%--------------------------------------------------------------------
 -spec new_genesis_block(blockchain_transaction:transactions()) -> block().
 new_genesis_block(Transactions) ->
-    #block{prev_hash = <<0:256>>, height=1, transactions=Transactions, signature = <<>>}.
+    ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, #{}).
 
 %%--------------------------------------------------------------------
 %% @doc
