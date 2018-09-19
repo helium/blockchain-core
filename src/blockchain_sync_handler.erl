@@ -49,7 +49,7 @@ init(server, _Conn, [Path, _Parent]) ->
     lager:info("sync_handler server accepted connection"),
     lager:info("syncing blocks with peer at height ~p and hash ~p", [Height, Hash]),
     ToSend =
-        case blockchain_worker:blocks(erlang:list_to_integer(Height), Hash) of
+        case blockchain_worker:blocks(Hash) of
             {ok, Blocks} -> {sync, Blocks};
             {error, Reason} -> {error, Reason};
             ok -> {error, no_blockchain}
