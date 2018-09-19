@@ -302,7 +302,10 @@ handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
 handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:blocks(Chain), State};
 handle_call({blocks, Hash}, _From, #state{blockchain=Chain}=State) ->
-    StartingBlock = maps:get(Hash, blockchain:blocks(Chain), blockchain:head_block(Chain)),
+    StartingBlock = case blockchain:get_block(Hash, Chain) of
+                        {ok, Block} -> Block;
+                        {error, _Reason} -> blockchain:genesis_block(Chain)
+                    end,
     Blocks = build_chain(StartingBlock, maps:values(blockchain:blocks(Chain))),
     {reply, {ok, Blocks}, State};
 handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
