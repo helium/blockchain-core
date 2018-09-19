@@ -25,10 +25,7 @@
     ,handle_info/3
 ]).
 
--record(state, {
-    parent :: undefined | pid()
-    ,multiaddr :: undefined | string()
-}).
+-record(state, {}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -42,21 +39,26 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, Conn, [Parent]) ->
-    {_, MultiAddr} = libp2p_connection:addr_info(Conn),
-    {ok, #state{parent=Parent, multiaddr=MultiAddr}};
-init(server, _Conn, [_Path, _Parent]) ->
+init(client, _Conn, _Args) ->
+    lager:info("started sync_handler client"),
+    {ok, #state{}};
+init(server, _Conn, _Args) ->
+    lager:info("started sync_handler server"),
     {ok, #state{}}.
 
-handle_data(client, Data, State=#state{parent=_Parent}) ->
+handle_data(client, Data, State) ->
+    lager:info("client got data: ~p", [Data]),
     blockchain_worker:sync_blocks(erlang:binary_to_term(Data)),
     {stop, normal, State};
-handle_data(server, Data, _State) ->
-    lager:info("sync_handler server accepted connection"),
+handle_data(server, Data, State) ->
+    lager:info("server got data: ~p", [Data]),
     {hash, Hash} = binary_to_term(Data),
     lager:info("syncing blocks with peer hash ~p", [Hash]),
     {ok, Blocks} = blockchain_worker:blocks(Hash),
-    {stop, normal, term_to_binary(Blocks)}.
+    {stop, normal, State, term_to_binary(Blocks)}.
 
 handle_info(client, {hash, Hash}, State) ->
-    {noreply, State, term_to_binary({hash, Hash})}.
+    {noreply, State, term_to_binary({hash, Hash})};
+handle_info(_Type, _Msg, State) ->
+    lager:info("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
+    {noreply, State}.
