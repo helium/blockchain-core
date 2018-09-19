@@ -9,7 +9,7 @@ clean:
 	$(REBAR) clean
 
 test: compile
-	$(REBAR) as test do eunit, ct, xref, dialyzer
+	$(REBAR) as test do eunit, ct, xref && $(REBAR) dialyzer
 
 typecheck:
 	$(REBAR) dialyzer
