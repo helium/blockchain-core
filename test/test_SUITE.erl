@@ -94,7 +94,6 @@ basic(_Config) ->
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
-
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
     ok = compare_chains(Chain, blockchain:load(BaseDir)),
