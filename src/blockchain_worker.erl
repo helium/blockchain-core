@@ -335,6 +335,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
                                 ,blockchain_transaction:is_genesis_consensus_group_txn(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
+            ok = notify({integrate_genesis_block, blockchain_block:hash_block(GenesisBlock)}),
             {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
     end;
 handle_cast({consensus_addrs, Addresses}, State) ->
