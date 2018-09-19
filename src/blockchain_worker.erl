@@ -123,6 +123,7 @@ blocks() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec blocks(blockchain_block:hash()) -> {ok, [blockchain_block:block()]}.
 blocks(Hash) ->
     %% NOTE: this is used for syncing
     %% fetch all the blocks till the current block you have starting at the given Hash
@@ -373,11 +374,9 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
         false ->
             lager:warning("gossipped block doesn't fit with our chain"),
             lager:info("syncing with the sender ~p", [Session]),
-            Height = blockchain_block:height(blockchain:head_block(Chain)),
-            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(Height)
-                       ++ "/" ++ blockchain_util:hexdump(Head),
-            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
-                {ok, _Stream} -> ok;
+            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+                {ok, Stream} ->
+                    Stream ! {hash, blockchain:head_hash(Chain)};
                 _ -> lager:notice("Failed to dial sync service on ~p", [Session])
             end,
             {noreply, State}
@@ -467,10 +466,9 @@ handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State
     LocalHeight = blockchain_block:height(blockchain:head_block(Chain)),
     case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
         true ->
-            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(LocalHeight)
-                       ++ "/" ++ blockchain_util:hexdump(LocalHead),
-            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
-                {ok, _Stream} -> ok;
+            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+                {ok, Stream} ->
+                    Stream ! {hash, blockchain:head_hash(Chain)};
                 _ -> lager:notice("Failed to dial sync service on ~p", [Session])
             end;
         false -> ok
