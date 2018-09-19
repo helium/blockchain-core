@@ -26,6 +26,7 @@
     ,save/3, load/2
     ,serialize/2
     ,deserialize/2
+    ,find_next/2
 ]).
 
 -include("blockchain.hrl").
@@ -264,6 +265,20 @@ serialize(_Version, Block) ->
 -spec deserialize(blockchain_util:serial_version(), binary()) -> block().
 deserialize(_Version, Bin) ->
     erlang:binary_to_term(Bin).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_next(blockchain_block:hash(), [blockchain_block:block()]) -> false| {ok, blockchain_block:block()}.
+find_next(_, []) -> false;
+find_next(Hash, [Block | Tail]) ->
+    case blockchain_block:prev_hash(Block) == Hash of
+        true ->
+            {ok, Block};
+        false ->
+            find_next(Hash, Tail)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

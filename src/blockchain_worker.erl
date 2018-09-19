@@ -17,7 +17,7 @@
     ,head_hash/0, head_block/0
     ,genesis_hash/0, genesis_block/0
     ,blocks/0
-    ,blocks/2
+    ,blocks/1
     ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
@@ -123,8 +123,11 @@ blocks() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-blocks(Height, Hash) ->
-    gen_server:call(?SERVER, {blocks, Height, Hash}).
+-spec blocks(blockchain_block:hash()) -> {ok, [blockchain_block:block()]}.
+blocks(Hash) ->
+    %% NOTE: this is used for syncing
+    %% fetch all the blocks till the current block you have starting at the given Hash
+    gen_server:call(?SERVER, {blocks, Hash}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -299,6 +302,13 @@ handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:genesis_block(Chain), State};
 handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:blocks(Chain), State};
+handle_call({blocks, Hash}, _From, #state{blockchain=Chain}=State) ->
+    StartingBlock = case blockchain:get_block(Hash, Chain) of
+                        {ok, Block} -> Block;
+                        {error, _Reason} -> blockchain:genesis_block(Chain)
+                    end,
+    Blocks = blockchain:build(StartingBlock, maps:values(blockchain:blocks(Chain))),
+    {reply, {ok, Blocks}, State};
 handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:get_block(Hash, Chain), State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
@@ -326,6 +336,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
                                 ,blockchain_transaction:is_genesis_consensus_group_txn(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
+            ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
     end;
 handle_cast({consensus_addrs, Addresses}, State) ->
@@ -363,16 +374,14 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
         false ->
             lager:warning("gossipped block doesn't fit with our chain"),
             lager:info("syncing with the sender ~p", [Session]),
-            Height = blockchain_block:height(blockchain:head_block(Chain)),
-            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(Height)
-                       ++ "/" ++ blockchain_util:hexdump(Head),
-            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
-                {ok, _Stream} -> ok;
+            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+                {ok, Stream} ->
+                    Stream ! {hash, blockchain:head_hash(Chain)};
                 _ -> lager:notice("Failed to dial sync service on ~p", [Session])
             end,
             {noreply, State}
     end;
-handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Blocks) ->
+handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
     lager:info("got sync_blocks msg ~p", [Blocks]),
     F = ((N-1) div 3),
     % TODO: Too much nesting
@@ -457,10 +466,9 @@ handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State
     LocalHeight = blockchain_block:height(blockchain:head_block(Chain)),
     case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
         true ->
-            Protocol = ?SYNC_PROTOCOL ++ "/" ++ erlang:integer_to_list(LocalHeight)
-                       ++ "/" ++ blockchain_util:hexdump(LocalHead),
-            case libp2p_session:dial_framed_stream(Protocol, Session, blockchain_sync_handler, [self()]) of
-                {ok, _Stream} -> ok;
+            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+                {ok, Stream} ->
+                    Stream ! {hash, blockchain:head_hash(Chain)};
                 _ -> lager:notice("Failed to dial sync service on ~p", [Session])
             end;
         false -> ok
