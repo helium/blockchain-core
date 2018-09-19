@@ -94,9 +94,13 @@ basic(_Config) ->
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
+
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
     ok = compare_chains(Chain, blockchain:load(BaseDir)),
+
+    %% Test find_next block
+    ?assertEqual({ok, Block}, blockchain_block:find_next(blockchain:genesis_hash(Chain), maps:values(blockchain:blocks(Chain)))),
 
     % Restart blockchain and make sure nothing has changed
     true = erlang:exit(Sup, normal),
