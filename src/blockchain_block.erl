@@ -7,11 +7,11 @@
 
 -export([
     new/5
+    ,prev_hash/1
     ,height/1
     ,transactions/1
     ,signature/1
     ,meta/1
-    ,prev_hash/1
     ,remove_signature/1
     ,sign_block/2
     ,new_genesis_block/1
@@ -29,6 +29,10 @@
 ]).
 
 -include("blockchain.hrl").
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -record(block, {
     prev_hash :: blockchain_block:hash()
@@ -58,6 +62,14 @@ new(PrevHash, Height, Transactions, Signature, Meta) ->
         ,signature=Signature
         ,meta=Meta
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec prev_hash(block()) -> hash().
+prev_hash(Block) ->
+    Block#block.prev_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -95,14 +107,6 @@ meta(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec prev_hash(block()) -> hash().
-prev_hash(Block) ->
-    Block#block.prev_hash.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec remove_signature(block()) -> block().
 remove_signature(Block) ->
     Block#block{signature = <<>>}.
@@ -111,8 +115,8 @@ remove_signature(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign_block(block(), binary()) -> block().
-sign_block(Block, Signature) ->
+-spec sign_block(binary(), block()) -> block().
+sign_block(Signature, Block) ->
     Block#block{signature=Signature}.
 
 %%--------------------------------------------------------------------
@@ -156,10 +160,10 @@ hash_block(Block) ->
 %%--------------------------------------------------------------------
 -spec verify_signature(binary() | block(), [libp2p_crypto:address()], binary(), pos_integer()) ->
     false | {true, [{libp2p_crypto:address(), binary()}]}.
-verify_signature(#block{}=Block, ConsensusMembers, Signature, Threshold) ->
+verify_signature(#block{}=Block, ConsensusMembers, BinSigs, Threshold) ->
     BinBlock = erlang:term_to_binary(?MODULE:remove_signature(Block)),
-    verify_signature(BinBlock, ConsensusMembers, Signature, Threshold);
-verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
+    verify_signature(BinBlock, ConsensusMembers, BinSigs, Threshold);
+verify_signature(Artifact, ConsensusMembers, BinSigs, Threshold) ->
     ValidSignatures = lists:foldl(
         fun({Addr, Sig}, Acc) ->
             case
@@ -172,7 +176,7 @@ verify_signature(Artifact, ConsensusMembers, Signature, Threshold) ->
             end
         end
         ,[]
-        ,erlang:binary_to_term(Signature)
+        ,erlang:binary_to_term(BinSigs)
     ),
     case length(ValidSignatures) >= Threshold of
         true ->
@@ -233,15 +237,17 @@ save(Hash, Block, BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(hash(), string()) -> block() | undefined.
+-spec load(hash(), string()) -> {ok, block()} | {error, any()}.
 load(Hash, BaseDir) ->
     Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
     case file:read_file(File) of
-        {error, _Reason} ->
-            undefined;
+        {error, _Reason}=Error ->
+            Error;
         {ok, Binary} ->
-            ?MODULE:deserialize(blockchain_util:serial_version(BaseDir), Binary)
+            V = blockchain_util:serial_version(BaseDir),
+            Block = ?MODULE:deserialize(V, Binary),
+            {ok, Block}
     end.
 %%--------------------------------------------------------------------
 %% @doc
@@ -262,3 +268,123 @@ deserialize(_Version, Bin) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+new_test() ->
+    Block = #block{
+        prev_hash= <<>>
+        ,height=1
+        ,transactions=[]
+        ,signature= <<>>
+        ,meta= #{}
+    },
+    ?assertEqual(Block, new(<<>>, 1, [], <<>>, #{})).
+
+prev_hash_test() ->
+    Hash = <<"hash">>,
+    Block = new(Hash, 1, [], <<>>, #{}),
+    ?assertEqual(Hash, prev_hash(Block)).
+
+height_test() ->
+    Height = 1,
+    Block = new(<<>>, Height, [], <<>>, #{}),
+    ?assertEqual(Height, height(Block)).
+
+transactions_test() ->
+    Txs = [1],
+    Block = new(<<>>, 1, Txs, <<>>, #{}),
+    ?assertEqual(Txs, transactions(Block)).
+
+signature_test() ->
+    Sig = <<"signature">>,
+    Block = new(<<>>, 1, [], Sig, #{}),
+    ?assertEqual(Sig, signature(Block)).
+
+meta_test() ->
+    Meta = #{1 => 1},
+    Block = new(<<>>, 1, [], <<>>, Meta),
+    ?assertEqual(Meta, meta(Block)).
+
+remove_signature_test() ->
+    Sig = <<"signature">>,
+    Block = new(<<>>, 1, [], Sig, #{}),
+    ?assertEqual(<<>>, signature(remove_signature(Block))).
+
+sign_block_test() ->
+    Sig = <<"signature">>,
+    Block = new(<<>>, 1, [], <<>>, #{}),
+    ?assertEqual(Sig, signature(sign_block(Sig, Block))).
+
+new_genesis_block_test() ->
+    Txs = [1, 2, 3],
+    Block = new_genesis_block(Txs),
+    ?assertEqual(<<0:256>>, prev_hash(Block)),
+    ?assertEqual(1, height(Block)),
+    ?assertEqual(Txs, transactions(Block)),
+    ?assertEqual(<<>>, signature(Block)),
+    ?assertEqual(#{}, meta(Block)).
+
+is_genesis_test() ->
+    ?assertEqual(true, is_genesis(new_genesis_block([]))),
+    ?assertEqual(false, is_genesis(new(<<>>, 1, [], <<>>, #{}))).
+
+is_block_test() ->
+    ?assertEqual(true, is_block(new_genesis_block([]))),
+    ?assertEqual(false, is_block(#{})).
+
+verify_signature_test() ->
+    Keys = generate_keys(10),
+    [{Payer, {_, PayerPrivKey, _}}, {Recipient, _}|_] = Keys,
+    Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
+    SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
+    Block0 = blockchain_block:new(<<>>, 2, [SignedTx], <<>>, #{}),
+    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+    Signatures =
+        lists:foldl(
+            fun({A, {_, _, F}}, Acc) ->
+                Sig = F(BinBlock),
+                [{A, Sig}|Acc]
+            end
+            ,[]
+            ,Keys
+        ),
+    BinSigs = erlang:term_to_binary(Signatures),
+    Block1 = blockchain_block:sign_block(BinSigs, Block0),
+    ConsensusMembers = [Addr || {Addr, _} <- Keys],
+    ?assertMatch({true, _}, verify_signature(Block1, ConsensusMembers, BinSigs, 7)),
+    ?assertMatch(false, verify_signature(Block1, ConsensusMembers, BinSigs, 20)),
+    ?assertMatch(false, verify_signature(Block1, [], BinSigs, 7)),
+    ok.
+
+dir_test() ->
+    ?assertEqual("data/" ++ ?BLOCKS_DIR, dir("data")).
+
+save_load_test() ->
+    BaseDir = "data/test",
+    Block = new_genesis_block([]),
+    Hash = hash_block(Block),
+    ?assertEqual(ok, save(Hash, Block, BaseDir)),
+    ?assertEqual({ok, Block}, load(Hash, BaseDir)),
+    ?assertEqual({error, enoent}, load(Hash, "data/test2")),
+    ok.
+
+serialize_deserialize_test() ->
+    Block = new_genesis_block([]),
+    ?assertEqual(Block, deserialize(v1, serialize(v1, Block))).
+
+generate_keys(N) ->
+    lists:foldl(
+        fun(_, Acc) ->
+            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            [{libp2p_crypto:pubkey_to_address(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+        end
+        ,[]
+        ,lists:seq(1, N)
+    ).
+
+-endif.

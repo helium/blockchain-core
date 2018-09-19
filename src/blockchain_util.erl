@@ -10,11 +10,14 @@
     ,atomic_save/2
     ,serialize_hash/1, deserialize_hash/1
     ,serial_version/1
-    ,index_of/2
 ]).
 
 -type serial_version() :: v1 | v2 | v3.
 -export_type([serial_version/0]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -62,20 +65,25 @@ serial_version(Dir) ->
          ,string:find(Dir, "v2")
          ,string:find(Dir, "v3")}
     of
-        {"v1", _, _} -> v1;
-        {_, "v2", _} -> v2;
-        {_, _, "v3"} -> v3;
+        {Str, nomatch, nomatch} when is_list(Str) -> v1;
+        {nomatch, Str,nomatch} when is_list(Str) -> v2;
+        {nomatch, nomatch, Str} when is_list(Str) -> v3;
         _ -> v1
     end.
 
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec index_of(any(), [any()]) -> pos_integer().
-index_of(Item, List) -> index_of(Item, List, 1).
+serialize_deserialize_test() ->
+    Hash = <<"123abc">>,
+    ?assertEqual(Hash, deserialize_hash(serialize_hash(Hash))).
 
-index_of(_, [], _)  -> not_found;
-index_of(Item, [Item|_], Index) -> Index;
-index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
+serial_version_test() ->
+    ?assertEqual(v1, serial_version("data_v1/blockchain")),
+    ?assertEqual(v2, serial_version("data_v2/blockchain")),
+    ?assertEqual(v3, serial_version("data_v3/blockchain")),
+    ?assertEqual(v1, serial_version("anything else")).
+
+-endif.

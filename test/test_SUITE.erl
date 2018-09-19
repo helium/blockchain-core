@@ -129,7 +129,7 @@ add_block(ConsensusMembers, Txs) ->
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:sign_block(Block0, erlang:term_to_binary(Signatures)),
+    Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
     ok = blockchain_worker:add_block(Block1, self()),
     Block1.
 

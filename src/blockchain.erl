@@ -151,15 +151,7 @@ add_block(Block, Blockchain) ->
                                                           | {error, any()}.
 get_block(Hash, Blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
-    Dir = blockchain_block:dir(BaseDir),
-    File = blockchain_util:serialize_hash(Hash),
-    case file:read_file(filename:join(Dir, File)) of
-        {error, _Reason}=Error -> Error;
-        {ok, Binary} ->
-            V = blockchain_util:serial_version(Dir),
-            Block = blockchain_block:deserialize(V, Binary),
-            {ok, Block}
-    end.
+    blockchain_block:load(Hash, BaseDir).
 
 %%--------------------------------------------------------------------
 %% @doc
