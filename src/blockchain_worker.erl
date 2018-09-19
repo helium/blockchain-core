@@ -381,7 +381,7 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
             end,
             {noreply, State}
     end;
-handle_cast({sync_blocks, {sync, Blocks}}, #state{n=N}=State0) when is_list(Blocks) ->
+handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
     lager:info("got sync_blocks msg ~p", [Blocks]),
     F = ((N-1) div 3),
     % TODO: Too much nesting
