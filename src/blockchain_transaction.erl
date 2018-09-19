@@ -36,6 +36,10 @@
     ,sort/2
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -record(add_gateway_txn, {
     owner_address :: libp2p_crypto:address()
     ,gateway_address :: libp2p_crypto:address()
@@ -487,3 +491,90 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                     {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}}
             end
     end.
+
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+new_payment_txn_test() ->
+    Tx = #payment_txn{
+        payer= <<"payer">>
+        ,payee= <<"payee">>
+        ,amount=666
+        ,nonce=1
+        ,signature = <<>>
+    },
+    ?assertEqual(Tx, new_payment_txn(<<"payer">>, <<"payee">>, 666, 1)).
+
+new_add_gateway_txn_test() ->
+    Tx = #add_gateway_txn{
+        owner_address= <<"owner">>
+        ,gateway_address= <<"gw">>
+        ,owner_signature = <<>>
+        ,gateway_signature = <<>>
+    },
+    ?assertEqual(Tx, new_add_gateway_txn(<<"owner">>, <<"gw">>)).
+
+new_coinbase_txn_test() ->
+    Tx = #coinbase_txn{payee= <<"payee">>, amount=666},
+    ?assertEqual(Tx, new_coinbase_txn(<<"payee">>, 666)).
+
+new_assert_location_txn_test() ->
+    Tx = #assert_location_txn{
+        gateway_address= <<"gw">>
+        ,location=1
+        ,signature = <<>>
+        ,nonce=1
+    },
+    ?assertEqual(Tx, new_assert_location_txn(<<"gw">>, 1, 1)).
+
+new_genesis_consensus_group_test() ->
+    Tx = #genesis_consensus_group_txn{members=[<<1>>, <<2>>]},
+    ?assertEqual(Tx, new_genesis_consensus_group([<<1>>, <<2>>])).
+
+sign_payment_tx_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Tx0 = new_payment_txn(<<"payer">>, <<"payee">>, 666, 1),
+    Tx1 = sign_payment_txn(Tx0, PrivKey),
+    Sig1 = signature(Tx1),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#payment_txn{signature = <<>>}), Sig1, PubKey)).
+
+sign_add_gateway_txn_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Tx0 = new_add_gateway_txn(<<"owner">>, <<"gw">>),
+    Tx1 = sign_add_gateway_txn(Tx0, PrivKey),
+    Sig1 = gateway_address(Tx1),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#add_gateway_txn{gateway_signature = <<>>}), Sig1, PubKey)).
+
+% sign_add_gateway_request_test() ->
+%     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+%     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+%     SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {key, {PubKey, SigFun}}],
+%     {ok, Swarm} = libp2p_swarm:start(?FUNCTION_NAME, SwarmOpts),
+%     Tx0 = new_add_gateway_txn(<<"owner">>, <<"gw">>),
+%     Tx1 = sign_add_gateway_request(Tx0, Swarm),
+%     Sig1 = gateway_address(Tx1),
+%     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#add_gateway_txn{gateway_signature = <<>>, owner_signature = <<>>}), Sig1, PubKey)).
+
+sign_assert_location_txn_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Tx0 =  new_assert_location_txn(<<"gw">>, 1, 1),
+    Tx1 = sign_assert_location_txn(Tx0, PrivKey),
+    Sig1 = Tx1#assert_location_txn.signature,
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#assert_location_txn{signature= <<>>}), Sig1, PubKey)).
+
+is_valid_payment_txn_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    Tx0 = new_payment_txn(Payer, <<"payee">>, 666, 1),
+    Tx1 = sign_payment_txn(Tx0, PrivKey),
+    ?assert(is_valid_payment_txn(Tx1)),
+    {_, PubKey2} = libp2p_crypto:generate_keys(),
+    Payer2 = libp2p_crypto:pubkey_to_address(PubKey2),
+    Tx2 = new_payment_txn(Payer2, <<"payee">>, 666, 1),
+    Tx3 = sign_payment_txn(Tx2, PrivKey),
+    ?assertNot(is_valid_payment_txn(Tx3)).
+
+-endif.
