@@ -180,7 +180,7 @@ load(BaseDir) ->
         {{error, _}, _, _} -> undefined;
         {_, {error, _}, _} -> undefined;
         {_, _, {error, _}} -> undefined;
-        {GenesisBlock, HeadBlock, Ledger} ->
+        {{ok, GenesisBlock}, {ok, HeadBlock}, {ok, Ledger}} ->
             GenesisHash = blockchain_block:hash_block(GenesisBlock),
             HeadHash = blockchain_block:hash_block(HeadBlock),
             #blockchain{
@@ -231,14 +231,14 @@ save_genesis(Block, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_genesis(file:filename_all()) -> blockchain_block:block() | {error, any()}.
+-spec load_genesis(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
 load_genesis(Dir) ->
     File = filename:join(Dir, ?GEN_HASH_FILE),
     case file:read_file(File) of
         {error, _Reason}=Error ->
             Error;
         {ok, Binary} ->
-            blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
+            {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
     end.
 
 %%--------------------------------------------------------------------
@@ -256,12 +256,12 @@ save_head(Block, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_head(file:filename_all()) -> blockchain_block:block() | {error, any()}.
+-spec load_head(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
 load_head(Dir) ->
     File = filename:join(Dir, ?HEAD_FILE),
     case file:read_file(File) of
         {error, _Reason}=Error ->
             Error;
         {ok, Binary} ->
-            blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
+            {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
     end.

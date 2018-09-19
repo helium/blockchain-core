@@ -414,7 +414,7 @@ absorb_transactions([PaymentTxn=#payment_txn{payer=Payer,
             {error, bad_signature}
     end;
 absorb_transactions([#genesis_consensus_group_txn{members=Members} | Tail], Ledger) ->
-    absorb_transactions(Tail, blockchain_ledger:add_consensus_members(Members, Ledger));
+    absorb_transactions(Tail, blockchain_ledger:consensus_members(Members, Ledger));
 absorb_transactions([Unknown|_Tail], _Ledger) ->
     lager:warning("unknown transaction ~p", [Unknown]),
     {error, unknown_transaction}.
