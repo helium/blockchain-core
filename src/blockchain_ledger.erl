@@ -242,12 +242,12 @@ save(Ledger, BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(string()) -> ledger() | undefined.
+-spec load(file:filename_all()) -> ledger() | {error, any()}.
 load(BaseDir) ->
     File = filename:join(BaseDir, ?LEDGER_FILE),
     case file:read_file(File) of
-        {error, _Reason} ->
-            undefined;
+        {error, _Reason}=Error ->
+            Error;
         {ok, Binary} ->
             deserialize(blockchain_util:serial_version(BaseDir), Binary)
     end.

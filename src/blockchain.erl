@@ -177,9 +177,9 @@ load(BaseDir) ->
          ,load_head(Dir)
          ,blockchain_ledger:load(Dir)}
     of
-        {undefined, _, _} -> undefined;
-        {_, undefined, _} -> undefined;
-        {_, _, undefined} -> undefined;
+        {{error, _}, _, _} -> undefined;
+        {_, {error, _}, _} -> undefined;
+        {_, _, {error, _}} -> undefined;
         {GenesisBlock, HeadBlock, Ledger} ->
             GenesisHash = blockchain_block:hash_block(GenesisBlock),
             HeadHash = blockchain_block:hash_block(HeadBlock),
@@ -231,12 +231,12 @@ save_genesis(Block, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_genesis(file:filename_all()) -> blockchain_block:block() | undefined.
+-spec load_genesis(file:filename_all()) -> blockchain_block:block() | {error, any()}.
 load_genesis(Dir) ->
     File = filename:join(Dir, ?GEN_HASH_FILE),
     case file:read_file(File) of
-        {error, _Reason} ->
-            undefined;
+        {error, _Reason}=Error ->
+            Error;
         {ok, Binary} ->
             blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
     end.
@@ -256,12 +256,12 @@ save_head(Block, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_head(file:filename_all()) -> blockchain_block:block() | undefined.
+-spec load_head(file:filename_all()) -> blockchain_block:block() | {error, any()}.
 load_head(Dir) ->
     File = filename:join(Dir, ?HEAD_FILE),
     case file:read_file(File) of
-        {error, _Reason} ->
-            undefined;
+        {error, _Reason}=Error ->
+            Error;
         {ok, Binary} ->
             blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
     end.
