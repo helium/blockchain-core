@@ -16,7 +16,7 @@
     ,add_block/2
     ,get_block/2
     ,save/1, load/1
-
+    ,build/2
 ]).
 
 -include("blockchain.hrl").
@@ -264,4 +264,21 @@ load_head(Dir) ->
             Error;
         {ok, Binary} ->
             blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec build(blockchain_block:block(), [blockchain_block:block()]) -> [blockchain_block:block()].
+build(PrevBlock, Blocks) ->
+    build(PrevBlock, Blocks, []).
+
+-spec build(blockchain_block:block(), [blockchain_block:block()], [blockchain_block:block()]) -> [blockhain_block:block()].
+build(PrevBlock, Blocks, Acc) ->
+    case blockchain_block:find_next(blockchain_block:hash_block(PrevBlock), Blocks) of
+        {ok, NextBlock} ->
+            build(NextBlock, Blocks, [NextBlock | Acc]);
+        false ->
+            lists:reverse(Acc)
     end.

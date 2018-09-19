@@ -307,7 +307,7 @@ handle_call({blocks, Hash}, _From, #state{blockchain=Chain}=State) ->
                         {ok, Block} -> Block;
                         {error, _Reason} -> blockchain:genesis_block(Chain)
                     end,
-    Blocks = build_chain(StartingBlock, maps:values(blockchain:blocks(Chain))),
+    Blocks = blockchain:build(StartingBlock, maps:values(blockchain:blocks(Chain))),
     {reply, {ok, Blocks}, State};
 handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:get_block(Hash, Chain), State};
@@ -536,28 +536,4 @@ do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Ret
         Other ->
             lager:notice("Failed to dial ~p service on ~p : ~p", [Protocol, Address, Other]),
             do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry)
-    end.
-
--spec build_chain(blockchain_block:block(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build_chain(PrevBlock, Blocks) ->
-    build_chain(PrevBlock, Blocks, []).
-
--spec build_chain(blockchain_block:block(), [blockchain_block:block()], [blockchain_block:block()]) -> [blockhain_block:block()].
-build_chain(PrevBlock, Blocks, Acc) ->
-    case find_next_block(blockchain_block:hash_block(PrevBlock), Blocks) of
-        {ok, NextBlock} ->
-            build_chain(NextBlock, Blocks, [NextBlock | Acc]);
-        false ->
-            lists:reverse(Acc)
-    end.
-
-
--spec find_next_block(blockchain_block:hash(), [blockchain_block:block()]) -> false| {ok, blockchain_block:block()}.
-find_next_block(_, []) -> false;
-find_next_block(Hash, [Block | Tail]) ->
-    case blockchain_block:prev_hash(Block) == Hash of
-        true ->
-            {ok, Block};
-        false ->
-            find_next_block(Hash, Tail)
     end.
