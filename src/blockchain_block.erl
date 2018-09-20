@@ -270,7 +270,8 @@ deserialize(_Version, Bin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_next(blockchain_block:hash(), [blockchain_block:block()]) -> false| {ok, blockchain_block:block()}.
+-spec find_next(blockchain_block:hash(), [blockchain_block:block()]) -> {ok, blockchain_block:block()}
+                                                                        | false.
 find_next(_, []) -> false;
 find_next(Hash, [Block | Tail]) ->
     case blockchain_block:prev_hash(Block) == Hash of

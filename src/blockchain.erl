@@ -21,6 +21,10 @@
 
 -include("blockchain.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -record(blockchain, {
     genesis :: {blockchain_block:hash(), blockchain_block:block()}
     ,head :: {blockchain_block:hash(), blockchain_block:block()}
@@ -282,3 +286,83 @@ build(PrevBlock, Blocks, Acc) ->
         false ->
             lists:reverse(Acc)
     end.
+
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+new_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Hash = blockchain_block:hash_block(Block),
+    Chain = new(Block, #{}, "data/new_test"),
+    ?assertEqual({Hash, Block}, Chain#blockchain.genesis),
+    ?assertEqual({Hash, Block}, Chain#blockchain.head),
+    ?assertEqual(#{}, Chain#blockchain.ledger),
+    ?assertEqual("data/new_test/blockchain", Chain#blockchain.dir).
+
+genesis_hash_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Hash = blockchain_block:hash_block(Block),
+    Chain = new(Block, #{}, "data/genesis_hash_test"),
+    ?assertEqual(Hash, genesis_hash(Chain)).
+
+genesis_block_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Chain = new(Block, #{}, "data/genesis_block_test"),
+    ?assertEqual(Block, genesis_block(Chain)).
+
+head_hash_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Hash = blockchain_block:hash_block(Block),
+    Chain = new(Block, #{}, "data/head_hash_test"),
+    ?assertEqual(Hash, head_hash(Chain)).
+
+head_block_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Chain = new(Block, #{}, "data/head_block_test"),
+    ?assertEqual(Block, head_block(Chain)).
+
+ledger_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Chain = new(Block, #{}, "data/ledger_test"),
+    ?assertEqual(#{}, ledger(Chain)).
+
+dir_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Chain = new(Block, #{}, "data/dir_test"),
+    ?assertEqual("data/dir_test/blockchain", dir(Chain)).
+
+blocks_test() ->
+    GenBlock = blockchain_block:new_genesis_block([]),
+    GenHash = blockchain_block:hash_block(GenBlock),
+    Chain = new(GenBlock, #{}, "data/blocks_test"),
+    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Hash = blockchain_block:hash_block(Block),
+    Chain2 = add_block(Block, Chain),
+    Map = #{Hash => Block},
+    ?assertMatch(Map, blocks(Chain2)).
+
+blocks_size_test() ->
+    Block = blockchain_block:new_genesis_block([]),
+    Chain = new(Block, #{}, "data/blocks_size_test"),
+    ?assertEqual(0, blocks_size(Chain)).
+
+get_block_test() ->
+    GenBlock = blockchain_block:new_genesis_block([]),
+    GenHash = blockchain_block:hash_block(GenBlock),
+    Chain = new(GenBlock, #{}, "data/get_block_test"),
+    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Hash = blockchain_block:hash_block(Block),
+    Chain2 = add_block(Block, Chain),
+    ?assertMatch({ok, Block}, get_block(Hash, Chain2)).
+
+save_load_test() ->
+    GenBlock = blockchain_block:new_genesis_block([]),
+    Chain = new(GenBlock, #{}, "data/save_load_test"),
+    ?assertEqual(ok, save(Chain)),
+    ?assertEqual(Chain, load("data/save_load_test")).
+
+
+-endif.

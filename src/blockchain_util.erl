@@ -6,8 +6,7 @@
 -module(blockchain_util).
 
 -export([
-    hexdump/1
-    ,atomic_save/2
+    atomic_save/2
     ,serialize_hash/1, deserialize_hash/1
     ,serial_version/1
 ]).
@@ -18,14 +17,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec hexdump(binary()) -> string().
-hexdump(Bin) ->
-    lists:flatten([[io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin]]).
 
 %%--------------------------------------------------------------------
 %% @doc
