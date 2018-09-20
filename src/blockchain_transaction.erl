@@ -164,11 +164,11 @@ sign_payment_txn(PaymentTxn, PrivKey) ->
 -spec sign_add_gateway_txn(add_gateway_txn(), pid() | libp2p_crypto:private_key()) -> add_gateway_txn().
 sign_add_gateway_txn(AddGwTxn, Swarm) when is_pid(Swarm) ->
     {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    Signature = Sigfun(erlang:term_to_binary(AddGwTxn)),
-    AddGwTxn#add_gateway_txn{gateway_signature=Signature};
+    OwnerSignature = Sigfun(erlang:term_to_binary(AddGwTxn#add_gateway_txn{gateway_signature = << >>, owner_signature = << >>})),
+    AddGwTxn#add_gateway_txn{owner_signature=OwnerSignature};
 sign_add_gateway_txn(AddGwTxn, PrivKey) ->
-    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
-    AddGwTxn#add_gateway_txn{gateway_signature=Sign(erlang:term_to_binary(AddGwTxn))}.
+    OwnerSign = libp2p_crypto:mk_sig_fun(PrivKey),
+    AddGwTxn#add_gateway_txn{owner_signature=OwnerSign(erlang:term_to_binary(AddGwTxn#add_gateway_txn{gateway_signature = << >>, owner_signature = << >>}))}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -373,14 +373,18 @@ absorb_transactions([#add_gateway_txn{owner_address=OwnerAddress
                 true ->
                     case blockchain_ledger:add_gateway(OwnerAddress, GatewayAddress, Ledger) of
                         false ->
+                            lager:error("gateway_already_registered, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                             {error, gateway_already_registered};
                         NewLedger ->
+                            lager:info("absorb_transaction: add_gateway_txn, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                             absorb_transactions(Tail, NewLedger)
                     end;
                 false ->
+                    lager:error("bad_gateway_signature, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                     {error, bad_gateway_signature}
             end;
         false ->
+            lager:error("bad_owner_signature, owner_sig: ~p, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OSig, OwnerAddress, GatewayAddress, Ledger]),
             {error, bad_owner_signature}
     end;
 absorb_transactions([#assert_location_txn{gateway_address=GatewayAddress
