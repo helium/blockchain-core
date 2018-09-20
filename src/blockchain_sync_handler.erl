@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Sybc Stream Handler ==
+%% == Blockchain Sync Stream Handler ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_sync_handler).
