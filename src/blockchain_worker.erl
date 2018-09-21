@@ -316,7 +316,7 @@ handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
     AddGwTxn = blockchain_txn_add_gateway:new(OwnerAddress, Address),
-    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, Swarm),
+    SignedAddGwTxn = blockchain_txn_add_gateway:sign_request(AddGwTxn, Swarm),
     {reply, SignedAddGwTxn, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),

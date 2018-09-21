@@ -12,6 +12,7 @@
     ,owner_signature/1
     ,gateway_signature/1
     ,sign/2
+    ,sign_request/2
     ,is_valid_gateway/1
     ,is_valid_owner/1
     ,is/1
@@ -88,6 +89,16 @@ sign(Txn, PrivKey) ->
     Sigfun = libp2p_crypto:mk_sig_fun(PrivKey),
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{owner_signature= <<>>
                                                        ,gateway_signature= <<>>}),
+    Txn#txn_add_gateway{gateway_signature=Sigfun(BinTxn)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec sign_request(txn_add_gateway(), pid()) -> txn_add_gateway().
+sign_request(Txn, Swarm) when is_pid(Swarm) ->
+    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
+    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{gateway_signature = <<>>, owner_signature = <<>>}),
     Txn#txn_add_gateway{gateway_signature=Sigfun(BinTxn)}.
 
 %%--------------------------------------------------------------------
