@@ -38,7 +38,7 @@
 -record(block, {
     prev_hash :: blockchain_block:hash()
     ,height = 0 :: non_neg_integer()
-    ,transactions = [] :: blockchain_transaction:transactions()
+    ,transactions = [] :: blockchain_transactions:transactions()
     ,signature :: binary()
     ,meta = #{} :: #{any() => any()}
 }).
@@ -53,7 +53,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(hash(), non_neg_integer() ,blockchain_transaction:transactions()
+-spec new(hash(), non_neg_integer() ,blockchain_transactions:transactions()
           ,binary(), meta()) -> block().
 new(PrevHash, Height, Transactions, Signature, Meta) ->
     #block{
@@ -84,7 +84,7 @@ height(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec transactions(block()) -> blockchain_transaction:transactions().
+-spec transactions(block()) -> blockchain_transactions:transactions().
 transactions(Block) ->
     Block#block.transactions.
 
@@ -124,7 +124,7 @@ sign_block(Signature, Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new_genesis_block(blockchain_transaction:transactions()) -> block().
+-spec new_genesis_block(blockchain_transactions:transactions()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, #{}).
 
@@ -192,27 +192,27 @@ verify_signature(Artifact, ConsensusMembers, BinSigs, Threshold) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_transactions(block()) -> [blockchain_transaction:payment_txn()].
+-spec payment_transactions(block()) -> [blockchain_txn_payment:txn_payment()].
 payment_transactions(Block) ->
-    lists:filter(fun(Txn) ->blockchain_transaction:is_payment_txn(Txn) end
+    lists:filter(fun(Txn) -> blockchain_txn_payment:is(Txn) end
                  ,?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_transactions(block()) -> [blockchain_transaction:add_gateway_txn()].
+-spec add_gateway_transactions(block()) -> [blockchain_txn_add_gateway:txn_add_gateway()].
 add_gateway_transactions(Block) ->
-    lists:filter(fun(Txn) -> blockchain_transaction:is_add_gateway_txn(Txn) end
+    lists:filter(fun(Txn) -> blockchain_txn_add_gateway:is(Txn) end
                  ,?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_location_transactions(block()) -> [blockchain_transaction:assert_location_transactions()].
+-spec assert_location_transactions(block()) -> [blockchain_txn_assert_location:txn_assert_location()].
 assert_location_transactions(Block) ->
-    lists:filter(fun(Txn) -> blockchain_transaction:is_assert_location_txn(Txn) end
+    lists:filter(fun(Txn) -> blockchain_txn_assert_location:is(Txn) end
                  ,?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
@@ -355,8 +355,8 @@ is_block_test() ->
 verify_signature_test() ->
     Keys = generate_keys(10),
     [{Payer, {_, PayerPrivKey, _}}, {Recipient, _}|_] = Keys,
-    Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
+    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
+    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
     Block0 = blockchain_block:new(<<>>, 2, [SignedTx], <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures =

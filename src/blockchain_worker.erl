@@ -212,7 +212,7 @@ payment_txn(PrivKey, Address, Recipient, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec submit_txn(atom(), blockchain_transaction:transaction()) -> ok.
+-spec submit_txn(atom(), blockchain_transactions:transaction()) -> ok.
 submit_txn(Type, Txn) ->
     gen_server:cast(?SERVER, {submit_txn, Type, Txn}).
 
@@ -228,7 +228,7 @@ add_gateway_request(OwnerAddress) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_txn(blockchain_transaction:transaction()) -> ok.
+-spec add_gateway_txn(blockchain_txn_add_gateway:txn_add_gateway()) -> ok.
 add_gateway_txn(AddGatewayRequest) ->
     gen_server:cast(?SERVER, {add_gateway_txn, AddGatewayRequest}).
 
@@ -315,8 +315,8 @@ handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
-    AddGwTxn = blockchain_transaction:new_add_gateway_txn(OwnerAddress, Address),
-    SignedAddGwTxn = blockchain_transaction:sign_add_gateway_request(AddGwTxn, Swarm),
+    AddGwTxn = blockchain_txn_add_gateway:new(OwnerAddress, Address),
+    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, Swarm),
     {reply, SignedAddGwTxn, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -329,11 +329,11 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             {noreply, State};
         true ->
             Transactions = blockchain_block:transactions(GenesisBlock),
-            {ok, Ledger} = blockchain_transaction:absorb_transactions(Transactions, #{}),
+            {ok, Ledger} = blockchain_transactions:absorb(Transactions, #{}),
             Blockchain = blockchain:new(GenesisBlock, Ledger, Dir),
-            [ConsensusAddrs] = [blockchain_transaction:genesis_consensus_group_members(T)
+            [ConsensusAddrs] = [blockchain_txn_gen_consensus_group:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
-                                ,blockchain_transaction:is_genesis_consensus_group_txn(T)],
+                                ,blockchain_txn_gen_consensus_group:is(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
@@ -418,29 +418,23 @@ handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=St
     Address = libp2p_swarm:address(Swarm),
     Entry = blockchain_ledger:find_entry(Address, Ledger),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_transaction:new_payment_txn(Address
-                                                        ,Recipient
-                                                        ,Amount
-                                                        ,Nonce + 1),
-    SignedPaymentTxn = blockchain_transaction:sign_payment_txn(PaymentTxn, Swarm),
+    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
+    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, Swarm),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Entry = blockchain_ledger:find_entry(Address, Ledger),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_transaction:new_payment_txn(Address
-                                                        ,Recipient
-                                                        ,Amount
-                                                        ,Nonce + 1),
-    SignedPaymentTxn = blockchain_transaction:sign_payment_txn(PaymentTxn, PrivKey),
+    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
+    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, PrivKey),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({submit_txn, Type, Txn}, State) ->
     ok = send_txn(Type, Txn, State),
     {noreply, State};
 handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
-    SignedAddGwTxn = blockchain_transaction:sign_add_gateway_txn(AddGwTxn, Swarm),
+    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, Swarm),
     ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
     {noreply, State};
 handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chain}=State) ->
@@ -451,8 +445,8 @@ handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chai
             lager:info("gateway not found in ledger.");
         GwInfo ->
             Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
-            AssertLocationTxn = blockchain_transaction:new_assert_location_txn(Address, Location, Nonce+1),
-            SignedAssertLocationTxn = blockchain_transaction:sign_assert_location_txn(AssertLocationTxn, Swarm),
+            AssertLocationTxn = blockchain_txn_assert_location:new(Address, Location, Nonce+1),
+            SignedAssertLocationTxn = blockchain_txn_assert_location:sign(AssertLocationTxn, Swarm),
             lager:info(
                 "assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
                 ,[Address, Location, Nonce, SignedAssertLocationTxn]
