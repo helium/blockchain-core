@@ -27,6 +27,8 @@
     ,amount/1
     ,payment_nonce/1
     ,signature/1
+    ,owner_signature/1
+    ,gateway_signature/1
     ,assert_location_nonce/1
     ,coinbase_payee/1
     ,coinbase_amount/1
@@ -164,11 +166,11 @@ sign_payment_txn(PaymentTxn, PrivKey) ->
 -spec sign_add_gateway_txn(add_gateway_txn(), pid() | libp2p_crypto:private_key()) -> add_gateway_txn().
 sign_add_gateway_txn(AddGwTxn, Swarm) when is_pid(Swarm) ->
     {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    Signature = Sigfun(erlang:term_to_binary(AddGwTxn)),
-    AddGwTxn#add_gateway_txn{gateway_signature=Signature};
+    OwnerSignature = Sigfun(erlang:term_to_binary(AddGwTxn#add_gateway_txn{gateway_signature = << >>, owner_signature = << >>})),
+    AddGwTxn#add_gateway_txn{owner_signature=OwnerSignature};
 sign_add_gateway_txn(AddGwTxn, PrivKey) ->
-    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
-    AddGwTxn#add_gateway_txn{gateway_signature=Sign(erlang:term_to_binary(AddGwTxn))}.
+    OwnerSign = libp2p_crypto:mk_sig_fun(PrivKey),
+    AddGwTxn#add_gateway_txn{owner_signature=OwnerSign(erlang:term_to_binary(AddGwTxn#add_gateway_txn{gateway_signature = << >>, owner_signature = << >>}))}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -208,7 +210,7 @@ is_valid_payment_txn(PaymentTxn=#payment_txn{payer=Payer, signature=Signature}) 
 %%--------------------------------------------------------------------
 -spec gateway_address(add_gateway_txn()) -> libp2p_crypto:address().
 gateway_address(Transaction) when is_record(Transaction, add_gateway_txn) ->
-    Transaction#add_gateway_txn.gateway_signature.
+    Transaction#add_gateway_txn.gateway_address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -279,6 +281,22 @@ amount(PaymentTxn) ->
 -spec payment_nonce(payment_txn()) -> non_neg_integer().
 payment_nonce(PaymentTxn) ->
     PaymentTxn#payment_txn.nonce.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec gateway_signature(add_gateway_txn()) -> binary().
+gateway_signature(AddGatewayTxn) ->
+    AddGatewayTxn#add_gateway_txn.gateway_signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec owner_signature(add_gateway_txn()) -> binary().
+owner_signature(AddGatewayTxn) ->
+    AddGatewayTxn#add_gateway_txn.owner_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -373,14 +391,18 @@ absorb_transactions([#add_gateway_txn{owner_address=OwnerAddress
                 true ->
                     case blockchain_ledger:add_gateway(OwnerAddress, GatewayAddress, Ledger) of
                         false ->
+                            lager:error("gateway_already_registered, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                             {error, gateway_already_registered};
                         NewLedger ->
+                            lager:info("absorb_transaction: add_gateway_txn, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                             absorb_transactions(Tail, NewLedger)
                     end;
                 false ->
+                    lager:error("bad_gateway_signature, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OwnerAddress, GatewayAddress, Ledger]),
                     {error, bad_gateway_signature}
             end;
         false ->
+            lager:error("bad_owner_signature, owner_sig: ~p, owner_address: ~p, gateway_address: ~p, ledger: ~p", [OSig, OwnerAddress, GatewayAddress, Ledger]),
             {error, bad_owner_signature}
     end;
 absorb_transactions([#assert_location_txn{gateway_address=GatewayAddress
@@ -407,12 +429,17 @@ absorb_transactions([PaymentTxn=#payment_txn{payer=Payer,
     lager:notice("absorb_transactions: ~p", [PaymentTxn]),
     case blockchain_transaction:is_valid_payment_txn(PaymentTxn) of
         true ->
-            case blockchain_ledger:credit_account(Payee, Amount, blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger)) of
+            case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger) of
                 {error, Reason} ->
-                    lager:error("paymentTxn: ~p, Error: ~p", [PaymentTxn, Reason]),
                     {error, Reason};
                 NewLedger ->
-                    absorb_transactions(Tail, NewLedger)
+                    case blockchain_ledger:credit_account(Payee, Amount, NewLedger) of
+                        {error, Reason} ->
+                            lager:error("paymentTxn: ~p, Error: ~p", [PaymentTxn, Reason]),
+                            {error, Reason};
+                        NewLedger2 ->
+                            absorb_transactions(Tail, NewLedger2)
+                    end
             end;
         false ->
             {error, bad_signature}
@@ -543,20 +570,24 @@ sign_payment_tx_test() ->
 
 sign_add_gateway_txn_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {key, {PubKey, SigFun}}],
+    {ok, Swarm} = libp2p_swarm:start(?FUNCTION_NAME, SwarmOpts),
     Tx0 = new_add_gateway_txn(<<"owner">>, <<"gw">>),
-    Tx1 = sign_add_gateway_txn(Tx0, PrivKey),
-    Sig1 = gateway_address(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#add_gateway_txn{gateway_signature = <<>>}), Sig1, PubKey)).
+    Tx1 = sign_add_gateway_request(Tx0, Swarm),
+    Tx2 = sign_add_gateway_txn(Tx1, Swarm),
+    OSig = owner_signature(Tx2),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx2#add_gateway_txn{gateway_signature = <<>>, owner_signature = << >>}), OSig, PubKey)).
 
-% sign_add_gateway_request_test() ->
-%     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-%     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-%     SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {key, {PubKey, SigFun}}],
-%     {ok, Swarm} = libp2p_swarm:start(?FUNCTION_NAME, SwarmOpts),
-%     Tx0 = new_add_gateway_txn(<<"owner">>, <<"gw">>),
-%     Tx1 = sign_add_gateway_request(Tx0, Swarm),
-%     Sig1 = gateway_address(Tx1),
-%     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#add_gateway_txn{gateway_signature = <<>>, owner_signature = <<>>}), Sig1, PubKey)).
+sign_add_gateway_request_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {key, {PubKey, SigFun}}],
+    {ok, Swarm} = libp2p_swarm:start(?FUNCTION_NAME, SwarmOpts),
+    Tx0 = new_add_gateway_txn(<<"owner">>, <<"gw">>),
+    Tx1 = sign_add_gateway_request(Tx0, Swarm),
+    Sig1 = gateway_signature(Tx1),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#add_gateway_txn{gateway_signature = <<>>, owner_signature = <<>>}), Sig1, PubKey)).
 
 sign_assert_location_txn_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
