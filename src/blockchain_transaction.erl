@@ -429,12 +429,17 @@ absorb_transactions([PaymentTxn=#payment_txn{payer=Payer,
     lager:notice("absorb_transactions: ~p", [PaymentTxn]),
     case blockchain_transaction:is_valid_payment_txn(PaymentTxn) of
         true ->
-            case blockchain_ledger:credit_account(Payee, Amount, blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger)) of
+            case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger) of
                 {error, Reason} ->
-                    lager:error("paymentTxn: ~p, Error: ~p", [PaymentTxn, Reason]),
                     {error, Reason};
                 NewLedger ->
-                    absorb_transactions(Tail, NewLedger)
+                    case blockchain_ledger:credit_account(Payee, Amount, NewLedger) of
+                        {error, Reason} ->
+                            lager:error("paymentTxn: ~p, Error: ~p", [PaymentTxn, Reason]),
+                            {error, Reason};
+                        NewLedger2 ->
+                            absorb_transactions(Tail, NewLedger2)
+                    end
             end;
         false ->
             {error, bad_signature}
