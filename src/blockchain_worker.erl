@@ -504,7 +504,7 @@ send_txn(Type, Txn, #state{swarm=Swarm, consensus_addrs=Addresses}) ->
         ,Addresses
         ,erlang:term_to_binary({Type, Txn})
         ,?TX_PROTOCOL
-        ,blockchain_txn_handler
+        ,miner_transaction_handler
         ,[self()]
         ,false
     ).
