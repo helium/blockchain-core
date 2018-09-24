@@ -57,9 +57,9 @@ basic(_Config) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    GenPaymentTxs = [blockchain_transaction:new_coinbase_txn(Addr, Balance)
+    GenPaymentTxs = [blockchain_txn_coinbase:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_transaction:new_genesis_consensus_group([Addr || {Addr, _} <- ConsensusMembers]),
+    GenConsensusGroupTx = blockchain_txn_gen_consensus_group:new([Addr || {Addr, _} <- ConsensusMembers]),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
@@ -80,8 +80,8 @@ basic(_Config) ->
     % Test a payment transaction, add a block and check balances
     [{Payer, {_, PayerPrivKey, _}}|_] = RandomKeys,
     Recipient = Address,
-    Tx = blockchain_transaction:new_payment_txn(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_transaction:sign_payment_txn(Tx, PayerPrivKey),
+    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
+    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
     Block = add_block(ConsensusMembers, [SignedTx]),
 
     ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),

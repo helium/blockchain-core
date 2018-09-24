@@ -140,7 +140,7 @@ blocks_size(Blockchain) ->
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     Ledger0 = ?MODULE:ledger(Blockchain),
-    {ok, Ledger1} = blockchain_transaction:absorb_transactions(blockchain_block:transactions(Block), Ledger0),
+    {ok, Ledger1} = blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger0),
     Dir = ?MODULE:dir(Blockchain),
     ok = blockchain_block:save(Hash, Block, Dir),
     ok = blockchain_ledger:save(Ledger1, Dir),
