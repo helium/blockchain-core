@@ -1,7 +1,9 @@
--module(test_SUITE).
+-module(gossip_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-include("blockchain.hrl").
 
 -export([
     all/0
@@ -34,9 +36,9 @@ all() ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    BaseDir = "data/test_SUITE/basic",
+    BaseDir = "data/gossip_SUITE/basic",
     Balance = 5000,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     % Check ledger to make sure everyone has the right balance
@@ -52,34 +54,26 @@ basic(_Config) ->
     Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
     SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    ok = blockchain_worker:add_block(Block, self()),
+
+    % ok = blockchain_worker:add_block(Block, self()),
+    {ok, Swarm} = libp2p_swarm:start(gossip_SUITE, []),
+    [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
+    {ok, Stream} = libp2p_swarm:dial_framed_stream(
+        Swarm
+        ,ListenAddr
+        ,?GOSSIP_PROTOCOL
+        ,blockchain_gossip_handler
+        ,[]
+    ),
+
+    _ = blockchain_gossip_handler:send(Stream, erlang:term_to_binary({block, Block})),
+
+    ok = test_utils:wait_until(fun() -> 2 =:= blockchain_worker:height() end),
 
     ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
     ?assertEqual(Block, blockchain_worker:head_block()),
-    ?assertEqual(2, blockchain_worker:height()),
-
-    NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_worker:ledger()),
-    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
-
-    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
-    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
-
-    % Make sure blockchain saved on file =  in memory
-    Chain = blockchain_worker:blockchain(),
-    ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
-
-    %% Test find_next block
-    ?assertEqual({ok, Block}, blockchain_block:find_next(blockchain:genesis_hash(Chain), maps:values(blockchain:blocks(Chain)))),
-
-    % Restart blockchain and make sure nothing has changed
+    
     true = erlang:exit(Sup, normal),
-    ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
-
-    {ok, Sup1} = blockchain_sup:start_link(Opts),
-    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
-
-    ok = test_utils:compare_chains(Chain, blockchain_worker:blockchain()),
-    true = erlang:exit(Sup1, normal),
     ok.
 
 %% ------------------------------------------------------------------

@@ -179,7 +179,6 @@ sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
     Tx1 = sign_request(Tx0, PrivKey),
-    Sig1 = gateway_signature(Tx1),
     Tx2 = sign(Tx1, PrivKey),
     Sig2 = owner_signature(Tx2),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway{gateway_signature = <<>>, owner_signature = << >>}), Sig2, PubKey)).
