@@ -20,6 +20,7 @@
     ,hash_block/1
     ,verify_signature/4
     ,payment_transactions/1
+    ,coinbase_transactions/1
     ,add_gateway_transactions/1
     ,assert_location_transactions/1
     ,dir/1
@@ -195,6 +196,15 @@ verify_signature(Artifact, ConsensusMembers, BinSigs, Threshold) ->
 -spec payment_transactions(block()) -> [blockchain_txn_payment:txn_payment()].
 payment_transactions(Block) ->
     lists:filter(fun(Txn) -> blockchain_txn_payment:is(Txn) end
+                 ,?MODULE:transactions(Block)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec coinbase_transactions(block()) -> [blockchain_txn_coinbase:txn_coinbase()].
+coinbase_transactions(Block) ->
+    lists:filter(fun(Txn) -> blockchain_txn_coinbase:is(Txn) end
                  ,?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
