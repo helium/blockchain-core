@@ -55,7 +55,6 @@ basic(_Config) ->
     SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
 
-    % ok = blockchain_worker:add_block(Block, self()),
     {ok, Swarm} = libp2p_swarm:start(gossip_SUITE, []),
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
     {ok, Stream} = libp2p_swarm:dial_framed_stream(
@@ -65,14 +64,12 @@ basic(_Config) ->
         ,blockchain_gossip_handler
         ,[]
     ),
-
     _ = blockchain_gossip_handler:send(Stream, erlang:term_to_binary({block, Block})),
-
     ok = test_utils:wait_until(fun() -> 2 =:= blockchain_worker:height() end),
 
     ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
     ?assertEqual(Block, blockchain_worker:head_block()),
-    
+
     true = erlang:exit(Sup, normal),
     ok.
 
