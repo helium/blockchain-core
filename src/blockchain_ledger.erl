@@ -11,6 +11,7 @@
     ,payment_nonce/1
     ,assert_location_nonce/1
     ,new_entry/2
+    ,new_entry/4
     ,find_entry/2
     ,find_gateway_info/2
     ,consensus_members/1, consensus_members/2
@@ -35,6 +36,8 @@
 -record(entry, {
     nonce = 0 :: non_neg_integer()
     ,balance = 0 :: non_neg_integer()
+    ,hashlock = <<>> :: binary()
+    ,timelock = 0 :: integer()
 }).
 
 -record(gw_info, {
@@ -93,6 +96,10 @@ assert_location_nonce(GwInfo) when GwInfo /= undefined ->
 -spec new_entry(non_neg_integer(), non_neg_integer()) -> entry().
 new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
     #entry{nonce=Nonce, balance=Balance}.
+
+-spec new_entry(non_neg_integer(), non_neg_integer(), binary(), integer()) -> entry().
+new_entry(Nonce, Balance, Hashlock, Timelock) when Nonce /= undefined andalso Balance /= undefined ->
+    #entry{nonce=Nonce, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -229,6 +236,15 @@ debit_account(Address, Amount, Nonce, Ledger) ->
         false ->
             {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+add_htlc(Address, Hashlock, Timelock, Ledger) ->
+    Entry = ?MODULE:find_entry(Address, Ledger),
+    NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry), Hashlock, Timelock),
+    maps:put(Address, NewEntry, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
