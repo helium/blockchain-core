@@ -45,7 +45,10 @@ init(server, _Conn, _Args) ->
     lager:info("started gw_registration_handler server"),
     {ok, #state{}}.
 
-handle_data(server, Data, _State) ->
+handle_data(server, Data, State) ->
     Txn = binary_to_term(Data),
+
+    ok = 'Elixir.BlockchainNode.Registrar':notify(Txn),
+
     lager:info("gw_registration_handler server got txn: ~p", [Txn]),
-    {stop, normal}.
+    {stop, normal, State}.
