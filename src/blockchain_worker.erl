@@ -293,6 +293,13 @@ init(Args) ->
         ,?SYNC_PROTOCOL
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
+
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?GW_REGISTRATION_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
+    ),
+
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
 
     {ok, #state{swarm=Swarm, n=N, blockchain=Blockchain}}.
