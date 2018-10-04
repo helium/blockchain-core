@@ -38,16 +38,14 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, _Args) ->
-    lager:info("started gw_registration_handler client"),
-    {ok, #state{}};
+init(client, _Conn, [Txn]) ->
+    lager:info("started gw_registration_handler client, txn: ~p", [Txn]),
+    {stop, normal, term_to_binary(Txn)};
 init(server, _Conn, _Args) ->
     lager:info("started gw_registration_handler server"),
     {ok, #state{}}.
 
-handle_data(client, Data, State) ->
-    lager:info("client got data: ~p", [Data]),
-    {stop, normal, State};
-handle_data(server, Data, State) ->
-    lager:info("server got data: ~p", [Data]),
-    {stop, normal, State, term_to_binary(Data)}.
+handle_data(server, Data, _State) ->
+    Txn = binary_to_term(Data),
+    lager:info("gw_registration_handler server got txn: ~p", [Txn]),
+    {stop, normal}.
