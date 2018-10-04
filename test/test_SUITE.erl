@@ -9,6 +9,7 @@
 
 -export([
     basic/1
+    ,htlc/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -22,7 +23,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic].
+    [basic, htlc].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -80,6 +81,37 @@ basic(_Config) ->
 
     ok = test_utils:compare_chains(Chain, blockchain_worker:blockchain()),
     true = erlang:exit(Sup1, normal),
+    ok.
+
+htlc(_Config) ->
+    BaseDir = "data/test_SUITE/basic",
+    Balance = 5000,
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain_worker:ledger(),
+    Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
+    _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
+          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
+         || Entry <- Entries],
+
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Address = blockchain_swarm:address(),
+    Tx = blockchain_txn_create_htlc:new(Payer, Address, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 100, 2500, 1),
+    SignedTx = blockchain_txn_create_htlc:sign(Tx, PayerPrivKey),
+    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    ok = blockchain_worker:add_block(Block, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
+    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(2, blockchain_worker:height()),
+
+    NewEntry0 = blockchain_ledger:find_htlc(Address, blockchain_worker:ledger()),
+    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
+    ?assertEqual(<<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, blockchain_ledger:hashlock(NewEntry0)),
+
     ok.
 
 %% ------------------------------------------------------------------
