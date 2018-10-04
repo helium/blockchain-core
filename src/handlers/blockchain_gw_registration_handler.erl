@@ -38,17 +38,16 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Txn]) ->
-    lager:info("started gw_registration_handler client, txn: ~p", [Txn]),
-    {stop, normal, term_to_binary(Txn)};
+init(client, _Conn, [Txn, Token]) ->
+    lager:info("started gw_registration_handler client, txn: ~p, token: ~p", [Txn, Token]),
+    {stop, normal, term_to_binary([{txn, Txn}, {token, Token}])};
 init(server, _Conn, _Args) ->
     lager:info("started gw_registration_handler server"),
     {ok, #state{}}.
 
 handle_data(server, Data, State) ->
-    Txn = binary_to_term(Data),
-
-    ok = 'Elixir.BlockchainNode.Registrar':notify(Txn),
-
-    lager:info("gw_registration_handler server got txn: ~p", [Txn]),
+    [{txn, Txn}, {token, Token}] = binary_to_term(Data),
+    %% XXX: this breaks all the tests
+    ok = 'Elixir.BlockchainNode.Registrar':notify(Txn, Token),
+    lager:info("gw_registration_handler server got txn: ~p, token: ~p", [Txn, Token]),
     {stop, normal, State}.
