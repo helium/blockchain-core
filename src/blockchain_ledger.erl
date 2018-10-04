@@ -7,21 +7,28 @@
 
 -export([
     empty_entry/0
+    ,empty_htlc/0
     ,balance/1
+    ,hashlock/1
+    ,timelock/1
+    ,creator/1
     ,payment_nonce/1
     ,assert_location_nonce/1
     ,new_entry/2
-    ,new_entry/4
+    ,new_htlc/5
     ,find_entry/2
+    ,find_htlc/2
     ,find_gateway_info/2
     ,consensus_members/1, consensus_members/2
     ,active_gateways/1
     ,add_gateway/3
     ,add_gateway_location/4
     ,gateway_location/1
-    ,gateway_owner/1
+    ,gateway_owner/1    
     ,credit_account/3
     ,debit_account/4
+    ,add_htlc/6
+    ,redeem_htlc/4
     ,save/2, load/1
     ,serialize/2
     ,deserialize/2
@@ -36,8 +43,14 @@
 -record(entry, {
     nonce = 0 :: non_neg_integer()
     ,balance = 0 :: non_neg_integer()
-    ,hashlock = <<>> :: binary()
-    ,timelock = 0 :: integer()
+}).
+
+-record(htlc, {
+    nonce = 0 :: non_neg_integer()
+    ,creator :: libp2p_crypto:address()
+    ,balance = 0 :: non_neg_integer()
+    ,hashlock :: undefined | binary()
+    ,timelock :: undefined | non_neg_integer()
 }).
 
 -record(gw_info, {
@@ -52,6 +65,7 @@
     ,active_gateways => active_gateways()
 }.
 -type entry() :: #entry{}.
+-type htlc() :: #htlc{}.
 -type gw_info() :: #gw_info{}.
 -type active_gateways() :: #{libp2p_crypto:address() => gw_info()}.
 
@@ -69,17 +83,53 @@ empty_entry() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec balance(entry()) -> non_neg_integer().
-balance(Entry) when Entry /= undefined ->
-    Entry#entry.balance.
+-spec empty_htlc() -> htlc().
+empty_htlc() ->
+    #htlc{}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_nonce(entry()) -> non_neg_integer().
-payment_nonce(Entry) when Entry /= undefined ->
-    Entry#entry.nonce.
+-spec balance(entry() | htlc()) -> non_neg_integer().
+balance(#entry{balance=Balance}) ->
+    Balance;
+balance(#htlc{balance=Balance}) ->
+    Balance.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hashlock(htlc()) -> binary().
+hashlock(HTLC) ->
+    HTLC#htlc.hashlock.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec timelock(htlc()) -> non_neg_integer().
+timelock(HTLC) ->
+    HTLC#htlc.timelock.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec creator(htlc()) -> libp2p_crypto:address().
+creator(HTLC) ->
+    HTLC#htlc.creator.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payment_nonce(entry() | htlc()) -> non_neg_integer().
+payment_nonce(#entry{nonce=Nonce}) ->
+    Nonce;
+payment_nonce(#htlc{nonce=Nonce}) ->
+    Nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -97,9 +147,9 @@ assert_location_nonce(GwInfo) when GwInfo /= undefined ->
 new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
     #entry{nonce=Nonce, balance=Balance}.
 
--spec new_entry(non_neg_integer(), non_neg_integer(), binary(), integer()) -> entry().
-new_entry(Nonce, Balance, Hashlock, Timelock) when Nonce /= undefined andalso Balance /= undefined ->
-    #entry{nonce=Nonce, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
+-spec new_htlc(non_neg_integer(), libp2p_crypto:address(), non_neg_integer(), binary(), non_neg_integer()) -> htlc().
+new_htlc(Nonce, Creator, Balance, Hashlock, Timelock) when Nonce /= undefined andalso Balance /= undefined ->
+    #htlc{nonce=Nonce, creator=Creator, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,6 +158,14 @@ new_entry(Nonce, Balance, Hashlock, Timelock) when Nonce /= undefined andalso Ba
 -spec find_entry(libp2p_crypto:address(), ledger()) -> entry().
 find_entry(Address, Ledger) ->
     maps:get(Address, Ledger, blockchain_ledger:empty_entry()).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_htlc(libp2p_crypto:address(), ledger()) -> htlc().
+find_htlc(Address, Ledger) ->
+    maps:get(Address, Ledger, blockchain_ledger:empty_htlc()).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -241,10 +299,26 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-add_htlc(Address, Hashlock, Timelock, Ledger) ->
-    Entry = ?MODULE:find_entry(Address, Ledger),
-    NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry), Hashlock, Timelock),
-    maps:put(Address, NewEntry, Ledger).
+add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
+    HTLC = ?MODULE:find_htlc(Address, Ledger),
+    NewHTLC = ?MODULE:new_htlc(?MODULE:payment_nonce(HTLC), Creator, ?MODULE:balance(HTLC) + Amount, Hashlock, Timelock),
+    maps:put(Address, NewHTLC, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+redeem_htlc(Address, Payee, Nonce, Ledger) ->    
+    Entry = ?MODULE:find_entry(Payee, Ledger),
+    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of 
+        true ->
+            HTLC = ?MODULE:find_htlc(Address, Ledger),
+            Amount = ?MODULE:balance(HTLC),
+            Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
+            {ok, maps:remove(Address, Ledger1)};
+        false ->
+            {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
