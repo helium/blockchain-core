@@ -48,6 +48,7 @@ init(server, _Conn, _Args) ->
 handle_data(server, Data, State) ->
     [{txn, Txn}, {token, Token}] = binary_to_term(Data),
     %% XXX: this breaks all the tests
-    ok = 'Elixir.BlockchainNode.Registrar':notify(Txn, Token),
+    %% ok = 'Elixir.BlockchainNode.Registrar':notify(Txn, Token),
     lager:info("gw_registration_handler server got txn: ~p, token: ~p", [Txn, Token]),
+    ok = blockchain_worker:notify({gw_registration_request, Txn, Token}),
     {stop, normal, State}.
