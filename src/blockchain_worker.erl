@@ -34,6 +34,7 @@
     ,add_gateway_txn/1
     ,assert_location_txn/1
     ,peer_height/3
+    ,notify/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -265,6 +266,14 @@ assert_location_txn(Location) ->
 -spec peer_height(integer(), blockchain_block:hash(), pid()) -> ok.
 peer_height(Height, Head, Session) ->
     gen_server:cast(?SERVER, {peer_height, Height, Head, Session}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec notify(any()) -> ok.
+notify(Msg) ->
+    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -527,17 +536,10 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, _State) ->
     ok.
 
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec notify(any()) -> ok.
-notify(Msg) ->
-    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %%--------------------------------------------------------------------
 %% @doc
