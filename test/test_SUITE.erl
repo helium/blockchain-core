@@ -84,7 +84,7 @@ basic(_Config) ->
     ok.
 
 htlc(_Config) ->
-    BaseDir = "data/test_SUITE/basic",
+    BaseDir = "data/test_SUITE/htlc",
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
@@ -96,7 +96,7 @@ htlc(_Config) ->
           ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
          || Entry <- Entries],
 
-    % Test a payment transaction, add a block and check balances
+    % Test an HTLC transaction, add a block and check balances, hashlocks, and timelocks
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Address = blockchain_swarm:address(),
     Tx = blockchain_txn_create_htlc:new(Payer, Address, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 100, 2500, 1),
@@ -108,9 +108,17 @@ htlc(_Config) ->
     ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
 
-    NewEntry0 = blockchain_ledger:find_htlc(Address, blockchain_worker:ledger()),
-    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
-    ?assertEqual(<<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, blockchain_ledger:hashlock(NewEntry0)),
+    NewHTLC0 = blockchain_ledger:find_htlc(Address, blockchain_worker:ledger()),
+    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewHTLC0)),
+    ?assertEqual(<<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, blockchain_ledger:hashlock(NewHTLC0)),
+    ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
+
+    NewHTLC1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
+    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewHTLC1)),
+
+    % Make sure blockchain saved on file =  in memory
+    Chain = blockchain_worker:blockchain(),
+    ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
     ok.
 
