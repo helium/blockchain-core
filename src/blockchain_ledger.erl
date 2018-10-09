@@ -6,33 +6,36 @@
 -module(blockchain_ledger).
 
 -export([
-    empty_entry/0
-    ,empty_htlc/0
-    ,balance/1
-    ,hashlock/1
-    ,timelock/1
-    ,creator/1
-    ,payment_nonce/1
-    ,assert_location_nonce/1
-    ,new_entry/2
-    ,new_htlc/5
-    ,find_entry/2
-    ,find_htlc/2
-    ,find_gateway_info/2
-    ,consensus_members/1, consensus_members/2
-    ,active_gateways/1
-    ,add_gateway/3
-    ,add_gateway_location/4
-    ,gateway_location/1
-    ,gateway_owner/1    
-    ,credit_account/3
-    ,debit_account/4
-    ,add_htlc/6
-    ,redeem_htlc/4
-    ,save/2, load/1
-    ,serialize/2
-    ,deserialize/2
-]).
+         balance/1
+         ,hashlock/1
+         ,timelock/1
+         ,creator/1
+         ,payment_nonce/1
+         ,assert_location_nonce/1
+         ,new_entry/2
+         ,new_htlc/5
+         ,find_entry/2
+         ,find_htlc/2
+         ,find_gateway_info/2
+         ,consensus_members/1, consensus_members/2
+         ,active_gateways/1
+         ,add_gateway/3
+         ,add_gateway_location/4
+         ,gateway_location/1
+         ,gateway_owner/1
+         ,credit_account/3
+         ,debit_account/4
+         ,add_htlc/6
+         ,redeem_htlc/4
+         ,save/2, load/1
+         ,serialize/2
+         ,deserialize/2
+         ,new/0
+         ,entries/1
+         ,blocks/1
+         ,current_height/1
+         ,htlcs/1
+        ]).
 
 -include("blockchain.hrl").
 
@@ -40,32 +43,39 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-record(ledger, {
+          blocks = [] :: [blockchain_block:hash()],
+          current_height = 0 :: non_neg_integer(),
+          consensus_members = [] :: [libp2p_crypto:address()],
+          active_gateways = #{} :: active_gateways(),
+          entries = #{} :: entries(),
+          htlcs = #{} :: htlcs()
+         }).
+
 -record(entry, {
-    nonce = 0 :: non_neg_integer()
-    ,balance = 0 :: non_neg_integer()
-}).
+          nonce = 0 :: non_neg_integer()
+          ,balance = 0 :: non_neg_integer()
+         }).
 
 -record(htlc, {
-    nonce = 0 :: non_neg_integer()
-    ,creator :: libp2p_crypto:address()
-    ,balance = 0 :: non_neg_integer()
-    ,hashlock :: undefined | binary()
-    ,timelock :: undefined | non_neg_integer()
-}).
+          nonce = 0 :: non_neg_integer()
+          ,creator :: libp2p_crypto:address()
+          ,balance = 0 :: non_neg_integer()
+          ,hashlock :: undefined | binary()
+          ,timelock :: undefined | non_neg_integer()
+         }).
 
 -record(gw_info, {
-    owner_address :: libp2p_crypto:address()
-    ,location :: undefined | pos_integer()
-    ,nonce = 0 :: non_neg_integer()
-}).
+          owner_address :: libp2p_crypto:address()
+          ,location :: undefined | pos_integer()
+          ,nonce = 0 :: non_neg_integer()
+         }).
 
--type ledger() :: #{
-    libp2p_crypto:address() => entry()
-    ,consensus_members => [libp2p_crypto:address()]
-    ,active_gateways => active_gateways()
-}.
+-type ledger() :: #ledger{}.
 -type entry() :: #entry{}.
+-type entries() :: #{libp2p_crypto:address() => entry()}.
 -type htlc() :: #htlc{}.
+-type htlcs() :: #{libp2p_crypto:address() => htlc()}.
 -type gw_info() :: #gw_info{}.
 -type active_gateways() :: #{libp2p_crypto:address() => gw_info()}.
 
@@ -75,17 +85,9 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec empty_entry() -> entry().
-empty_entry() ->
-    #entry{}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec empty_htlc() -> htlc().
-empty_htlc() ->
-    #htlc{}.
+-spec new() -> ledger().
+new() ->
+    #ledger{}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -125,6 +127,22 @@ creator(HTLC) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec entries(ledger()) -> entries().
+entries(Ledger) ->
+    Ledger#ledger.entries.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec htlcs(ledger()) -> htlcs().
+htlcs(Ledger) ->
+    Ledger#ledger.htlcs.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec payment_nonce(entry() | htlc()) -> non_neg_integer().
 payment_nonce(#entry{nonce=Nonce}) ->
     Nonce;
@@ -138,6 +156,15 @@ payment_nonce(#htlc{nonce=Nonce}) ->
 -spec assert_location_nonce(gw_info()) -> non_neg_integer().
 assert_location_nonce(GwInfo) when GwInfo /= undefined ->
     GwInfo#gw_info.nonce.
+
+
+-spec blocks(ledger()) -> [blockchain_block:hash()].
+blocks(Ledger) ->
+    Ledger#ledger.blocks.
+
+-spec current_height(ledger()) -> non_neg_integer().
+current_height(Ledger) ->
+    Ledger#ledger.current_height.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -155,17 +182,17 @@ new_htlc(Nonce, Creator, Balance, Hashlock, Timelock) when Nonce /= undefined an
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:address(), ledger()) -> entry().
-find_entry(Address, Ledger) ->
-    maps:get(Address, Ledger, blockchain_ledger:empty_entry()).
+-spec find_entry(libp2p_crypto:address(), entries()) -> entry().
+find_entry(Address, Entries) ->
+    maps:get(Address, Entries, #entry{}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_htlc(libp2p_crypto:address(), ledger()) -> htlc().
-find_htlc(Address, Ledger) ->
-    maps:get(Address, Ledger, blockchain_ledger:empty_htlc()).
+-spec find_htlc(libp2p_crypto:address(), htlcs()) -> htlc().
+find_htlc(Address, HTLCS) ->
+    maps:get(Address, HTLCS , #htlc{}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -182,7 +209,7 @@ find_gateway_info(GatewayAddress, Ledger) ->
 %%--------------------------------------------------------------------
 -spec consensus_members(ledger()) -> [libp2p_crypto:address()].
 consensus_members(Ledger) ->
-    maps:get(consensus_members, Ledger, []).
+    Ledger#ledger.consensus_members.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -190,14 +217,15 @@ consensus_members(Ledger) ->
 %%--------------------------------------------------------------------
 -spec consensus_members([libp2p_crypto:address()], ledger()) -> ledger().
 consensus_members(Members, Ledger) ->
-    maps:put(consensus_members, Members, Ledger).
+    Ledger#ledger{consensus_members=Members}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
 active_gateways(Ledger) ->
-    maps:get(active_gateways, Ledger, #{}).
+    Ledger#ledger.active_gateways.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -212,7 +240,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
             false;
         false ->
             GwInfo = #gw_info{owner_address=OwnerAddr, location=undefined},
-            maps:put(active_gateways, maps:put(GatewayAddress, GwInfo, ActiveGateways), Ledger)
+            Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
     end.
 
 %%--------------------------------------------------------------------
@@ -232,14 +260,14 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                     false;
                 GwInfo ->
                     NewGwInfo =
-                        case ?MODULE:gateway_location(GwInfo) of
-                            undefined ->
-                                GwInfo#gw_info{location=Location, nonce=Nonce};
-                            _Loc ->
-                                %%XXX: this gw already had a location asserted, do something about it here
-                                GwInfo#gw_info{location=Location, nonce=Nonce}
-                        end,
-                    maps:put(active_gateways, maps:put(GatewayAddress, NewGwInfo, ActiveGateways), Ledger)
+                    case ?MODULE:gateway_location(GwInfo) of
+                        undefined ->
+                            GwInfo#gw_info{location=Location, nonce=Nonce};
+                        _Loc ->
+                            %%XXX: this gw already had a location asserted, do something about it here
+                            GwInfo#gw_info{location=Location, nonce=Nonce}
+                    end,
+                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
             end
     end.
 
@@ -269,25 +297,33 @@ gateway_owner(GwInfo) ->
 %%--------------------------------------------------------------------
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ledger().
 credit_account(Address, Amount, Ledger) ->
-    Entry = ?MODULE:find_entry(Address, Ledger),
-    NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
-    maps:put(Address, NewEntry, Ledger).
+    case maps:is_key(Address, entries(Ledger)) of
+        false ->
+            Entry = #entry{},
+            NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
+            Ledger#ledger{entries=maps:put(Address, NewEntry, Ledger#ledger.entries)};
+        true ->
+            Entry = ?MODULE:find_entry(Address, Ledger#ledger.entries),
+            NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
+            Ledger#ledger{entries=maps:update(Address, NewEntry, Ledger#ledger.entries)}
+    end.
+
+%% maps:put(Address, maps:update(Address, NewEntry, Entries), Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ledger() | {error, any()}.
-debit_account(Address, Amount, Nonce, Ledger) ->
-    Entry = ?MODULE:find_entry(Address, Ledger),
+debit_account(Address, Amount, Nonce, Ledger=#ledger{entries=Entries}) ->
+    Entry = ?MODULE:find_entry(Address, Entries),
     case Nonce == ?MODULE:payment_nonce(Entry) + 1 of
         true ->
             case (?MODULE:balance(Entry) - Amount) >= 0 of
                 true ->
-                    maps:put(Address,
-                             %% update the ledger entry nonce here with the transaction nonce
-                             ?MODULE:new_entry(Nonce, ?MODULE:balance(Entry) - Amount),
-                             Ledger);
+                    Ledger#ledger{entries=maps:update(Address,
+                                                      ?MODULE:new_entry(Nonce, (?MODULE:balance(Entry) - Amount)),
+                                                      Entries)};
                 false ->
                     {error, {insufficient_balance, Amount, ?MODULE:balance(Entry)}}
             end;
@@ -300,21 +336,32 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
-    NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
-    maps:put(Address, NewHTLC, Ledger).
+    case maps:is_key(Address, htlcs(Ledger)) of
+        false ->
+            HTLC = #htlc{},
+            NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
+            Ledger#ledger{htlcs=maps:put(Address, NewHTLC, Ledger#ledger.htlcs)};
+        true ->
+            HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
+            NewHTLC = ?MODULE:new_htlc(?MODULE:payment_nonce(HTLC), Creator, ?MODULE:balance(HTLC) + Amount, Hashlock, Timelock),
+            Ledger#ledger{htlcs=maps:update(Address, NewHTLC, Ledger#ledger.htlcs)}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-redeem_htlc(Address, Payee, Nonce, Ledger) ->    
-    Entry = ?MODULE:find_entry(Payee, Ledger),
-    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of 
+%% XXX: This needs some fixing...
+%% Presumably it returns a ledger too?
+redeem_htlc(Address, Payee, Nonce, Ledger=#ledger{entries=Entries}) ->
+    Entry = ?MODULE:find_entry(Payee, Entries),
+    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of
         true ->
-            HTLC = ?MODULE:find_htlc(Address, Ledger),
+            HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
             Amount = ?MODULE:balance(HTLC),
             Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
-            {ok, maps:remove(Address, Ledger1)};
+            NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
+            {ok, Ledger#ledger{htlcs=NewHTLCS}};
         false ->
             {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
     end.
@@ -368,9 +415,6 @@ deserialize(_Version, Bin) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-empty_entry_test() ->
-    ?assertEqual(#entry{}, empty_entry()).
-
 balance_test() ->
     Entry = new_entry(1, 1),
     ?assertEqual(1, balance(Entry)).
@@ -389,53 +433,53 @@ new_entry_test() ->
 
 find_entry_test() ->
     Entry = new_entry(1, 1),
-    Ledger = #{test => Entry},
-    ?assertEqual(Entry, find_entry(test, Ledger)),
-    ?assertEqual(empty_entry(), find_entry(test2, Ledger)).
+    Ledger = #ledger{entries=#{test => Entry}},
+    ?assertEqual(Entry, find_entry(test, entries(Ledger))),
+    ?assertEqual(#entry{}, find_entry(test2, entries(Ledger))).
 
 find_gateway_info_test() ->
     Info = #gw_info{},
-    Ledger = #{active_gateways => #{address => Info}},
+    Ledger = #ledger{active_gateways=#{address => Info}},
     ?assertEqual(Info, find_gateway_info(address, Ledger)),
     ?assertEqual(undefined, find_gateway_info(test, Ledger)).
 
 consensus_members_1_test() ->
-    Ledger0 = #{consensus_members => [1, 2, 3]},
-    Ledger1 = #{},
+    Ledger0 = #ledger{consensus_members=[1, 2, 3]},
+    Ledger1 = #ledger{},
     ?assertEqual([1, 2, 3], consensus_members(Ledger0)),
     ?assertEqual([], consensus_members(Ledger1)).
 
 consensus_members_2_test() ->
-    Ledger0 = #{consensus_members => []},
+    Ledger0 = #ledger{consensus_members=[]},
     Ledger1 = consensus_members([1, 2, 3], Ledger0),
     ?assertEqual([1, 2, 3], consensus_members(Ledger1)).
 
 active_gateways_test() ->
-    Ledger = #{active_gateways => #{address => info}},
+    Ledger = #ledger{active_gateways = #{address => info}},
     ?assertEqual(#{address => info}, active_gateways(Ledger)),
-    ?assertEqual(#{}, active_gateways(#{})).
+    ?assertEqual(#{}, active_gateways(#ledger{})).
 
 add_gateway_test() ->
-    Ledger0 = #{active_gateways => #{}},
+    Ledger0 = #ledger{active_gateways=#{}},
     Ledger1 = add_gateway(owner_address, gw_address, Ledger0),
     ?assertEqual(
-        #gw_info{owner_address=owner_address, location=undefined}
-        ,find_gateway_info(gw_address, Ledger1)
-    ),
+       #gw_info{owner_address=owner_address, location=undefined}
+       ,find_gateway_info(gw_address, Ledger1)
+      ),
     ?assertEqual(false, add_gateway(owner_address, gw_address, Ledger1)).
 
 add_gateway_location_test() ->
-    Ledger0 = #{active_gateways => #{}},
+    Ledger0 = #ledger{active_gateways=#{}},
     Ledger1 = add_gateway(owner_address, gw_address, Ledger0),
     Ledger2 = add_gateway_location(gw_address, 1, 1, Ledger1),
     ?assertEqual(
-        #gw_info{owner_address=owner_address, location=1, nonce=1}
-        ,find_gateway_info(gw_address, Ledger2)
-    ),
+       #gw_info{owner_address=owner_address, location=1, nonce=1}
+       ,find_gateway_info(gw_address, Ledger2)
+      ),
     ?assertEqual(
-        false
-        ,add_gateway_location(gw_address, 1, 1, Ledger0)
-    ).
+       false
+       ,add_gateway_location(gw_address, 1, 1, Ledger0)
+      ).
 
 gateway_location_test() ->
     ?assertEqual(1, gateway_location(#gw_info{location=1})),
@@ -446,25 +490,25 @@ gateway_owner_test() ->
     ?assertEqual(undefined, gateway_owner(undefined)).
 
 credit_account_test() ->
-    Ledger0 = #{},
+    Ledger0 = #ledger{entries=#{address => #entry{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),
-    Entry = find_entry(address, Ledger1),
+    Entry = find_entry(address, entries(Ledger1)),
     ?assertEqual(1000, balance(Entry)).
 
 debit_account_test() ->
-    Ledger0 = #{},
+    Ledger0 = #ledger{entries=#{address => #entry{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(address, 1000, 0, Ledger1)),
     ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(address, 1000, 12, Ledger1)),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(address, 9999, 1, Ledger1)),
     Ledger2 = debit_account(address, 500, 1, Ledger1),
-    Entry = find_entry(address, Ledger2),
+    Entry = find_entry(address, entries(Ledger2)),
     ?assertEqual(500, balance(Entry)),
     ?assertEqual(1, payment_nonce(Entry)).
 
 save_load_test() ->
     BaseDir = "data/test",
-    Ledger0 = #{},
+    Ledger0 = #ledger{entries=#{address => #entry{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual(ok, save(Ledger1, BaseDir)),
     ?assertEqual({ok, Ledger1}, load(BaseDir)),
@@ -472,7 +516,7 @@ save_load_test() ->
     ok.
 
 serialize_deserialize_test() ->
-    Ledger0 = #{},
+    Ledger0 = #ledger{entries=#{address => #entry{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual(Ledger1, deserialize(v1, serialize(v1, Ledger1))).
 

@@ -42,10 +42,12 @@ basic(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
-    _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
-          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
-         || Entry <- Entries],
+    Entries = blockchain_ledger:entries(Ledger),
+
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -59,10 +61,10 @@ basic(_Config) ->
     ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
 
-    NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_worker:ledger()),
+    NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_ledger:entries(blockchain_worker:ledger())),
     ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
 
-    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_worker:ledger()),
+    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
     ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
@@ -86,15 +88,17 @@ basic(_Config) ->
 htlc(_Config) ->
     BaseDir = "data/test_SUITE/htlc",
     Balance = 5000,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
+    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
-    _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
-          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
-         || Entry <- Entries],
+    Entries = blockchain_ledger:entries(Ledger),
+
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
 
     % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
