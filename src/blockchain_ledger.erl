@@ -338,7 +338,6 @@ debit_account(Address, Amount, Nonce, Ledger=#ledger{entries=Entries}) ->
 add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
     case maps:is_key(Address, htlcs(Ledger)) of
         false ->
-            HTLC = #htlc{},
             NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
             Ledger#ledger{htlcs=maps:put(Address, NewHTLC, Ledger#ledger.htlcs)};
         true ->
@@ -361,7 +360,7 @@ redeem_htlc(Address, Payee, Nonce, Ledger=#ledger{entries=Entries}) ->
             Amount = ?MODULE:balance(HTLC),
             Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
             NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
-            {ok, Ledger#ledger{htlcs=NewHTLCS}};
+            {ok, Ledger1#ledger{htlcs=NewHTLCS}};
         false ->
             {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
     end.
