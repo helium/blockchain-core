@@ -339,7 +339,7 @@ add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
     case maps:is_key(Address, htlcs(Ledger)) of
         false ->
             HTLC = #htlc{},
-            NewHTLC = ?MODULE:new_htlc(?MODULE:payment_nonce(HTLC), Creator, ?MODULE:balance(HTLC) + Amount, Hashlock, Timelock),
+            NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
             Ledger#ledger{htlcs=maps:put(Address, NewHTLC, Ledger#ledger.htlcs)};
         true ->
             HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),

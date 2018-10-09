@@ -175,21 +175,23 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
             Nonce = blockchain_txn_redeem_htlc:nonce(Txn),
             Creator = blockchain_ledger:creator(HTLC),
             Timelock = blockchain_ledger:timelock(HTLC),
-            Height = blockchain_worker:height(),
+            % Height = blockchain_worker:height(), 
+            Height = 2, %% TODO: FIX!!!
             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
             %% otherwise check that the timelock has expired which allows the Creator to redeem
             case Creator =:= Payee of
                 false ->
                     Hashlock = blockchain_ledger:hashlock(HTLC),
                     Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
-                    case (crypto:hash(sha256, Preimage) =:= Hashlock) of
+
+                    case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of 
                         true ->
                             {ok, blockchain_ledger:redeem_htlc(Address, Payee, Nonce, Ledger0)};
                         false ->
                             {error, invalid_preimage}
                     end;
                 true ->
-                    case Timelock < Height of
+                    case Timelock > Height of %% TODO: FIX!!!
                         true ->
                             {error, timelock_not_expired};
                         false ->
