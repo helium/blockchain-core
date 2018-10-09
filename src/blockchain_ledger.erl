@@ -300,8 +300,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
-    HTLC = ?MODULE:find_htlc(Address, Ledger),
-    NewHTLC = ?MODULE:new_htlc(?MODULE:payment_nonce(HTLC), Creator, ?MODULE:balance(HTLC) + Amount, Hashlock, Timelock),
+    NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
     maps:put(Address, NewHTLC, Ledger).
 
 %%--------------------------------------------------------------------

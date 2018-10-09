@@ -8,6 +8,7 @@
 -export([
     atomic_save/2
     ,serialize_hash/1, deserialize_hash/1
+    ,hex_to_bin/1, bin_to_hex/1
     ,serial_version/1
 ]).
 
@@ -44,6 +45,18 @@ serialize_hash(Hash) ->
 -spec deserialize_hash(string()) -> binary().
 deserialize_hash(String) ->
     base58:base58_to_binary(String).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec bin_to_hex(binary()) -> string().
+bin_to_hex(Bin) ->
+  lists:flatten([[io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]]).
+
+-spec hex_to_bin(string()) -> binary().
+hex_to_bin(Hex) ->
+  << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
 
 %%--------------------------------------------------------------------
 %% @doc
