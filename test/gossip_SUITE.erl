@@ -43,10 +43,11 @@ basic(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
-    _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
-          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
-         || Entry <- Entries],
+    Entries = blockchain_ledger:entries(Ledger),
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,

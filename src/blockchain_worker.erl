@@ -329,7 +329,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             {noreply, State};
         true ->
             Transactions = blockchain_block:transactions(GenesisBlock),
-            {ok, Ledger} = blockchain_transactions:absorb(Transactions, #{}),
+            {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger:new()),
             Blockchain = blockchain:new(GenesisBlock, Ledger, Dir),
             [ConsensusAddrs] = [blockchain_txn_gen_consensus_group:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
@@ -416,7 +416,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
 handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
-    Entry = blockchain_ledger:find_entry(Address, Ledger),
+    Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, Swarm),
@@ -424,7 +424,7 @@ handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=St
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    Entry = blockchain_ledger:find_entry(Address, Ledger),
+    Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, PrivKey),

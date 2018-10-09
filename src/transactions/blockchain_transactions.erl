@@ -64,6 +64,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
                                                                  | {error, any()}.
 absorb([], Ledger) ->
     {ok, Ledger};
+absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
+    absorb(Txns, blockchain_ledger:new());
 absorb([Txn|Txns], Ledger0) ->
     case absorb(type(Txn), Txn, Ledger0) of
         {error, _Reason}=Error -> Error;
@@ -151,7 +153,12 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
                             Error;
                         Ledger1 ->
                             Address = blockchain_txn_create_htlc:address(Txn),
-                            {ok, blockchain_ledger:add_htlc(Address, Payer, Amount, blockchain_txn_create_htlc:hashlock(Txn), blockchain_txn_create_htlc:timelock(Txn), Ledger1)}
+                            {ok, blockchain_ledger:add_htlc(Address,
+                                                            Payer,
+                                                            Amount,
+                                                            blockchain_txn_create_htlc:hashlock(Txn),
+                                                            blockchain_txn_create_htlc:timelock(Txn),
+                                                            Ledger1)}
                     end;
                 false ->
                     {error, bad_signature}
@@ -159,7 +166,7 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
     end;
 absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
     Address = blockchain_txn_redeem_htlc:address(Txn),
-    case blockchain_ledger:find_htlc(Address, Ledger0) of 
+    case blockchain_ledger:find_htlc(Address, blockchain_ledger:htlcs(Ledger0)) of
         {error, _Reason}=Error ->
             Error;
         HTLC ->
@@ -175,7 +182,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
                 false ->
                     Hashlock = blockchain_ledger:hashlock(HTLC),
                     Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
-                    case (crypto:hash(sha256, Preimage) =:= Hashlock) of 
+                    case (crypto:hash(sha256, Preimage) =:= Hashlock) of
                         true ->
                             {ok, blockchain_ledger:redeem_htlc(Address, Payee, Nonce, Ledger0)};
                         false ->
