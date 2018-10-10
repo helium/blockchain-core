@@ -137,9 +137,9 @@ htlc(_Config) ->
     ?assertEqual(blockchain_block:hash_block(Block2), blockchain_worker:head_hash()),
     ?assertEqual(Block2, blockchain_worker:head_block()),
     ?assertEqual(3, blockchain_worker:height()),
-    
+
     % Check that the Payee now owns 2500 HLMz
-    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())), %%TODO: this hsould be Payee but explodes...???
+    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory

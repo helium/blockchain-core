@@ -6,7 +6,9 @@
 -module(blockchain_ledger).
 
 -export([
-         balance/1
+         new/0
+         ,increment_height/1
+         ,balance/1
          ,hashlock/1
          ,timelock/1
          ,creator/1
@@ -30,7 +32,6 @@
          ,save/2, load/1
          ,serialize/2
          ,deserialize/2
-         ,new/0
          ,entries/1
          ,blocks/1
          ,current_height/1
@@ -45,7 +46,7 @@
 
 -record(ledger, {
           blocks = [] :: [blockchain_block:hash()],
-          current_height = 0 :: non_neg_integer(),
+          current_height = undefined :: undefined | pos_integer(),
           consensus_members = [] :: [libp2p_crypto:address()],
           active_gateways = #{} :: active_gateways(),
           entries = #{} :: entries(),
@@ -88,6 +89,16 @@
 -spec new() -> ledger().
 new() ->
     #ledger{}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec increment_height(ledger()) -> ledger().
+increment_height(Ledger=#ledger{current_height=Height}) when Height /= undefined ->
+    Ledger#ledger{current_height=(Height + 1)};
+increment_height(Ledger) ->
+    Ledger#ledger{current_height=1}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -360,7 +371,7 @@ redeem_htlc(Address, Payee, Nonce, Ledger=#ledger{entries=Entries}) ->
             Amount = ?MODULE:balance(HTLC),
             Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
             NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
-            {ok, Ledger1#ledger{htlcs=NewHTLCS}};
+            Ledger1#ledger{htlcs=NewHTLCS};
         false ->
             {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
     end.

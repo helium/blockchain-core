@@ -63,7 +63,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 -spec absorb(transactions() | [], blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
                                                                  | {error, any()}.
 absorb([], Ledger) ->
-    {ok, Ledger};
+    %% TODO: probably not the correct place to be incrementing the height for the ledger
+    {ok, blockchain_ledger:increment_height(Ledger)};
 absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
     absorb(Txns, blockchain_ledger:new());
 absorb([Txn|Txns], Ledger0) ->
@@ -175,7 +176,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
             Nonce = blockchain_txn_redeem_htlc:nonce(Txn),
             Creator = blockchain_ledger:creator(HTLC),
             Timelock = blockchain_ledger:timelock(HTLC),
-            Height = blockchain_ledger:current_height(Ledger0), 
+            Height = blockchain_ledger:current_height(Ledger0),
             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
             %% otherwise check that the timelock has expired which allows the Creator to redeem
             case Creator =:= Payee of
@@ -183,7 +184,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
                     Hashlock = blockchain_ledger:hashlock(HTLC),
                     Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
 
-                    case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of 
+                    case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
                         true ->
                             {ok, blockchain_ledger:redeem_htlc(Address, Payee, Nonce, Ledger0)};
                         false ->

@@ -328,9 +328,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             lager:warning("~p is not a genesis block", [GenesisBlock]),
             {noreply, State};
         true ->
-            Transactions = blockchain_block:transactions(GenesisBlock),
-            {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger:new()),
-            Blockchain = blockchain:new(GenesisBlock, Ledger, Dir),
+            Blockchain = blockchain:new(GenesisBlock, Dir),
             [ConsensusAddrs] = [blockchain_txn_gen_consensus_group:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
                                 ,blockchain_txn_gen_consensus_group:is(T)],
