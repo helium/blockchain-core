@@ -6,11 +6,10 @@
 -module(blockchain_txn_redeem_htlc).
 
 -export([
-    new/4
+    new/3
     ,payee/1
     ,address/1
     ,preimage/1
-    ,nonce/1
     ,signature/1
     ,sign/2
     ,is_valid/1
@@ -25,7 +24,6 @@
     payee :: libp2p_crypto:address()
     ,address :: libp2p_crypto:address()
     ,preimage :: undefined | binary()
-    ,nonce :: non_neg_integer()
     ,signature :: binary()
 }).
 
@@ -36,14 +34,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), binary(),
-          non_neg_integer()) -> txn_redeem_htlc().
-new(Payee, Address, PreImage, Nonce) ->
+-spec new(libp2p_crypto:address(), libp2p_crypto:address(), binary()) -> txn_redeem_htlc().
+new(Payee, Address, PreImage) ->
     #txn_redeem_htlc{
         payee=Payee
         ,address=Address
         ,preimage=PreImage
-        ,nonce=Nonce
         ,signature= <<>>
     }.
 
@@ -70,14 +66,6 @@ address(Txn) ->
 -spec preimage(txn_redeem_htlc()) -> binary().
 preimage(Txn) ->
     Txn#txn_redeem_htlc.preimage.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec nonce(txn_redeem_htlc()) -> non_neg_integer().
-nonce(Txn) ->
-    Txn#txn_redeem_htlc.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -130,41 +118,36 @@ new_test() ->
         payee= <<"payee">>
         ,address= <<"address">>
         ,preimage= <<"yolo">>
-        ,nonce=1
         ,signature= <<>>
     },
-    ?assertEqual(Tx, new(<<"payee">>, <<"address">>, <<"yolo">>, 1)).
+    ?assertEqual(Tx, new(<<"payee">>, <<"address">>, <<"yolo">>)).
 
 payee_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
 address_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"address">>, address(Tx)).
 
 preimage_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"yolo">>, preimage(Tx)).
-
-nonce_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
-    ?assertEqual(1, nonce(Tx)).
 
 is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Payee = libp2p_crypto:pubkey_to_address(PubKey),
-    Tx0 = new(Payee, <<"address">>, <<"yolo">>, 1),
+    Tx0 = new(Payee, <<"address">>, <<"yolo">>),
     Tx1 = sign(Tx0, PrivKey),
     ?assert(is_valid(Tx1)),
     {_, PubKey2} = libp2p_crypto:generate_keys(),
     Payee2 = libp2p_crypto:pubkey_to_address(PubKey2),
-    Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),
+    Tx2 = new(Payee2, <<"address">>, <<"yolo">>),
     Tx3 = sign(Tx2, PrivKey),
     ?assertNot(is_valid(Tx3)).
 
 is_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assert(is(Tx)).
 
 -endif.

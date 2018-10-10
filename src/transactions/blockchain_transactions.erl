@@ -173,29 +173,27 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
         HTLC ->
             lager:info("htlc from ledger: ~p", [HTLC]),
             Payee = blockchain_txn_redeem_htlc:payee(Txn),
-            Nonce = blockchain_txn_redeem_htlc:nonce(Txn),
-            Creator = blockchain_ledger:creator(HTLC),
-            Timelock = blockchain_ledger:timelock(HTLC),
-            Height = blockchain_ledger:current_height(Ledger0),
+            Creator = blockchain_ledger:creator(HTLC),            
             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
             %% otherwise check that the timelock has expired which allows the Creator to redeem
             case Creator =:= Payee of
                 false ->
                     Hashlock = blockchain_ledger:hashlock(HTLC),
-                    Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
-
+                    Preimage = blockchain_txn_redeem_htlc:preimage(Txn),                    
                     case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
                         true ->
-                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Nonce, Ledger0)};
+                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
                         false ->
                             {error, invalid_preimage}
                     end;
                 true ->
-                    case Timelock > Height of
+                    Timelock = blockchain_ledger:timelock(HTLC),
+                    Height = blockchain_ledger:current_height(Ledger0),
+                    case Timelock >= Height of
                         true ->
                             {error, timelock_not_expired};
                         false ->
-                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Nonce, Ledger0)}
+                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)}
                     end
             end
     end;

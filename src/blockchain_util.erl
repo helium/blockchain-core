@@ -54,7 +54,7 @@ deserialize_hash(String) ->
 bin_to_hex(Bin) ->
   lists:flatten([[io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]]).
 
--spec hex_to_bin(bitstring()) -> bitstring().
+-spec hex_to_bin(binary()) -> binary().
 hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
 

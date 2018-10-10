@@ -28,7 +28,7 @@
          ,credit_account/3
          ,debit_account/4
          ,add_htlc/6
-         ,redeem_htlc/4
+         ,redeem_htlc/3
          ,save/2, load/1
          ,serialize/2
          ,deserialize/2
@@ -98,6 +98,7 @@ new() ->
 increment_height(Ledger=#ledger{current_height=Height}) when Height /= undefined ->
     Ledger#ledger{current_height=(Height + 1)};
 increment_height(Ledger) ->
+    lager:info("Ledger is ~p", Ledger),
     Ledger#ledger{current_height=1}.
 
 %%--------------------------------------------------------------------
@@ -361,20 +362,12 @@ add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-%% XXX: This needs some fixing...
-%% Presumably it returns a ledger too?
-redeem_htlc(Address, Payee, Nonce, Ledger=#ledger{entries=Entries}) ->
-    Entry = ?MODULE:find_entry(Payee, Entries),
-    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of
-        true ->
-            HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
-            Amount = ?MODULE:balance(HTLC),
-            Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
-            NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
-            Ledger1#ledger{htlcs=NewHTLCS};
-        false ->
-            {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
-    end.
+redeem_htlc(Address, Payee, Ledger=#ledger{entries=Entries}) ->
+    HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
+    Amount = ?MODULE:balance(HTLC),
+    Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
+    NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
+    Ledger1#ledger{htlcs=NewHTLCS}.
 
 %%--------------------------------------------------------------------
 %% @doc
