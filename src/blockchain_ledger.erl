@@ -353,9 +353,7 @@ add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
             NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
             Ledger#ledger{htlcs=maps:put(Address, NewHTLC, Ledger#ledger.htlcs)};
         true ->
-            HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
-            NewHTLC = ?MODULE:new_htlc(?MODULE:payment_nonce(HTLC), Creator, ?MODULE:balance(HTLC) + Amount, Hashlock, Timelock),
-            Ledger#ledger{htlcs=maps:update(Address, NewHTLC, Ledger#ledger.htlcs)}
+            {error, address_already_exists}
     end.
 
 %%--------------------------------------------------------------------
