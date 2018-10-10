@@ -360,7 +360,7 @@ add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-redeem_htlc(Address, Payee, Ledger=#ledger{entries=Entries}) ->
+redeem_htlc(Address, Payee, Ledger) ->
     HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
     Amount = ?MODULE:balance(HTLC),
     Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),

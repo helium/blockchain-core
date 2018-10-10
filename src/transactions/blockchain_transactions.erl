@@ -154,12 +154,17 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
                             Error;
                         Ledger1 ->
                             Address = blockchain_txn_create_htlc:address(Txn),
-                            {ok, blockchain_ledger:add_htlc(Address,
+                            case blockchain_ledger:add_htlc(Address,
                                                             Payer,
                                                             Amount,
                                                             blockchain_txn_create_htlc:hashlock(Txn),
                                                             blockchain_txn_create_htlc:timelock(Txn),
-                                                            Ledger1)}
+                                                            Ledger1) of
+                                {error, _Reason}=Error ->
+                                    Error;
+                                Ledger2 ->
+                                    {ok, Ledger2}
+                            end
                     end;
                 false ->
                     {error, bad_signature}
@@ -173,7 +178,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
         HTLC ->
             lager:info("htlc from ledger: ~p", [HTLC]),
             Payee = blockchain_txn_redeem_htlc:payee(Txn),
-            Creator = blockchain_ledger:creator(HTLC),            
+            Creator = blockchain_ledger:creator(HTLC),
             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
             %% otherwise check that the timelock has expired which allows the Creator to redeem
             case Creator =:= Payee of
