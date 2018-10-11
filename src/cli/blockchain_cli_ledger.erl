@@ -98,56 +98,85 @@ ledger_pay(_, _, _) ->
 %%--------------------------------------------------------------------
 ledger_create_htlc_cmd() ->
     [
-     [["ledger", "create_htlc", '*', '*', '*', '*'], [], [], fun ledger_create_htlc/3]
+     [["ledger", "create_htlc"], '_', [
+                                      {address, [{shortname, "a"}, {longname, "address"}]},
+                                      {value, [{shortname, "v", {longname, "value"}}]},
+                                      {hashlock, [{shortname, "h"}, {longname, "hashlock"}]},
+                                      {timelock, [{shortname, "t"}, {longname, "timelock"}]}
+                                      ], fun ledger_create_htlc/3]
     ].
 
 ledger_create_htlc_usage() ->
     [["ledger", "create_htlc"],
-     ["ledger create_htlc <address> <amount> <hashlock> <timelock>\n\n",
-      "  Create a new HTLC <address> with the specified <hashlock> and <timelock>, and transfer the <amount> to it.\n"
+     ["ledger create_htlc\n\n",
+      "  Create a new HTLC address with a specified hashlock and timelock (in block height), and transfer a value of tokens to it.\n"
+      "Required:\n\n"
+      "  -a, --address <address>\n",
+      "  The address of the Hashed TimeLock Contract to create\n",
+      "  -v, --value <value>\n",
+      "  The amount of tokens to transfer to the contract address\n",
+      "  -h, --hashlock <sha256hash>\n",
+      "  A SHA256 hash of a secret value (called a preimage) that locks this contract\n",
+      "  -t, --timelock <blockheight>\n",
+      "  A specific blockheight after which the creator of the contract can redeem their tokens"
      ]
     ].
 
-ledger_create_htlc(["ledger", "create_htlc", Addr, Amount, Hashlock, Timelock], [], []) ->
-    case (catch {libp2p_crypto:b58_to_address(Addr),
-                 list_to_integer(Amount), list_to_binary(Hashlock), list_to_integer(Timelock)}) of
-        {'EXIT', _} ->
+ledger_create_htlc(_CmdBase, _, []) ->
+    usage;
+ledger_create_htlc(_CmdBase, _Keys, Flags) ->
+    case (catch ledger_create_htlc_helper(Flags)) of
+        {'EXIT', _Reason} ->
             usage;
-        {Address, Value, Hash, Blockheight} when Value > 0 ->
-            blockchain_worker:create_htlc_txn(Address, Value, Hash, Blockheight),
+        ok ->
             [clique_status:text("ok")];
         _ -> usage
-    end;
-ledger_create_htlc(_, _, _) ->
-    usage.
+    end.
+
+ledger_create_htlc_helper(Flags) ->
+    Address = libp2p_crypto:p2p_to_address(clean(proplists:get_value(address, Flags))),
+    Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
+    Hashlock = list_to_binary(clean(proplists:get_value(token, Flags))),
+    Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
+    blockchain_worker:create_htlc_txn(Address, Amount, Hashlock, Timelock).
 
 %%--------------------------------------------------------------------
 %% ledger redeem
 %%--------------------------------------------------------------------
 ledger_redeem_htlc_cmd() ->
     [
-     [["ledger", "redeem_htlc", '*', '*'], [], [], fun ledger_redeem_htlc/3]
+     [["ledger", "redeem_htlc"], '_', [
+                                      {address, [{shortname, "a"}, {longname, "address"}]},
+                                      {preimage, [{shortname, "p"}, {longname, "preimage"}]}
+                                      ], fun ledger_redeem_htlc/3]
     ].
 
 ledger_redeem_htlc_usage() ->
     [["ledger", "redeem_htlc"],
-     ["ledger redeem_htlc <address> <preimage>\n\n",
-      "  Redeem the balance from an HTLC <address> with the specified <preimage> for the Hashlock.\n"
+     ["Redeem the balance from an HTLC address with the specified preimage for the Hashlock.\n"
+      "Required:\n\n"
+      "  -a, --address <address>\n",
+      "  The address of the Hashed TimeLock Contract to redeem from\n",
+      "  -vp --preimage <preimage>\n",
+      "  The preimage used to create the Hashlock for this contract address\n"
      ]
     ].
 
-ledger_redeem_htlc(["ledger", "redeem_htlc", Addr, Pre], [], []) ->
-    case (catch {libp2p_crypto:b58_to_address(Addr),
-                 list_to_binary(Pre)}) of
-        {'EXIT', _} ->
+ledger_redeem_htlc(_CmdBase, _, []) ->
+    usage;
+ledger_redeem_htlc(_CmdBase, _Keys, Flags) ->
+    case (catch ledger_redeem_htlc_helper(Flags)) of
+        {'EXIT', _Reason} ->
             usage;
-        {Address, Preimage} ->
-            blockchain_worker:redeem_htlc_txn(Address, Preimage),
+        ok ->
             [clique_status:text("ok")];
         _ -> usage
-    end;
-ledger_redeem_htlc(_, _, _) ->
-    usage.
+    end.
+
+ledger_redeem_htlc_helper(Flags) ->
+    Address = libp2p_crypto:p2p_to_address(clean(proplists:get_value(address, Flags))),
+    Preimage = list_to_binary(clean(proplists:get_value(preimage, Flags))),
+    blockchain_worker:redeem_htlc_txn(Address, Preimage).
 
 %%--------------------------------------------------------------------
 %% ledger add gateway_request
@@ -292,3 +321,12 @@ format_ledger_gateway_entry({GatewayAddr, {gw_info, OwnerAddr, Index, Nonce}}) -
      {nonce, Nonce},
      {h3_index, IndexToStr(Index)}
     ].
+
+%% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
+%% Presumably none of the flags would be _having_ a leading "=" intentionally!
+clean(String) ->
+    case string:split(String, "=", leading) of
+        [[], S] -> S;
+        [S] -> S;
+        _ -> error
+    end.
