@@ -20,6 +20,7 @@ register_all_usage() ->
                  [
                   ledger_pay_usage()
                   ,ledger_create_htlc_usage()
+                  ,ledger_redeem_htlc_usage()
                   ,ledger_balance_usage()
                   ,ledger_gateways_usage()
                   ,ledger_add_gateway_request_usage()
@@ -34,6 +35,7 @@ register_all_cmds() ->
                  [
                   ledger_pay_cmd()
                   ,ledger_create_htlc_cmd()
+                  ,ledger_redeem_htlc_cmd()
                   ,ledger_balance_cmd()
                   ,ledger_gateways_cmd()
                   ,ledger_add_gateway_request_cmd()
@@ -101,7 +103,7 @@ ledger_create_htlc_cmd() ->
 
 ledger_create_htlc_usage() ->
     [["ledger", "create_htlc"],
-     ["ledger create_htlc create <address> <amount> <hashlock> <timelock>\n\n",
+     ["ledger create_htlc <address> <amount> <hashlock> <timelock>\n\n",
       "  Create a new HTLC <address> with the specified <hashlock> and <timelock>, and transfer the <amount> to it.\n"
      ]
     ].
@@ -111,12 +113,40 @@ ledger_create_htlc(["ledger", "create_htlc", Addr, Amount, Hashlock, Timelock], 
                  list_to_integer(Amount), list_to_binary(Hashlock), list_to_integer(Timelock)}) of
         {'EXIT', _} ->
             usage;
-        {Recipient, Value, Hash, Blockheight} when Value > 0 ->
-            blockchain_worker:create_htlc_txn(Recipient, Value, Hash, Blockheight),
+        {Address, Value, Hash, Blockheight} when Value > 0 ->
+            blockchain_worker:create_htlc_txn(Address, Value, Hash, Blockheight),
             [clique_status:text("ok")];
         _ -> usage
     end;
 ledger_create_htlc(_, _, _) ->
+    usage.
+
+%%--------------------------------------------------------------------
+%% ledger redeem
+%%--------------------------------------------------------------------
+ledger_redeem_htlc_cmd() ->
+    [
+     [["ledger", "redeem_htlc", '*', '*'], [], [], fun ledger_redeem_htlc/3]
+    ].
+
+ledger_redeem_htlc_usage() ->
+    [["ledger", "redeem_htlc"],
+     ["ledger redeem_htlc <address> <preimage>\n\n",
+      "  Redeem the balance from an HTLC <address> with the specified <preimage> for the Hashlock.\n"
+     ]
+    ].
+
+ledger_redeem_htlc(["ledger", "redeem_htlc", Addr, Pre], [], []) ->
+    case (catch {libp2p_crypto:b58_to_address(Addr),
+                 list_to_binary(Pre)}) of
+        {'EXIT', _} ->
+            usage;
+        {Address, Preimage} ->
+            blockchain_worker:redeem_htlc_txn(Address, Preimage),
+            [clique_status:text("ok")];
+        _ -> usage
+    end;
+ledger_redeem_htlc(_, _, _) ->
     usage.
 
 %%--------------------------------------------------------------------
