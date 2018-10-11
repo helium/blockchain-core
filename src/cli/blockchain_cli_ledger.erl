@@ -264,13 +264,13 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
     case (catch libp2p_crypto:b58_to_address(Str)) of
         {'EXIT', _} -> usage;
         Addr ->
-            R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, Ledger)})],
+            R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, blockchain_ledger:entries(Ledger))})],
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
     Addr = blockchain_swarm:address(),
     Ledger = get_ledger(),
-    R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, Ledger)})],
+    R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, blockchain_ledger:entries(Ledger))})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{all, _}]) ->
     Balances = maps:filter(fun(K, _V) ->
@@ -288,7 +288,7 @@ format_ledger_balance({Addr, Entry}) ->
 
 get_ledger() ->
     case blockchain_worker:ledger() of
-        undefined -> #{};
+        undefined -> blockchain_ledger:new();
         L -> L
     end.
 
@@ -308,7 +308,7 @@ ledger_gateways_usage() ->
     ].
 
 ledger_gateways(_CmdBase, [], []) ->
-    Gateways = maps:get(active_gateways, get_ledger(), #{}),
+    Gateways = blockchain_ledger:active_gateways(get_ledger()),
     R = [format_ledger_gateway_entry(G) || G <- maps:to_list(Gateways)],
     [clique_status:table(R)].
 
