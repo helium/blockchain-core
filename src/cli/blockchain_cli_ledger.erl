@@ -271,13 +271,15 @@ ledger_balance(_CmdBase, [], []) ->
     Addr = blockchain_swarm:address(),
     Ledger = get_ledger(),
     R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, blockchain_ledger:entries(Ledger))})],
-    [clique_status:table(R)];
-ledger_balance(_CmdBase, [], [{all, _}]) ->
-    Balances = maps:filter(fun(K, _V) ->
-                                   is_binary(K)
-                           end, get_ledger()),
-    R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
     [clique_status:table(R)].
+
+%% TODO: Fix this 
+%% ledger_balance(_CmdBase, [], [{all, _}]) ->
+%%     Balances = maps:filter(fun(K, _V) ->
+%%                                    is_binary(K)
+%%                            end, get_ledger()),
+%%     R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
+%%     [clique_status:table(R)].
 
 -spec format_ledger_balance({libp2p_crypto:address(), blockchain_ledger:entry()}) -> list().
 format_ledger_balance({Addr, Entry}) ->
