@@ -19,6 +19,7 @@ register_all_usage() ->
                   end,
                  [
                   ledger_pay_usage()
+                  ,ledger_create_htlc_usage()
                   ,ledger_balance_usage()
                   ,ledger_gateways_usage()
                   ,ledger_add_gateway_request_usage()
@@ -32,6 +33,7 @@ register_all_cmds() ->
                   end,
                  [
                   ledger_pay_cmd()
+                  ,ledger_create_htlc_cmd()
                   ,ledger_balance_cmd()
                   ,ledger_gateways_cmd()
                   ,ledger_add_gateway_request_cmd()
@@ -47,6 +49,8 @@ ledger_usage() ->
      ["blockchain ledger commands\n\n",
       "  ledger balance   - Get the balance for this or all addresses.\n"
       "  ledger pay       - Transfer tokens to a crypto address.\n"
+      "  ledger create_htlc      - Create or a hashed timelock address.\n"
+      "  ledger redeem_htlc      - Redeem from a hashed timelock address.\n"
       "  ledger gateways  - Display the list of active gateways.\n"
       "  ledger add_gateway_request  - Request the addition of a gateway.\n"
       "  ledger add_gateway_txn  - Countersign the addition of a gateway and submit it.\n"
@@ -87,6 +91,33 @@ ledger_pay(["ledger", "pay", Addr, Amount], [], []) ->
 ledger_pay(_, _, _) ->
     usage.
 
+%%--------------------------------------------------------------------
+%% ledger create_htlc
+%%--------------------------------------------------------------------
+ledger_create_htlc_cmd() ->
+    [
+     [["ledger", "create_htlc", '*', '*', '*', '*'], [], [], fun ledger_create_htlc/3]
+    ].
+
+ledger_create_htlc_usage() ->
+    [["ledger", "create_htlc"],
+     ["ledger create_htlc create <address> <amount> <hashlock> <timelock>\n\n",
+      "  Create a new HTLC <address> with the specified <hashlock> and <timelock>, and transfer the <amount> to it.\n"
+     ]
+    ].
+
+ledger_create_htlc(["ledger", "create_htlc", Addr, Amount, Hashlock, Timelock], [], []) ->
+    case (catch {libp2p_crypto:b58_to_address(Addr),
+                 list_to_integer(Amount), list_to_binary(Hashlock), list_to_integer(Timelock)}) of
+        {'EXIT', _} ->
+            usage;
+        {Recipient, Value, Hash, Blockheight} when Value > 0 ->
+            blockchain_worker:create_htlc_txn(Recipient, Value, Hash, Blockheight),
+            [clique_status:text("ok")];
+        _ -> usage
+    end;
+ledger_create_htlc(_, _, _) ->
+    usage.
 
 %%--------------------------------------------------------------------
 %% ledger add gateway_request
