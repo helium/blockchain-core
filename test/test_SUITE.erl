@@ -54,7 +54,8 @@ basic(_Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:address(),
     Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
 
@@ -105,7 +106,8 @@ htlc_payee_redeem(_Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     HTLCAddress = blockchain_swarm:address(),
     CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 100, 2500, 1),
-    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
 
@@ -130,7 +132,7 @@ htlc_payee_redeem(_Config) ->
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, PayeePrivKey),
+    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
 
@@ -168,7 +170,8 @@ htlc_payer_redeem(_Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     HTLCAddress = blockchain_swarm:address(),
     CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 3, 2500, 1),
-    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
 
@@ -200,7 +203,7 @@ htlc_payer_redeem(_Config) ->
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc:new(Payer, HTLCAddress, <<"sharkfed">>),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, PayerPrivKey),
+    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block4, self()),
 

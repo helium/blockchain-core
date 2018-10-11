@@ -334,7 +334,8 @@ handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
     AddGwTxn = blockchain_txn_add_gateway:new(OwnerAddress, Address),
-    SignedAddGwTxn = blockchain_txn_add_gateway:sign_request(AddGwTxn, Swarm),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedAddGwTxn = blockchain_txn_add_gateway:sign_request(AddGwTxn, SigFun),
     {reply, SignedAddGwTxn, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -435,7 +436,8 @@ handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=St
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
-    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, Swarm),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchain=Chain}=State) ->
@@ -443,7 +445,8 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchai
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
-    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({create_htlc_txn, Address, Amount, Hashlock, Timelock}, #state{swarm=Swarm, blockchain=Chain}=State) ->
@@ -452,20 +455,23 @@ handle_cast({create_htlc_txn, Address, Amount, Hashlock, Timelock}, #state{swarm
     Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
     CreateTxn = blockchain_txn_create_htlc:new(Payer, Address, Hashlock, Timelock, Amount, Nonce),
-    SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, Swarm),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
 handle_cast({create_htlc_txn, Address, Preimage}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:address(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc:new(Payee, Address, Preimage),
-    SignedRedeemTxn = blockchain_txn_redeem_htlc:sign(RedeemTxn, Swarm),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedRedeemTxn = blockchain_txn_redeem_htlc:sign(RedeemTxn, SigFun),
     ok = send_txn(redeem_htlc_txn, SignedRedeemTxn, State),
     {noreply, State};
 handle_cast({submit_txn, Type, Txn}, State) ->
     ok = send_txn(Type, Txn, State),
     {noreply, State};
 handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
-    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, Swarm),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, SigFun),
     ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
     {noreply, State};
 handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chain}=State) ->
@@ -477,7 +483,8 @@ handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chai
         GwInfo ->
             Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
             AssertLocationTxn = blockchain_txn_assert_location:new(Address, Location, Nonce+1),
-            SignedAssertLocationTxn = blockchain_txn_assert_location:sign(AssertLocationTxn, Swarm),
+            {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+            SignedAssertLocationTxn = blockchain_txn_assert_location:sign(AssertLocationTxn, SigFun),
             lager:info(
                 "assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
                 ,[Address, Location, Nonce, SignedAssertLocationTxn]

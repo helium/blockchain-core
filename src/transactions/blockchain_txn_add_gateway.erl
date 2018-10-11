@@ -79,32 +79,22 @@ gateway_signature(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_add_gateway(), pid() | libp2p_crypto:private_key()) -> txn_add_gateway().
-sign(Txn, Swarm) when is_pid(Swarm) ->
-    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
+-spec sign(txn_add_gateway(), fun()) -> txn_add_gateway().
+sign(Txn, SigFun) ->
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{owner_signature= <<>>
                                                        ,gateway_signature= <<>>}),
-    Txn#txn_add_gateway{owner_signature=Sigfun(BinTxn)};
-sign(Txn, PrivKey) ->
-    Sigfun = libp2p_crypto:mk_sig_fun(PrivKey),
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{owner_signature= <<>>
-                                                       ,gateway_signature= <<>>}),
-    Txn#txn_add_gateway{owner_signature=Sigfun(BinTxn)}.
+    Txn#txn_add_gateway{owner_signature=SigFun(BinTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign_request(txn_add_gateway(), pid() | libp2p_crypto:private_key()) -> txn_add_gateway().
-sign_request(Txn, Swarm) when is_pid(Swarm) ->
-    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{gateway_signature = <<>>, owner_signature = <<>>}),
-    Txn#txn_add_gateway{gateway_signature=Sigfun(BinTxn)};
-sign_request(Txn, PrivKey) ->
-    Sigfun = libp2p_crypto:mk_sig_fun(PrivKey),
+-spec sign_request(txn_add_gateway(), fun()) -> txn_add_gateway().
+sign_request(Txn, SigFun) ->
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{owner_signature= <<>>
                                                        ,gateway_signature= <<>>}),
-    Txn#txn_add_gateway{gateway_signature=Sigfun(BinTxn)}.
+    Txn#txn_add_gateway{gateway_signature=SigFun(BinTxn)}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -171,15 +161,17 @@ gateway_signature_test() ->
 sign_request_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
-    Tx1 = sign_request(Tx0, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign_request(Tx0, SigFun),
     Sig1 = gateway_signature(Tx1),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
 
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
-    Tx1 = sign_request(Tx0, PrivKey),
-    Tx2 = sign(Tx1, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign_request(Tx0, SigFun),
+    Tx2 = sign(Tx1, SigFun),
     Sig2 = owner_signature(Tx2),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway{gateway_signature = <<>>, owner_signature = << >>}), Sig2, PubKey)).
 

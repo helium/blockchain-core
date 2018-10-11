@@ -82,14 +82,9 @@ signature(Txn) ->
 %% payment transaction.
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_redeem_htlc(), pid() | libp2p_crypto:private_key()) -> txn_redeem_htlc().
-sign(Txn, Swarm) when is_pid(Swarm) ->
-    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    Signature = Sigfun(erlang:term_to_binary(Txn)),
-    Txn#txn_redeem_htlc{signature=Signature};
-sign(Txn, PrivKey) ->
-    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
-    Txn#txn_redeem_htlc{signature=Sign(erlang:term_to_binary(Txn))}.
+-spec sign(txn_redeem_htlc(), fun()) -> txn_redeem_htlc().
+sign(Txn, SigFun) ->
+    Txn#txn_redeem_htlc{signature=SigFun(erlang:term_to_binary(Txn))}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -138,12 +133,13 @@ is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Payee = libp2p_crypto:pubkey_to_address(PubKey),
     Tx0 = new(Payee, <<"address">>, <<"yolo">>),
-    Tx1 = sign(Tx0, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
     {_, PubKey2} = libp2p_crypto:generate_keys(),
     Payee2 = libp2p_crypto:pubkey_to_address(PubKey2),
     Tx2 = new(Payee2, <<"address">>, <<"yolo">>),
-    Tx3 = sign(Tx2, PrivKey),
+    Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
 
 is_test() ->
