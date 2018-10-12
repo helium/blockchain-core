@@ -92,14 +92,10 @@ signature(Txn) ->
 %% payment transaction.
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_payment(), pid() | libp2p_crypto:private_key()) -> txn_payment().
-sign(Txn, Swarm) when is_pid(Swarm) ->
-    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    Signature = Sigfun(erlang:term_to_binary(Txn)),
-    Txn#txn_payment{signature=Signature};
-sign(Txn, PrivKey) ->
-    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
-    Txn#txn_payment{signature=Sign(erlang:term_to_binary(Txn))}.
+-spec sign(txn_payment(), libp2p_crypto:sig_fun()) -> txn_payment().
+sign(Txn, SigFun) ->
+    Txn#txn_payment{signature=SigFun(erlang:term_to_binary(Txn))}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -157,7 +153,8 @@ signature_test() ->
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Tx0 = new(<<"payer">>, <<"payee">>, 666, 1),
-    Tx1 = sign(Tx0, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_payment{signature = <<>>}), Sig1, PubKey)).
 
@@ -165,12 +162,13 @@ is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Payer = libp2p_crypto:pubkey_to_address(PubKey),
     Tx0 = new(Payer, <<"payee">>, 666, 1),
-    Tx1 = sign(Tx0, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
     {_, PubKey2} = libp2p_crypto:generate_keys(),
     Payer2 = libp2p_crypto:pubkey_to_address(PubKey2),
     Tx2 = new(Payer2, <<"payee">>, 666, 1),
-    Tx3 = sign(Tx2, PrivKey),
+    Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
 
 is_test() ->

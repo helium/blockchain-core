@@ -53,7 +53,8 @@ basic(_Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:address(),
     Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
 
     {ok, Swarm} = libp2p_swarm:start(gossip_SUITE, []),
