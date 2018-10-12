@@ -292,11 +292,8 @@ init(Args) ->
             Else -> Else
         end,
 
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?GOSSIP_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_gossip_handler, ?SERVER]}
-    ),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}),
+
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?SYNC_PROTOCOL
@@ -392,9 +389,9 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
             of
                 {true, _} ->
                     NewChain = blockchain:add_block(Block, Chain),
-                    SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
-                    libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
+                    Address = libp2p_swarm:address(Swarm),
+                    libp2p_group_gossip:send(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, term_to_binary({block, Address, Block})),
                     ok = notify({add_block, Hash}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
