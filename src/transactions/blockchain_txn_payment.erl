@@ -92,7 +92,7 @@ signature(Txn) ->
 %% payment transaction.
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_payment(), fun()) -> txn_payment().
+-spec sign(txn_payment(), libp2p_crypto:sig_fun()) -> txn_payment().
 sign(Txn, SigFun) ->
     Txn#txn_payment{signature=SigFun(erlang:term_to_binary(Txn))}.
 

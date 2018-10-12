@@ -77,7 +77,7 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_assert_location(), fun()) -> txn_assert_location().
+-spec sign(txn_assert_location(), libp2p_crypto:sig_fun()) -> txn_assert_location().
 sign(Txn, SigFun) ->
     Txn#txn_assert_location{signature=SigFun(erlang:term_to_binary(Txn))}.
 

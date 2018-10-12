@@ -119,7 +119,7 @@ signature(Txn) ->
 %% payment transaction.
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_create_htlc(), fun()) -> txn_create_htlc().
+-spec sign(txn_create_htlc(), libp2p_crypto:sig_fun()) -> txn_create_htlc().
 sign(Txn, SigFun) ->
     Txn#txn_create_htlc{signature=SigFun(erlang:term_to_binary(Txn))}.
 

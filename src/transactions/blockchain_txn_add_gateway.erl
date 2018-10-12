@@ -79,7 +79,7 @@ gateway_signature(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_add_gateway(), fun()) -> txn_add_gateway().
+-spec sign(txn_add_gateway(), libp2p_crypto:sig_fun()) -> txn_add_gateway().
 sign(Txn, SigFun) ->
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway{owner_signature= <<>>
                                                        ,gateway_signature= <<>>}),
