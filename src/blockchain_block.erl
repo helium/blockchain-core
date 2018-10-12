@@ -366,7 +366,8 @@ verify_signature_test() ->
     Keys = generate_keys(10),
     [{Payer, {_, PayerPrivKey, _}}, {Recipient, _}|_] = Keys,
     Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block0 = blockchain_block:new(<<>>, 2, [SignedTx], <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures =

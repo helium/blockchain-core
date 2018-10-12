@@ -77,14 +77,10 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_assert_location(), pid() | libp2p_crypto:private_key()) -> txn_assert_location().
-sign(Txn, Swarm) when is_pid(Swarm) ->
-    {ok, _PubKey, Sigfun} = libp2p_swarm:keys(Swarm),
-    Signature = Sigfun(erlang:term_to_binary(Txn)),
-    Txn#txn_assert_location{signature=Signature};
-sign(Txn, PrivKey) ->
-    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
-    Txn#txn_assert_location{signature=Sign(erlang:term_to_binary(Txn))}.
+-spec sign(txn_assert_location(), libp2p_crypto:sig_fun()) -> txn_assert_location().
+sign(Txn, SigFun) ->
+    Txn#txn_assert_location{signature=SigFun(erlang:term_to_binary(Txn))}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -127,7 +123,8 @@ nonce_test() ->
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Tx0 = new(<<"gateway_address">>, 1, 1),
-    Tx1 = sign(Tx0, PrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location{signature = <<>>}), Sig1, PubKey)).
 

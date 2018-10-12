@@ -19,7 +19,9 @@
                        | blockchain_txn_assert_location:txn_assert_location()
                        | blockchain_txn_coinbase:txn_coinbase()
                        | blockchain_txn_gen_consensus_group:txn_genesis_consensus_group()
-                       | blockchain_txn_payment:txn_payment().
+                       | blockchain_txn_payment:txn_payment()
+                       | blockchain_txn_create_htlc:txn_create_htlc()
+                       | blockchain_txn_redeem_htlc:txn_redeem_htlc().
 -type transactions() :: [transaction()].
 -export_type([transactions/0]).
 
@@ -61,7 +63,10 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 -spec absorb(transactions() | [], blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
                                                                  | {error, any()}.
 absorb([], Ledger) ->
-    {ok, Ledger};
+    %% TODO: probably not the correct place to be incrementing the height for the ledger
+    {ok, blockchain_ledger:increment_height(Ledger)};
+absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
+    absorb(Txns, blockchain_ledger:new());
 absorb([Txn|Txns], Ledger0) ->
     case absorb(type(Txn), Txn, Ledger0) of
         {error, _Reason}=Error -> Error;
@@ -133,6 +138,71 @@ absorb(blockchain_txn_payment, Txn, Ledger0) ->
                     {error, bad_signature}
             end
     end;
+absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
+    Amount = blockchain_txn_create_htlc:amount(Txn),
+    case Amount >= 0 of
+        false ->
+            lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
+            {error, invalid_transaction};
+        true ->
+            case blockchain_txn_create_htlc:is_valid(Txn) of
+                true ->
+                    Payer = blockchain_txn_create_htlc:payer(Txn),
+                    Nonce = blockchain_txn_create_htlc:nonce(Txn),
+                    case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger0) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        Ledger1 ->
+                            Address = blockchain_txn_create_htlc:address(Txn),
+                            case blockchain_ledger:add_htlc(Address,
+                                                            Payer,
+                                                            Amount,
+                                                            blockchain_txn_create_htlc:hashlock(Txn),
+                                                            blockchain_txn_create_htlc:timelock(Txn),
+                                                            Ledger1) of
+                                {error, _Reason}=Error ->
+                                    Error;
+                                Ledger2 ->
+                                    {ok, Ledger2}
+                            end
+                    end;
+                false ->
+                    {error, bad_signature}
+            end
+    end;
+absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
+    Address = blockchain_txn_redeem_htlc:address(Txn),
+    case blockchain_ledger:find_htlc(Address, blockchain_ledger:htlcs(Ledger0)) of
+        {error, _Reason}=Error ->
+            Error;
+        HTLC ->
+            lager:info("htlc from ledger: ~p", [HTLC]),
+            Payee = blockchain_txn_redeem_htlc:payee(Txn),
+            Creator = blockchain_ledger:creator(HTLC),
+            %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
+            %% otherwise check that the timelock has expired which allows the Creator to redeem
+            case Creator =:= Payee of
+                false ->
+                    Hashlock = blockchain_ledger:hashlock(HTLC),
+                    Preimage = blockchain_txn_redeem_htlc:preimage(Txn),                    
+                    case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
+                        true ->
+                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
+                        false ->
+                            {error, invalid_preimage}
+                    end;
+                true ->
+                    Timelock = blockchain_ledger:timelock(HTLC),
+                    Height = blockchain_ledger:current_height(Ledger0),
+                    case Timelock >= Height of
+                        true ->
+                            {error, timelock_not_expired};
+                        false ->
+                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)}
+                    end
+            end
+    end;
+
 absorb(_, Unknown, _Ledger) ->
     lager:warning("unknown transaction ~p", [Unknown]),
     {error, unknown_transaction}.
@@ -160,6 +230,8 @@ nonce(Txn) ->
             blockchain_txn_assert_location:nonce(Txn);
         blockchain_txn_payment ->
             blockchain_txn_payment:nonce(Txn);
+        blockchain_txn_create_htlc ->
+            blockchain_txn_create_htlc:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -175,6 +247,10 @@ actor(Txn) ->
             blockchain_txn_assert_location:gateway_address(Txn);
         blockchain_txn_payment ->
             blockchain_txn_payment:payer(Txn);
+        blockchain_txn_create_htlc ->
+            blockchain_txn_create_htlc:payer(Txn);
+        blockchain_txn_redeem_htlc ->
+            blockchain_txn_redeem_htlc:payee(Txn);
         blockchain_txn_add_gateway ->
             blockchain_txn_add_gateway:owner_address(Txn);
         blockchain_txn_coinbase ->
@@ -218,20 +294,26 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) ->
 type(Txn) ->
     case {blockchain_txn_assert_location:is(Txn)
           ,blockchain_txn_payment:is(Txn)
+          ,blockchain_txn_create_htlc:is(Txn)
+          ,blockchain_txn_redeem_htlc:is(Txn)
           ,blockchain_txn_add_gateway:is(Txn)
           ,blockchain_txn_coinbase:is(Txn)
           ,blockchain_txn_gen_consensus_group:is(Txn)} of
-        {true, _, _, _, _} ->
+        {true, _, _, _, _, _, _} ->
             blockchain_txn_assert_location;
-        {_, true, _, _, _} ->
+        {_, true, _, _, _, _, _} ->
             blockchain_txn_payment;
-        {_, _, true, _, _} ->
+        {_, _, true, _, _, _, _} ->
+            blockchain_txn_create_htlc;
+        {_, _, _, true, _, _, _} ->
+            blockchain_txn_redeem_htlc;
+        {_, _, _, _, true, _, _} ->
             blockchain_txn_add_gateway;
-        {_, _, _, true, _} ->
+        {_, _, _, _, _, true, _} ->
             blockchain_txn_coinbase;
-        {_, _, _, _, true} ->
+        {_, _, _, _, _, _, true} ->
             blockchain_txn_gen_consensus_group;
-        {_, _, _, _, _} ->
+        {_, _, _, _, _, _, _} ->
             undefined
     end.
 

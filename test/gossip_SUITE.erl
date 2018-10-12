@@ -43,16 +43,18 @@ basic(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = [blockchain_ledger:find_entry(Addr, Ledger) || {Addr, _} <- ConsensusMembers],
-    _ = [{?assertEqual(Balance, blockchain_ledger:balance(Entry))
-          ,?assertEqual(0, blockchain_ledger:payment_nonce(Entry))}
-         || Entry <- Entries],
+    Entries = blockchain_ledger:entries(Ledger),
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:address(),
     Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
-    SignedTx = blockchain_txn_payment:sign(Tx, PayerPrivKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
 
     {ok, Swarm} = libp2p_swarm:start(gossip_SUITE, []),

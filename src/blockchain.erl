@@ -6,7 +6,7 @@
 -module(blockchain).
 
 -export([
-    new/3
+    new/2
     ,genesis_hash/1 ,genesis_block/1
     ,head_hash/1, head_block/1
     ,ledger/1
@@ -32,7 +32,7 @@
     ,dir :: file:filename_all()
 }).
 
-% TODO: Make ledger a record instead of simply a map
+% TODO: Save ledger to rocksdb
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -40,11 +40,15 @@
 
 %%--------------------------------------------------------------------
 %% @doc
+%% This function must only be called once, specifically in
+%% blockchain_worker:integrate_genesis_block
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_block:block(), blockchain_ledger:ledger(), file:filename_all()) -> blockchain().
-new(GenesisBlock, Ledger, Dir) ->
+-spec new(blockchain_block:block(), file:filename_all()) -> blockchain().
+new(GenesisBlock, Dir) ->
     Hash = blockchain_block:hash_block(GenesisBlock),
+    Transactions = blockchain_block:transactions(GenesisBlock),
+    {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger:new()),
     #blockchain{
         genesis={Hash, GenesisBlock}
         ,head={Hash, GenesisBlock}
@@ -296,48 +300,48 @@ build(PrevBlock, Blocks, Acc) ->
 new_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
-    Chain = new(Block, #{}, "data/new_test"),
+    Chain = new(Block, "data/new_test"),
     ?assertEqual({Hash, Block}, Chain#blockchain.genesis),
     ?assertEqual({Hash, Block}, Chain#blockchain.head),
-    ?assertEqual(#{}, Chain#blockchain.ledger),
+    ?assertEqual(blockchain_ledger:increment_height(blockchain_ledger:new()), ledger(Chain)),
     ?assertEqual("data/new_test/blockchain", Chain#blockchain.dir).
 
 genesis_hash_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
-    Chain = new(Block, #{}, "data/genesis_hash_test"),
+    Chain = new(Block, "data/genesis_hash_test"),
     ?assertEqual(Hash, genesis_hash(Chain)).
 
 genesis_block_test() ->
     Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, #{}, "data/genesis_block_test"),
+    Chain = new(Block, "data/genesis_block_test"),
     ?assertEqual(Block, genesis_block(Chain)).
 
 head_hash_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
-    Chain = new(Block, #{}, "data/head_hash_test"),
+    Chain = new(Block, "data/head_hash_test"),
     ?assertEqual(Hash, head_hash(Chain)).
 
 head_block_test() ->
     Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, #{}, "data/head_block_test"),
+    Chain = new(Block, "data/head_block_test"),
     ?assertEqual(Block, head_block(Chain)).
 
 ledger_test() ->
     Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, #{}, "data/ledger_test"),
-    ?assertEqual(#{}, ledger(Chain)).
+    Chain = new(Block, "data/ledger_test"),
+    ?assertEqual(blockchain_ledger:increment_height(blockchain_ledger:new()), ledger(Chain)).
 
 dir_test() ->
     Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, #{}, "data/dir_test"),
+    Chain = new(Block, "data/dir_test"),
     ?assertEqual("data/dir_test/blockchain", dir(Chain)).
 
 blocks_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
-    Chain = new(GenBlock, #{}, "data/blocks_test"),
+    Chain = new(GenBlock, "data/blocks_test"),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
     Chain2 = add_block(Block, Chain),
@@ -346,13 +350,13 @@ blocks_test() ->
 
 blocks_size_test() ->
     Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, #{}, "data/blocks_size_test"),
+    Chain = new(Block, "data/blocks_size_test"),
     ?assertEqual(0, blocks_size(Chain)).
 
 get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
-    Chain = new(GenBlock, #{}, "data/get_block_test"),
+    Chain = new(GenBlock, "data/get_block_test"),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
     Chain2 = add_block(Block, Chain),
@@ -360,7 +364,7 @@ get_block_test() ->
 
 save_load_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
-    Chain = new(GenBlock, #{}, "data/save_load_test"),
+    Chain = new(GenBlock, "data/save_load_test"),
     ?assertEqual(ok, save(Chain)),
     ?assertEqual(Chain, load("data/save_load_test")).
 
