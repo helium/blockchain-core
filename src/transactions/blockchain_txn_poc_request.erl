@@ -65,8 +65,8 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_request()) -> boolean().
-is_valid(Txn=#txn_poc_request{signature=Signature}) ->
-    {_, PubKey} = libp2p_crypto:generate_keys(),
+is_valid(Txn=#txn_poc_request{gateway_address=GatewayAddress, signature=Signature}) ->
+    PubKey = libp2p_crypto:address_to_pubkey(GatewayAddress),
     libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_poc_request{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------

@@ -172,35 +172,40 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
             end
     end;
 absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
-    Address = blockchain_txn_redeem_htlc:address(Txn),
-    case blockchain_ledger:find_htlc(Address, blockchain_ledger:htlcs(Ledger0)) of
-        {error, _Reason}=Error ->
-            Error;
-        HTLC ->
-            Payee = blockchain_txn_redeem_htlc:payee(Txn),
-            Creator = blockchain_ledger:creator(HTLC),
-            %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
-            %% otherwise check that the timelock has expired which allows the Creator to redeem
-            case Creator =:= Payee of
-                false ->
-                    Hashlock = blockchain_ledger:hashlock(HTLC),
-                    Preimage = blockchain_txn_redeem_htlc:preimage(Txn),                    
-                    case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
-                        true ->
-                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
+    case blockchain_txn_redeem_htlc:is_valid(Txn) of
+        true ->
+            Address = blockchain_txn_redeem_htlc:address(Txn),
+            case blockchain_ledger:find_htlc(Address, blockchain_ledger:htlcs(Ledger0)) of
+                {error, _Reason}=Error ->
+                    Error;
+                HTLC ->
+                    Payee = blockchain_txn_redeem_htlc:payee(Txn),
+                    Creator = blockchain_ledger:creator(HTLC),
+                    %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
+                    %% otherwise check that the timelock has expired which allows the Creator to redeem
+                    case Creator =:= Payee of
                         false ->
-                            {error, invalid_preimage}
-                    end;
-                true ->
-                    Timelock = blockchain_ledger:timelock(HTLC),
-                    Height = blockchain_ledger:current_height(Ledger0),
-                    case Timelock >= Height of
+                            Hashlock = blockchain_ledger:hashlock(HTLC),
+                            Preimage = blockchain_txn_redeem_htlc:preimage(Txn),                    
+                            case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
+                                true ->
+                                    {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
+                                false ->
+                                    {error, invalid_preimage}
+                            end;
                         true ->
-                            {error, timelock_not_expired};
-                        false ->
-                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)}
+                            Timelock = blockchain_ledger:timelock(HTLC),
+                            Height = blockchain_ledger:current_height(Ledger0),
+                            case Timelock >= Height of
+                                true ->
+                                    {error, timelock_not_expired};
+                                false ->
+                                    {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)}
+                            end
                     end
-            end
+            end;
+        false ->
+            {error, bad_signature}
     end;
 absorb(blockchain_txn_poc_request, Txn, Ledger0) ->    
     case blockchain_txn_poc_request:is_valid(Txn) of

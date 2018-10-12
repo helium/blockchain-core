@@ -11,6 +11,7 @@
     basic/1
     ,htlc_payee_redeem/1
     ,htlc_payer_redeem/1
+    ,poc_request/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, htlc_payee_redeem, htlc_payer_redeem].
+    [basic, htlc_payee_redeem, htlc_payer_redeem, poc_request].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -131,8 +132,9 @@ htlc_payee_redeem(_Config) ->
     Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
 
     % Try and redeem
+    RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
     RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
+    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
 
@@ -216,6 +218,39 @@ htlc_payer_redeem(_Config) ->
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
     ok.
+
+poc_request(_Config) ->
+    BaseDir = "data/test_SUITE/poc_request",
+    Balance = 5000,
+    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain_worker:ledger(),
+    Entries = blockchain_ledger:entries(Ledger),
+
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
+
+    % Create a Gateway
+    {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
+    GatewayAddress = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+
+    Tx = blockchain_txn_poc_request:new(GatewayAddress),
+    SigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    SignedTx = blockchain_txn_poc_request:sign(Tx, SigFun),
+    
+    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    ok = blockchain_worker:add_block(Block, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
+    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(2, blockchain_worker:height()),
+
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

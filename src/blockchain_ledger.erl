@@ -100,7 +100,6 @@ new() ->
 increment_height(Ledger=#ledger{current_height=Height}) when Height /= undefined ->
     Ledger#ledger{current_height=(Height + 1)};
 increment_height(Ledger) ->
-    lager:info("Ledger is ~p", Ledger),
     Ledger#ledger{current_height=1}.
 
 %%--------------------------------------------------------------------
@@ -319,19 +318,19 @@ request_poc(GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         false ->
-            false;
+            {error, no_gateway_address};
         true ->
             case maps:get(GatewayAddress, ActiveGateways, undefined) of
                 undefined ->
                     %% there is no GwInfo for this gateway, request_poc sould not be allowed
-                    false;
+                    {error, gateway_not_added};
                 GwInfo ->
                     case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
                         false ->
                             {error, too_many_challenges};
                         true ->
-                            NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
-                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
+                            GwInfo = #gw_info{last_poc_challenge=current_height(Ledger)},
+                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
                     end
             end
     end.
