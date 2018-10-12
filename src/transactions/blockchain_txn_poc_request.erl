@@ -7,6 +7,7 @@
 
 -export([
     new/1
+    ,gateway_address/1
     ,signature/1
     ,sign/2
     ,is_valid/1
