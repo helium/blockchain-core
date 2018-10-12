@@ -29,6 +29,7 @@
          ,debit_account/4
          ,add_htlc/6
          ,redeem_htlc/3
+         ,request_poc/2
          ,save/2, load/1
          ,serialize/2
          ,deserialize/2
@@ -69,6 +70,7 @@
 -record(gw_info, {
           owner_address :: libp2p_crypto:address()
           ,location :: undefined | pos_integer()
+          ,last_poc_challenge = 0 :: non_neg_integer()
           ,nonce = 0 :: non_neg_integer()
          }).
 
@@ -302,6 +304,37 @@ gateway_owner(undefined) ->
     undefined;
 gateway_owner(GwInfo) ->
     GwInfo#gw_info.owner_address.
+
+-spec last_poc_challenge(undefined | gw_info()) -> libp2p_crypto:address().
+last_poc_challenge(undefined) ->
+    undefined;
+last_poc_challenge(GwInfo) ->
+    GwInfo#gw_info.last_poc_challenge.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+request_poc(GatewayAddress, Ledger) ->
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
+    case maps:is_key(GatewayAddress, ActiveGateways) of
+        false ->
+            false;
+        true ->
+            case maps:get(GatewayAddress, ActiveGateways, undefined) of
+                undefined ->
+                    %% there is no GwInfo for this gateway, request_poc sould not be allowed
+                    false;
+                GwInfo ->
+                    case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
+                        false ->
+                            {error, too_many_challenges};
+                        true ->
+                            NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
+                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
+                    end
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
