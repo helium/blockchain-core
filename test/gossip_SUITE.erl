@@ -6,12 +6,12 @@
 -include("blockchain.hrl").
 
 -export([
-    all/0
-]).
+         all/0
+        ]).
 
 -export([
-    basic/1
-]).
+         basic/1
+        ]).
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS

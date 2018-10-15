@@ -375,6 +375,7 @@ handle_cast(_, #state{blockchain={undefined, _}}=State) ->
     {noreply, State};
 handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                 ,n=N}=State) ->
+    lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
     Head = blockchain:head_hash(Chain),
     Hash = blockchain_block:hash_block(Block),
     F = ((N-1) div 3),
