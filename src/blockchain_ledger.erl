@@ -265,12 +265,12 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         false ->
-            false;
+            {{error, no_active_gateway}};
         true ->
             case maps:get(GatewayAddress, ActiveGateways, undefined) of
                 undefined ->
                     %% there is no GwInfo for this gateway, assert_location sould not be allowed
-                    false;
+                    {{error, no_gateway_info}};
                 GwInfo ->
                     NewGwInfo =
                     case ?MODULE:gateway_location(GwInfo) of
@@ -325,12 +325,18 @@ request_poc(GatewayAddress, Ledger) ->
                     %% there is no GwInfo for this gateway, request_poc sould not be allowed
                     {error, gateway_not_added};
                 GwInfo ->
-                    case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
-                        false ->
-                            {error, too_many_challenges};
+                    %% TODO - too much nesting
+                    case gateway_location(GwInfo) of
+                        undefined ->
+                            {error, no_gateway_location};
                         true ->
-                            GwInfo = #gw_info{last_poc_challenge=current_height(Ledger)},
-                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+                            case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
+                                false ->
+                                    {error, too_many_challenges};
+                                true ->
+                                    GwInfo = #gw_info{last_poc_challenge=current_height(Ledger)},
+                                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+                            end
                     end
             end
     end.

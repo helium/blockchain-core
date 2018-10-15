@@ -224,6 +224,7 @@ poc_request(_Config) ->
     Balance = 5000,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    Owner = libp2p_crypto:pubkey_to_address(PubKey),
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
@@ -236,18 +237,42 @@ poc_request(_Config) ->
 
     % Create a Gateway
     {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
-    GatewayAddress = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    Gateway = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
-    Tx = blockchain_txn_poc_request:new(GatewayAddress),
-    SigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    SignedTx = blockchain_txn_poc_request:sign(Tx, SigFun),
-    
-    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    % Add a Gateway
+    AddGatewayTx = blockchain_txn_add_gateway:new(Owner, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+    Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     ok = blockchain_worker:add_block(Block, self()),
 
     ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
     ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
+
+    % Assert the Gateways location
+    AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 1, 1),
+    SignedAssertLocationTx = blockchain_txn_assert_location:sign(AssertLocationTx, GatewaySigFun),
+
+    Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
+    ok = blockchain_worker:add_block(Block2, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_worker:head_hash()),
+    ?assertEqual(Block2, blockchain_worker:head_block()),
+    ?assertEqual(3, blockchain_worker:height()),
+
+    % Create the PoC challenge request txn
+    Tx = blockchain_txn_poc_request:new(Gateway),    
+    SignedTx = blockchain_txn_poc_request:sign(Tx, GatewaySigFun),
+    
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    ok = blockchain_worker:add_block(Block3, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_worker:head_hash()),
+    ?assertEqual(Block3, blockchain_worker:head_block()),
+    ?assertEqual(4, blockchain_worker:height()),
 
     ok.
 
