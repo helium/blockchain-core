@@ -25,6 +25,7 @@
          ,add_gateway_location/4
          ,gateway_location/1
          ,gateway_owner/1
+         ,last_poc_challenge/1
          ,credit_account/3
          ,debit_account/4
          ,add_htlc/6
@@ -249,8 +250,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         true ->
-            %% GW already active
-            false;
+            {error, gateway_already_active};
         false ->
             GwInfo = #gw_info{owner_address=OwnerAddr, location=undefined},
             Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
@@ -267,7 +267,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
         false ->
             {{error, no_active_gateway}};
         true ->
-            case maps:get(GatewayAddress, ActiveGateways, undefined) of
+            case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
                 undefined ->
                     %% there is no GwInfo for this gateway, assert_location sould not be allowed
                     {{error, no_gateway_info}};
@@ -304,7 +304,7 @@ gateway_owner(undefined) ->
 gateway_owner(GwInfo) ->
     GwInfo#gw_info.owner_address.
 
--spec last_poc_challenge(undefined | gw_info()) -> libp2p_crypto:address().
+-spec last_poc_challenge(undefined | gw_info()) -> non_neg_integer().
 last_poc_challenge(undefined) ->
     undefined;
 last_poc_challenge(GwInfo) ->
@@ -334,8 +334,8 @@ request_poc(GatewayAddress, Ledger) ->
                                 false ->
                                     {error, too_many_challenges};
                                 true ->
-                                    GwInfo = #gw_info{last_poc_challenge=current_height(Ledger)},
-                                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+                                    NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
+                                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
                             end
                     end
             end

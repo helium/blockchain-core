@@ -252,6 +252,10 @@ poc_request(_Config) ->
     ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
 
+    % Check that the Gateway is there
+    GwInfo = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(Owner, blockchain_ledger:gateway_owner(GwInfo)),
+
     % Assert the Gateways location
     AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 123456, 1),
     SignedAssertLocationTx = blockchain_txn_assert_location:sign(AssertLocationTx, GatewaySigFun),
@@ -273,6 +277,10 @@ poc_request(_Config) ->
     ?assertEqual(blockchain_block:hash_block(Block3), blockchain_worker:head_hash()),
     ?assertEqual(Block3, blockchain_worker:head_block()),
     ?assertEqual(4, blockchain_worker:height()),
+
+    % Check that the last_poc_challenge block height got recorded in GwInfo
+    GwInfo2 = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(3, blockchain_ledger:last_poc_challenge(GwInfo2)),
 
     ok.
 

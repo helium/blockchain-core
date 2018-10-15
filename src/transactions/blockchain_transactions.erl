@@ -101,8 +101,8 @@ absorb(blockchain_txn_add_gateway, Txn, Ledger0) ->
             OwnerAddress = blockchain_txn_add_gateway:owner_address(Txn),
             GatewayAddress = blockchain_txn_add_gateway:gateway_address(Txn),
             case blockchain_ledger:add_gateway(OwnerAddress, GatewayAddress, Ledger0) of
-                false ->
-                    {error, gateway_already_registered};
+                {error, _Reason}=Error ->
+                    Error;
                 Ledger1 ->
                     {ok, Ledger1}
             end
