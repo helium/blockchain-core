@@ -265,12 +265,12 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         false ->
-            {{error, no_active_gateway}};
+            {error, no_active_gateway};
         true ->
             case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
                 undefined ->
                     %% there is no GwInfo for this gateway, assert_location sould not be allowed
-                    {{error, no_gateway_info}};
+                    {error, no_gateway_info};
                 GwInfo ->
                     NewGwInfo =
                     case ?MODULE:gateway_location(GwInfo) of
@@ -505,7 +505,7 @@ add_gateway_test() ->
        #gw_info{owner_address=owner_address, location=undefined}
        ,find_gateway_info(gw_address, Ledger1)
       ),
-    ?assertEqual(false, add_gateway(owner_address, gw_address, Ledger1)).
+    ?assertEqual({error,gateway_already_active}, add_gateway(owner_address, gw_address, Ledger1)).
 
 add_gateway_location_test() ->
     Ledger0 = #ledger{active_gateways=#{}},
@@ -516,7 +516,7 @@ add_gateway_location_test() ->
        ,find_gateway_info(gw_address, Ledger2)
       ),
     ?assertEqual(
-       false
+       {error,no_active_gateway}
        ,add_gateway_location(gw_address, 1, 1, Ledger0)
       ).
 
