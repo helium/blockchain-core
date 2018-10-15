@@ -329,7 +329,7 @@ request_poc(GatewayAddress, Ledger) ->
                     case gateway_location(GwInfo) of
                         undefined ->
                             {error, no_gateway_location};
-                        true ->
+                        _Location ->
                             case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
                                 false ->
                                     {error, too_many_challenges};

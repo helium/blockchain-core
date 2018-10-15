@@ -253,7 +253,7 @@ poc_request(_Config) ->
     ?assertEqual(2, blockchain_worker:height()),
 
     % Assert the Gateways location
-    AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 1, 1),
+    AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 123456, 1),
     SignedAssertLocationTx = blockchain_txn_assert_location:sign(AssertLocationTx, GatewaySigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
