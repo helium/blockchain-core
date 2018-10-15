@@ -34,6 +34,7 @@
     ,add_gateway_txn/1
     ,assert_location_txn/1
     ,peer_height/3
+    ,notify/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -266,6 +267,14 @@ assert_location_txn(Location) ->
 peer_height(Height, Head, Session) ->
     gen_server:cast(?SERVER, {peer_height, Height, Head, Session}).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec notify(any()) -> ok.
+notify(Msg) ->
+    ok = gen_event:notify(?EVT_MGR, Msg).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -293,6 +302,13 @@ init(Args) ->
         ,?SYNC_PROTOCOL
         ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
     ),
+
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?GW_REGISTRATION_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
+    ),
+
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
 
     {ok, #state{swarm=Swarm, n=N, blockchain=Blockchain}}.
@@ -520,17 +536,10 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, _State) ->
     ok.
 
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec notify(any()) -> ok.
-notify(Msg) ->
-    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -542,7 +551,7 @@ send_txn(Type, Txn, #state{swarm=Swarm, consensus_addrs=Addresses}) ->
         ,Addresses
         ,erlang:term_to_binary({Type, Txn})
         ,?TX_PROTOCOL
-        ,miner_transaction_handler
+        ,blockchain_txn_handler
         ,[self()]
         ,false
     ).
