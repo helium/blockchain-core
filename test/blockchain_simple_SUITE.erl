@@ -128,7 +128,7 @@ htlc_payee_redeem(_Config) ->
     ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
 
     % Create a Payee
-    {_PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
+    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
     Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
 
     % Try and redeem
@@ -268,9 +268,8 @@ poc_request(_Config) ->
     ?assertEqual(3, blockchain_worker:height()),
 
     % Create the PoC challenge request txn
-    Tx = blockchain_txn_poc_request:new(Gateway),    
+    Tx = blockchain_txn_poc_request:new(Gateway),
     SignedTx = blockchain_txn_poc_request:sign(Tx, GatewaySigFun),
-    
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block3, self()),
 
