@@ -25,10 +25,12 @@
          ,add_gateway_location/4
          ,gateway_location/1
          ,gateway_owner/1
+         ,last_poc_challenge/1
          ,credit_account/3
          ,debit_account/4
          ,add_htlc/6
          ,redeem_htlc/3
+         ,request_poc/2
          ,save/2, load/1
          ,serialize/2
          ,deserialize/2
@@ -69,6 +71,7 @@
 -record(gw_info, {
           owner_address :: libp2p_crypto:address()
           ,location :: undefined | pos_integer()
+          ,last_poc_challenge :: undefined | non_neg_integer()
           ,nonce = 0 :: non_neg_integer()
          }).
 
@@ -98,7 +101,6 @@ new() ->
 increment_height(Ledger=#ledger{current_height=Height}) when Height /= undefined ->
     Ledger#ledger{current_height=(Height + 1)};
 increment_height(Ledger) ->
-    lager:info("Ledger is ~p", Ledger),
     Ledger#ledger{current_height=1}.
 
 %%--------------------------------------------------------------------
@@ -248,8 +250,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         true ->
-            %% GW already active
-            false;
+            {error, gateway_already_active};
         false ->
             GwInfo = #gw_info{owner_address=OwnerAddr, location=undefined},
             Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
@@ -264,12 +265,12 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
         false ->
-            false;
+            {error, no_active_gateway};
         true ->
-            case maps:get(GatewayAddress, ActiveGateways, undefined) of
+            case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
                 undefined ->
                     %% there is no GwInfo for this gateway, assert_location sould not be allowed
-                    false;
+                    {error, no_gateway_info};
                 GwInfo ->
                     NewGwInfo =
                     case ?MODULE:gateway_location(GwInfo) of
@@ -302,6 +303,37 @@ gateway_owner(undefined) ->
     undefined;
 gateway_owner(GwInfo) ->
     GwInfo#gw_info.owner_address.
+
+-spec last_poc_challenge(undefined | gw_info()) -> non_neg_integer().
+last_poc_challenge(undefined) ->
+    undefined;
+last_poc_challenge(GwInfo) ->
+    GwInfo#gw_info.last_poc_challenge.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+request_poc(GatewayAddress, Ledger) ->
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
+    case maps:get(GatewayAddress, ActiveGateways, undefined) of
+        undefined ->
+            %% there is no GwInfo for this gateway, request_poc sould not be allowed
+            {error, no_gateway};
+        GwInfo ->
+            case gateway_location(GwInfo) of
+                undefined ->
+                    {error, no_gateway_location};
+                _Location ->
+                    case ?MODULE:last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
+                        false ->
+                            {error, too_many_challenges};
+                        true ->
+                            NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
+                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
+                    end
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -467,7 +499,7 @@ add_gateway_test() ->
        #gw_info{owner_address=owner_address, location=undefined}
        ,find_gateway_info(gw_address, Ledger1)
       ),
-    ?assertEqual(false, add_gateway(owner_address, gw_address, Ledger1)).
+    ?assertEqual({error,gateway_already_active}, add_gateway(owner_address, gw_address, Ledger1)).
 
 add_gateway_location_test() ->
     Ledger0 = #ledger{active_gateways=#{}},
@@ -478,7 +510,7 @@ add_gateway_location_test() ->
        ,find_gateway_info(gw_address, Ledger2)
       ),
     ?assertEqual(
-       false
+       {error,no_active_gateway}
        ,add_gateway_location(gw_address, 1, 1, Ledger0)
       ).
 

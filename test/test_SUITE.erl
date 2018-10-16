@@ -11,6 +11,7 @@
     basic/1
     ,htlc_payee_redeem/1
     ,htlc_payer_redeem/1
+    ,poc_request/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, htlc_payee_redeem, htlc_payer_redeem].
+    [basic, htlc_payee_redeem, htlc_payer_redeem, poc_request].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -131,8 +132,9 @@ htlc_payee_redeem(_Config) ->
     Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
 
     % Try and redeem
+    RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
     RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
+    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
 
@@ -216,6 +218,72 @@ htlc_payer_redeem(_Config) ->
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
     ok.
+
+poc_request(_Config) ->
+    BaseDir = "data/test_SUITE/poc_request",
+    Balance = 5000,
+    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    Owner = libp2p_crypto:pubkey_to_address(PubKey),
+
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain_worker:ledger(),
+    Entries = blockchain_ledger:entries(Ledger),
+
+    _ = maps:map(fun(_K, Entry) ->
+                         Balance = blockchain_ledger:balance(Entry),
+                         0, blockchain_ledger:payment_nonce(Entry)
+                 end, Entries),
+
+    % Create a Gateway
+    {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
+    Gateway = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+
+    % Add a Gateway
+    AddGatewayTx = blockchain_txn_add_gateway:new(Owner, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+    Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
+    ok = blockchain_worker:add_block(Block, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
+    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(2, blockchain_worker:height()),
+
+    % Check that the Gateway is there
+    GwInfo = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(Owner, blockchain_ledger:gateway_owner(GwInfo)),
+
+    % Assert the Gateways location
+    AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 123456, 1),
+    SignedAssertLocationTx = blockchain_txn_assert_location:sign(AssertLocationTx, GatewaySigFun),
+
+    Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
+    ok = blockchain_worker:add_block(Block2, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_worker:head_hash()),
+    ?assertEqual(Block2, blockchain_worker:head_block()),
+    ?assertEqual(3, blockchain_worker:height()),
+
+    % Create the PoC challenge request txn
+    Tx = blockchain_txn_poc_request:new(Gateway),    
+    SignedTx = blockchain_txn_poc_request:sign(Tx, GatewaySigFun),
+    
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    ok = blockchain_worker:add_block(Block3, self()),
+
+    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_worker:head_hash()),
+    ?assertEqual(Block3, blockchain_worker:head_block()),
+    ?assertEqual(4, blockchain_worker:height()),
+
+    % Check that the last_poc_challenge block height got recorded in GwInfo
+    GwInfo2 = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(3, blockchain_ledger:last_poc_challenge(GwInfo2)),
+
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
