@@ -186,7 +186,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
                     case Creator =:= Payee of
                         false ->
                             Hashlock = blockchain_ledger:hashlock(HTLC),
-                            Preimage = blockchain_txn_redeem_htlc:preimage(Txn),                    
+                            Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
                             case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
                                 true ->
                                     {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
@@ -207,7 +207,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
         false ->
             {error, bad_signature}
     end;
-absorb(blockchain_txn_poc_request, Txn, Ledger0) ->    
+absorb(blockchain_txn_poc_request, Txn, Ledger0) ->
     case blockchain_txn_poc_request:is_valid(Txn) of
         true ->
             GatewayAddress = blockchain_txn_poc_request:gateway_address(Txn),
@@ -220,7 +220,21 @@ absorb(blockchain_txn_poc_request, Txn, Ledger0) ->
         false ->
             {error, bad_signature}
     end;
-
+absorb(blockchain_txn_oui, Txn, Ledger0) ->
+    case blockchain_txn_oui:is_valid(Txn) of
+        false ->
+            {error, invalid_transaction};
+        true ->
+            Fee = blockchain_txn_oui:fee(Txn),
+            Owner = blockchain_txn_oui:owner(Txn),
+            Entries = blockchain_ledger:entries(Ledger0),
+            LastEntry = blockchain_ledger:find_entry(Owner, Entries),
+            Nonce = blockchain_ledger:payment_nonce(LastEntry) + 1,
+            case blockchain_ledger:debit_account(Owner, Fee, Nonce, Ledger0) of
+                {error, _Reason}=Error -> Error;
+                Ledger1 -> {ok, Ledger1}
+            end
+    end;
 absorb(_, Unknown, _Ledger) ->
     lager:warning("unknown transaction ~p", [Unknown]),
     {error, unknown_transaction}.
@@ -312,32 +326,15 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) ->
 %%--------------------------------------------------------------------
 -spec type(transaction()) -> atom().
 type(Txn) ->
-    case {blockchain_txn_assert_location:is(Txn)
-          ,blockchain_txn_payment:is(Txn)
-          ,blockchain_txn_create_htlc:is(Txn)
-          ,blockchain_txn_redeem_htlc:is(Txn)
-          ,blockchain_txn_add_gateway:is(Txn)
-          ,blockchain_txn_coinbase:is(Txn)
-          ,blockchain_txn_gen_consensus_group:is(Txn)
-          ,blockchain_txn_poc_request:is(Txn)} of
-        {true, _, _, _, _, _, _, _} ->
-            blockchain_txn_assert_location;
-        {_, true, _, _, _, _, _, _} ->
-            blockchain_txn_payment;
-        {_, _, true, _, _, _, _, _} ->
-            blockchain_txn_create_htlc;
-        {_, _, _, true, _, _, _, _} ->
-            blockchain_txn_redeem_htlc;
-        {_, _, _, _, true, _, _, _} ->
-            blockchain_txn_add_gateway;
-        {_, _, _, _, _, true, _, _} ->
-            blockchain_txn_coinbase;
-        {_, _, _, _, _, _, true, _} ->
-            blockchain_txn_gen_consensus_group;
-        {_, _, _, _, _, _, _, true} ->
-            blockchain_txn_poc_request;
-        {_, _, _, _, _, _, _, _} ->
-            undefined
+    Types = [
+        blockchain_txn_assert_location, blockchain_txn_payment
+        ,blockchain_txn_create_htlc, blockchain_txn_redeem_htlc
+        ,blockchain_txn_add_gateway ,blockchain_txn_coinbase
+        ,blockchain_txn_gen_consensus_group ,blockchain_txn_poc_request
+    ],
+    case lists:filter(fun(M) -> M:is(Txn) end, Types) of
+        [Type] -> Type;
+        _ -> undefined
     end.
 
 %% ------------------------------------------------------------------
