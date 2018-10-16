@@ -292,7 +292,8 @@ init(Args) ->
             Else -> Else
         end,
 
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}),
+    Address = libp2p_swarm:address(Swarm),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address]}),
 
     ok = libp2p_swarm:add_stream_handler(
         Swarm
@@ -393,7 +394,7 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                     lager:info("sending the gossipped block to other workers"),
                     Address = libp2p_swarm:address(Swarm),
                     libp2p_group_gossip:send(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, term_to_binary({block, Address, Block})),
-                    ok = notify({add_block, Hash}),
+                    ok = notify({add_block, Hash, true}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
                     lager:warning("signature on block ~p is invalid", [Block]),
@@ -435,7 +436,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
-                                ok = notify({add_block, blockchain_block:hash_block(Block)}),
+                                ok = notify({add_block, blockchain_block:hash_block(Block), false}),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
