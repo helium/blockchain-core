@@ -50,7 +50,7 @@ gossip_test(Config) ->
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
     % Create genesis block
-    GenPaymentTxs = [blockchain_txn_coinbase:new(Addr, Balance) || Addr <- ConsensusAddrs],
+    GenPaymentTxs = [blockchain_txn_coinbase:new(Addr, Balance) || Addr <- Addrs],
     GenConsensusGroupTx = blockchain_txn_gen_consensus_group:new(ConsensusAddrs),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
@@ -59,6 +59,13 @@ gossip_test(Config) ->
     lists:foreach(fun(Node) ->
                           ok = ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock])
                   end, Nodes),
+
+    %% wait till each worker gets the gensis block
+    ok = lists:foreach(fun(Node) ->
+                               ok = blockchain_ct_utils:wait_until(fun() ->
+                                                                           1 == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                   end, 10, timer:seconds(6))
+                       end, Nodes),
 
     %% FIXME: should do this for each test case presumably
     lists:foreach(fun(Node) ->
@@ -102,16 +109,12 @@ gossip_test(Config) ->
     GossipGroup = ct_rpc:call(FirstNode, libp2p_swarm, gossip_group, [PayerSwarm]),
     ct:pal("GossipGroup: ~p", [GossipGroup]),
 
-    ok = ct_rpc:call(FirstNode, libp2p_group_gossip, send, [GossipGroup,
-                                                            ?GOSSIP_PROTOCOL,
-                                                            term_to_binary({block, Payer, Block})
-                                                           ]),
+    ok = ct_rpc:call(FirstNode, blockchain_worker, add_block, [Block, self()]),
 
     ok = lists:foreach(fun(Node) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           ?assertEqual(2, ct_rpc:call(Node, blockchain_worker, height, []))
-                                                                   end)
+                                                                           2 == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                   end, 10, timer:seconds(6))
                        end, Nodes),
-
     ok.
 

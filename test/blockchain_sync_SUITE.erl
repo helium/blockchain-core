@@ -1,4 +1,4 @@
--module(sync_SUITE).
+-module(blockchain_sync_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").

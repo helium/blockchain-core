@@ -1,4 +1,4 @@
--module(test_SUITE).
+-module(blockchain_simple_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -128,7 +128,7 @@ htlc_payee_redeem(_Config) ->
     ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
 
     % Create a Payee
-    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
+    {_PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
     Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
 
     % Try and redeem
