@@ -71,7 +71,7 @@
 -record(gw_info, {
           owner_address :: libp2p_crypto:address()
           ,location :: undefined | pos_integer()
-          ,last_poc_challenge = 0 :: non_neg_integer()
+          ,last_poc_challenge :: undefined | non_neg_integer()
           ,nonce = 0 :: non_neg_integer()
          }).
 
@@ -316,27 +316,21 @@ last_poc_challenge(GwInfo) ->
 %%--------------------------------------------------------------------
 request_poc(GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:is_key(GatewayAddress, ActiveGateways) of
-        false ->
-            {error, no_gateway_address};
-        true ->
-            case maps:get(GatewayAddress, ActiveGateways, undefined) of
+    case maps:get(GatewayAddress, ActiveGateways, undefined) of
+        undefined ->
+            %% there is no GwInfo for this gateway, request_poc sould not be allowed
+            {error, no_gateway};
+        GwInfo ->
+            case gateway_location(GwInfo) of
                 undefined ->
-                    %% there is no GwInfo for this gateway, request_poc sould not be allowed
-                    {error, gateway_not_added};
-                GwInfo ->
-                    %% TODO - too much nesting
-                    case gateway_location(GwInfo) of
-                        undefined ->
-                            {error, no_gateway_location};
-                        _Location ->
-                            case last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
-                                false ->
-                                    {error, too_many_challenges};
-                                true ->
-                                    NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
-                                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
-                            end
+                    {error, no_gateway_location};
+                _Location ->
+                    case ?MODULE:last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
+                        false ->
+                            {error, too_many_challenges};
+                        true ->
+                            NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
+                            Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
                     end
             end
     end.

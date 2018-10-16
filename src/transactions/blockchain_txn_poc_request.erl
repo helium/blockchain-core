@@ -30,6 +30,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec new(libp2p_crypto:address()) -> txn_poc_request().
 new(Address) ->
     #txn_poc_request{
         gateway_address=Address

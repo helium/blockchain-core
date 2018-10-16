@@ -315,7 +315,7 @@ type(Txn) ->
     case {blockchain_txn_assert_location:is(Txn)
           ,blockchain_txn_payment:is(Txn)
           ,blockchain_txn_create_htlc:is(Txn)
-          ,blockchain_txn_redeem_htlc:is(Txn)          
+          ,blockchain_txn_redeem_htlc:is(Txn)
           ,blockchain_txn_add_gateway:is(Txn)
           ,blockchain_txn_coinbase:is(Txn)
           ,blockchain_txn_gen_consensus_group:is(Txn)
