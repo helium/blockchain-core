@@ -23,6 +23,7 @@
     ,coinbase_transactions/1
     ,add_gateway_transactions/1
     ,assert_location_transactions/1
+    ,poc_request_transactions/1
     ,dir/1
     ,save/3, load/2
     ,serialize/2
@@ -224,6 +225,15 @@ add_gateway_transactions(Block) ->
 assert_location_transactions(Block) ->
     lists:filter(fun(Txn) -> blockchain_txn_assert_location:is(Txn) end
                  ,?MODULE:transactions(Block)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec poc_request_transactions(block()) -> [blockchain_txn_poc_request:txn_poc_request()].
+poc_request_transactions(Block) ->
+    lists:filter(fun(Txn) -> blockchain_txn_poc_request:is(Txn) end
+                 ,?MODULE:transactions(Block)).            
 
 %%--------------------------------------------------------------------
 %% @doc
