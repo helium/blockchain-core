@@ -16,9 +16,13 @@
 
 init_gossip_data([Address]) ->
    lager:info("gossiping init"),
-   Block =  blockchain_worker:head_block(),
-   lager:info("gossiping block to peers on init"),
-   {send, term_to_binary({block, Address, Block})}.
+   case blockchain_worker:head_block() of
+       undefined ->
+           ok;
+       Block ->
+           lager:info("gossiping block to peers on init"),
+           {send, term_to_binary({block, Address, Block})}
+   end.
 
 handle_gossip_data(Data, [_Address]) ->
     case erlang:binary_to_term(Data) of
