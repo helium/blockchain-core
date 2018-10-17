@@ -31,7 +31,7 @@
     ,find_next/2
 ]).
 
--include("blockchain.hrl").
+-include("include/blockchain.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

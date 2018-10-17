@@ -27,7 +27,7 @@
     ,terminate/2
 ]).
 
--include("blockchain.hrl").
+-include("include/blockchain.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Definitions

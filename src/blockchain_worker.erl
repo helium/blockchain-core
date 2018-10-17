@@ -49,7 +49,7 @@
     ,code_change/3
 ]).
 
--include("blockchain.hrl").
+-include("include/blockchain.hrl").
 
 -define(SERVER, ?MODULE).
 
