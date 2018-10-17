@@ -15,6 +15,7 @@ ADD Makefile Makefile
 RUN make
 
 ## Add / Compile source
+ADD include/ include/
 ADD src/ src/
 ADD test/ test/
 RUN make
