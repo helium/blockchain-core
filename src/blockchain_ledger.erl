@@ -30,6 +30,7 @@
     ,debit_account/4
     ,add_htlc/6
     ,redeem_htlc/3
+    ,request_poc/2
     ,save/2, load/1
     ,serialize/2
     ,deserialize/2
