@@ -46,7 +46,7 @@
     ,period => 5
 }).
 
--include("include/blockchain.hrl").
+-include("blockchain.hrl").
 
 %% ------------------------------------------------------------------
 %% API functions

@@ -40,7 +40,7 @@
          ,htlcs/1
         ]).
 
--include("include/blockchain.hrl").
+-include("blockchain.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

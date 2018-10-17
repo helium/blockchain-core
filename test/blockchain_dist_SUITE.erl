@@ -4,7 +4,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/inet.hrl").
 
--include("include/blockchain.hrl").
+-include("blockchain.hrl").
 
 -export([
          init_per_suite/1
@@ -117,4 +117,3 @@ gossip_test(Config) ->
                                                                    end, 10, timer:seconds(6))
                        end, Nodes),
     ok.
-
