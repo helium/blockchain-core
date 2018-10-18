@@ -232,8 +232,7 @@ assert_location_transactions(Block) ->
 %%--------------------------------------------------------------------
 -spec poc_request_transactions(block()) -> [blockchain_txn_poc_request:txn_poc_request()].
 poc_request_transactions(Block) ->
-    lists:filter(fun(Txn) -> blockchain_txn_poc_request:is(Txn) end
-                 ,?MODULE:transactions(Block)).            
+    lists:filter(fun blockchain_txn_poc_request:is/1, ?MODULE:transactions(Block)).
 
 %%--------------------------------------------------------------------
 %% @doc
