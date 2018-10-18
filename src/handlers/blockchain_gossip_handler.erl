@@ -27,8 +27,13 @@ init_gossip_data([Address]) ->
 handle_gossip_data(Data, [_Address]) ->
     case erlang:binary_to_term(Data) of
         {block, From, Block} ->
-            lager:info("Got block: ~p from: ~p", [Block, From]),
-            blockchain_worker:add_block(Block, From);
+            case blockchain_block:is_block(Block) of
+                true ->
+                    lager:info("Got block: ~p from: ~p", [Block, From]),
+                    blockchain_worker:add_block(Block, From);
+                _ ->
+                    lager:notice("gossip_handler received invalid data")
+            end;
         Other ->
             lager:notice("gossip handler got unknown data ~p", [Other])
     end,
