@@ -9,6 +9,7 @@
     new/1
     ,gateway_address/1
     ,signature/1
+    ,fee/1
     ,sign/2
     ,is_valid/1
     ,is/1
@@ -21,6 +22,7 @@
 -record(txn_poc_request, {
     gateway_address :: libp2p_crypto:address()
     ,signature :: binary()
+    ,fee = 1 :: non_neg_integer()
 }).
 
 -type txn_poc_request() :: #txn_poc_request{}.
@@ -52,6 +54,14 @@ gateway_address(Txn) ->
 -spec signature(txn_poc_request()) -> binary().
 signature(Txn) ->
     Txn#txn_poc_request.signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_poc_request()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#txn_poc_request.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
