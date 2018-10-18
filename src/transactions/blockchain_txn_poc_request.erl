@@ -22,7 +22,7 @@
 -record(txn_poc_request, {
     gateway_address :: libp2p_crypto:address()
     ,signature :: binary()
-    ,fee = 1 :: non_neg_integer()
+    ,fee = 0 :: non_neg_integer()
 }).
 
 -type txn_poc_request() :: #txn_poc_request{}.
