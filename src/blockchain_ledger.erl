@@ -73,6 +73,7 @@
           ,location :: undefined | pos_integer()
           ,last_poc_challenge :: undefined | non_neg_integer()
           ,nonce = 0 :: non_neg_integer()
+          ,score = 0.0 :: float()
          }).
 
 -type ledger() :: #ledger{}.
