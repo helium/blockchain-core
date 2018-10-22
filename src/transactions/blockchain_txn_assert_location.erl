@@ -6,11 +6,14 @@
 -module(blockchain_txn_assert_location).
 
 -export([
-    new/3
+    new/4
     ,gateway_address/1
-    ,signature/1
+    ,owner_address/1
     ,location/1
+    ,gateway_signature/1
+    ,owner_signature/1
     ,nonce/1
+    ,sign_request/2
     ,sign/2
     ,is/1
 ]).
@@ -21,7 +24,9 @@
 
 -record(txn_assert_location, {
     gateway_address :: libp2p_crypto:address()
-    ,signature :: binary()
+    ,owner_address :: libp2p_crypto:address()
+    ,gateway_signature :: binary()
+    ,owner_signature :: binary()
     ,location :: location()
     ,nonce = 0 :: non_neg_integer()
 }).
@@ -34,12 +39,17 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), location(), non_neg_integer()) -> txn_assert_location().
-new(Address, Location, Nonce) ->
+-spec new(GatewayAddress :: libp2p_crypto:address(),
+          OwnerAddress :: libp2p_crypto:address(),
+          Location :: location(),
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(GatewayAddress, OwnerAddress, Location, Nonce) ->
     #txn_assert_location{
-        gateway_address=Address
+        gateway_address=GatewayAddress
+        ,owner_address=OwnerAddress
         ,location=Location
-        ,signature = <<>>
+        ,gateway_signature = <<>>
+        ,owner_signature = <<>>
         ,nonce=Nonce
     }.
 
@@ -50,6 +60,15 @@ new(Address, Location, Nonce) ->
 -spec gateway_address(txn_assert_location()) -> libp2p_crypto:address().
 gateway_address(Txn) ->
     Txn#txn_assert_location.gateway_address.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec owner_address(txn_assert_location()) -> libp2p_crypto:address().
+owner_address(Txn) ->
+    Txn#txn_assert_location.owner_address.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -57,13 +76,22 @@ gateway_address(Txn) ->
 -spec location(txn_assert_location()) -> location().
 location(Txn) ->
     Txn#txn_assert_location.location.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec signature(txn_assert_location()) -> binary().
-signature(Txn) ->
-    Txn#txn_assert_location.signature.
+-spec gateway_signature(txn_assert_location()) -> binary().
+gateway_signature(Txn) ->
+    Txn#txn_assert_location.gateway_signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec owner_signature(txn_assert_location()) -> binary().
+owner_signature(Txn) ->
+    Txn#txn_assert_location.owner_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -77,10 +105,23 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_assert_location(), libp2p_crypto:sig_fun()) -> txn_assert_location().
-sign(Txn, SigFun) ->
-    Txn#txn_assert_location{signature=SigFun(erlang:term_to_binary(Txn))}.
+-spec sign_request(Txn :: txn_assert_location(),
+                   SigFun :: libp2p_crypto:sig_fun()) -> txn_assert_location().
+sign_request(Txn, SigFun) ->
+    BinTxn = erlang:term_to_binary(Txn#txn_assert_location{owner_signature= <<>>
+                                                           ,gateway_signature= <<>>}),
+    Txn#txn_assert_location{gateway_signature=SigFun(BinTxn)}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec sign(Txn :: txn_assert_location(),
+           SigFun :: libp2p_crypto:sig_fun()) -> txn_assert_location().
+sign(Txn, SigFun) ->
+    BinTxn = erlang:term_to_binary(Txn#txn_assert_location{owner_signature= <<>>
+                                                           ,gateway_signature= <<>>}),
+    Txn#txn_assert_location{owner_signature=SigFun(BinTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -95,41 +136,63 @@ is(Txn) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+new() ->
+    #txn_assert_location{
+       gateway_address= <<"gateway_address">>
+       ,owner_address= <<"owner_address">>
+       ,gateway_signature= <<>>
+       ,owner_signature= << >>
+       ,location= 1
+       ,nonce = 1
+      }.
+
 new_test() ->
-    Tx = #txn_assert_location{
-        gateway_address= <<"gateway_address">>
-        ,signature= <<>>
-        ,location= 1
-        ,nonce = 1
-    },
-    ?assertEqual(Tx, new(<<"gateway_address">>, 1, 1)).
-
-gateway_address_test() ->
-    Tx = new(<<"gateway_address">>, 1, 1),
-    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
-
-signature_test() ->
-    Tx = new(<<"gateway_address">>, 1, 1),
-    ?assertEqual(<<>>, signature(Tx)).
+    Tx = new(),
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, 1, 1)).
 
 location_test() ->
-    Tx = new(<<"gateway_address">>, 1, 1),
+    Tx = new(),
     ?assertEqual(1, location(Tx)).
 
 nonce_test() ->
-    Tx = new(<<"gateway_address">>, 1, 1),
+    Tx = new(),
     ?assertEqual(1, nonce(Tx)).
+
+owner_address_test() ->
+    Tx = new(),
+    ?assertEqual(<<"owner_address">>, owner_address(Tx)).
+
+gateway_address_test() ->
+    Tx = new(),
+    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
+
+owner_signature_test() ->
+    Tx = new(),
+    ?assertEqual(<<>>, owner_signature(Tx)).
+
+gateway_signature_test() ->
+    Tx = new(),
+    ?assertEqual(<<>>, gateway_signature(Tx)).
+
+sign_request_test() ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Tx0 = new(),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Tx1 = sign_request(Tx0, SigFun),
+    Sig1 = gateway_signature(Tx1),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
 
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Tx0 = new(<<"gateway_address">>, 1, 1),
+    Tx0 = new(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx1 = sign(Tx0, SigFun),
-    Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location{signature = <<>>}), Sig1, PubKey)).
+    Tx1 = sign_request(Tx0, SigFun),
+    Tx2 = sign(Tx1, SigFun),
+    Sig2 = owner_signature(Tx2),
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location{gateway_signature = <<>>, owner_signature = << >>}), Sig2, PubKey)).
 
 is_test() ->
-    Tx0 = new(<<"gateway_address">>, 1, 1),
+    Tx0 = new(),
     ?assert(is(Tx0)).
 
 -endif.

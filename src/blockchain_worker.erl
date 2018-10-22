@@ -490,7 +490,8 @@ handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chai
             lager:info("gateway not found in ledger.");
         GwInfo ->
             Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
-            AssertLocationTxn = blockchain_txn_assert_location:new(Address, Location, Nonce+1),
+            Owner = blockchain_ledger:gateway_owner(GwInfo),
+            AssertLocationTxn = blockchain_txn_assert_location:new(Address, Owner, Location, Nonce+1),
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedAssertLocationTxn = blockchain_txn_assert_location:sign(AssertLocationTxn, SigFun),
             lager:info(
