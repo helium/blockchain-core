@@ -6,39 +6,39 @@
 -module(blockchain_ledger).
 
 -export([
-         new/0
-         ,increment_height/1
-         ,balance/1
-         ,hashlock/1
-         ,timelock/1
-         ,creator/1
-         ,payment_nonce/1
-         ,assert_location_nonce/1
-         ,new_entry/2
-         ,new_htlc/5
-         ,find_entry/2
-         ,find_htlc/2
-         ,find_gateway_info/2
-         ,consensus_members/1, consensus_members/2
-         ,active_gateways/1
-         ,add_gateway/3
-         ,add_gateway_location/4
-         ,gateway_location/1
-         ,gateway_owner/1
-         ,last_poc_challenge/1
-         ,credit_account/3
-         ,debit_account/4
-         ,add_htlc/6
-         ,redeem_htlc/3
-         ,request_poc/2
-         ,save/2, load/1
-         ,serialize/2
-         ,deserialize/2
-         ,entries/1
-         ,blocks/1
-         ,current_height/1
-         ,htlcs/1
-        ]).
+    new/0
+    ,increment_height/1
+    ,balance/1
+    ,hashlock/1
+    ,timelock/1
+    ,creator/1
+    ,payment_nonce/1
+    ,assert_location_nonce/1
+    ,new_entry/2
+    ,new_htlc/5
+    ,find_entry/2
+    ,find_htlc/2
+    ,find_gateway_info/2
+    ,consensus_members/1, consensus_members/2
+    ,active_gateways/1
+    ,add_gateway/3
+    ,add_gateway_location/4
+    ,gateway_location/1
+    ,gateway_owner/1
+    ,last_poc_challenge/1
+    ,credit_account/3
+    ,debit_account/4
+    ,add_htlc/6
+    ,redeem_htlc/3
+    ,request_poc/2
+    ,save/2, load/1
+    ,serialize/2
+    ,deserialize/2
+    ,entries/1
+    ,blocks/1
+    ,current_height/1
+    ,htlcs/1
+]).
 
 -include("blockchain.hrl").
 
@@ -47,34 +47,34 @@
 -endif.
 
 -record(ledger, {
-          blocks = [] :: [blockchain_block:hash()],
-          current_height = undefined :: undefined | pos_integer(),
-          consensus_members = [] :: [libp2p_crypto:address()],
-          active_gateways = #{} :: active_gateways(),
-          entries = #{} :: entries(),
-          htlcs = #{} :: htlcs()
-         }).
+    blocks = [] :: [blockchain_block:hash()]
+    ,current_height = undefined :: undefined | pos_integer()
+    ,consensus_members = [] :: [libp2p_crypto:address()]
+    ,active_gateways = #{} :: active_gateways()
+    ,entries = #{} :: entries()
+    ,htlcs = #{} :: htlcs()
+}).
 
 -record(entry, {
-          nonce = 0 :: non_neg_integer()
-          ,balance = 0 :: non_neg_integer()
-         }).
+    nonce = 0 :: non_neg_integer()
+    ,balance = 0 :: non_neg_integer()
+}).
 
 -record(htlc, {
-          nonce = 0 :: non_neg_integer()
-          ,creator :: libp2p_crypto:address()
-          ,balance = 0 :: non_neg_integer()
-          ,hashlock :: undefined | binary()
-          ,timelock :: undefined | non_neg_integer()
-         }).
+    nonce = 0 :: non_neg_integer()
+    ,creator :: libp2p_crypto:address()
+    ,balance = 0 :: non_neg_integer()
+    ,hashlock :: undefined | binary()
+    ,timelock :: undefined | non_neg_integer()
+}).
 
 -record(gw_info, {
-          owner_address :: libp2p_crypto:address()
-          ,location :: undefined | pos_integer()
-          ,last_poc_challenge :: undefined | non_neg_integer()
-          ,nonce = 0 :: non_neg_integer()
-          ,score = 0.0 :: float()
-         }).
+    owner_address :: libp2p_crypto:address()
+    ,location :: undefined | pos_integer()
+    ,last_poc_challenge :: undefined | non_neg_integer()
+    ,nonce = 0 :: non_neg_integer()
+    ,score = 0.0 :: float()
+}).
 
 -type ledger() :: #ledger{}.
 -type entry() :: #entry{}.
