@@ -10,6 +10,7 @@
     ,serialize_hash/1, deserialize_hash/1
     ,hex_to_bin/1, bin_to_hex/1
     ,serial_version/1
+    ,create_block/2
 ]).
 
 -type serial_version() :: v1 | v2 | v3.
@@ -91,3 +92,23 @@ serial_version_test() ->
     ?assertEqual(v1, serial_version("anything else")).
 
 -endif.
+
+%% Test helper
+create_block(ConsensusMembers, Txs) ->
+    PrevHash = blockchain_worker:head_hash(),
+    Height = blockchain_worker:height() + 1,
+    Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
+    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+    Signatures = signatures(ConsensusMembers, BinBlock),
+    Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
+    Block1.
+
+signatures(ConsensusMembers, BinBlock) ->
+    lists:foldl(
+        fun({A, _P, F}, Acc) ->
+            Sig = F(BinBlock),
+            [{A, Sig}|Acc]
+        end
+        ,[]
+        ,ConsensusMembers
+    ).

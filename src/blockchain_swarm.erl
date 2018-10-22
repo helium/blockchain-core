@@ -91,7 +91,7 @@ handle_call(swarm, _From, #state{swarm=Swarm}=State) ->
 handle_call(key, _From, #state{swarm=Swarm}=State)  ->
     {reply, libp2p_swarm:keys(Swarm), State};
 handle_call(gossip_peers, _From, #state{swarm=Swarm}=State) ->
-    {reply, libp2p_group:workers(libp2p_swarm:group_agent(Swarm)), State};
+    {reply, libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all), State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.

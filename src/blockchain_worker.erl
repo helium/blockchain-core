@@ -263,9 +263,9 @@ assert_location_txn(Location) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec peer_height(integer(), blockchain_block:hash(), pid()) -> ok.
-peer_height(Height, Head, Session) ->
-    gen_server:cast(?SERVER, {peer_height, Height, Head, Session}).
+-spec peer_height(integer(), blockchain_block:hash(), libp2p_crypto:address()) -> ok.
+peer_height(Height, Head, Sender) ->
+    gen_server:cast(?SERVER, {peer_height, Height, Head, Sender}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -292,11 +292,9 @@ init(Args) ->
             Else -> Else
         end,
 
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?GOSSIP_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_gossip_handler, ?SERVER]}
-    ),
+    Address = libp2p_swarm:address(Swarm),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address]}),
+
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?SYNC_PROTOCOL
@@ -376,8 +374,9 @@ handle_cast({consensus_addrs, Addresses}, State) ->
     {noreply, State#state{consensus_addrs=Addresses}};
 handle_cast(_, #state{blockchain={undefined, _}}=State) ->
     {noreply, State};
-handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
+handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                 ,n=N}=State) ->
+    lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
     Head = blockchain:head_hash(Chain),
     Hash = blockchain_block:hash_block(Block),
     F = ((N-1) div 3),
@@ -392,10 +391,10 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
             of
                 {true, _} ->
                     NewChain = blockchain:add_block(Block, Chain),
-                    SwarmAgent = libp2p_swarm:group_agent(Swarm),
                     lager:info("sending the gossipped block to other workers"),
-                    libp2p_group:send(SwarmAgent, erlang:term_to_binary({block, Block})),
-                    ok = notify({add_block, Hash}),
+                    Address = libp2p_swarm:address(Swarm),
+                    libp2p_group_gossip:send(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, term_to_binary({block, Address, Block})),
+                    ok = notify({add_block, Hash, true}),
                     {noreply, State#state{blockchain=NewChain}};
                 false ->
                     lager:warning("signature on block ~p is invalid", [Block]),
@@ -406,11 +405,15 @@ handle_cast({add_block, Block, Session}, #state{blockchain=Chain, swarm=Swarm
             {noreply, State};
         false ->
             lager:warning("gossipped block doesn't fit with our chain"),
-            lager:info("syncing with the sender ~p", [Session]),
-            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+            lager:info("syncing with the sender ~p", [Sender]),
+            case libp2p_swarm:dial_framed_stream(Swarm,
+                                                 libp2p_crypto:address_to_p2p(Sender),
+                                                 ?SYNC_PROTOCOL,
+                                                 blockchain_sync_handler,
+                                                 [self()]) of
                 {ok, Stream} ->
                     Stream ! {hash, blockchain:head_hash(Chain)};
-                _ -> lager:notice("Failed to dial sync service on ~p", [Session])
+                _ -> lager:notice("Failed to dial sync service on: ~p", [Sender])
             end,
             {noreply, State}
     end;
@@ -433,7 +436,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
-                                ok = notify({add_block, blockchain_block:hash_block(Block)}),
+                                ok = notify({add_block, blockchain_block:hash_block(Block), false}),
                                 State#state{blockchain=NewChain};
                             false ->
                                 State
@@ -508,16 +511,20 @@ handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chai
             ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State)
     end,
     {noreply, State};
-handle_cast({peer_height, Height, Head, Session}, #state{blockchain=Chain}=State) ->
+handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
     LocalHead = blockchain:head_hash(Chain),
     LocalHeight = blockchain_block:height(blockchain:head_block(Chain)),
     case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
         true ->
-            case libp2p_session:dial_framed_stream(?SYNC_PROTOCOL, Session, blockchain_sync_handler, [self()]) of
+            case libp2p_swarm:dial_framed_stream(Swarm,
+                                                 libp2p_crypto:address_to_p2p(Sender),
+                                                 ?SYNC_PROTOCOL,
+                                                 blockchain_sync_handler,
+                                                 [self()]) of
                 {ok, Stream} ->
                     Stream ! {hash, blockchain:head_hash(Chain)};
-                _ -> lager:notice("Failed to dial sync service on ~p", [Session])
+                _ -> lager:notice("Failed to dial sync service on: ~p", [Sender])
             end;
         false -> ok
     end,

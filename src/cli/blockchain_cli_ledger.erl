@@ -312,14 +312,22 @@ ledger_gateways(_CmdBase, [], []) ->
     R = [format_ledger_gateway_entry(G) || G <- maps:to_list(Gateways)],
     [clique_status:table(R)].
 
-format_ledger_gateway_entry({GatewayAddr, {gw_info, OwnerAddr, Index, Nonce}}) ->
+format_ledger_gateway_entry({GatewayAddr, {gw_info,
+                                           OwnerAddr,
+                                           Location,
+                                           LastPOCChallenge,
+                                           Nonce,
+                                           Score}}) ->
+    %% NOTE: Location is an H3 Index
     IndexToStr = fun(undefined) -> "undefined";
                     (I) -> I
                  end,
-    [{owner_address, libp2p_crypto:address_to_p2p(OwnerAddr)},
-     {gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)},
+    [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)},
+     {owner_address, libp2p_crypto:address_to_p2p(OwnerAddr)},
+     {location, IndexToStr(Location)},
+     {last_poc_challenge, LastPOCChallenge},
      {nonce, Nonce},
-     {h3_index, IndexToStr(Index)}
+     {score, Score}
     ].
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
