@@ -60,8 +60,8 @@ ledger_usage() ->
       "  ledger gateways  - Display the list of active gateways.\n"
       "  ledger add_gateway_request  - Request the addition of a gateway.\n"
       "  ledger add_gateway_txn  - Countersign the addition of a gateway and submit it.\n"
-      "  ledger assert_gateway_location_request  - Request the assertion of a gateway's location.\n"
-      "  ledger assert_gateway_location_txn  - Countersign the assertion of a gateway's location and submit it.\n"
+      "  ledger assert_loc_request  - Request the assertion of a gateway's location.\n"
+      "  ledger assert_loc_txn  - Countersign the assertion of a gateway's location and submit it.\n"
      ]
     ].
 
