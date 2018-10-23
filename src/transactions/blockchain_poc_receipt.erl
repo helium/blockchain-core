@@ -12,6 +12,8 @@
     ,signature/1
     ,sign/2
     ,is_valid/1
+    ,encode/1
+    ,decode/1
 ]).
 
 -ifdef(TEST).
@@ -93,6 +95,22 @@ is_valid(Receipt=#poc_receipt{address=Address, signature=Signature}) ->
     BinReceipt = erlang:term_to_binary(Receipt#poc_receipt{signature = <<>>}),
     libp2p_crypto:verify(BinReceipt, Signature, PubKey).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec encode(poc_receipt()) -> binary().
+encode(Receipt) ->
+    erlang:term_to_binary(Receipt).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec decode(binary()) -> poc_receipt().
+decode(Binary) ->
+    erlang:binary_to_term(Binary).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -131,5 +149,9 @@ sign_test() ->
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Receipt1#poc_receipt{signature = <<>>}), Sig1, PubKey)).
+
+encode_decode_test() ->
+    Receipt = new(<<"address">>, 1, <<"hash">>),
+    ?assertEqual(Receipt, decode(encode(Receipt))).
 
 -endif.
