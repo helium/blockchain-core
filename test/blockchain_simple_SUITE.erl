@@ -257,8 +257,9 @@ poc_request(_Config) ->
     ?assertEqual(Owner, blockchain_ledger:gateway_owner(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationTx = blockchain_txn_assert_location:new(Gateway, 123456, 1),
-    SignedAssertLocationTx = blockchain_txn_assert_location:sign(AssertLocationTx, GatewaySigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location:new(Gateway, Owner, 123456, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
     ok = blockchain_worker:add_block(Block2, self()),

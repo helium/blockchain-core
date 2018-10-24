@@ -32,6 +32,7 @@
     ,redeem_htlc_txn/2
     ,add_gateway_request/1
     ,add_gateway_txn/1
+    ,assert_location_request/2
     ,assert_location_txn/1
     ,peer_height/3
     ,notify/1
@@ -246,9 +247,20 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_location_txn(integer()) -> ok.
-assert_location_txn(Location) ->
-    gen_server:cast(?SERVER, {assert_location_txn, Location}).
+%% TODO: better spec for location
+-spec assert_location_request(libp2p_crypto:address(), integer()) -> {error, gateway_not_found} |
+                                                                     {error, invalid_owner} |
+                                                                     blockchain_txn_assert_location:txn_assert_location().
+assert_location_request(OwnerAddress, Location) ->
+    gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec assert_location_txn(blockchain_txn_assert_location:txn_assert_location()) -> ok.
+assert_location_txn(AssertLocRequest) ->
+    gen_server:cast(?SERVER, {assert_location_txn, AssertLocRequest}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -298,6 +310,12 @@ init(Args) ->
         ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
     ),
 
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?LOC_ASSERTION_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
+    ),
+
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
 
     {ok, #state{swarm=Swarm, n=N, blockchain=Blockchain}}.
@@ -342,6 +360,30 @@ handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway:sign_request(AddGwTxn, SigFun),
     {reply, SignedAddGwTxn, State};
+handle_call({assert_location_request, Owner, Location}, _From, State=#state{swarm=Swarm, blockchain=Chain}) ->
+    Address = libp2p_swarm:address(Swarm),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger:find_gateway_info(Address, Ledger) of
+        undefined ->
+            lager:info("gateway not found in ledger."),
+            {reply, {error, gateway_not_found}, State};
+        GwInfo ->
+            Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
+            %% check that the correct owner has been specified
+            case Owner =:= blockchain_ledger:gateway_owner(GwInfo) of
+                true ->
+                    AssertLocationRequestTxn = blockchain_txn_assert_location:new(Address, Owner, Location, Nonce+1),
+                    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+                    SignedAssertLocRequestTxn = blockchain_txn_assert_location:sign_request(AssertLocationRequestTxn, SigFun),
+                    lager:info(
+                      "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
+                      ,[Address, Location, Nonce, SignedAssertLocRequestTxn]
+                     ),
+                    {reply, SignedAssertLocRequestTxn, State};
+                false ->
+                    {reply, {error, invalid_owner}, State}
+            end
+    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -482,23 +524,10 @@ handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
     SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, SigFun),
     ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
     {noreply, State};
-handle_cast({assert_location_txn, Location}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    Address = libp2p_swarm:address(Swarm),
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger:find_gateway_info(Address, Ledger) of
-        undefined ->
-            lager:info("gateway not found in ledger.");
-        GwInfo ->
-            Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
-            AssertLocationTxn = blockchain_txn_assert_location:new(Address, Location, Nonce+1),
-            {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-            SignedAssertLocationTxn = blockchain_txn_assert_location:sign(AssertLocationTxn, SigFun),
-            lager:info(
-                "assert_location_txn, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
-                ,[Address, Location, Nonce, SignedAssertLocationTxn]
-            ),
-            ok = send_txn(assert_location_txn, SignedAssertLocationTxn, State)
-    end,
+handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedAssertLocTxn = blockchain_txn_assert_location:sign(AssertLocTxn, SigFun),
+    ok = send_txn(assert_location_txn, SignedAssertLocTxn, State),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),

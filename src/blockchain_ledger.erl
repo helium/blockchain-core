@@ -36,7 +36,6 @@
     ,serialize/2
     ,deserialize/2
     ,entries/1
-    ,blocks/1
     ,current_height/1
     ,htlcs/1
 ]).
@@ -48,8 +47,7 @@
 -endif.
 
 -record(ledger, {
-    blocks = [] :: [blockchain_block:hash()]
-    ,current_height = undefined :: undefined | pos_integer()
+    current_height = undefined :: undefined | pos_integer()
     ,consensus_members = [] :: [libp2p_crypto:address()]
     ,active_gateways = #{} :: active_gateways()
     ,entries = #{} :: entries()
@@ -172,11 +170,6 @@ payment_nonce(#htlc{nonce=Nonce}) ->
 -spec assert_location_nonce(gw_info()) -> non_neg_integer().
 assert_location_nonce(GwInfo) when GwInfo /= undefined ->
     GwInfo#gw_info.nonce.
-
-
--spec blocks(ledger()) -> [blockchain_block:hash()].
-blocks(Ledger) ->
-    Ledger#ledger.blocks.
 
 -spec current_height(ledger()) -> non_neg_integer().
 current_height(Ledger) ->
