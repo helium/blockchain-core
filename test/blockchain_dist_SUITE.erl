@@ -100,7 +100,7 @@ gossip_test(Config) ->
     Payer = ct_rpc:call(FirstNode, blockchain_swarm, address, []),
     {ok, _Pubkey, SigFun} = ct_rpc:call(FirstNode, blockchain_swarm, keys, []),
     Recipient = ct_rpc:call(SecondNode, blockchain_swarm, address, []),
-    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
+    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 10, 1),
     SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = ct_rpc:call(FirstNode, blockchain_util, create_block, [ConsensusMembers, [SignedTx]]),
     ct:pal("Block: ~p", [Block]),

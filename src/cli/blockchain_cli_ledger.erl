@@ -70,23 +70,23 @@ ledger_cmd() ->
 %%--------------------------------------------------------------------
 ledger_pay_cmd() ->
     [
-     [["ledger", "pay", '*', '*'], [], [], fun ledger_pay/3]
+     [["ledger", "pay", '*', '*', '*'], [], [], fun ledger_pay/3]
     ].
 
 ledger_pay_usage() ->
     [["ledger", "pay"],
-     ["ledger pay <p2p> <amount>\n\n",
-      "  Transfer given <amount> to the target <p2p> address.\n"
+     ["ledger pay <address> <amount> <fee>\n\n",
+      "  Transfer given <amount> to the target <address> with a <fee> for the miners.\n"
      ]
     ].
 
-ledger_pay(["ledger", "pay", Addr, Amount], [], []) ->
+ledger_pay(["ledger", "pay", Addr, Amount, F], [], []) ->
     case (catch {libp2p_crypto:b58_to_address(Addr),
-                 list_to_integer(Amount)}) of
+                 list_to_integer(Amount), list_to_integer(F)}) of
         {'EXIT', _} ->
             usage;
-        {Recipient, Value} when Value > 0 ->
-            blockchain_worker:spend(Recipient, Value),
+        {Recipient, Value, Fee} when Value > 0 ->
+            blockchain_worker:spend(Recipient, Value, Fee),
             [clique_status:text("ok")];
         _ -> usage
     end;
@@ -136,7 +136,7 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
 ledger_create_htlc_helper(Flags) ->
     Address = libp2p_crypto:p2p_to_address(clean(proplists:get_value(address, Flags))),
     Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
-    Hashlock = list_to_binary(clean(proplists:get_value(token, Flags))),
+    Hashlock = list_to_binary(clean(proplists:get_value(hashlock, Flags))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
     blockchain_worker:create_htlc_txn(Address, Amount, Hashlock, Timelock).
 

@@ -129,7 +129,9 @@ absorb(blockchain_txn_payment, Txn, Ledger0) ->
                 true ->
                     Payer = blockchain_txn_payment:payer(Txn),
                     Nonce = blockchain_txn_payment:nonce(Txn),
-                    case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger0) of
+                    %%TODO - the fee needs to be given to consensus group members at the end of their term
+                    Fee = blockchain_txn_payment:fee(Txn), 
+                    case blockchain_ledger:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
                         Ledger1 ->
