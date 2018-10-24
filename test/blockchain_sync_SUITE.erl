@@ -47,7 +47,8 @@ basic(_Config) ->
     LastBlock = lists:last(Blocks),
 
     % Simulate other chain with sync handler only
-    {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE, [{libp2p_nat, [{enabled, false}]}]),
+    {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
+    ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     SimDir = "data/sync_SUITE/basic_sim",
     [blockchain_block:save(blockchain_block:hash_block(B), B, SimDir) || B <- Blocks],
     ok = libp2p_swarm:add_stream_handler(
@@ -57,7 +58,8 @@ basic(_Config) ->
     ),
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
-    _ = libp2p_swarm:dial_framed_stream(SimSwarm, ListenAddr, ?SYNC_PROTOCOL, blockchain_sync_handler, [self()]),
+    {ok, _} = libp2p_swarm:connect(SimSwarm, ListenAddr),
+    ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
 
     % Simulate add block from other chain
     ok = blockchain_worker:add_block(LastBlock, libp2p_swarm:address(SimSwarm)),

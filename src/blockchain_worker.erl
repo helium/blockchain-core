@@ -416,8 +416,8 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                  [self()]) of
                 {ok, Stream} ->
                     Stream ! {hash, blockchain:head_hash(Chain)};
-                _ ->
-                    lager:notice("Failed to dial sync service on: ~p", [Sender])
+                _Error ->
+                    lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
             end,
             {noreply, State}
     end;
