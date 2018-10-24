@@ -438,21 +438,21 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
             ,Blocks
         ),
     {noreply, State1};
-handle_cast({spend, Recipient, Amount}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
+    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Fee, Nonce + 1),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
-handle_cast({payment_txn, PrivKey, Address, Recipient, Amount}, #state{blockchain=Chain}=State) ->
+handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Nonce + 1),
+    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Fee, Nonce + 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),

@@ -54,7 +54,7 @@ basic(_Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:address(),
-    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 1),
+    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -68,7 +68,7 @@ basic(_Config) ->
     ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
 
     NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry1)),
+    ?assertEqual(Balance - 2510, blockchain_ledger:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
