@@ -22,7 +22,8 @@
                        | blockchain_txn_payment:txn_payment()
                        | blockchain_txn_create_htlc:txn_create_htlc()
                        | blockchain_txn_redeem_htlc:txn_redeem_htlc()
-                       | blockchain_txn_poc_request:txn_poc_request().
+                       | blockchain_txn_poc_request:txn_poc_request()
+                       | blockchain_txn_poc_receipts:txn_poc_receipts().
 -type transactions() :: [transaction()].
 -export_type([transactions/0]).
 
@@ -235,6 +236,14 @@ absorb(blockchain_txn_oui, Txn, Ledger0) ->
                 Ledger1 -> {ok, Ledger1}
             end
     end;
+absorb(blockchain_txn_poc_receipts, Txn, Ledger0) ->
+    case blockchain_txn_poc_receipts:is_valid(Txn) of
+        false ->
+            {error, invalid_transaction};
+        true ->
+            % TODO: Update score and last_poc_challenge
+            {ok, Ledger0}
+    end;
 absorb(_, Unknown, _Ledger) ->
     lager:warning("unknown transaction ~p", [Unknown]),
     {error, unknown_transaction}.
@@ -289,6 +298,8 @@ actor(Txn) ->
             blockchain_txn_add_gateway:owner_address(Txn);
         blockchain_txn_coinbase ->
             blockchain_txn_coinbase:payee(Txn);
+        blockchain_txn_poc_receipts ->
+            blockchain_txn_poc_receipts:challenger(Txn);
         _ ->
             <<>>
     end.
@@ -331,6 +342,7 @@ type(Txn) ->
         ,blockchain_txn_create_htlc, blockchain_txn_redeem_htlc
         ,blockchain_txn_add_gateway ,blockchain_txn_coinbase
         ,blockchain_txn_gen_consensus_group ,blockchain_txn_poc_request
+        ,blockchain_txn_poc_receipts
     ],
     case lists:filter(fun(M) -> M:is(Txn) end, Types) of
         [Type] -> Type;

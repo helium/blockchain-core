@@ -24,6 +24,7 @@
     ,add_gateway/3
     ,add_gateway_location/4
     ,gateway_location/1
+    ,gateway_score/1
     ,gateway_owner/1
     ,last_poc_challenge/1
     ,credit_account/3
@@ -299,6 +300,16 @@ gateway_location(GwInfo) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec gateway_score(undefined | gw_info()) -> undefined | float().
+gateway_score(undefined) ->
+    undefined;
+gateway_score(GwInfo) ->
+    GwInfo#gw_info.score.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec gateway_owner(undefined | gw_info()) -> libp2p_crypto:address().
 gateway_owner(undefined) ->
     undefined;
@@ -518,6 +529,10 @@ add_gateway_location_test() ->
 gateway_location_test() ->
     ?assertEqual(1, gateway_location(#gw_info{location=1})),
     ?assertEqual(undefined, gateway_location(undefined)).
+
+gateway_score_test() ->
+    ?assertEqual(1, gateway_score(#gw_info{score=1})),
+    ?assertEqual(undefined, gateway_score(undefined)).
 
 gateway_owner_test() ->
     ?assertEqual(addr, gateway_owner(#gw_info{owner_address=addr})),
