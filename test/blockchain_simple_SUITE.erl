@@ -64,6 +64,8 @@ basic(_Config) ->
     ?assertEqual(Block, blockchain_worker:head_block()),
     ?assertEqual(2, blockchain_worker:height()),
 
+    ?assertEqual({ok, Block}, blockchain_block:load(2, blockchain:dir(blockchain_worker:blockchain()))),
+
     NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_ledger:entries(blockchain_worker:ledger())),
     ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
 

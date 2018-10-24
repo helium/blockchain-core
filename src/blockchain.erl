@@ -155,8 +155,11 @@ add_block(Block, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash(), blockchain()) -> {ok, blockchain_block:block()}
-                                                          | {error, any()}.
+-spec get_block(blockchain_block:hash(), blockchain() | string()) -> {ok, blockchain_block:block()}
+                                                                     | {error, any()}.
+
+get_block(Hash, BaseDir) when is_list(BaseDir) ->
+    blockchain_block:load(Hash, BaseDir);
 get_block(Hash, Blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
     blockchain_block:load(Hash, BaseDir).
@@ -278,16 +281,16 @@ load_head(Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build(blockchain_block:block(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build(PrevBlock, Blocks) ->
-    build(PrevBlock, Blocks, []).
+-spec build(blockchain_block:block(), file:filename_all()) -> [blockchain_block:block()].
+build(StartingBlock, BaseDir) ->
+    build(StartingBlock, BaseDir, []).
 
--spec build(blockchain_block:block(), [blockchain_block:block()], [blockchain_block:block()]) -> [blockhain_block:block()].
-build(PrevBlock, Blocks, Acc) ->
-    case blockchain_block:find_next(blockchain_block:hash_block(PrevBlock), Blocks) of
+-spec build(blockchain_block:block(), file:filename_all(), [blockchain_block:block()]) -> [blockhain_block:block()].
+build(StartingBlock, BaseDir, Acc) ->
+    case blockchain_block:find_next(StartingBlock, BaseDir) of
         {ok, NextBlock} ->
-            build(NextBlock, Blocks, [NextBlock | Acc]);
-        false ->
+            build(NextBlock, BaseDir, [NextBlock|Acc]);
+        {error, _Reason} ->
             lists:reverse(Acc)
     end.
 
