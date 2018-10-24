@@ -21,7 +21,7 @@
     ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
-    ,consensus_addrs/0, consensus_addrs/1
+    ,consensus_addrs/0
     ,integrate_genesis_block/1
     ,add_block/2
     ,sync_blocks/1
@@ -56,7 +56,6 @@
 -record(state, {
     blockchain :: {undefined, file:filename_all()} | blockchain:blockchain()
     ,swarm :: undefined | pid()
-    ,consensus_addrs = [] :: [libp2p_crypto:address()]
     ,n :: integer()
 }).
 
@@ -162,14 +161,6 @@ num_consensus_members() ->
 -spec consensus_addrs() -> [libp2p_crypto:address()].
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec consensus_addrs(libp2p_crypto:address()) -> ok.
-consensus_addrs(Addresses) ->
-    gen_server:cast(?SERVER, {consensus_addrs, Addresses}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -314,8 +305,8 @@ init(Args) ->
 %% NOTE: num_consensus_members and consensus_addrs can be called before there is a blockchain
 handle_call(num_consensus_members, _From, #state{n=N}=State) ->
     {reply, N, State};
-handle_call(consensus_addrs, _From, #state{consensus_addrs=Addresses}=State) ->
-    {reply, Addresses, State};
+handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
+    {reply, blockchain_ledger:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(_, _From, #state{blockchain={undefined, _}}=State) ->
     {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
@@ -368,10 +359,8 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
-            {noreply, State#state{blockchain=Blockchain, consensus_addrs=ConsensusAddrs}}
+            {noreply, State#state{blockchain=Blockchain}}
     end;
-handle_cast({consensus_addrs, Addresses}, State) ->
-    {noreply, State#state{consensus_addrs=Addresses}};
 handle_cast(_, #state{blockchain={undefined, _}}=State) ->
     {noreply, State};
 handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
@@ -552,10 +541,10 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-send_txn(Type, Txn, #state{swarm=Swarm, consensus_addrs=Addresses}) ->
+send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
     do_send(
         Swarm
-        ,Addresses
+        ,blockchain_ledger:consensus_members(blockchain:ledger(Chain))
         ,erlang:term_to_binary({Type, Txn})
         ,?TX_PROTOCOL
         ,blockchain_txn_handler
