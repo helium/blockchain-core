@@ -355,8 +355,6 @@ ledger_assert_loc_request(["ledger", "assert_loc_request", Addr, Location], [], 
         {'EXIT', _Reason} ->
             usage;
         Owner when is_binary(Owner) ->
-            Txn = blockchain_worker:assert_location_request(Owner, Location),
-
             case blockchain_worker:assert_location_request(Owner, Location) of
                 {error, Reason} ->
                     [clique_status:text(io_lib:format("~p", [Reason]))];
