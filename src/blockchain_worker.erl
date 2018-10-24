@@ -248,7 +248,9 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @end
 %%--------------------------------------------------------------------
 %% TODO: better spec for location
--spec assert_location_request(libp2p_crypto:address(), integer()) -> ok.
+-spec assert_location_request(libp2p_crypto:address(), integer()) -> {error, gateway_not_found} |
+                                                                     {error, invalid_owner} |
+                                                                     blockchain_txn_assert_location:txn_assert_location().
 assert_location_request(OwnerAddress, Location) ->
     gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}).
 

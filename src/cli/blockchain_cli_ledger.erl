@@ -356,7 +356,13 @@ ledger_assert_loc_request(["ledger", "assert_loc_request", Addr, Location], [], 
             usage;
         Owner when is_binary(Owner) ->
             Txn = blockchain_worker:assert_location_request(Owner, Location),
-            [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))];
+
+            case blockchain_worker:assert_location_request(Owner, Location) of
+                {error, Reason} ->
+                    [clique_status:text(io_lib:format("~p", [Reason]))];
+                Txn ->
+                    [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))]
+            end;
         _ ->
             usage
     end;
