@@ -53,15 +53,15 @@ register_all_cmds() ->
 ledger_usage() ->
     [["ledger"],
      ["blockchain ledger commands\n\n",
-      "  ledger balance   - Get the balance for this or all addresses.\n"
-      "  ledger pay       - Transfer tokens to a crypto address.\n"
-      "  ledger create_htlc      - Create or a hashed timelock address.\n"
-      "  ledger redeem_htlc      - Redeem from a hashed timelock address.\n"
-      "  ledger gateways  - Display the list of active gateways.\n"
-      "  ledger add_gateway_request  - Request the addition of a gateway.\n"
-      "  ledger add_gateway_txn  - Countersign the addition of a gateway and submit it.\n"
+      "  ledger balance             - Get the balance for this or all addresses.\n"
+      "  ledger pay                 - Transfer tokens to a crypto address.\n"
+      "  ledger create_htlc         - Create or a hashed timelock address.\n"
+      "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
+      "  ledger gateways            - Display the list of active gateways.\n"
+      "  ledger add_gateway_request - Request the addition of a gateway.\n"
+      "  ledger add_gateway_txn     - Countersign the addition of a gateway and submit it.\n"
       "  ledger assert_loc_request  - Request the assertion of a gateway's location.\n"
-      "  ledger assert_loc_txn  - Countersign the assertion of a gateway's location and submit it.\n"
+      "  ledger assert_loc_txn      - Countersign the assertion of a gateway's location and submit it.\n"
      ]
     ].
 
@@ -346,8 +346,8 @@ ledger_assert_loc_request_cmd() ->
 
 ledger_assert_loc_request_usage() ->
     [["ledger", "assert_loc_request"],
-     ["ledger assert_loc_request <p2p> <loc>\n\n",
-      "  Request to assert <loc> of the current node as a gateway owned by <p2p>.\n"
+     ["ledger assert_loc_request <b58> <loc>\n\n",
+      "  Request to assert <loc> of the current node as a gateway owned by <b58>.\n"
      ]
     ].
 
