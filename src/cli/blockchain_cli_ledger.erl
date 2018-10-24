@@ -204,7 +204,6 @@ ledger_add_gateway_request(["ledger", "add_gateway_request", Addr], [], []) ->
         {'EXIT', _Reason} ->
             usage;
         Owner when is_binary(Owner) ->
-            blockchain_worker:add_gateway_request(Owner),
             Txn = blockchain_worker:add_gateway_request(Owner),
             [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))];
         _ ->

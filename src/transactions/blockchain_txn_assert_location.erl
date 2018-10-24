@@ -13,6 +13,7 @@
     ,gateway_signature/1
     ,owner_signature/1
     ,nonce/1
+    ,fee/1
     ,sign_request/2
     ,sign/2
     ,is/1
@@ -29,6 +30,9 @@
     ,owner_signature :: binary()
     ,location :: location()
     ,nonce = 0 :: non_neg_integer()
+    %% TODO: fee needs to be calculated on the fly
+    %% using the gateways already present in the nearby geography
+    ,fee = 0 :: non_neg_integer()
 }).
 
 -type location() :: non_neg_integer(). %% h3 index
@@ -105,6 +109,14 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec fee(txn_assert_location()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#txn_assert_location.fee.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec sign_request(Txn :: txn_assert_location(),
                    SigFun :: libp2p_crypto:sig_fun()) -> txn_assert_location().
 sign_request(Txn, SigFun) ->
@@ -157,6 +169,10 @@ location_test() ->
 nonce_test() ->
     Tx = new(),
     ?assertEqual(1, nonce(Tx)).
+
+fee_test() ->
+    Tx = new(),
+    ?assertEqual(0, fee(Tx)).
 
 owner_address_test() ->
     Tx = new(),
