@@ -25,7 +25,7 @@
     ,integrate_genesis_block/1
     ,add_block/2
     ,sync_blocks/1
-    ,spend/2
+    ,spend/3
     ,payment_txn/4
     ,submit_txn/2
     ,create_htlc_txn/4
@@ -190,9 +190,9 @@ sync_blocks(Blocks) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec spend(libp2p_crypto:address(), integer()) -> ok.
-spend(Recipient, Amount) ->
-    gen_server:cast(?SERVER, {spend, Recipient, Amount}).
+-spec spend(libp2p_crypto:address(), pos_integer(), non_neg_integer()) -> ok.
+spend(Recipient, Amount, Fee) ->
+    gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
