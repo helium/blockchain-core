@@ -64,9 +64,10 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 
 -spec absorb(transactions() | [], blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
                                                                  | {error, any()}.
-absorb([], Ledger) ->
-    %% TODO: probably not the correct place to be incrementing the height for the ledger
-    {ok, blockchain_ledger:increment_height(Ledger)};
+absorb([], Ledger) ->    
+    Ledger1 = blockchain_ledger:update_transaction_fee(Ledger),
+    %% TODO: probably not the correct place to be incrementing the height for the ledger?
+    {ok, blockchain_ledger:increment_height(Ledger1)};
 absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
     absorb(Txns, blockchain_ledger:new());
 absorb([Txn|Txns], Ledger0) ->
@@ -120,7 +121,9 @@ absorb(blockchain_txn_assert_location, Txn, Ledger0) ->
     end;
 absorb(blockchain_txn_payment, Txn, Ledger0) ->
     Amount = blockchain_txn_payment:amount(Txn),
-    case Amount >= 0 of
+    Fee = blockchain_txn_payment:fee(Txn),
+    MinerFee = blockchain_ledger:transaction_fee(Ledger0),
+    case (Amount >= 0) and (Fee >= MinerFee) of
         false ->
             lager:error("amount < 0 for PaymentTxn: ~p", [Txn]),
             {error, invalid_transaction};
@@ -128,9 +131,7 @@ absorb(blockchain_txn_payment, Txn, Ledger0) ->
             case blockchain_txn_payment:is_valid(Txn) of
                 true ->
                     Payer = blockchain_txn_payment:payer(Txn),
-                    Nonce = blockchain_txn_payment:nonce(Txn),
-                    %%TODO - the fee needs to be given to consensus group members at the end of their term
-                    Fee = blockchain_txn_payment:fee(Txn), 
+                    Nonce = blockchain_txn_payment:nonce(Txn),                     
                     case blockchain_ledger:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
