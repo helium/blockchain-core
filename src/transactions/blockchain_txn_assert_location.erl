@@ -32,7 +32,7 @@
     ,nonce = 0 :: non_neg_integer()
     %% TODO: fee needs to be calculated on the fly
     %% using the gateways already present in the nearby geography
-    ,fee = 0 :: non_neg_integer()
+    ,fee = 1 :: non_neg_integer()
 }).
 
 -type location() :: non_neg_integer(). %% h3 index
@@ -172,7 +172,7 @@ nonce_test() ->
 
 fee_test() ->
     Tx = new(),
-    ?assertEqual(0, fee(Tx)).
+    ?assertEqual(1, fee(Tx)).
 
 owner_address_test() ->
     Tx = new(),
