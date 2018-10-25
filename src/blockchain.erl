@@ -16,7 +16,7 @@
     ,add_block/2
     ,get_block/2
     ,save/1, load/1
-    ,build/2
+    ,build/3
 ]).
 
 -include("blockchain.hrl").
@@ -202,6 +202,24 @@ load(BaseDir) ->
             }
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec build(blockchain_block:block(), file:filename_all(), non_neg_integer()) -> [blockchain_block:block()].
+build(StartingBlock, BaseDir, Limit) ->
+    build(StartingBlock, BaseDir, Limit, []).
+
+-spec build(blockchain_block:block(), file:filename_all(), non_neg_integer(), [blockchain_block:block()]) -> [blockhain_block:block()].
+build(_StartingBlock, _BaseDir, 0, Acc) ->
+    lists:reverse(Acc);
+build(StartingBlock, BaseDir, N, Acc) ->
+    case blockchain_block:find_next(StartingBlock, BaseDir) of
+        {ok, NextBlock} ->
+            build(NextBlock, BaseDir, N-1, [NextBlock|Acc]);
+        {error, _Reason} ->
+            lists:reverse(Acc)
+    end.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

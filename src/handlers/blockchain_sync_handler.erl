@@ -61,7 +61,7 @@ handle_data(server, Data, #state{dir=BaseDir}=State) ->
             {ok, Block} -> Block;
             {error, _Reason} -> blockchain_worker:genesis_block()
         end,
-    Blocks = blockchain:build(StartingBlock, BaseDir),
+    Blocks = blockchain:build(StartingBlock, BaseDir, 200),
     {stop, normal, State, erlang:term_to_binary(Blocks)}.
 
 handle_info(client, {hash, Hash}, State) ->
