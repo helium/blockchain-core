@@ -382,7 +382,7 @@ blocks_test() ->
 blocks_size_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Chain = new(Block, "data/blocks_size_test"),
-    ?assertEqual(0, blocks_size(Chain)).
+    ?assertEqual(1, blocks_size(Chain)).
 
 get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
