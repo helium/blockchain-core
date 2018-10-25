@@ -159,10 +159,10 @@ add_block(Block, Blockchain) ->
 -spec get_block(blockchain_block:hash(), blockchain() | string()) -> {ok, blockchain_block:block()}
                                                                      | {error, any()}.
 
-get_block(Hash, BaseDir) when is_list(BaseDir) ->
-    blockchain_block:load(Hash, BaseDir);
-get_block(Hash, Blockchain) ->
+get_block(Hash, Blockchain) when is_record(Blockchain, blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
+    blockchain_block:load(Hash, BaseDir);
+get_block(Hash, BaseDir) ->
     blockchain_block:load(Hash, BaseDir).
 
 %%--------------------------------------------------------------------
