@@ -123,7 +123,7 @@ absorb(blockchain_txn_payment, Txn, Ledger0) ->
     Amount = blockchain_txn_payment:amount(Txn),
     Fee = blockchain_txn_payment:fee(Txn),
     MinerFee = blockchain_ledger:transaction_fee(Ledger0),
-    case (Amount >= 0) and (Fee >= MinerFee) of
+    case (Amount >= 0) andalso (Fee >= MinerFee) of
         false ->
             lager:error("amount < 0 for PaymentTxn: ~p", [Txn]),
             {error, invalid_transaction};

@@ -198,11 +198,11 @@ transaction_fee(Ledger) ->
 update_transaction_fee(Ledger=#ledger{transaction_fee=Fee}) ->
     %% TODO - this should calculate a new transaction fee for the network
     %% TODO - based on the average of usage fees
-    case ?MODULE:current_height(Ledger) /= undefined of
+    NewFee = case ?MODULE:current_height(Ledger) /= undefined of
         true ->
-            NewFee = math:ceil(?MODULE:current_height(Ledger) / 1000);
+            math:ceil(?MODULE:current_height(Ledger) / 1000);
         false ->
-            NewFee = Fee
+            Fee
     end,    
     Ledger#ledger{transaction_fee=NewFee}.
 
