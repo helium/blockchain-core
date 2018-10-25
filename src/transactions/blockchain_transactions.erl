@@ -114,12 +114,12 @@ absorb(blockchain_txn_assert_location, Txn, Ledger0) ->
     Location = blockchain_txn_assert_location:location(Txn),
     Nonce = blockchain_txn_assert_location:nonce(Txn),
     Fee = blockchain_txn_assert_location:fee(Txn),
-    %% check if the owner is able to pay the required fee
-    case blockchain_ledger:debit_account(OwnerAddress, Fee, Nonce, Ledger0) of
-        {error, _}=Error -> Error;
+    Entries = blockchain_ledger:entries(Ledger0),
+    LastEntry = blockchain_ledger:find_entry(OwnerAddress, Entries),
+    PaymentNonce = blockchain_ledger:payment_nonce(LastEntry) + 1,
+    case blockchain_ledger:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
+        {error, _Reason}=Error -> Error;
         Ledger1 ->
-            %% XXX: The paid fee vanishes into ether, but the ledger gets updated
-            %% Now do the assert_gateway_location
             case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger1) of
                 {error, _}=Error2 -> Error2;
                 Ledger2 ->

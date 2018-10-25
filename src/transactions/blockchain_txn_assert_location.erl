@@ -172,7 +172,7 @@ nonce_test() ->
 
 fee_test() ->
     Tx = new(),
-    ?assertEqual(0, fee(Tx)).
+    ?assertEqual(1, fee(Tx)).
 
 owner_address_test() ->
     Tx = new(),
