@@ -134,7 +134,7 @@ blocks(Blockchain) ->
 %%--------------------------------------------------------------------
 -spec blocks_size(blockchain()) -> integer().
 blocks_size(Blockchain) ->
-    erlang:length(list_block_files(Blockchain)).
+    erlang:length(list_block_files(Blockchain)) + 1.
 
 %%--------------------------------------------------------------------
 %% @doc
