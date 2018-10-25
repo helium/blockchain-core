@@ -25,7 +25,7 @@
     ,assert_location_transactions/1
     ,poc_request_transactions/1
     ,dir/1
-    ,save/3, load/2
+    ,save/3, save_link/3, load/2
     ,serialize/2
     ,deserialize/2
     ,find_next/2
@@ -255,11 +255,21 @@ save(Hash, Block, BaseDir) ->
         {error, _}=Error ->
             Error;
         ok ->
-            Height = ?MODULE:height(Block),
-            Link = link(BaseDir, Height),
-            ok = filelib:ensure_dir(Link),
-            file:make_symlink(filename:absname(File), Link)
+            ?MODULE:save_link(Hash, Block, BaseDir)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec save_link(hash(), block(), file:filename_all()) -> ok | {error, any()}.
+save_link(Hash, Block, BaseDir) ->
+    Dir = ?MODULE:dir(BaseDir),
+    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
+    Height = ?MODULE:height(Block),
+    Link = link(BaseDir, Height),
+    ok = filelib:ensure_dir(Link),
+    file:make_symlink(filename:absname(File), Link).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -319,8 +329,8 @@ find_next(Block, BaseDir) ->
 %% ------------------------------------------------------------------
 
 -spec link(file:filename_all(), integer()) -> file:filename_all().
-link(Dir, Height) ->
-    filename:join([Dir, ?HEIGHTS_DIR, erlang:integer_to_list(Height)]).
+link(BaseDir, Height) ->
+    filename:join([BaseDir, ?HEIGHTS_DIR, erlang:integer_to_list(Height)]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
