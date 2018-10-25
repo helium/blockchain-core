@@ -110,13 +110,21 @@ absorb(blockchain_txn_add_gateway, Txn, Ledger0) ->
     end;
 absorb(blockchain_txn_assert_location, Txn, Ledger0) ->
     GatewayAddress = blockchain_txn_assert_location:gateway_address(Txn),
+    OwnerAddress = blockchain_txn_assert_location:owner_address(Txn),
     Location = blockchain_txn_assert_location:location(Txn),
     Nonce = blockchain_txn_assert_location:nonce(Txn),
-    case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) of
-        {error, Reason} ->
-            {error, Reason};
+    Fee = blockchain_txn_assert_location:fee(Txn),
+    %% check if the owner is able to pay the required fee
+    case blockchain_ledger:debit_account(OwnerAddress, Fee, Nonce, Ledger0) of
+        {error, _}=Error -> Error;
         Ledger1 ->
-            {ok, Ledger1}
+            %% XXX: The paid fee vanishes into ether, but the ledger gets updated
+            %% Now do the assert_gateway_location
+            case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger1) of
+                {error, _}=Error2 -> Error2;
+                Ledger2 ->
+                    {ok, Ledger2}
+            end
     end;
 absorb(blockchain_txn_payment, Txn, Ledger0) ->
     Amount = blockchain_txn_payment:amount(Txn),
@@ -130,7 +138,7 @@ absorb(blockchain_txn_payment, Txn, Ledger0) ->
                     Payer = blockchain_txn_payment:payer(Txn),
                     Nonce = blockchain_txn_payment:nonce(Txn),
                     %%TODO - the fee needs to be given to consensus group members at the end of their term
-                    Fee = blockchain_txn_payment:fee(Txn), 
+                    Fee = blockchain_txn_payment:fee(Txn),
                     case blockchain_ledger:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
