@@ -513,10 +513,10 @@ handle_info(maybe_sync, State = #state{blockchain=Chain}) ->
     Head = blockchain:head_block(Chain),
     Meta = blockchain_block:meta(Head),
     BlockTime = maps:get(block_time, Meta, 0),
-    case BlockTime - erlang:system_time(seconds) of
+    case erlang:system_time(seconds) - BlockTime of
         X when X > 60 ->
             %% figure out our gossip peers
-            Peers = libp2p_group_gossip:connected_addrs(State#state.swarm, all),
+            Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(State#state.swarm), all),
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
             case libp2p_swarm:dial_framed_stream(State#state.swarm,
                                                  RandomPeer,
