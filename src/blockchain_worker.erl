@@ -436,7 +436,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
             ,State0
             ,Blocks
         ),
-    self() ! maybe_sync,
+    erlang:send_after(5000, self(), maybe_sync),
     {noreply, State1};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
@@ -526,8 +526,7 @@ handle_info(maybe_sync, State = #state{blockchain=Chain}) ->
                 {ok, Stream} ->
                     Stream ! {hash, blockchain:head_hash(Chain)};
                 _ ->
-                    lager:notice("Failed to dial sync service on: ~p", [RandomPeer]),
-                    self() ! maybe_sync
+                    erlang:send_after(5000, self(), maybe_sync)
             end;
         _ ->
             erlang:send_after(?SYNC_TIME, self(), maybe_sync),
