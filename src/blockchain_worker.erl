@@ -272,32 +272,11 @@ init(Args) ->
     Blockchain =
         case blockchain:load(Dir) of
             undefined -> {undefined, Dir};
-            Else -> Else
+            Chain ->
+                ok = add_handlers(Swarm, Chain),
+                Chain
         end,
-
-    Address = libp2p_swarm:address(Swarm),
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address]}),
-
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?SYNC_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Dir]}
-    ),
-
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?GW_REGISTRATION_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
-    ),
-
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?LOC_ASSERTION_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
-    ),
-
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
-
     {ok, #state{swarm=Swarm, n=N, blockchain=Blockchain}}.
 
 %% NOTE: num_consensus_members and consensus_addrs can be called before there is a blockchain
@@ -359,7 +338,8 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefined, Dir}}=State) ->
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefined, Dir}
+                                                            ,swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
             lager:warning("~p is not a genesis block", [GenesisBlock]),
@@ -372,6 +352,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
+            ok = add_handlers(Swarm, Blockchain),
             {noreply, State#state{blockchain=Blockchain}}
     end;
 handle_cast(_, #state{blockchain={undefined, _}}=State) ->
@@ -538,6 +519,33 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_handlers(pid(), blockchain:blockchain()) -> ok.
+add_handlers(Swarm, Chain) ->
+    Address = libp2p_swarm:address(Swarm),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address]}),
+
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?SYNC_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, blockchain:dir(Chain)]}
+    ),
+
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?GW_REGISTRATION_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
+    ),
+
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm
+        ,?LOC_ASSERTION_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
