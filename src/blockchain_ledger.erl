@@ -200,7 +200,7 @@ update_transaction_fee(Ledger=#ledger{transaction_fee=Fee}) ->
     %% TODO - based on the average of usage fees
     NewFee = case ?MODULE:current_height(Ledger) /= undefined of
         true ->
-            math:ceil(?MODULE:current_height(Ledger) / 1000);
+            ?MODULE:current_height(Ledger) div 1000;
         false ->
             Fee
     end,    
