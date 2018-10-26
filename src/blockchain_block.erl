@@ -25,7 +25,7 @@
     ,assert_location_transactions/1
     ,poc_request_transactions/1
     ,dir/1
-    ,save/3, load/2
+    ,save/3, save_link/3, load/2
     ,serialize/2
     ,deserialize/2
     ,find_next/2
@@ -246,18 +246,46 @@ dir(Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save(hash(), block(), string()) -> ok | {error, any()}.
+-spec save(hash(), block(), file:filename_all()) -> ok | {error, any()}.
 save(Hash, Block, BaseDir) ->
     Dir = ?MODULE:dir(BaseDir),
     BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    blockchain_util:atomic_save(File, BinBlock).
+    case blockchain_util:atomic_save(File, BinBlock) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            ?MODULE:save_link(Hash, Block, BaseDir)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(hash(), string()) -> {ok, block()} | {error, any()}.
+-spec save_link(hash(), block(), file:filename_all()) -> ok | {error, any()}.
+save_link(Hash, Block, BaseDir) ->
+    Dir = ?MODULE:dir(BaseDir),
+    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
+    Height = ?MODULE:height(Block),
+    Link = link(BaseDir, Height),
+    ok = filelib:ensure_dir(Link),
+    file:make_symlink(filename:absname(File), Link).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec load(hash() | integer(), file:filename_all()) -> {ok, block()} | {error, any()}.
+load(Height, BaseDir) when is_integer(Height) ->
+    Link = link(BaseDir, Height),
+    case file:read_file(Link) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Binary} ->
+            V = blockchain_util:serial_version(BaseDir),
+            Block = ?MODULE:deserialize(V, Binary),
+            {ok, Block}
+    end;
 load(Hash, BaseDir) ->
     Dir = filename:join(BaseDir, ?BLOCKS_DIR),
     File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
@@ -289,20 +317,20 @@ deserialize(_Version, Bin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_next(blockchain_block:hash(), [blockchain_block:block()]) -> {ok, blockchain_block:block()}
-                                                                        | false.
-find_next(_, []) -> false;
-find_next(Hash, [Block | Tail]) ->
-    case blockchain_block:prev_hash(Block) == Hash of
-        true ->
-            {ok, Block};
-        false ->
-            find_next(Hash, Tail)
-    end.
+-spec find_next(blockchain_block:block(), file:filename_all()) -> {ok, blockchain_block:block()}
+                                                                  | {error, any()}.
+
+find_next(Block, BaseDir) ->
+    Height = ?MODULE:height(Block),
+    ?MODULE:load(Height + 1, BaseDir).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec link(file:filename_all(), integer()) -> file:filename_all().
+link(BaseDir, Height) ->
+    filename:join([BaseDir, ?HEIGHTS_DIR, erlang:integer_to_list(Height)]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -16,8 +16,6 @@
     ,blockchain/0
     ,head_hash/0, head_block/0
     ,genesis_hash/0, genesis_block/0
-    ,blocks/0
-    ,blocks/1
     ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
@@ -118,24 +116,6 @@ genesis_block() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec  blocks() -> #{blockchain_block:hash() => blockchain_block:block()}.
-blocks() ->
-    gen_server:call(?SERVER, blocks).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec blocks(blockchain_block:hash()) -> {ok, [blockchain_block:block()]}.
-blocks(Hash) ->
-    %% NOTE: this is used for syncing
-    %% fetch all the blocks till the current block you have starting at the given Hash
-    gen_server:call(?SERVER, {blocks, Hash}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 get_block(Hash) ->
     gen_server:call(?SERVER, {get_block, Hash}).
 
@@ -175,7 +155,7 @@ integrate_genesis_block(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), pid()) -> ok.
+-spec add_block(blockchain_block:block(), libp2p_crypto:address()) -> ok.
 add_block(Block, Sender) ->
     gen_server:cast(?SERVER, {add_block, Block, Sender}).
 
@@ -301,7 +281,7 @@ init(Args) ->
     ok = libp2p_swarm:add_stream_handler(
         Swarm
         ,?SYNC_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER]}
+        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Dir]}
     ),
 
     ok = libp2p_swarm:add_stream_handler(
@@ -341,15 +321,6 @@ handle_call(genesis_hash, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:genesis_hash(Chain), State};
 handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:genesis_block(Chain), State};
-handle_call(blocks, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:blocks(Chain), State};
-handle_call({blocks, Hash}, _From, #state{blockchain=Chain}=State) ->
-    StartingBlock = case blockchain:get_block(Hash, Chain) of
-                        {ok, Block} -> Block;
-                        {error, _Reason} -> blockchain:genesis_block(Chain)
-                    end,
-    Blocks = blockchain:build(StartingBlock, maps:values(blockchain:blocks(Chain))),
-    {reply, {ok, Blocks}, State};
 handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:get_block(Hash, Chain), State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
@@ -436,15 +407,17 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
             {noreply, State};
         false ->
             lager:warning("gossipped block doesn't fit with our chain"),
-            lager:info("syncing with the sender ~p", [Sender]),
+            P2PAddress = libp2p_crypto:address_to_p2p(Sender),
+            lager:info("syncing with the sender ~p", [P2PAddress]),
             case libp2p_swarm:dial_framed_stream(Swarm,
-                                                 libp2p_crypto:address_to_p2p(Sender),
+                                                 P2PAddress,
                                                  ?SYNC_PROTOCOL,
                                                  blockchain_sync_handler,
                                                  [self()]) of
                 {ok, Stream} ->
                     Stream ! {hash, blockchain:head_hash(Chain)};
-                _ -> lager:notice("Failed to dial sync service on: ~p", [Sender])
+                _Error ->
+                    lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
             end,
             {noreply, State}
     end;

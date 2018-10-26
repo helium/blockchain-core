@@ -16,7 +16,8 @@
     ,add_block/2
     ,get_block/2
     ,save/1, load/1
-    ,build/2
+    ,build/3
+    ,reindex/1
 ]).
 
 -include("blockchain.hrl").
@@ -134,7 +135,7 @@ blocks(Blockchain) ->
 %%--------------------------------------------------------------------
 -spec blocks_size(blockchain()) -> integer().
 blocks_size(Blockchain) ->
-    erlang:length(list_block_files(Blockchain)).
+    erlang:length(list_block_files(Blockchain)) + 1.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -155,10 +156,13 @@ add_block(Block, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash(), blockchain()) -> {ok, blockchain_block:block()}
-                                                          | {error, any()}.
-get_block(Hash, Blockchain) ->
+-spec get_block(blockchain_block:hash(), blockchain() | string()) -> {ok, blockchain_block:block()}
+                                                                     | {error, any()}.
+
+get_block(Hash, Blockchain) when is_record(Blockchain, blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
+    blockchain_block:load(Hash, BaseDir);
+get_block(Hash, BaseDir) ->
     blockchain_block:load(Hash, BaseDir).
 
 %%--------------------------------------------------------------------
@@ -199,6 +203,49 @@ load(BaseDir) ->
             }
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec build(blockchain_block:block(), file:filename_all(), non_neg_integer()) -> [blockchain_block:block()].
+build(StartingBlock, BaseDir, Limit) ->
+    build(StartingBlock, BaseDir, Limit, []).
+
+-spec build(blockchain_block:block(), file:filename_all(), non_neg_integer(), [blockchain_block:block()]) -> [blockhain_block:block()].
+build(_StartingBlock, _BaseDir, 0, Acc) ->
+    lists:reverse(Acc);
+build(StartingBlock, BaseDir, N, Acc) ->
+    case blockchain_block:find_next(StartingBlock, BaseDir) of
+        {ok, NextBlock} ->
+            build(NextBlock, BaseDir, N-1, [NextBlock|Acc]);
+        {error, _Reason} ->
+            lists:reverse(Acc)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec reindex(file:filename_all()) -> ok.
+reindex(BaseDir) ->
+    V = blockchain_util:serial_version(BaseDir),
+    lists:foreach(
+        fun(File) ->
+            case file:read_file(File) of
+                {error, _Reason} ->
+                    lager:error("failed to red file ~p: ~p", [File, _Reason]);
+                {ok, Binary} ->
+                    Block = blockchain_block:deserialize(V, Binary),
+                    Hash = blockchain_block:hash_block(Block),
+                    R = blockchain_block:save_link(Hash, Block, BaseDir),
+                    Height = blockchain_block:height(Block),
+                    lager:info("block index ~p restored: ~p", [Height, R])
+            end
+        end
+        ,list_block_files(BaseDir)
+    ),
+    ok.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -215,9 +262,11 @@ base_dir(BaseDir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec list_block_files(blockchain()) -> [file:filename_all()].
-list_block_files(Blockchain) ->
+-spec list_block_files(blockchain() | file:filename_all()) -> [file:filename_all()].
+list_block_files(Blockchain) when is_record(Blockchain, blockchain)  ->
     BaseDir = ?MODULE:dir(Blockchain),
+    list_block_files(BaseDir);
+list_block_files(BaseDir) ->
     Dir = blockchain_block:dir(BaseDir),
     case file:list_dir(Dir) of
         {error, _Reason} -> [];
@@ -273,24 +322,6 @@ load_head(Dir) ->
         {ok, Binary} ->
             {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec build(blockchain_block:block(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build(PrevBlock, Blocks) ->
-    build(PrevBlock, Blocks, []).
-
--spec build(blockchain_block:block(), [blockchain_block:block()], [blockchain_block:block()]) -> [blockhain_block:block()].
-build(PrevBlock, Blocks, Acc) ->
-    case blockchain_block:find_next(blockchain_block:hash_block(PrevBlock), Blocks) of
-        {ok, NextBlock} ->
-            build(NextBlock, Blocks, [NextBlock | Acc]);
-        false ->
-            lists:reverse(Acc)
-    end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -351,7 +382,7 @@ blocks_test() ->
 blocks_size_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Chain = new(Block, "data/blocks_size_test"),
-    ?assertEqual(0, blocks_size(Chain)).
+    ?assertEqual(1, blocks_size(Chain)).
 
 get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
