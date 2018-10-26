@@ -38,37 +38,35 @@ all() ->
 basic(_Config) ->
     BaseDir = "data/sync_SUITE/basic",
     Balance = 5000,
+    BlocksN = 100,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
-    % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger:entries(Ledger),
-    _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger:balance(Entry),
-                         0, blockchain_ledger:payment_nonce(Entry)
-                 end, Entries),
-
-    % Create 10 empty blocks
-    Blocks = create_blocks(10, ConsensusMembers),
-
-    % {ok, Swarm} = libp2p_swarm:start(sync_SUITE, []),
-    % [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
-    % {ok, Stream} = libp2p_swarm:dial_framed_stream(
-    %     Swarm
-    %     ,ListenAddr
-    %     ,?SYNC_PROTOCOL
-    %     ,blockchain_sync_handler
-    %     ,[]
-    % ),
-
-    ok = blockchain_worker:sync_blocks(Blocks),
-
-    ok = test_utils:wait_until(fun() -> 11 =:= blockchain_worker:height() end),
+    % Create BlocksN empty blocks
+    Blocks = create_blocks(BlocksN, ConsensusMembers),
     LastBlock = lists:last(Blocks),
+
+    % Simulate other chain with sync handler only
+    {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
+    ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
+    SimDir = "data/sync_SUITE/basic_sim",
+    [blockchain_block:save(blockchain_block:hash_block(B), B, SimDir) || B <- Blocks],
+    ok = libp2p_swarm:add_stream_handler(
+        SimSwarm
+        ,?SYNC_PROTOCOL
+        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?MODULE, SimDir]}
+    ),
+    % This is just to connect the 2 swarms
+    [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
+    {ok, _} = libp2p_swarm:connect(SimSwarm, ListenAddr),
+    ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
+
+    % Simulate add block from other chain
+    ok = blockchain_worker:add_block(LastBlock, libp2p_swarm:address(SimSwarm)),
+
+    ok = test_utils:wait_until(fun() -> BlocksN + 1 =:= blockchain_worker:height() end),
     ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_worker:head_hash()),
     ?assertEqual(LastBlock, blockchain_worker:head_block()),
-
     true = erlang:exit(Sup, normal),
     ok.
 

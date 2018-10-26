@@ -111,13 +111,21 @@ absorb(blockchain_txn_add_gateway, Txn, Ledger0) ->
     end;
 absorb(blockchain_txn_assert_location, Txn, Ledger0) ->
     GatewayAddress = blockchain_txn_assert_location:gateway_address(Txn),
+    OwnerAddress = blockchain_txn_assert_location:owner_address(Txn),
     Location = blockchain_txn_assert_location:location(Txn),
     Nonce = blockchain_txn_assert_location:nonce(Txn),
-    case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) of
-        {error, Reason} ->
-            {error, Reason};
+    Fee = blockchain_txn_assert_location:fee(Txn),
+    Entries = blockchain_ledger:entries(Ledger0),
+    LastEntry = blockchain_ledger:find_entry(OwnerAddress, Entries),
+    PaymentNonce = blockchain_ledger:payment_nonce(LastEntry) + 1,
+    case blockchain_ledger:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
+        {error, _Reason}=Error -> Error;
         Ledger1 ->
-            {ok, Ledger1}
+            case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger1) of
+                {error, _}=Error2 -> Error2;
+                Ledger2 ->
+                    {ok, Ledger2}
+            end
     end;
 absorb(blockchain_txn_payment, Txn, Ledger0) ->
     Amount = blockchain_txn_payment:amount(Txn),
