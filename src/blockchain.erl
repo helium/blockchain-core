@@ -229,9 +229,10 @@ build(StartingBlock, BaseDir, N, Acc) ->
 -spec reindex(file:filename_all()) -> ok.
 reindex(BaseDir) ->
     V = blockchain_util:serial_version(BaseDir),
+    BlockDir = blockchain_block:dir(BaseDir),
     lists:foreach(
         fun(File) ->
-            case file:read_file(File) of
+                case file:read_file(filename:join(BlockDir, File)) of
                 {error, _Reason} ->
                     lager:error("failed to red file ~p: ~p", [File, _Reason]);
                 {ok, Binary} ->
