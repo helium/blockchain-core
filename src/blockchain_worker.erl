@@ -51,6 +51,7 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
+-define(SYNC_TIME, 60000).
 
 -record(state, {
     blockchain :: {undefined, file:filename_all()} | blockchain:blockchain()
@@ -274,6 +275,7 @@ init(Args) ->
             undefined -> {undefined, Dir};
             Chain ->
                 ok = add_handlers(Swarm, Chain),
+                erlang:send_after(0, self(), maybe_sync),
                 Chain
         end,
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
@@ -353,6 +355,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, Blockchain),
+            erlang:send_after(0, self(), maybe_sync),
             {noreply, State#state{blockchain=Blockchain}}
     end;
 handle_cast(_, #state{blockchain={undefined, _}}=State) ->
@@ -433,6 +436,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
             ,State0
             ,Blocks
         ),
+    erlang:send_after(5000, self(), maybe_sync),
     {noreply, State1};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
@@ -505,6 +509,30 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(maybe_sync, State = #state{blockchain=Chain}) ->
+    Head = blockchain:head_block(Chain),
+    Meta = blockchain_block:meta(Head),
+    BlockTime = maps:get(block_time, Meta, 0),
+    case erlang:system_time(seconds) - BlockTime of
+        X when X > 60 ->
+            %% figure out our gossip peers
+            Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(State#state.swarm), all),
+            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
+            case libp2p_swarm:dial_framed_stream(State#state.swarm,
+                                                 RandomPeer,
+                                                 ?SYNC_PROTOCOL,
+                                                 blockchain_sync_handler,
+                                                 [self()]) of
+                {ok, Stream} ->
+                    Stream ! {hash, blockchain:head_hash(Chain)};
+                _ ->
+                    erlang:send_after(5000, self(), maybe_sync)
+            end;
+        _ ->
+            erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+            ok
+    end,
+    {noreply, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
