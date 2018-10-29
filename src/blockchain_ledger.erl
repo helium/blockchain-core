@@ -20,6 +20,8 @@
     ,find_htlc/2
     ,find_gateway_info/2
     ,consensus_members/1, consensus_members/2
+    ,transaction_fee/1
+    ,update_transaction_fee/1
     ,active_gateways/1
     ,add_gateway/3
     ,add_gateway_location/4
@@ -48,6 +50,7 @@
 
 -record(ledger, {
     current_height = undefined :: undefined | pos_integer()
+    ,transaction_fee = 1 :: non_neg_integer()
     ,consensus_members = [] :: [libp2p_crypto:address()]
     ,active_gateways = #{} :: active_gateways()
     ,entries = #{} :: entries()
@@ -171,9 +174,37 @@ payment_nonce(#htlc{nonce=Nonce}) ->
 assert_location_nonce(GwInfo) when GwInfo /= undefined ->
     GwInfo#gw_info.nonce.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec current_height(ledger()) -> non_neg_integer().
 current_height(Ledger) ->
     Ledger#ledger.current_height.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec transaction_fee(ledger()) -> non_neg_integer().
+transaction_fee(Ledger) ->
+    Ledger#ledger.transaction_fee.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec update_transaction_fee(ledger()) -> ledger().
+update_transaction_fee(Ledger=#ledger{transaction_fee=Fee}) ->
+    %% TODO - this should calculate a new transaction fee for the network
+    %% TODO - based on the average of usage fees
+    NewFee = case ?MODULE:current_height(Ledger) /= undefined of
+        true ->
+            ?MODULE:current_height(Ledger) div 1000;
+        false ->
+            Fee
+    end,    
+    Ledger#ledger{transaction_fee=NewFee}.
 
 %%--------------------------------------------------------------------
 %% @doc
