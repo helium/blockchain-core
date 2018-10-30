@@ -24,7 +24,7 @@
     ,add_block/2
     ,sync_blocks/1
     ,spend/3
-    ,payment_txn/4
+    ,payment_txn/5
     ,submit_txn/2
     ,create_htlc_txn/4
     ,redeem_htlc_txn/2
@@ -180,9 +180,9 @@ spend(Recipient, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer()) -> ok.
-payment_txn(PrivKey, Address, Recipient, Amount) ->
-    gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount}).
+-spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer()) -> ok.
+payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
+    gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
