@@ -509,24 +509,23 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(maybe_sync, State = #state{blockchain=Chain}) ->
+handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     Head = blockchain:head_block(Chain),
     Meta = blockchain_block:meta(Head),
     BlockTime = maps:get(block_time, Meta, 0),
     case erlang:system_time(seconds) - BlockTime of
         X when X > 60 ->
             %% figure out our gossip peers
-            Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(State#state.swarm), all),
-            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            case libp2p_swarm:dial_framed_stream(State#state.swarm,
-                                                 RandomPeer,
-                                                 ?SYNC_PROTOCOL,
-                                                 blockchain_sync_handler,
-                                                 [self()]) of
-                {ok, Stream} ->
-                    Stream ! {hash, blockchain:head_hash(Chain)};
-                _ ->
-                    erlang:send_after(5000, self(), maybe_sync)
+            Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
+            case Peers of
+                [] ->
+                    erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                    ok;
+                [Peer] ->
+                    sync(Swarm, Chain, Peer);
+                Peers ->
+                    RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
+                    sync(Swarm, Chain, RandomPeer)
             end;
         _ ->
             erlang:send_after(?SYNC_TIME, self(), maybe_sync),
@@ -590,7 +589,6 @@ send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
         ,false
     ).
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -611,4 +609,22 @@ do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Ret
         Other ->
             lager:notice("Failed to dial ~p service on ~p : ~p", [Protocol, Address, Other]),
             do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+sync(Swarm, Chain, Peer) ->
+    case libp2p_swarm:dial_framed_stream(Swarm,
+                                         Peer,
+                                         ?SYNC_PROTOCOL,
+                                         blockchain_sync_handler,
+                                         [self()]) of
+        {ok, Stream} ->
+            Stream ! {hash, blockchain:head_hash(Chain)},
+            ok;
+        _ ->
+            erlang:send_after(5000, self(), maybe_sync),
+            ok
     end.
