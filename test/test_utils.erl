@@ -41,10 +41,12 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_worker:head_hash()),
-    ?assertEqual(GenesisBlock, blockchain_worker:head_block()),
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_worker:genesis_hash()),
-    ?assertEqual(GenesisBlock, blockchain_worker:genesis_block()),
+    Chain = blockchain_worker:blockchain(),
+
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
+    ?assertEqual(GenesisBlock, blockchain:head_block(Chain)),
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain:genesis_hash(Chain)),
+    ?assertEqual(GenesisBlock, blockchain:genesis_block(Chain)),
     ?assertEqual(1, blockchain_worker:height()),
     {ok, ConsensusMembers}.
 
@@ -84,8 +86,9 @@ compare_chains(Expected, Got) ->
     ok.
 
 create_block(ConsensusMembers, Txs) ->
-    PrevHash = blockchain_worker:head_hash(),
-    Height = blockchain_worker:height() + 1,
+    Blockchain = blockchain_worker:blockchain(),
+    PrevHash = blockchain:head_hash(Blockchain),
+    Height = blockchain_block:height(blockchain:head_block(Blockchain)) + 1,
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),

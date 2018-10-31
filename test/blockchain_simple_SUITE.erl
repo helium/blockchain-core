@@ -59,9 +59,10 @@ basic(_Config) ->
     SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
+    Chain = blockchain_worker:blockchain(),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
-    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain:head_hash(Chain)),
+    ?assertEqual(Block, blockchain:head_block(Chain)),
     ?assertEqual(2, blockchain_worker:height()),
 
     ?assertEqual({ok, Block}, blockchain_block:load(2, blockchain:dir(blockchain_worker:blockchain()))),
@@ -73,7 +74,6 @@ basic(_Config) ->
     ?assertEqual(Balance - 2510, blockchain_ledger:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
-    Chain = blockchain_worker:blockchain(),
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
     % Restart blockchain and make sure nothing has changed
@@ -90,7 +90,7 @@ basic(_Config) ->
 htlc_payee_redeem(_Config) ->
     BaseDir = "data/test_SUITE/htlc_payee_redeem",
     Balance = 5000,
-    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     % Check ledger to make sure everyone has the right balance
@@ -110,9 +110,10 @@ htlc_payee_redeem(_Config) ->
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
+    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
-    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
@@ -136,10 +137,11 @@ htlc_payee_redeem(_Config) ->
     SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
+    timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check that the second block with the Redeem TX was mined properly
-    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_worker:head_hash()),
-    ?assertEqual(Block2, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block2}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(3, blockchain_worker:height()),
 
     % Check that the Payee now owns 2500
@@ -150,12 +152,15 @@ htlc_payee_redeem(_Config) ->
     Chain = blockchain_worker:blockchain(),
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
+    true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
+
     ok.
 
 htlc_payer_redeem(_Config) ->
     BaseDir = "data/test_SUITE/htlc_payer_redeem",
     Balance = 5000,
-    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     % Check ledger to make sure everyone has the right balance
@@ -175,9 +180,10 @@ htlc_payer_redeem(_Config) ->
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
+    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
-    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
@@ -196,10 +202,11 @@ htlc_payer_redeem(_Config) ->
     ok = blockchain_worker:add_block(Block2, self()),
     Block3 = test_utils:create_block(ConsensusMembers, []),
     ok = blockchain_worker:add_block(Block3, self()),
+    timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check we are at height 4
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_worker:head_hash()),
-    ?assertEqual(Block3, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(4, blockchain_worker:height()),
 
     % Try and redeem
@@ -216,12 +223,15 @@ htlc_payer_redeem(_Config) ->
     Chain = blockchain_worker:blockchain(),
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
 
+    true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
+
     ok.
 
 poc_request(_Config) ->
     BaseDir = "data/test_SUITE/poc_request",
     Balance = 5000,
-    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Owner = libp2p_crypto:pubkey_to_address(PubKey),
 
@@ -246,9 +256,10 @@ poc_request(_Config) ->
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     ok = blockchain_worker:add_block(Block, self()),
+    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_worker:head_hash()),
-    ?assertEqual(Block, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Gateway is there
@@ -262,9 +273,10 @@ poc_request(_Config) ->
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
     ok = blockchain_worker:add_block(Block2, self()),
+    timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_worker:head_hash()),
-    ?assertEqual(Block2, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block2}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(3, blockchain_worker:height()),
 
     % Create the PoC challenge request txn
@@ -272,14 +284,18 @@ poc_request(_Config) ->
     SignedTx = blockchain_txn_poc_request:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block3, self()),
+    timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_worker:head_hash()),
-    ?assertEqual(Block3, blockchain_worker:head_block()),
+    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
+    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
     ?assertEqual(4, blockchain_worker:height()),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
     GwInfo2 = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
     ?assertEqual(3, blockchain_ledger:last_poc_challenge(GwInfo2)),
+
+    true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),
 
     ok.
 

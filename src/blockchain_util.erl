@@ -95,8 +95,9 @@ serial_version_test() ->
 
 %% Test helper
 create_block(ConsensusMembers, Txs) ->
-    PrevHash = blockchain_worker:head_hash(),
-    Height = blockchain_worker:height() + 1,
+    Blockchain = blockchain_worker:blockchain(),
+    PrevHash = blockchain:head_hash(Blockchain),
+    Height = blockchain_block:height(blockchain:head_block(Blockchain)) + 1,
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),

@@ -18,6 +18,7 @@
     ,save/1, load/1
     ,build/3
     ,reindex/1
+    ,base_dir/1
 ]).
 
 -include("blockchain.hrl").
@@ -156,12 +157,15 @@ add_block(Block, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash(), blockchain() | string()) -> {ok, blockchain_block:block()}
-                                                                     | {error, any()}.
-
+-spec get_block(blockchain_block:hash() | head | genesis, blockchain() | string()) ->
+    {ok, blockchain_block:block()} | {error, any()}.
 get_block(Hash, Blockchain) when is_record(Blockchain, blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
-    blockchain_block:load(Hash, BaseDir);
+    get_block(Hash, BaseDir);
+get_block(head, BaseDir) ->
+    load_head(BaseDir);
+get_block(genesis, BaseDir) ->
+    load_genesis(BaseDir);
 get_block(Hash, BaseDir) ->
     blockchain_block:load(Hash, BaseDir).
 
@@ -247,10 +251,6 @@ reindex(BaseDir) ->
     ),
     ok.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -258,6 +258,10 @@ reindex(BaseDir) ->
 -spec base_dir(file:filename_all()) -> file:filename_all().
 base_dir(BaseDir) ->
     filename:join(BaseDir, ?BASE_DIR).
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
 %% @doc
