@@ -41,6 +41,8 @@ basic(_Config) ->
     BlocksN = 100,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    Chain0 = blockchain_worker:blockchain(),
+    Genesis = blockchain:genesis_block(Chain0),
 
     % Create BlocksN empty blocks
     Blocks = create_blocks(BlocksN, ConsensusMembers),
@@ -50,11 +52,13 @@ basic(_Config) ->
     {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     SimDir = "data/sync_SUITE/basic_sim",
-    [blockchain_block:save(blockchain_block:hash_block(B), B, SimDir) || B <- Blocks],
+    Chain = blockchain:new(Genesis, SimDir),
+    blockchain:save(Chain),
+    [blockchain_block:save(blockchain_block:hash_block(B), B, blockchain:dir(Chain)) || B <- Blocks],
     ok = libp2p_swarm:add_stream_handler(
         SimSwarm
         ,?SYNC_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?MODULE, SimDir]}
+        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?MODULE, blockchain:dir(Chain)]}
     ),
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
@@ -65,8 +69,7 @@ basic(_Config) ->
     ok = blockchain_worker:add_block(LastBlock, libp2p_swarm:address(SimSwarm)),
 
     ok = test_utils:wait_until(fun() -> BlocksN + 1 =:= blockchain_worker:height() end),
-    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_worker:head_hash()),
-    ?assertEqual(LastBlock, blockchain_worker:head_block()),
+    ?assertEqual(LastBlock, blockchain:head_block(blockchain_worker:blockchain())),
     true = erlang:exit(Sup, normal),
     ok.
 
@@ -79,7 +82,8 @@ create_blocks(N, ConsensusMembers) ->
 create_blocks(0, _, Blocks) ->
     lists:reverse(Blocks);
 create_blocks(N, ConsensusMembers, []=Blocks) ->
-    PrevHash = blockchain_worker:head_hash(),
+    Blockchain = blockchain_worker:blockchain(),
+    PrevHash = blockchain:head_hash(Blockchain),
     Height = blockchain_worker:height() + 1,
     Block0 = blockchain_block:new(PrevHash, Height, [], <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),

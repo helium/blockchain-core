@@ -14,9 +14,6 @@
     start_link/1
     ,height/0
     ,blockchain/0
-    ,head_hash/0, head_block/0
-    ,genesis_hash/0, genesis_block/0
-    ,get_block/1
     ,ledger/0
     ,num_consensus_members/0
     ,consensus_addrs/0
@@ -80,45 +77,6 @@ height() ->
 -spec blockchain() -> blockchain:blockchain()  | undefined.
 blockchain() ->
     gen_server:call(?SERVER, blockchain).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec head_hash() -> blockchain_block:hash()  | undefined.
-head_hash() ->
-    gen_server:call(?SERVER, head_hash).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec head_block() -> blockchain_block:block()  | undefined.
-head_block() ->
-    gen_server:call(?SERVER, head_block).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec genesis_hash() -> blockchain_block:hash()  | undefined.
-genesis_hash() ->
-    gen_server:call(?SERVER, genesis_hash).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec genesis_block() -> blockchain_block:block()  | undefined.
-genesis_block() ->
-    gen_server:call(?SERVER, genesis_block).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-get_block(Hash) ->
-    gen_server:call(?SERVER, {get_block, Hash}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -294,16 +252,6 @@ handle_call(height, _From, #state{blockchain=Chain}=State) ->
     {reply, Height, State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call(head_hash, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:head_hash(Chain), State};
-handle_call(head_block, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:head_block(Chain), State};
-handle_call(genesis_hash, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:genesis_hash(Chain), State};
-handle_call(genesis_block, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:genesis_block(Chain), State};
-handle_call({get_block, Hash}, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:get_block(Hash, Chain), State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
@@ -554,7 +502,7 @@ terminate(_Reason, _State) ->
 -spec add_handlers(pid(), blockchain:blockchain()) -> ok.
 add_handlers(Swarm, Chain) ->
     Address = libp2p_swarm:address(Swarm),
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address]}),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, blockchain:dir(Chain)]}),
 
     ok = libp2p_swarm:add_stream_handler(
         Swarm

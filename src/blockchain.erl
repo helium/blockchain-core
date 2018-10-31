@@ -156,12 +156,15 @@ add_block(Block, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash(), blockchain() | string()) -> {ok, blockchain_block:block()}
-                                                                     | {error, any()}.
-
+-spec get_block(blockchain_block:hash() | head | genesis, blockchain() | string()) ->
+    {ok, blockchain_block:block()} | {error, any()}.
 get_block(Hash, Blockchain) when is_record(Blockchain, blockchain) ->
     BaseDir = ?MODULE:dir(Blockchain),
-    blockchain_block:load(Hash, BaseDir);
+    get_block(Hash, BaseDir);
+get_block(head, BaseDir) ->
+    load_head(BaseDir);
+get_block(genesis, BaseDir) ->
+    load_genesis(BaseDir);
 get_block(Hash, BaseDir) ->
     blockchain_block:load(Hash, BaseDir).
 

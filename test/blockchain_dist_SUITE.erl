@@ -69,15 +69,11 @@ gossip_test(Config) ->
 
     %% FIXME: should do this for each test case presumably
     lists:foreach(fun(Node) ->
-                          BlockHash = ct_rpc:call(Node, blockchain_block, hash_block, [GenesisBlock]),
-                          HeadHash = ct_rpc:call(Node, blockchain_worker, head_hash, []),
-                          HeadBlock = ct_rpc:call(Node, blockchain_worker, head_block, []),
-                          GenesisHash = ct_rpc:call(Node, blockchain_worker, genesis_hash, []),
-                          WorkerGenesisBlock = ct_rpc:call(Node, blockchain_worker, genesis_block, []),
+                          Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                          HeadBlock = blockchain:head_block(Blockchain),
+                          WorkerGenesisBlock = blockchain:genesis_block(Blockchain),
                           Height = ct_rpc:call(Node, blockchain_worker, height, []),
-                          ?assertEqual(BlockHash, HeadHash),
                           ?assertEqual(GenesisBlock, HeadBlock),
-                          ?assertEqual(BlockHash, GenesisHash),
                           ?assertEqual(GenesisBlock, WorkerGenesisBlock),
                           ?assertEqual(1, Height)
                   end, Nodes),

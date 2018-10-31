@@ -59,7 +59,9 @@ handle_data(server, Data, #state{dir=BaseDir}=State) ->
     StartingBlock =
         case blockchain:get_block(Hash, BaseDir) of
             {ok, Block} -> Block;
-            {error, _Reason} -> blockchain_worker:genesis_block()
+            {error, _Reason} ->
+                {ok, SB} = blockchain:get_block(genesis, BaseDir),
+                SB
         end,
     Blocks = blockchain:build(StartingBlock, BaseDir, 200),
     {stop, normal, State, erlang:term_to_binary(Blocks)}.
