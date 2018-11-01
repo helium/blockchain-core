@@ -410,7 +410,7 @@ handle_cast({create_htlc_txn, Address, Amount, Hashlock, Timelock}, #state{swarm
     Payer = libp2p_swarm:address(Swarm),
     Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    CreateTxn = blockchain_txn_create_htlc:new(Payer, Address, Hashlock, Timelock, Amount, Nonce),
+    CreateTxn = blockchain_txn_create_htlc:new(Payer, Address, Hashlock, Timelock, Amount, Nonce + 1),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),

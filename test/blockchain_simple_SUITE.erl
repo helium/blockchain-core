@@ -105,7 +105,8 @@ htlc_payee_redeem(_Config) ->
     % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     HTLCAddress = blockchain_swarm:address(),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 100, 2500, 1),
+    Hashlock = crypto:hash(sha256, <<"sharkfed">>),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 100, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
@@ -124,7 +125,7 @@ htlc_payee_redeem(_Config) ->
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(<<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, blockchain_ledger:hashlock(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
     ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
 
     % Create a Payee
@@ -175,7 +176,8 @@ htlc_payer_redeem(_Config) ->
     % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     HTLCAddress = blockchain_swarm:address(),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, <<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, 3, 2500, 1),
+    Hashlock = crypto:hash(sha256, <<"sharkfed">>),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 3, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
@@ -194,7 +196,7 @@ htlc_payer_redeem(_Config) ->
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(<<"3281d585522bc6772a527f5071b149363436415ebc21cc77a8a9167abf29fb72">>, blockchain_ledger:hashlock(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
     ?assertEqual(3, blockchain_ledger:timelock(NewHTLC0)),
 
     % Mine another couple of blocks

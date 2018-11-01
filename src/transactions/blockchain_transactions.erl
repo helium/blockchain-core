@@ -199,7 +199,7 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
                         false ->
                             Hashlock = blockchain_ledger:hashlock(HTLC),
                             Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
-                            case (crypto:hash(sha256, Preimage) =:= blockchain_util:hex_to_bin(Hashlock)) of
+                            case (crypto:hash(sha256, Preimage) =:= Hashlock) of
                                 true ->
                                     {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
                                 false ->
