@@ -142,7 +142,7 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
 ledger_create_htlc_helper(Flags) ->
     Address = libp2p_crypto:b58_to_address(clean(proplists:get_value(address, Flags))),
     Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
-    Hashlock = list_to_binary(clean(proplists:get_value(hashlock, Flags))),
+    Hashlock = blockchain_util:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
     blockchain_worker:create_htlc_txn(Address, Amount, Hashlock, Timelock).
 
