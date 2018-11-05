@@ -415,7 +415,7 @@ handle_cast({create_htlc_txn, Address, Amount, Hashlock, Timelock}, #state{swarm
     SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
-handle_cast({create_htlc_txn, Address, Preimage}, #state{swarm=Swarm}=State) ->
+handle_cast({redeem_htlc_txn, Address, Preimage}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:address(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc:new(Payee, Address, Preimage),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
