@@ -9,6 +9,8 @@
     validate/2
     ,absorb/2
     ,sort/2
+    ,hash/1
+    ,type/1
 ]).
 
 -ifdef(TEST).
@@ -341,6 +343,14 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) ->
                     {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}}
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(transaction()) -> hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(Txn)).
 
 %%--------------------------------------------------------------------
 %% @doc
