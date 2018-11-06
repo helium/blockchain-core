@@ -162,7 +162,9 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
             case blockchain_txn_create_htlc:is_valid(Txn) of
                 true ->
                     Payer = blockchain_txn_create_htlc:payer(Txn),
-                    Nonce = blockchain_txn_create_htlc:nonce(Txn),
+                    Payee = blockchain_txn_create_htlc:payee(Txn),
+                    Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger0)),
+                    Nonce = blockchain_ledger:payment_nonce(Entry) + 1,
                     case blockchain_ledger:debit_account(Payer, Amount, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
@@ -170,6 +172,7 @@ absorb(blockchain_txn_create_htlc, Txn, Ledger0) ->
                             Address = blockchain_txn_create_htlc:address(Txn),
                             case blockchain_ledger:add_htlc(Address,
                                                             Payer,
+                                                            Payee,
                                                             Amount,
                                                             blockchain_txn_create_htlc:hashlock(Txn),
                                                             blockchain_txn_create_htlc:timelock(Txn),
@@ -192,22 +195,29 @@ absorb(blockchain_txn_redeem_htlc, Txn, Ledger0) ->
                 {error, _Reason}=Error ->
                     Error;
                 HTLC ->
-                    Payee = blockchain_txn_redeem_htlc:payee(Txn),
-                    Creator = blockchain_ledger:creator(HTLC),
+                    Redeemer = blockchain_txn_redeem_htlc:payee(Txn),
+                    Payer = blockchain_ledger:htlc_payer(HTLC),
+                    Payee = blockchain_ledger:htlc_payee(HTLC),
                     %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
                     %% otherwise check that the timelock has expired which allows the Creator to redeem
-                    case Creator =:= Payee of
+                    case Payer =:= Redeemer of
                         false ->
-                            Hashlock = blockchain_ledger:hashlock(HTLC),
-                            Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
-                            case (crypto:hash(sha256, Preimage) =:= Hashlock) of
+                            %% check that the address trying to redeem matches the HTLC
+                            case Redeemer =:= Payee of
                                 true ->
-                                    {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
+                                    Hashlock = blockchain_ledger:htlc_hashlock(HTLC),
+                                    Preimage = blockchain_txn_redeem_htlc:preimage(Txn),
+                                    case (crypto:hash(sha256, Preimage) =:= Hashlock) of
+                                        true ->
+                                            {ok, blockchain_ledger:redeem_htlc(Address, Payee, Ledger0)};
+                                        false ->
+                                            {error, invalid_preimage}
+                                    end;
                                 false ->
-                                    {error, invalid_preimage}
+                                    {error, invalid_payee}
                             end;
                         true ->
-                            Timelock = blockchain_ledger:timelock(HTLC),
+                            Timelock = blockchain_ledger:htlc_timelock(HTLC),
                             Height = blockchain_ledger:current_height(Ledger0),
                             case Timelock >= Height of
                                 true ->
@@ -283,8 +293,6 @@ nonce(Txn) ->
             blockchain_txn_assert_location:nonce(Txn);
         blockchain_txn_payment ->
             blockchain_txn_payment:nonce(Txn);
-        blockchain_txn_create_htlc ->
-            blockchain_txn_create_htlc:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.

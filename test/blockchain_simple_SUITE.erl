@@ -102,12 +102,17 @@ htlc_payee_redeem(_Config) ->
                          0, blockchain_ledger:payment_nonce(Entry)
                  end, Entries),
 
-    % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    HTLCAddress = blockchain_swarm:address(),
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    % Create a Payee
+    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
+    Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
+    % Generate a random address    
+    HTLCAddress = crypto:strong_rand_bytes(32),
+    % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 100, 2500, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
@@ -125,12 +130,8 @@ htlc_payee_redeem(_Config) ->
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
-    ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
-
-    % Create a Payee
-    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
-    Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
+    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),    
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
@@ -173,12 +174,14 @@ htlc_payer_redeem(_Config) ->
                          0, blockchain_ledger:payment_nonce(Entry)
                  end, Entries),
 
-    % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    HTLCAddress = blockchain_swarm:address(),
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    % Generate a random address    
+    HTLCAddress = crypto:strong_rand_bytes(32),
+    % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 3, 2500, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
@@ -196,8 +199,8 @@ htlc_payer_redeem(_Config) ->
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger:timelock(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
@@ -213,6 +216,7 @@ htlc_payer_redeem(_Config) ->
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc:new(Payer, HTLCAddress, <<"sharkfed">>),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block4, self()),
