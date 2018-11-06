@@ -27,6 +27,7 @@
                        | blockchain_txn_poc_request:txn_poc_request()
                        | blockchain_txn_poc_receipts:txn_poc_receipts().
 -type transactions() :: [transaction()].
+-type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([transactions/0]).
 
 %%--------------------------------------------------------------------
