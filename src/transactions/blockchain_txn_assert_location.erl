@@ -7,6 +7,7 @@
 
 -export([
     new/4
+    ,hash/1
     ,gateway_address/1
     ,owner_address/1
     ,location/1
@@ -37,6 +38,7 @@
 
 -type location() :: non_neg_integer(). %% h3 index
 -type txn_assert_location() :: #txn_assert_location{}.
+-type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_assert_location/0]).
 
 %%--------------------------------------------------------------------
@@ -56,6 +58,14 @@ new(GatewayAddress, OwnerAddress, Location, Nonce) ->
         ,owner_signature = <<>>
         ,nonce=Nonce
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_assert_location()) -> hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -142,6 +152,14 @@ sign(Txn, SigFun) ->
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_assert_location).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec remove_signature(txn_assert_location()) -> txn_assert_location().
+remove_signature(Txn) ->
+    Txn#txn_assert_location{owner_signature = <<>>, gateway_signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

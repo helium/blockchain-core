@@ -7,6 +7,7 @@
 
 -export([
     new/3
+    ,hash/1
     ,oui/1
     ,fee/1
     ,owner/1
@@ -28,6 +29,7 @@
 }).
 
 -type txn_oui() :: #txn_oui{}.
+-type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_oui/0]).
 
 %%--------------------------------------------------------------------
@@ -42,6 +44,14 @@ new(OUI, Fee, Owner) ->
         ,owner=Owner
         ,signature= <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_oui()) -> hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -98,6 +108,14 @@ is_valid(Txn=#txn_oui{owner=Owner, signature=Signature}) ->
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_oui).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec remove_signature(txn_oui()) -> txn_oui().
+remove_signature(Txn) ->
+    Txn#txn_oui{signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

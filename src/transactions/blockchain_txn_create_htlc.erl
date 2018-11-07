@@ -10,6 +10,7 @@
 
 -export([
     new/6
+    ,hash/1
     ,payer/1
     ,address/1
     ,hashlock/1
@@ -37,6 +38,7 @@
 }).
 
 -type txn_create_htlc() :: #txn_create_htlc{}.
+-type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_create_htlc/0]).
 
 %%--------------------------------------------------------------------
@@ -55,6 +57,14 @@ new(Payer, Address, Hashlock, Timelock, Amount, Nonce) ->
         ,nonce=Nonce
         ,signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_create_htlc()) -> hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -139,6 +149,14 @@ is_valid(Txn=#txn_create_htlc{payer=Payer, signature=Signature}) ->
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_create_htlc).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec remove_signature(txn_create_htlc()) -> txn_create_htlc().
+remove_signature(Txn) ->
+    Txn#txn_create_htlc{signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -7,6 +7,7 @@
 
 -export([
     new/5
+    ,hash/1
     ,payer/1
     ,payee/1
     ,amount/1
@@ -32,6 +33,7 @@
 }).
 
 -type txn_payment() :: #txn_payment{}.
+-type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_payment/0]).
 
 %%--------------------------------------------------------------------
@@ -49,6 +51,14 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
         ,nonce=Nonce
         ,signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_payment()) -> hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -124,6 +134,14 @@ is_valid(Txn=#txn_payment{payer=Payer, signature=Signature}) ->
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_payment).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec remove_signature(txn_payment()) -> txn_payment().
+remove_signature(Txn) ->
+    Txn#txn_payment{signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
