@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_assert_location).
 
+-behavior(blockchain_txn).
+
 -export([
     new/4
+    ,hash/1
     ,gateway_address/1
     ,owner_address/1
     ,location/1
@@ -56,6 +59,15 @@ new(GatewayAddress, OwnerAddress, Location, Nonce) ->
         ,owner_signature = <<>>
         ,nonce=Nonce
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_assert_location()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_assert_location{owner_signature = <<>>, gateway_signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc

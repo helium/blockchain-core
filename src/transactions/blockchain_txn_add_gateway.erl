@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_add_gateway).
 
+-behavior(blockchain_txn).
+
 -export([
     new/2
+    ,hash/1
     ,owner_address/1
     ,gateway_address/1
     ,owner_signature/1
@@ -44,6 +47,15 @@ new(OwnerAddress, GatewayAddress) ->
         ,owner_signature = <<>>
         ,gateway_signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_add_gateway()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_add_gateway{owner_signature = <<>>, gateway_signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc

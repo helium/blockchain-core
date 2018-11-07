@@ -8,8 +8,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_create_htlc).
 
+-behavior(blockchain_txn).
+
 -export([
     new/6
+    ,hash/1
     ,payer/1
     ,address/1
     ,hashlock/1
@@ -55,6 +58,15 @@ new(Payer, Address, Hashlock, Timelock, Amount, Nonce) ->
         ,nonce=Nonce
         ,signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_create_htlc()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_create_htlc{signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc

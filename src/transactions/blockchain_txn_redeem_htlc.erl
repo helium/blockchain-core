@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_redeem_htlc).
 
+-behavior(blockchain_txn).
+
 -export([
     new/3
+    ,hash/1
     ,payee/1
     ,address/1
     ,preimage/1
@@ -42,6 +45,15 @@ new(Payee, Address, PreImage) ->
         ,preimage=PreImage
         ,signature= <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_redeem_htlc()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_redeem_htlc{signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc

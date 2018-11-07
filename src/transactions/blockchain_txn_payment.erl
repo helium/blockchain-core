@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_payment).
 
+-behavior(blockchain_txn).
+
 -export([
     new/5
+    ,hash/1
     ,payer/1
     ,payee/1
     ,amount/1
@@ -49,6 +52,15 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
         ,nonce=Nonce
         ,signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_payment()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_payment{signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc

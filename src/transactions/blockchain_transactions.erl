@@ -9,6 +9,7 @@
     validate/2
     ,absorb/2
     ,sort/2
+    ,type/1
 ]).
 
 -ifdef(TEST).

@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_oui).
 
+-behavior(blockchain_txn).
+
 -export([
     new/3
+    ,hash/1
     ,oui/1
     ,fee/1
     ,owner/1
@@ -42,6 +45,15 @@ new(OUI, Fee, Owner) ->
         ,owner=Owner
         ,signature= <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_oui()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#txn_oui{signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc
