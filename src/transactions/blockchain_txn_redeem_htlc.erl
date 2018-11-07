@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_redeem_htlc).
 
+-behavior(blockchain_txn).
+
 -export([
     new/3
     ,hash/1
@@ -29,7 +31,6 @@
 }).
 
 -type txn_redeem_htlc() :: #txn_redeem_htlc{}.
--type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_redeem_htlc/0]).
 
 %%--------------------------------------------------------------------
@@ -49,9 +50,10 @@ new(Payee, Address, PreImage) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_redeem_htlc()) -> hash().
+-spec hash(txn_redeem_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
-    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
+    BaseTxn = Txn#txn_redeem_htlc{signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -112,14 +114,6 @@ is_valid(Txn=#txn_redeem_htlc{payee=Payee, signature=Signature}) ->
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_redeem_htlc).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec remove_signature(txn_redeem_htlc()) -> txn_redeem_htlc().
-remove_signature(Txn) ->
-    Txn#txn_redeem_htlc{signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

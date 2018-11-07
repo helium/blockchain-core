@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_add_gateway).
 
+-behavior(blockchain_txn).
+
 -export([
     new/2
     ,hash/1
@@ -31,7 +33,6 @@
 }).
 
 -type txn_add_gateway() :: #txn_add_gateway{}.
--type hash() :: <<_:256>>. %% SHA256 digest
 -export_type([txn_add_gateway/0]).
 
 %%--------------------------------------------------------------------
@@ -51,9 +52,10 @@ new(OwnerAddress, GatewayAddress) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_add_gateway()) -> hash().
+-spec hash(txn_add_gateway()) -> blockchain_txn:hash().
 hash(Txn) ->
-    crypto:hash(sha256, erlang:term_to_binary(remove_signature(Txn))).
+    BaseTxn = Txn#txn_add_gateway{owner_signature = <<>>, gateway_signature = <<>>},
+    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -137,14 +139,6 @@ is_valid_owner(#txn_add_gateway{owner_address=Address
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
     erlang:is_record(Txn, txn_add_gateway).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec remove_signature(txn_add_gateway()) -> txn_add_gateway().
-remove_signature(Txn) ->
-    Txn#txn_add_gateway{owner_signature = <<>>, gateway_signature = <<>>}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
