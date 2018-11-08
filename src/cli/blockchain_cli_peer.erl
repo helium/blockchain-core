@@ -22,9 +22,10 @@ register_all_usage() ->
                   peer_session_usage(),
                   peer_addr_usage(),
                   peer_connect_usage(),
+                  peer_disconnect_usage(),
+                  peer_ping_usage(),
                   peer_book_usage(),
                   peer_gossip_peers_usage(),
-                  peer_disconnect_usage(),
                   peer_gossip_peers_usage(),
                   peer_usage()
                  ]).
@@ -38,9 +39,10 @@ register_all_cmds() ->
                   peer_session_cmd(),
                   peer_addr_cmd(),
                   peer_connect_cmd(),
+                  peer_disconnect_cmd(),
+                  peer_ping_cmd(),
                   peer_book_cmd(),
                   peer_gossip_peers_cmd(),
-                  peer_disconnect_cmd(),
                   peer_gossip_peers_cmd(),
                   peer_cmd()
                  ]).
@@ -53,10 +55,11 @@ peer_usage() ->
      ["blockchain peer commands\n\n",
       "  peer listen            - Display the addresses this node is listening on.\n",
       "  peer session           - Display the nodes this node is connected to.\n",
+      "  peer ping              - Ping the peer over an established or new session.\n",
       "  peer connect           - Connnect this node to another node.\n",
+      "  peer disconnect        - Disconnect from a connected peer.\n"
       "  peer addr              - Display the p2p address of this node.\n"
       "  peer book              - Display informatiom from the peerbook of this node.\n"
-      "  peer disconnect        - Disconnect from a connected peer.\n"
       "  peer gossip_peers      - Display gossip peers of this node.\n"
      ]
     ].
@@ -184,6 +187,65 @@ peer_connect([], [], []) ->
     usage.
 
 %%
+%% peer disconnect
+%%
+
+peer_disconnect_cmd() ->
+    [
+     [["peer", "disconnect", '*'], [], [], fun peer_disconnect/3]
+    ].
+
+peer_disconnect_usage() ->
+    [["peer", "disconnect"],
+     ["peer disconnect <Addr> \n\n",
+      "  Disconnect this node from a given <p2p> addr.\n\n"
+     ]
+    ].
+
+peer_disconnect(["peer", "disconnect", _Addr], [], []) ->
+    %% TODO: unimplemented
+    [clique_status:text("ok")];
+peer_disconnect([], [], []) ->
+    usage.
+
+%%
+%% peer ping
+%%
+
+peer_ping_cmd() ->
+    [
+     [["peer", "ping", '*'], [], [], fun peer_ping/3]
+    ].
+
+peer_ping_usage() ->
+    [["peer", "ping"],
+     ["peer ping <Addr> \n\n",
+      "  Ping the node at the given <p2p> addr.\n\n"
+     ]
+    ].
+
+peer_ping(["peer", "ping", Addr], [], []) ->
+    Swarm = blockchain_swarm:swarm(),
+    TrimmedAddr = string:trim(Addr),
+    case libp2p_swarm:connect(Swarm, TrimmedAddr) of
+        {ok, Session} ->
+            case libp2p_session:ping(Session) of
+                {ok, RTT} ->
+                    Text = io_lib:format("Pinged ~p successfully with roundtrip time: ~p ms~n",
+                                         [TrimmedAddr, RTT]),
+                    [clique_status:text(Text)];
+                {error, Reason} ->
+                    Text = io_lib:format("Failed to ping ~p: ~p~n", [TrimmedAddr, Reason]),
+                    [clique_status:alert([clique_status:text(Text)])]
+            end;
+        {error, Reason} ->
+            Text = io_lib:format("Failed to connect to ~p: ~p~n", [TrimmedAddr, Reason]),
+            [clique_status:alert([clique_status:text(Text)])]
+    end;
+peer_ping([], [], []) ->
+    usage.
+
+%%
 %% peer peerbook
 %%
 
@@ -254,27 +316,6 @@ peer_gossip_peers(["peer", "gossip_peers"], [], []) ->
 peer_gossip_peers([], [], []) ->
     usage.
 
-%%
-%% peer disconnect
-%%
-
-peer_disconnect_cmd() ->
-    [
-     [["peer", "disconnect", '*'], [], [], fun peer_disconnect/3]
-    ].
-
-peer_disconnect_usage() ->
-    [["peer", "disconnect"],
-     ["peer disconnect <Addr> \n\n",
-      "  Disconnect this node from a given <p2p> addr.\n\n"
-     ]
-    ].
-
-peer_disconnect(["peer", "disconnect", _Addr], [], []) ->
-    %% TODO: unimplemented
-    [clique_status:text("ok")];
-peer_disconnect([], [], []) ->
-    usage.
 
 %%
 %% internal functions
