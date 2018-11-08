@@ -9,6 +9,8 @@
     ,wait_until/1, wait_until/3
     ,compare_chains/2
     ,create_block/2
+    ,tmp_dir/0, tmp_dir/1
+    ,nonl/1
 ]).
 
 init(BaseDir) ->
@@ -104,3 +106,14 @@ signatures(ConsensusMembers, BinBlock) ->
         ,[]
         ,ConsensusMembers
     ).
+
+tmp_dir() ->
+    ?MODULE:nonl(os:cmd("mktemp -d")).
+
+tmp_dir(Dir) ->
+    filename:join(tmp_dir(), Dir).
+
+nonl([$\n|T]) -> nonl(T);
+nonl([H|T]) -> [H|nonl(T)];
+nonl([]) -> [].
+

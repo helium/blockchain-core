@@ -580,7 +580,7 @@ debit_account_test() ->
     ?assertEqual(1, payment_nonce(Entry)).
 
 save_load_test() ->
-    BaseDir = "data/test",
+    BaseDir = test_utils:tmp_dir(),
     Ledger0 = #ledger{entries=#{address => #entry{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual(ok, save(Ledger1, BaseDir)),

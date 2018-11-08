@@ -428,7 +428,7 @@ dir_test() ->
     ?assertEqual("data/" ++ ?BLOCKS_DIR, dir("data")).
 
 save_load_test() ->
-    BaseDir = "data/test",
+    BaseDir = test_utils:tmp_dir(),
     Block = new_genesis_block([]),
     Hash = hash_block(Block),
     ?assertEqual(ok, save(Hash, Block, BaseDir)),
