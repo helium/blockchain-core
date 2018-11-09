@@ -31,13 +31,12 @@ start(_StartType, _StartArgs) ->
 
     % look up the DNS record and add any resulting addresses to the SeedNodes
     % no need to do any checks here as any bad combination results in an empty list
-    SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),
-    SeedNodes ++ SeedAddresses,
+    SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),    
 
     Args = [
             {base_dir, BaseDir},
             {num_consensus_members, NumConsensusMembers},
-            {seed_nodes, SeedNodes},
+            {seed_nodes, SeedNodes ++ SeedAddresses},
             {key, Key},
             {port, Port}
            ],

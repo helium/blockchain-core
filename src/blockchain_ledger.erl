@@ -51,7 +51,7 @@
 
 -record(ledger, {
     current_height = undefined :: undefined | pos_integer()
-    ,transaction_fee = 1 :: non_neg_integer()
+    ,transaction_fee = 0 :: non_neg_integer()
     ,consensus_members = [] :: [libp2p_crypto:address()]
     ,active_gateways = #{} :: active_gateways()
     ,entries = #{} :: entries()

@@ -108,7 +108,8 @@ ledger_create_htlc_cmd() ->
                                        {payee, [{shortname, "p"}, {longname, "payee"}]},
                                        {value, [{shortname, "v", {longname, "value"}}]},
                                        {hashlock, [{shortname, "h"}, {longname, "hashlock"}]},
-                                       {timelock, [{shortname, "t"}, {longname, "timelock"}]}
+                                       {timelock, [{shortname, "t"}, {longname, "timelock"}]},
+                                       {fee, [{shortname, "f"}, {longname, "fee"}]}
                                       ], fun ledger_create_htlc/3]
     ].
 
@@ -124,7 +125,9 @@ ledger_create_htlc_usage() ->
       "  -h, --hashlock <sha256hash>\n",
       "  A SHA256 digest of a secret value (called a preimage) that locks this contract\n",
       "  -t, --timelock <blockheight>\n",
-      "  A specific blockheight after which the payer (you) can redeem their tokens\n"
+      "  A specific blockheight after which the payer (you) can redeem their tokens\n",
+      "  -f --fee <fee>\n",
+      "  The fee for the miners\n"
      ]
     ].
 
@@ -147,7 +150,8 @@ ledger_create_htlc_helper(Flags, Address) ->
     Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
     Hashlock = blockchain_util:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
-    blockchain_worker:create_htlc_txn(Payee, Address, Amount, Hashlock, Timelock).
+    Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
+    blockchain_worker:create_htlc_txn(Payee, Address, Amount, Hashlock, Timelock, Fee).
 
 %%--------------------------------------------------------------------
 %% ledger redeem
@@ -156,7 +160,8 @@ ledger_redeem_htlc_cmd() ->
     [
      [["ledger", "redeem_htlc"], '_', [
                                        {address, [{shortname, "a"}, {longname, "address"}]},
-                                       {preimage, [{shortname, "p"}, {longname, "preimage"}]}
+                                       {preimage, [{shortname, "p"}, {longname, "preimage"}]},
+                                       {fee, [{shortname, "f"}, {longname, "fee"}]}
                                       ], fun ledger_redeem_htlc/3]
     ].
 
@@ -167,7 +172,9 @@ ledger_redeem_htlc_usage() ->
       "  -a, --address <address>\n",
       "  The address of the Hashed TimeLock Contract to redeem from\n",
       "  -p --preimage <preimage>\n",
-      "  The preimage used to create the Hashlock for this contract address\n"
+      "  The preimage used to create the Hashlock for this contract address\n",
+      "  -f --fee <fee>\n",
+      "  The fee for the miners\n"
      ]
     ].
 
@@ -185,7 +192,8 @@ ledger_redeem_htlc(_CmdBase, _Keys, Flags) ->
 ledger_redeem_htlc_helper(Flags) ->
     Address = libp2p_crypto:b58_to_address(clean(proplists:get_value(address, Flags))),
     Preimage = list_to_binary(clean(proplists:get_value(preimage, Flags))),
-    blockchain_worker:redeem_htlc_txn(Address, Preimage).
+    Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
+    blockchain_worker:redeem_htlc_txn(Address, Preimage, Fee).
 
 %%--------------------------------------------------------------------
 %% ledger add gateway_request
