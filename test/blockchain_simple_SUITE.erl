@@ -102,14 +102,24 @@ htlc_payee_redeem(_Config) ->
                          0, blockchain_ledger:payment_nonce(Entry)
                  end, Entries),
 
-    % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    HTLCAddress = blockchain_swarm:address(),
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    % Create a Payee
+    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
+    Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
+    % Generate a random address    
+    HTLCAddress = crypto:strong_rand_bytes(32),
+    % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 100, 2500, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
-    Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
+    % send some money to the payee so they have enough to pay the fee for redeeming
+    Tx = blockchain_txn_payment:new(Payer, Payee, 100, 0, 2),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
+
+    Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
     ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
@@ -119,22 +129,18 @@ htlc_payee_redeem(_Config) ->
 
     % Check that the Payer balance has been reduced by 2500
     NewEntry0 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry0)),
+    ?assertEqual(Balance - 2600, blockchain_ledger:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
-    ?assertEqual(100, blockchain_ledger:timelock(NewHTLC0)),
-
-    % Create a Payee
-    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
-    Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
+    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),    
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
-    RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>),
+    RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
     SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
@@ -147,7 +153,7 @@ htlc_payee_redeem(_Config) ->
 
     % Check that the Payee now owns 2500
     NewEntry1 = blockchain_ledger:find_entry(Payee, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger:balance(NewEntry1)),
+    ?assertEqual(2600, blockchain_ledger:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
@@ -173,12 +179,14 @@ htlc_payer_redeem(_Config) ->
                          0, blockchain_ledger:payment_nonce(Entry)
                  end, Entries),
 
-    % Create a Payer and an HTLC transaction, add a block and check balances, hashlocks, and timelocks
-    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    HTLCAddress = blockchain_swarm:address(),
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    % Generate a random address    
+    HTLCAddress = crypto:strong_rand_bytes(32),
+    % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, HTLCAddress, Hashlock, 3, 2500, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    CreateTx = blockchain_txn_create_htlc:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
@@ -196,8 +204,8 @@ htlc_payer_redeem(_Config) ->
     % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
     NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
     ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger:timelock(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
@@ -212,7 +220,8 @@ htlc_payer_redeem(_Config) ->
     ?assertEqual(4, blockchain_worker:height()),
 
     % Try and redeem
-    RedeemTx = blockchain_txn_redeem_htlc:new(Payer, HTLCAddress, <<"sharkfed">>),
+    RedeemTx = blockchain_txn_redeem_htlc:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block4, self()),

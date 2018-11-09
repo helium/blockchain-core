@@ -23,8 +23,8 @@
     ,spend/3
     ,payment_txn/5
     ,submit_txn/2
-    ,create_htlc_txn/4
-    ,redeem_htlc_txn/2
+    ,create_htlc_txn/6
+    ,redeem_htlc_txn/3
     ,add_gateway_request/1
     ,add_gateway_txn/1
     ,assert_location_request/2
@@ -146,17 +146,17 @@ payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_htlc_txn(libp2p_crypto:address(), non_neg_integer(), binary(), non_neg_integer()) -> ok.
-create_htlc_txn(Address, Amount, Hashlock, Timelock) ->
-    gen_server:cast(?SERVER, {create_htlc_txn, Address, Amount, Hashlock, Timelock}).
+-spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), binary(), non_neg_integer()) -> ok.
+create_htlc_txn(Payee, Address, Amount, Fee, Hashlock, Timelock) -> 
+    gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Amount, Fee, Hashlock, Timelock}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec redeem_htlc_txn(libp2p_crypto:address(), binary()) -> ok.
-redeem_htlc_txn(Address, Preimage) ->
-    gen_server:cast(?SERVER, {redeem_htlc_txn, Address, Preimage}).
+-spec redeem_htlc_txn(libp2p_crypto:address(), binary(), non_neg_integer()) -> ok.
+redeem_htlc_txn(Address, Preimage, Fee) ->
+    gen_server:cast(?SERVER, {redeem_htlc_txn, Address, Preimage, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -405,19 +405,16 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{bloc
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
-handle_cast({create_htlc_txn, Address, Amount, Hashlock, Timelock}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    Ledger = blockchain:ledger(Chain),
+handle_cast({create_htlc_txn, Payee, Address, Amount, Fee, Hashlock, Timelock}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:address(Swarm),
-    Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger)),
-    Nonce = blockchain_ledger:payment_nonce(Entry),
-    CreateTxn = blockchain_txn_create_htlc:new(Payer, Address, Hashlock, Timelock, Amount, Nonce + 1),
+    CreateTxn = blockchain_txn_create_htlc:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
-handle_cast({redeem_htlc_txn, Address, Preimage}, #state{swarm=Swarm}=State) ->
+handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:address(Swarm),
-    RedeemTxn = blockchain_txn_redeem_htlc:new(Payee, Address, Preimage),
+    RedeemTxn = blockchain_txn_redeem_htlc:new(Payee, Address, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemTxn = blockchain_txn_redeem_htlc:sign(RedeemTxn, SigFun),
     ok = send_txn(redeem_htlc_txn, SignedRedeemTxn, State),

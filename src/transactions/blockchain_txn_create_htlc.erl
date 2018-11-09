@@ -11,14 +11,15 @@
 -behavior(blockchain_txn).
 
 -export([
-    new/6
+    new/7
     ,hash/1
     ,payer/1
+    ,payee/1
     ,address/1
     ,hashlock/1
     ,timelock/1
     ,amount/1
-    ,nonce/1
+    ,fee/1
     ,signature/1
     ,sign/2
     ,is_valid/1
@@ -31,11 +32,12 @@
 
 -record(txn_create_htlc, {
     payer :: libp2p_crypto:address()
+    ,payee :: libp2p_crypto:address()
     ,address :: libp2p_crypto:address()
     ,hashlock :: binary()
     ,timelock :: integer()
     ,amount :: integer()
-    ,nonce :: non_neg_integer()
+    ,fee :: non_neg_integer()
     ,signature :: binary()
 }).
 
@@ -46,16 +48,16 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), binary(), integer(), integer()
-          ,non_neg_integer()) -> txn_create_htlc().
-new(Payer, Address, Hashlock, Timelock, Amount, Nonce) ->
+-spec new(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
+new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
     #txn_create_htlc{
         payer=Payer
+        ,payee=Payee
         ,address=Address
         ,hashlock=Hashlock
         ,timelock=Timelock
         ,amount=Amount
-        ,nonce=Nonce
+        ,fee=Fee
         ,signature = <<>>
     }.
 
@@ -75,6 +77,14 @@ hash(Txn) ->
 -spec payer(txn_create_htlc()) -> libp2p_crypto:address().
 payer(Txn) ->
     Txn#txn_create_htlc.payer.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payee(txn_create_htlc()) -> libp2p_crypto:address().
+payee(Txn) ->
+    Txn#txn_create_htlc.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -112,9 +122,9 @@ amount(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(txn_create_htlc()) -> non_neg_integer().
-nonce(Txn) ->
-    Txn#txn_create_htlc.nonce.
+-spec fee(txn_create_htlc()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#txn_create_htlc.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -160,46 +170,51 @@ is(Txn) ->
 new_test() ->
     Tx = #txn_create_htlc{
         payer= <<"payer">>
+        ,payee= <<"payee">>
         ,address= <<"address">>
         ,hashlock= <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>
         ,timelock=0
         ,amount=666
-        ,nonce=1
+        ,fee=1
         ,signature= <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
+payee_test() ->
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    ?assertEqual(<<"payee">>, payee(Tx)).
+
 address_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(<<"address">>, address(Tx)).
 
 amount_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(666, amount(Tx)).
 
-nonce_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
-    ?assertEqual(1, nonce(Tx)).
+fee_test() ->
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    ?assertEqual(1, fee(Tx)).
 
 hashlock_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(<<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, hashlock(Tx)).
 
 timelock_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(0, timelock(Tx)).
 
 signature_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Tx0 = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx0 = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -208,18 +223,18 @@ sign_test() ->
  is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Payer = libp2p_crypto:pubkey_to_address(PubKey),
-    Tx0 = new(Payer, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx0 = new(Payer, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
     {_, PubKey2} = libp2p_crypto:generate_keys(),
     Payer2 = libp2p_crypto:pubkey_to_address(PubKey2),
-    Tx2 = new(Payer2, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx2 = new(Payer2, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
 
 is_test() ->
-    Tx = new(<<"payer">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     ?assert(is(Tx)).
 
 -endif.

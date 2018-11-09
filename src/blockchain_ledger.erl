@@ -9,9 +9,10 @@
     new/0
     ,increment_height/1
     ,balance/1
-    ,hashlock/1
-    ,timelock/1
-    ,creator/1
+    ,htlc_hashlock/1
+    ,htlc_timelock/1
+    ,htlc_payer/1
+    ,htlc_payee/1
     ,payment_nonce/1
     ,assert_location_nonce/1
     ,new_entry/2
@@ -31,7 +32,7 @@
     ,last_poc_challenge/1
     ,credit_account/3
     ,debit_account/4
-    ,add_htlc/6
+    ,add_htlc/7
     ,redeem_htlc/3
     ,request_poc/2
     ,save/2, load/1
@@ -50,7 +51,7 @@
 
 -record(ledger, {
     current_height = undefined :: undefined | pos_integer()
-    ,transaction_fee = 1 :: non_neg_integer()
+    ,transaction_fee = 0 :: non_neg_integer()
     ,consensus_members = [] :: [libp2p_crypto:address()]
     ,active_gateways = #{} :: active_gateways()
     ,entries = #{} :: entries()
@@ -64,7 +65,8 @@
 
 -record(htlc, {
     nonce = 0 :: non_neg_integer()
-    ,creator :: libp2p_crypto:address()
+    ,payer :: libp2p_crypto:address()
+    ,payee :: libp2p_crypto:address()
     ,balance = 0 :: non_neg_integer()
     ,hashlock :: undefined | binary()
     ,timelock :: undefined | non_neg_integer()
@@ -120,25 +122,33 @@ balance(#htlc{balance=Balance}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hashlock(htlc()) -> binary().
-hashlock(HTLC) ->
+-spec htlc_hashlock(htlc()) -> binary().
+htlc_hashlock(HTLC) ->
     HTLC#htlc.hashlock.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec timelock(htlc()) -> non_neg_integer().
-timelock(HTLC) ->
+-spec htlc_timelock(htlc()) -> non_neg_integer().
+htlc_timelock(HTLC) ->
     HTLC#htlc.timelock.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec creator(htlc()) -> libp2p_crypto:address().
-creator(HTLC) ->
-    HTLC#htlc.creator.
+-spec htlc_payer(htlc()) -> libp2p_crypto:address().
+htlc_payer(HTLC) ->
+    HTLC#htlc.payer.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec htlc_payee(htlc()) -> libp2p_crypto:address().
+htlc_payee(HTLC) ->
+    HTLC#htlc.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -160,10 +170,8 @@ htlcs(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_nonce(entry() | htlc()) -> non_neg_integer().
+-spec payment_nonce(entry()) -> non_neg_integer().
 payment_nonce(#entry{nonce=Nonce}) ->
-    Nonce;
-payment_nonce(#htlc{nonce=Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -214,9 +222,9 @@ update_transaction_fee(Ledger=#ledger{transaction_fee=Fee}) ->
 new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
     #entry{nonce=Nonce, balance=Balance}.
 
--spec new_htlc(non_neg_integer(), libp2p_crypto:address(), non_neg_integer(), binary(), non_neg_integer()) -> htlc().
-new_htlc(Nonce, Creator, Balance, Hashlock, Timelock) when Nonce /= undefined andalso Balance /= undefined ->
-    #htlc{nonce=Nonce, creator=Creator, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
+-spec new_htlc(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(), binary(), non_neg_integer()) -> htlc().
+new_htlc(Payer, Payee, Balance, Hashlock, Timelock) when Balance /= undefined ->
+    #htlc{payer=Payer, payee=Payee, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -415,10 +423,10 @@ debit_account(Address, Amount, Nonce, Ledger=#ledger{entries=Entries}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-add_htlc(Address, Creator, Amount, Hashlock, Timelock, Ledger) ->
+add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
     case maps:is_key(Address, htlcs(Ledger)) of
         false ->
-            NewHTLC = ?MODULE:new_htlc(0, Creator, Amount, Hashlock, Timelock),
+            NewHTLC = ?MODULE:new_htlc(Payer, Payee, Amount, Hashlock, Timelock),
             Ledger#ledger{htlcs=maps:put(Address, NewHTLC, Ledger#ledger.htlcs)};
         true ->
             {error, address_already_exists}
