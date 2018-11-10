@@ -147,8 +147,8 @@ payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), binary(), non_neg_integer()) -> ok.
-create_htlc_txn(Payee, Address, Amount, Fee, Hashlock, Timelock) -> 
-    gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Amount, Fee, Hashlock, Timelock}).
+create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) -> 
+    gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -405,7 +405,7 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{bloc
     SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
-handle_cast({create_htlc_txn, Payee, Address, Amount, Fee, Hashlock, Timelock}, #state{swarm=Swarm}=State) ->
+handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:address(Swarm),
     CreateTxn = blockchain_txn_create_htlc:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
