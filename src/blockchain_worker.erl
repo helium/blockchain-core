@@ -268,9 +268,9 @@ handle_call({assert_location_request, Owner, Location}, _From, State=#state{swar
             lager:info("gateway not found in ledger."),
             {reply, {error, gateway_not_found}, State};
         GwInfo ->
-            Nonce = blockchain_ledger:assert_location_nonce(GwInfo),
+            Nonce = blockchain_ledger_gateway:nonce(GwInfo),
             %% check that the correct owner has been specified
-            case Owner =:= blockchain_ledger:gateway_owner(GwInfo) of
+            case Owner =:= blockchain_ledger_gateway:owner_address(GwInfo) of
                 true ->
                     AssertLocationRequestTxn = blockchain_txn_assert_location:new(Address, Owner, Location, Nonce+1),
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),

@@ -275,7 +275,7 @@ poc_request(_Config) ->
 
     % Check that the Gateway is there
     GwInfo = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(Owner, blockchain_ledger:gateway_owner(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location:new(Gateway, Owner, 123456, 1),
@@ -303,7 +303,7 @@ poc_request(_Config) ->
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
     GwInfo2 = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(3, blockchain_ledger:last_poc_challenge(GwInfo2)),
+    ?assertEqual(3, blockchain_ledger_gateway:last_poc_challenge(GwInfo2)),
 
     true = erlang:exit(Sup, normal),
     ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),

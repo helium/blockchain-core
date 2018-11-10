@@ -14,7 +14,6 @@
     ,htlc_payer/1
     ,htlc_payee/1
     ,payment_nonce/1
-    ,assert_location_nonce/1
     ,new_entry/2
     ,new_htlc/5
     ,find_entry/2
@@ -26,10 +25,6 @@
     ,active_gateways/1
     ,add_gateway/3
     ,add_gateway_location/4
-    ,gateway_location/1
-    ,gateway_score/1
-    ,gateway_owner/1
-    ,last_poc_challenge/1
     ,credit_account/3
     ,debit_account/4
     ,add_htlc/7
@@ -72,21 +67,12 @@
     ,timelock :: undefined | non_neg_integer()
 }).
 
--record(gw_info, {
-    owner_address :: libp2p_crypto:address()
-    ,location :: undefined | pos_integer()
-    ,last_poc_challenge :: undefined | non_neg_integer()
-    ,nonce = 0 :: non_neg_integer()
-    ,score = 0.0 :: float()
-}).
-
 -type ledger() :: #ledger{}.
 -type entry() :: #entry{}.
 -type entries() :: #{libp2p_crypto:address() => entry()}.
 -type htlc() :: #htlc{}.
 -type htlcs() :: #{libp2p_crypto:address() => htlc()}.
--type gw_info() :: #gw_info{}.
--type active_gateways() :: #{libp2p_crypto:address() => gw_info()}.
+-type active_gateways() :: #{libp2p_crypto:address() => blockchain_ledger_gateway:gateway()}.
 
 -export_type([ledger/0, entry/0]).
 
@@ -178,14 +164,6 @@ payment_nonce(#entry{nonce=Nonce}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_location_nonce(gw_info()) -> non_neg_integer().
-assert_location_nonce(GwInfo) when GwInfo /= undefined ->
-    GwInfo#gw_info.nonce.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec current_height(ledger()) -> non_neg_integer().
 current_height(Ledger) ->
     Ledger#ledger.current_height.
@@ -246,7 +224,7 @@ find_htlc(Address, HTLCS) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_gateway_info(libp2p_crypto:address(), ledger()) -> undefined | gw_info().
+-spec find_gateway_info(libp2p_crypto:address(), ledger()) -> undefined | blockchain_ledger_gateway:gateway().
 find_gateway_info(GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     maps:get(GatewayAddress, ActiveGateways, undefined).
@@ -286,7 +264,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
         true ->
             {error, gateway_already_active};
         false ->
-            GwInfo = #gw_info{owner_address=OwnerAddr, location=undefined},
+            GwInfo = blockchain_ledger_gateway:new(OwnerAddr, undefined),
             Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
     end.
 
@@ -305,55 +283,19 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                 undefined ->
                     %% there is no GwInfo for this gateway, assert_location sould not be allowed
                     {error, no_gateway_info};
-                GwInfo ->
-                    NewGwInfo =
-                    case ?MODULE:gateway_location(GwInfo) of
+                Gw ->
+                    NewGw = case blockchain_ledger_gateway:location(Gw) of
                         undefined ->
-                            GwInfo#gw_info{location=Location, nonce=Nonce};
+                            Gw1 = blockchain_ledger_gateway:location(Location, Gw),
+                            blockchain_ledger_gateway:nonce(Nonce, Gw1);
                         _Loc ->
                             %%XXX: this gw already had a location asserted, do something about it here
-                            GwInfo#gw_info{location=Location, nonce=Nonce}
+                            Gw1 = blockchain_ledger_gateway:location(Location, Gw),
+                            blockchain_ledger_gateway:nonce(Nonce, Gw1)
                     end,
-                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
+                    Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGw, ActiveGateways)}
             end
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec gateway_location(undefined | gw_info()) -> undefined | pos_integer().
-gateway_location(undefined) ->
-    undefined;
-gateway_location(GwInfo) ->
-    GwInfo#gw_info.location.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec gateway_score(undefined | gw_info()) -> undefined | float().
-gateway_score(undefined) ->
-    undefined;
-gateway_score(GwInfo) ->
-    GwInfo#gw_info.score.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec gateway_owner(undefined | gw_info()) -> libp2p_crypto:address().
-gateway_owner(undefined) ->
-    undefined;
-gateway_owner(GwInfo) ->
-    GwInfo#gw_info.owner_address.
-
--spec last_poc_challenge(undefined | gw_info()) -> non_neg_integer().
-last_poc_challenge(undefined) ->
-    undefined;
-last_poc_challenge(GwInfo) ->
-    GwInfo#gw_info.last_poc_challenge.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -365,15 +307,16 @@ request_poc(GatewayAddress, Ledger) ->
             %% there is no GwInfo for this gateway, request_poc sould not be allowed
             {error, no_gateway};
         GwInfo ->
-            case gateway_location(GwInfo) of
+            case blockchain_ledger_gateway:location(GwInfo) of
                 undefined ->
                     {error, no_gateway_location};
                 _Location ->
-                    case ?MODULE:last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
+                    case blockchain_ledger_gateway:last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
                         false ->
                             {error, too_many_challenges};
                         true ->
-                            NewGwInfo = GwInfo#gw_info{last_poc_challenge=current_height(Ledger)},
+                            LastPocChallenge = current_height(Ledger),
+                            NewGwInfo = blockchain_ledger_gateway:last_poc_challenge(LastPocChallenge, GwInfo),
                             Ledger#ledger{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
                     end
             end
@@ -500,9 +443,6 @@ payment_nonce_test() ->
     Entry = new_entry(1, 1),
     ?assertEqual(1, payment_nonce(Entry)).
 
-assert_location_nonce_test() ->
-    ?assertEqual(1, assert_location_nonce(#gw_info{nonce=1})).
-
 new_entry_test() ->
     Entry = new_entry(2, 1),
     ?assertEqual(1, balance(Entry)),
@@ -515,7 +455,7 @@ find_entry_test() ->
     ?assertEqual(#entry{}, find_entry(test2, entries(Ledger))).
 
 find_gateway_info_test() ->
-    Info = #gw_info{},
+    Info = blockchain_ledger_gateway:new(<<>>, undefined),
     Ledger = #ledger{active_gateways=#{address => Info}},
     ?assertEqual(Info, find_gateway_info(address, Ledger)),
     ?assertEqual(undefined, find_gateway_info(test, Ledger)).
@@ -538,37 +478,27 @@ active_gateways_test() ->
 
 add_gateway_test() ->
     Ledger0 = #ledger{active_gateways=#{}},
-    Ledger1 = add_gateway(owner_address, gw_address, Ledger0),
+    Ledger1 = add_gateway(<<"owner_address">>, gw_address, Ledger0),
     ?assertEqual(
-       #gw_info{owner_address=owner_address, location=undefined}
-       ,find_gateway_info(gw_address, Ledger1)
-      ),
+        blockchain_ledger_gateway:new(<<"owner_address">>, undefined)
+        ,find_gateway_info(gw_address, Ledger1)
+    ),
     ?assertEqual({error,gateway_already_active}, add_gateway(owner_address, gw_address, Ledger1)).
 
 add_gateway_location_test() ->
     Ledger0 = #ledger{active_gateways=#{}},
-    Ledger1 = add_gateway(owner_address, gw_address, Ledger0),
+    Ledger1 = add_gateway(<<"owner_address">>, gw_address, Ledger0),
     Ledger2 = add_gateway_location(gw_address, 1, 1, Ledger1),
+    GW0 = blockchain_ledger_gateway:new(<<"owner_address">>, 1),
+    GW1 =  blockchain_ledger_gateway:nonce(1, GW0),
     ?assertEqual(
-       #gw_info{owner_address=owner_address, location=1, nonce=1}
+       GW1
        ,find_gateway_info(gw_address, Ledger2)
       ),
     ?assertEqual(
        {error,no_active_gateway}
        ,add_gateway_location(gw_address, 1, 1, Ledger0)
       ).
-
-gateway_location_test() ->
-    ?assertEqual(1, gateway_location(#gw_info{location=1})),
-    ?assertEqual(undefined, gateway_location(undefined)).
-
-gateway_score_test() ->
-    ?assertEqual(1, gateway_score(#gw_info{score=1})),
-    ?assertEqual(undefined, gateway_score(undefined)).
-
-gateway_owner_test() ->
-    ?assertEqual(addr, gateway_owner(#gw_info{owner_address=addr})),
-    ?assertEqual(undefined, gateway_owner(undefined)).
 
 credit_account_test() ->
     Ledger0 = #ledger{entries=#{address => #entry{}}},
