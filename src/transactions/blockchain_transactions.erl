@@ -72,9 +72,11 @@ absorb([], Ledger) ->
 absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
     absorb(Txns, blockchain_ledger:new());
 absorb([Txn|Txns], Ledger0) ->
-    case absorb(type(Txn), Txn, Ledger0) of
+    try absorb(type(Txn), Txn, Ledger0) of
         {error, _Reason}=Error -> Error;
         {ok, Ledger1} -> absorb(Txns, Ledger1)
+    catch
+        What:Why -> {error, {type(Txn), What, Why}}
     end.
 
 % TODO: Fix dialyzer some day...
