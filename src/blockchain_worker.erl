@@ -146,7 +146,7 @@ payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), binary(), non_neg_integer()) -> ok.
+-spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
 create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) -> 
     gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}).
 
