@@ -54,6 +54,7 @@
     blockchain :: {undefined, file:filename_all()} | blockchain:blockchain()
     ,swarm :: undefined | pid()
     ,n :: integer()
+    ,sync_timer = make_ref() :: reference()
 }).
 
 %% ------------------------------------------------------------------
@@ -233,7 +234,7 @@ init(Args) ->
             undefined -> {undefined, Dir};
             Chain ->
                 ok = add_handlers(Swarm, Chain),
-                erlang:send_after(0, self(), maybe_sync),
+                self() ! maybe_sync,
                 Chain
         end,
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
@@ -303,7 +304,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, Blockchain),
-            erlang:send_after(0, self(), maybe_sync),
+            self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain}}
     end;
 handle_cast(_, #state{blockchain={undefined, _}}=State) ->
@@ -384,8 +385,10 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
             ,State0
             ,Blocks
         ),
-    erlang:send_after(5000, self(), maybe_sync),
-    {noreply, State1};
+    erlang:cancel_timer(State1#state.sync_timer),
+    %% schedule another sync to see if there's more waiting
+    Ref = erlang:send_after(5000, self(), maybe_sync),
+    {noreply, State1#state{sync_timer=Ref}};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
@@ -455,28 +458,32 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
+    erlang:cancel_timer(State#state.sync_timer),
     Head = blockchain:head_block(Chain),
     Meta = blockchain_block:meta(Head),
     BlockTime = maps:get(block_time, Meta, 0),
     case erlang:system_time(seconds) - BlockTime of
-        X when X > 60 ->
+        X when X > 300 ->
             %% figure out our gossip peers
             Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
             case Peers of
                 [] ->
-                    erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                    ok;
+                    %% try again later when there's peers
+                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                    {noreply, State#state{sync_timer=Ref}};
                 [Peer] ->
-                    sync(Swarm, Chain, Peer);
+                    Ref = sync(Swarm, Chain, Peer),
+                    {noreply, State#state{sync_timer=Ref}};
                 Peers ->
                     RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-                    sync(Swarm, Chain, RandomPeer)
+                    Ref = sync(Swarm, Chain, RandomPeer),
+                    {noreply, State#state{sync_timer=Ref}}
             end;
         _ ->
-            erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            ok
-    end,
-    {noreply, State};
+            %% no need to sync now, check again later
+            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+            {noreply, State#state{sync_timer=Ref}}
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -568,8 +575,10 @@ sync(Swarm, Chain, Peer) ->
                                          [self()]) of
         {ok, Stream} ->
             Stream ! {hash, blockchain:head_hash(Chain)},
-            ok;
+            %% this timer will likely get cancelled when the sync response comes in
+            %% but if that never happens, we don't forget to sync
+            erlang:send_after(?SYNC_TIME, self(), maybe_sync);
         _ ->
-            erlang:send_after(5000, self(), maybe_sync),
-            ok
+            %% schedule a sync retry with another peer
+            erlang:send_after(5000, self(), maybe_sync)
     end.
