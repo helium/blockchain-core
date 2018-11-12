@@ -257,7 +257,7 @@ active_gateways(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> false | ledger().
+-spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ledger() | {error, any()}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of

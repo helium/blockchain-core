@@ -3,23 +3,24 @@
 %% == Blockchain Transaction Genesis Consensur Group ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_gen_consensus_group).
+-module(blockchain_txn_gen_consensus_group_v1).
 
 -export([
-    new/1
-    ,members/1
-    ,is/1
+    new/1,
+    members/1,
+    is/1,
+    absorb/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_genesis_consensus_group, {
+-record(txn_genesis_consensus_group_v1, {
     members = [] :: [libp2p_crypto:address()]
 }).
 
--type txn_genesis_consensus_group() :: #txn_genesis_consensus_group{}.
+-type txn_genesis_consensus_group() :: #txn_genesis_consensus_group_v1{}.
 -export_type([txn_genesis_consensus_group/0]).
 
 %%--------------------------------------------------------------------
@@ -28,7 +29,7 @@
 %%--------------------------------------------------------------------
 -spec new([libp2p_crypto:address()]) -> txn_genesis_consensus_group().
 new(Members) ->
-    #txn_genesis_consensus_group{members=Members}.
+    #txn_genesis_consensus_group_v1{members=Members}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -36,7 +37,7 @@ new(Members) ->
 %%--------------------------------------------------------------------
 -spec members(txn_genesis_consensus_group()) -> [libp2p_crypto:address()].
 members(Txn) ->
-    Txn#txn_genesis_consensus_group.members.
+    Txn#txn_genesis_consensus_group_v1.members.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -44,7 +45,18 @@ members(Txn) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_genesis_consensus_group).
+    erlang:is_record(Txn, txn_genesis_consensus_group_v1).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_genesis_consensus_group(),
+             blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+                                             | {error, any()}.
+absorb(Txn, Ledger0) ->
+    Members = ?MODULE:members(Txn),
+    {ok, blockchain_ledger:consensus_members(Members, Ledger0)}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -52,7 +64,7 @@ is(Txn) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_genesis_consensus_group{members=[<<"1">>]},
+    Tx = #txn_genesis_consensus_group_v1{members=[<<"1">>]},
     ?assertEqual(Tx, new([<<"1">>])).
 
 members_test() ->

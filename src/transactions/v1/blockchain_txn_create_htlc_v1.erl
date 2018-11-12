@@ -6,42 +6,43 @@
 %% == within the specified timelock
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_create_htlc).
+-module(blockchain_txn_create_htlc_v1).
 
 -behavior(blockchain_txn).
 
 -export([
-    new/7
-    ,hash/1
-    ,payer/1
-    ,payee/1
-    ,address/1
-    ,hashlock/1
-    ,timelock/1
-    ,amount/1
-    ,fee/1
-    ,signature/1
-    ,sign/2
-    ,is_valid/1
-    ,is/1
+    new/7,
+    hash/1,
+    payer/1,
+    payee/1,
+    address/1,
+    hashlock/1,
+    timelock/1,
+    amount/1,
+    fee/1,
+    signature/1,
+    sign/2,
+    is_valid/1,
+    is/1,
+    absorb/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_create_htlc, {
-    payer :: libp2p_crypto:address()
-    ,payee :: libp2p_crypto:address()
-    ,address :: libp2p_crypto:address()
-    ,hashlock :: binary()
-    ,timelock :: integer()
-    ,amount :: integer()
-    ,fee :: non_neg_integer()
-    ,signature :: binary()
+-record(txn_create_htlc_v1, {
+    payer :: libp2p_crypto:address(),
+    payee :: libp2p_crypto:address(),
+    address :: libp2p_crypto:address(),
+    hashlock :: binary(),
+    timelock :: integer(),
+    amount :: integer(),
+    fee :: non_neg_integer(),
+    signature :: binary()
 }).
 
--type txn_create_htlc() :: #txn_create_htlc{}.
+-type txn_create_htlc() :: #txn_create_htlc_v1{}.
 -export_type([txn_create_htlc/0]).
 
 %%--------------------------------------------------------------------
@@ -50,15 +51,15 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
 new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
-    #txn_create_htlc{
-        payer=Payer
-        ,payee=Payee
-        ,address=Address
-        ,hashlock=Hashlock
-        ,timelock=Timelock
-        ,amount=Amount
-        ,fee=Fee
-        ,signature = <<>>
+    #txn_create_htlc_v1{
+        payer=Payer,
+        payee=Payee,
+        address=Address,
+        hashlock=Hashlock,
+        timelock=Timelock,
+        amount=Amount,
+        fee=Fee,
+        signature = <<>>
     }.
 
 %%--------------------------------------------------------------------
@@ -67,7 +68,7 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_create_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_create_htlc{signature = <<>>},
+    BaseTxn = Txn#txn_create_htlc_v1{signature = <<>>},
     crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
@@ -76,7 +77,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec payer(txn_create_htlc()) -> libp2p_crypto:address().
 payer(Txn) ->
-    Txn#txn_create_htlc.payer.
+    Txn#txn_create_htlc_v1.payer.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,7 +85,7 @@ payer(Txn) ->
 %%--------------------------------------------------------------------
 -spec payee(txn_create_htlc()) -> libp2p_crypto:address().
 payee(Txn) ->
-    Txn#txn_create_htlc.payee.
+    Txn#txn_create_htlc_v1.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -92,7 +93,7 @@ payee(Txn) ->
 %%--------------------------------------------------------------------
 -spec address(txn_create_htlc()) -> libp2p_crypto:address().
 address(Txn) ->
-    Txn#txn_create_htlc.address.
+    Txn#txn_create_htlc_v1.address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -100,7 +101,7 @@ address(Txn) ->
 %%--------------------------------------------------------------------
 -spec hashlock(txn_create_htlc()) -> binary().
 hashlock(Txn) ->
-    Txn#txn_create_htlc.hashlock.
+    Txn#txn_create_htlc_v1.hashlock.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,7 +109,7 @@ hashlock(Txn) ->
 %%--------------------------------------------------------------------
 -spec timelock(txn_create_htlc()) -> integer().
 timelock(Txn) ->
-    Txn#txn_create_htlc.timelock.
+    Txn#txn_create_htlc_v1.timelock.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -116,7 +117,7 @@ timelock(Txn) ->
 %%--------------------------------------------------------------------
 -spec amount(txn_create_htlc()) -> integer().
 amount(Txn) ->
-    Txn#txn_create_htlc.amount.
+    Txn#txn_create_htlc_v1.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -124,7 +125,7 @@ amount(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_create_htlc()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_create_htlc.fee.
+    Txn#txn_create_htlc_v1.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -132,7 +133,7 @@ fee(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_create_htlc()) -> binary().
 signature(Txn) ->
-    Txn#txn_create_htlc.signature.
+    Txn#txn_create_htlc_v1.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -143,16 +144,16 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_create_htlc(), libp2p_crypto:sig_fun()) -> txn_create_htlc().
 sign(Txn, SigFun) ->
-    Txn#txn_create_htlc{signature=SigFun(erlang:term_to_binary(Txn))}.
+    Txn#txn_create_htlc_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_create_htlc()) -> boolean().
-is_valid(Txn=#txn_create_htlc{payer=Payer, signature=Signature}) ->
+is_valid(Txn=#txn_create_htlc_v1{payer=Payer, signature=Signature}) ->
     PubKey = libp2p_crypto:address_to_pubkey(Payer),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_create_htlc{signature = <<>>}), Signature, PubKey).
+    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_create_htlc_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -160,7 +161,52 @@ is_valid(Txn=#txn_create_htlc{payer=Payer, signature=Signature}) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_create_htlc).
+    erlang:is_record(Txn, txn_create_htlc_v1).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_create_htlc(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+                                                               | {error, any()}.
+
+absorb(Txn, Ledger0) ->
+    Amount = ?MODULE:amount(Txn),
+    Fee = ?MODULE:fee(Txn),
+    MinerFee = blockchain_ledger:transaction_fee(Ledger0),
+    case (Amount >= 0) andalso (Fee >= MinerFee) of
+        false ->
+            lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
+            {error, invalid_transaction};
+        true ->
+            case ?MODULE:is_valid(Txn) of
+                true ->
+                    Payer = ?MODULE:payer(Txn),
+                    Payee = ?MODULE:payee(Txn),
+                    Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger0)),
+                    Nonce = blockchain_ledger:payment_nonce(Entry) + 1,
+                    case blockchain_ledger:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        Ledger1 ->
+                            Address = ?MODULE:address(Txn),
+                            case blockchain_ledger:add_htlc(Address,
+                                                            Payer,
+                                                            Payee,
+                                                            Amount,
+                                                            ?MODULE:hashlock(Txn),
+                                                            ?MODULE:timelock(Txn),
+                                                            Ledger1) of
+                                {error, _Reason}=Error ->
+                                    Error;
+                                Ledger2 ->
+                                    {ok, Ledger2}
+                            end
+                    end;
+                false ->
+                    {error, bad_signature}
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -168,15 +214,15 @@ is(Txn) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_create_htlc{
-        payer= <<"payer">>
-        ,payee= <<"payee">>
-        ,address= <<"address">>
-        ,hashlock= <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>
-        ,timelock=0
-        ,amount=666
-        ,fee=1
-        ,signature= <<>>
+    Tx = #txn_create_htlc_v1{
+        payer= <<"payer">>,
+        payee= <<"payee">>,
+        address= <<"address">>,
+        hashlock= <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>,
+        timelock=0,
+        amount=666,
+        fee=1,
+        signature= <<>>
     },
     ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1)).
 
@@ -218,7 +264,7 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_create_htlc{signature = <<>>}), Sig1, PubKey)).
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_create_htlc_v1{signature = <<>>}), Sig1, PubKey)).
 
  is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),

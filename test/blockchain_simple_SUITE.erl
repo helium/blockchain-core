@@ -54,9 +54,9 @@ basic(_Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:address(),
-    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
     Chain = blockchain_worker:blockchain(),
@@ -111,13 +111,13 @@ htlc_payee_redeem(_Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
+    SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     % send some money to the payee so they have enough to pay the fee for redeeming
-    Tx = blockchain_txn_payment:new(Payer, Payee, 100, 0, 2),
+    Tx = blockchain_txn_payment_v1:new(Payer, Payee, 100, 0, 2),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
@@ -140,8 +140,8 @@ htlc_payee_redeem(_Config) ->
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
-    RedeemTx = blockchain_txn_redeem_htlc:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, RedeemSigFun),
+    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
+    SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block2, self()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
@@ -185,9 +185,9 @@ htlc_payer_redeem(_Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedCreateTx = blockchain_txn_create_htlc:sign(CreateTx, SigFun),
+    SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
     ChainDir = blockchain:dir(blockchain_worker:blockchain()),
@@ -220,9 +220,9 @@ htlc_payer_redeem(_Config) ->
     ?assertEqual(4, blockchain_worker:height()),
 
     % Try and redeem
-    RedeemTx = blockchain_txn_redeem_htlc:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
+    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedRedeemTx = blockchain_txn_redeem_htlc:sign(RedeemTx, SigFun),
+    SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     ok = blockchain_worker:add_block(Block4, self()),
 
@@ -262,9 +262,9 @@ poc_request(_Config) ->
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway:new(Owner, Gateway),
-    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway:sign(AddGatewayTx, OwnerSigFun),
-    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     ok = blockchain_worker:add_block(Block, self()),
     ChainDir = blockchain:dir(blockchain_worker:blockchain()),
@@ -278,9 +278,9 @@ poc_request(_Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location:new(Gateway, Owner, 123456, 1),
-    PartialAssertLocationTxn = blockchain_txn_assert_location:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx = blockchain_txn_assert_location:sign(PartialAssertLocationTxn, OwnerSigFun),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, 123456, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
     ok = blockchain_worker:add_block(Block2, self()),
@@ -291,8 +291,8 @@ poc_request(_Config) ->
     ?assertEqual(3, blockchain_worker:height()),
 
     % Create the PoC challenge request txn
-    Tx = blockchain_txn_poc_request:new(Gateway),
-    SignedTx = blockchain_txn_poc_request:sign(Tx, GatewaySigFun),
+    Tx = blockchain_txn_poc_request_v1:new(Gateway),
+    SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block3, self()),
     timer:sleep(500),

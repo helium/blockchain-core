@@ -2,29 +2,30 @@
 %% @doc
 %% == Blockchain Transaction Proof of Coverage Receipts ==
 %%%-------------------------------------------------------------------
--module(blockchain_txn_poc_receipts).
+-module(blockchain_txn_poc_receipts_v1).
 
 -export([
-    new/2
-    ,receipts/1
-    ,signature/1
-    ,challenger/1
-    ,sign/2
-    ,is_valid/1
-    ,is/1
+    new/2,
+    receipts/1,
+    signature/1,
+    challenger/1,
+    sign/2,
+    is_valid/1,
+    is/1,
+    absorb/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_poc_receipts, {
-    receipts :: blockchain_poc_receipt:poc_receipts()
-    ,challenger :: libp2p_crypto:address()
-    ,signature :: binary()
+-record(txn_poc_receipts_v1, {
+    receipts :: blockchain_poc_receipt_v1:poc_receipts(),
+    challenger :: libp2p_crypto:address(),
+    signature :: binary()
 }).
 
--type txn_poc_receipts() :: #txn_poc_receipts{}.
+-type txn_poc_receipts() :: #txn_poc_receipts_v1{}.
 
 -export_type([txn_poc_receipts/0]).
 
@@ -32,21 +33,21 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt:poc_receipts(), libp2p_crypto:address()) -> txn_poc_receipts().
+-spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:address()) -> txn_poc_receipts().
 new(Receipts, Challenger) ->
-    #txn_poc_receipts{
-        receipts=Receipts
-        ,challenger=Challenger
-        ,signature = <<>>
+    #txn_poc_receipts_v1{
+        receipts=Receipts,
+        challenger=Challenger,
+        signature = <<>>
     }.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt:poc_receipts().
+-spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt_v1:poc_receipts().
 receipts(Txn) ->
-    Txn#txn_poc_receipts.receipts.
+    Txn#txn_poc_receipts_v1.receipts.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -54,7 +55,7 @@ receipts(Txn) ->
 %%--------------------------------------------------------------------
 -spec challenger(txn_poc_receipts()) -> libp2p_crypto:address().
 challenger(Txn) ->
-    Txn#txn_poc_receipts.challenger.
+    Txn#txn_poc_receipts_v1.challenger.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -62,7 +63,7 @@ challenger(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_poc_receipts()) -> binary().
 signature(Txn) ->
-    Txn#txn_poc_receipts.signature.
+    Txn#txn_poc_receipts_v1.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -70,17 +71,17 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_poc_receipts(), libp2p_crypto:sig_fun()) -> txn_poc_receipts().
 sign(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts{signature = <<>>}),
-    Txn#txn_poc_receipts{signature=SigFun(BinTxn)}.
+    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
+    Txn#txn_poc_receipts_v1{signature=SigFun(BinTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts()) -> boolean().
-is_valid(Txn=#txn_poc_receipts{challenger=Challenger, signature=Signature}) ->
+is_valid(Txn=#txn_poc_receipts_v1{challenger=Challenger, signature=Signature}) ->
     PubKey = libp2p_crypto:address_to_pubkey(Challenger),
-    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts{signature = <<>>}),
+    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
     libp2p_crypto:verify(BinTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -89,7 +90,22 @@ is_valid(Txn=#txn_poc_receipts{challenger=Challenger, signature=Signature}) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_poc_receipts).
+    erlang:is_record(Txn, txn_poc_receipts_v1).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_poc_receipts(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+                                                                | {error, any()}.
+absorb(Txn, Ledger0) ->
+    case blockchain_txn_poc_receipts_v1:is_valid(Txn) of
+        false ->
+            {error, invalid_transaction};
+        true ->
+            % TODO: Update score and last_poc_challenge
+            {ok, Ledger0}
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -97,10 +113,10 @@ is(Txn) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_poc_receipts{
-        receipts=[]
-        ,challenger = <<"challenger">>
-        ,signature = <<>>
+    Tx = #txn_poc_receipts_v1{
+        receipts=[],
+        challenger = <<"challenger">>,
+        signature = <<>>
     },
     ?assertEqual(Tx, new([], <<"challenger">>)).
 
@@ -123,7 +139,7 @@ sign_test() ->
     Tx0 = new([], Challenger),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_poc_receipts{signature = <<>>}), Sig, PubKey)).
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_poc_receipts_v1{signature = <<>>}), Sig, PubKey)).
 
 is_test() ->
     Tx = new([], <<"challenger">>),

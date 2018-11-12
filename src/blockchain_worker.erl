@@ -11,38 +11,38 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
-    ,height/0
-    ,blockchain/0
-    ,ledger/0
-    ,num_consensus_members/0
-    ,consensus_addrs/0
-    ,integrate_genesis_block/1
-    ,add_block/2
-    ,sync_blocks/1
-    ,spend/3
-    ,payment_txn/5
-    ,submit_txn/2
-    ,create_htlc_txn/6
-    ,redeem_htlc_txn/3
-    ,add_gateway_request/1
-    ,add_gateway_txn/1
-    ,assert_location_request/2
-    ,assert_location_txn/1
-    ,peer_height/3
-    ,notify/1
+    start_link/1,
+    height/0,
+    blockchain/0,
+    ledger/0,
+    num_consensus_members/0,
+    consensus_addrs/0,
+    integrate_genesis_block/1,
+    add_block/2,
+    sync_blocks/1,
+    spend/3,
+    payment_txn/5,
+    submit_txn/2,
+    create_htlc_txn/6,
+    redeem_htlc_txn/3,
+    add_gateway_request/1,
+    add_gateway_txn/1,
+    assert_location_request/2,
+    assert_location_txn/1,
+    peer_height/3,
+    notify/1
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,handle_call/3
-    ,handle_cast/2
-    ,handle_info/2
-    ,terminate/2
-    ,code_change/3
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
 ]).
 
 -include("blockchain.hrl").
@@ -190,7 +190,7 @@ add_gateway_txn(AddGatewayRequest) ->
 %% TODO: better spec for location
 -spec assert_location_request(libp2p_crypto:address(), integer()) -> {error, gateway_not_found} |
                                                                      {error, invalid_owner} |
-                                                                     blockchain_txn_assert_location:txn_assert_location().
+                                                                     blockchain_txn_assert_location_v1:txn_assert_location().
 assert_location_request(OwnerAddress, Location) ->
     gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}).
 
@@ -228,7 +228,6 @@ init(Args) ->
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
     N = proplists:get_value(num_consensus_members, Args, 0),
     Dir = proplists:get_value(base_dir, Args, "data"),
-
     Blockchain =
         case blockchain:load(Dir) of
             undefined -> {undefined, Dir};
@@ -257,9 +256,9 @@ handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
-    AddGwTxn = blockchain_txn_add_gateway:new(OwnerAddress, Address),
+    AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway:sign_request(AddGwTxn, SigFun),
+    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
     {reply, SignedAddGwTxn, State};
 handle_call({assert_location_request, Owner, Location}, _From, State=#state{swarm=Swarm, blockchain=Chain}) ->
     Address = libp2p_swarm:address(Swarm),
@@ -273,12 +272,12 @@ handle_call({assert_location_request, Owner, Location}, _From, State=#state{swar
             %% check that the correct owner has been specified
             case Owner =:= blockchain_ledger_gateway:owner_address(GwInfo) of
                 true ->
-                    AssertLocationRequestTxn = blockchain_txn_assert_location:new(Address, Owner, Location, Nonce+1),
+                    AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(Address, Owner, Location, Nonce+1),
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-                    SignedAssertLocRequestTxn = blockchain_txn_assert_location:sign_request(AssertLocationRequestTxn, SigFun),
+                    SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
                     lager:info(
-                      "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p"
-                      ,[Address, Location, Nonce, SignedAssertLocRequestTxn]
+                      "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
+                      [Address, Location, Nonce, SignedAssertLocRequestTxn]
                      ),
                     {reply, SignedAssertLocRequestTxn, State};
                 false ->
@@ -297,9 +296,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             {noreply, State};
         true ->
             Blockchain = blockchain:new(GenesisBlock, Dir),
-            [ConsensusAddrs] = [blockchain_txn_gen_consensus_group:members(T)
+            [ConsensusAddrs] = [blockchain_txn_gen_consensus_group_v1:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
-                                ,blockchain_txn_gen_consensus_group:is(T)],
+                                ,blockchain_txn_gen_consensus_group_v1:is(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
@@ -319,10 +318,10 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
         true ->
             lager:info("prev hash matches the gossiped block"),
             Ledger = blockchain:ledger(Chain),
-            case blockchain_block:verify_signature(Block
-                                                   ,blockchain_ledger:consensus_members(Ledger)
-                                                   ,blockchain_block:signature(Block)
-                                                   ,N-F)
+            case blockchain_block:verify_signature(Block,
+                                                   blockchain_ledger:consensus_members(Ledger),
+                                                   blockchain_block:signature(Block),
+                                                   N-F)
             of
                 {true, _} ->
                     NewChain = blockchain:add_block(Block, Chain),
@@ -366,10 +365,10 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
                     true ->
                         lager:info("prev hash matches the gossiped block"),
                         Ledger = blockchain:ledger(Chain),
-                        case blockchain_block:verify_signature(Block
-                                                               ,blockchain_ledger:consensus_members(Ledger)
-                                                               ,blockchain_block:signature(Block)
-                                                               ,N-F)
+                        case blockchain_block:verify_signature(Block,
+                                                               blockchain_ledger:consensus_members(Ledger),
+                                                               blockchain_block:signature(Block),
+                                                               N-F)
                         of
                             {true, _} ->
                                 NewChain = blockchain:add_block(Block, Chain),
@@ -381,9 +380,9 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
                     false ->
                         State
                 end
-            end
-            ,State0
-            ,Blocks
+            end,
+            State0,
+            Blocks
         ),
     erlang:cancel_timer(State1#state.sync_timer),
     %% schedule another sync to see if there's more waiting
@@ -394,32 +393,32 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
     Address = libp2p_swarm:address(Swarm),
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Fee, Nonce + 1),
+    PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
+    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
     Nonce = blockchain_ledger:payment_nonce(Entry),
-    PaymentTxn = blockchain_txn_payment:new(Address, Recipient, Amount, Fee, Nonce + 1),
+    PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedPaymentTxn = blockchain_txn_payment:sign(PaymentTxn, SigFun),
+    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
     ok = send_txn(payment_txn, SignedPaymentTxn, State),
     {noreply, State};
 handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:address(Swarm),
-    CreateTxn = blockchain_txn_create_htlc:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
+    CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedCreateTxn = blockchain_txn_create_htlc:sign(CreateTxn, SigFun),
+    SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
 handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:address(Swarm),
-    RedeemTxn = blockchain_txn_redeem_htlc:new(Payee, Address, Preimage, Fee),
+    RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, Address, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedRedeemTxn = blockchain_txn_redeem_htlc:sign(RedeemTxn, SigFun),
+    SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     ok = send_txn(redeem_htlc_txn, SignedRedeemTxn, State),
     {noreply, State};
 handle_cast({submit_txn, Type, Txn}, State) ->
@@ -427,12 +426,12 @@ handle_cast({submit_txn, Type, Txn}, State) ->
     {noreply, State};
 handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway:sign(AddGwTxn, SigFun),
+    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
     ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
     {noreply, State};
 handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAssertLocTxn = blockchain_txn_assert_location:sign(AssertLocTxn, SigFun),
+    SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
     ok = send_txn(assert_location_txn, SignedAssertLocTxn, State),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
@@ -511,21 +510,21 @@ add_handlers(Swarm, Chain) ->
     libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, blockchain:dir(Chain)]}),
 
     ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?SYNC_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, blockchain:dir(Chain)]}
+        Swarm,
+        ?SYNC_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, blockchain:dir(Chain)]}
     ),
 
     ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?GW_REGISTRATION_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
+        Swarm,
+        ?GW_REGISTRATION_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
     ),
 
     ok = libp2p_swarm:add_stream_handler(
-        Swarm
-        ,?LOC_ASSERTION_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
+        Swarm,
+        ?LOC_ASSERTION_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
     ).
 
 %%--------------------------------------------------------------------
@@ -534,13 +533,13 @@ add_handlers(Swarm, Chain) ->
 %%--------------------------------------------------------------------
 send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
     do_send(
-        Swarm
-        ,blockchain_ledger:consensus_members(blockchain:ledger(Chain))
-        ,erlang:term_to_binary({Type, Txn})
-        ,?TX_PROTOCOL
-        ,blockchain_txn_handler
-        ,[self()]
-        ,false
+        Swarm,
+        blockchain_ledger:consensus_members(blockchain:ledger(Chain)),
+        erlang:term_to_binary({Type, Txn}),
+        ?TX_PROTOCOL,
+        blockchain_txn_handler,
+        [self()],
+        false
     ).
 
 %%--------------------------------------------------------------------
