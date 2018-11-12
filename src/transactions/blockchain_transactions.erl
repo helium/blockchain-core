@@ -353,7 +353,7 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) ->
             {error, {unknown_gateway, GatewayAddress, Ledger0}};
         GwInfo ->
             lager:info("gw_info from ledger: ~p", [GwInfo]),
-            LedgerNonce = blockchain_ledger:assert_location_nonce(GwInfo),
+            LedgerNonce = blockchain_ledger_gateway:nonce(GwInfo),
             lager:info("assert_gateway_location, gw_address: ~p, Nonce: ~p, LedgerNonce: ~p", [GatewayAddress, Nonce, LedgerNonce]),
             case Nonce == LedgerNonce + 1 of
                 true ->
