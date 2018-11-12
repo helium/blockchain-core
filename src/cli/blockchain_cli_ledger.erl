@@ -313,7 +313,7 @@ format_ledger_balance({Addr, Entry}) ->
     ].
 
 format_htlc_balance({Addr, HTLC}) ->
-    [{address, libp2p_crypto:address_to_b58(Addr)},
+    [{address, libp2p_crypto:address_to_b58(24, Addr)},
      {payer, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payer(HTLC))},
      {payee, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payee(HTLC))},
      {hashlock, blockchain_util:bin_to_hex(blockchain_ledger:htlc_hashlock(HTLC))},
