@@ -167,13 +167,13 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_create_htlc(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                                | {error, any()}.
 
 absorb(Txn, Ledger0) ->
     Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
-    MinerFee = blockchain_ledger:transaction_fee(Ledger0),
+    MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
     case (Amount >= 0) andalso (Fee >= MinerFee) of
         false ->
             lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
@@ -183,14 +183,14 @@ absorb(Txn, Ledger0) ->
                 true ->
                     Payer = ?MODULE:payer(Txn),
                     Payee = ?MODULE:payee(Txn),
-                    Entry = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(Ledger0)),
-                    Nonce = blockchain_ledger:payment_nonce(Entry) + 1,
-                    case blockchain_ledger:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
+                    Entry = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(Ledger0)),
+                    Nonce = blockchain_ledger_v1:payment_nonce(Entry) + 1,
+                    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
                         Ledger1 ->
                             Address = ?MODULE:address(Txn),
-                            case blockchain_ledger:add_htlc(Address,
+                            case blockchain_ledger_v1:add_htlc(Address,
                                                             Payer,
                                                             Payee,
                                                             Amount,

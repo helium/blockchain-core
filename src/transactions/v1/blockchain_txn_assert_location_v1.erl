@@ -160,7 +160,7 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_assert_location(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                                    | {error, any()}.
 absorb(Txn, Ledger0) ->
     GatewayAddress = ?MODULE:gateway_address(Txn),
@@ -168,10 +168,10 @@ absorb(Txn, Ledger0) ->
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
-    Entries = blockchain_ledger:entries(Ledger0),
-    LastEntry = blockchain_ledger:find_entry(OwnerAddress, Entries),
-    PaymentNonce = blockchain_ledger:payment_nonce(LastEntry) + 1,
-    case blockchain_ledger:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
+    Entries = blockchain_ledger_v1:entries(Ledger0),
+    LastEntry = blockchain_ledger_v1:find_entry(OwnerAddress, Entries),
+    PaymentNonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
+    case blockchain_ledger_v1:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
         {error, _Reason}=Error -> Error;
         Ledger1 ->
             case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger1) of
@@ -189,20 +189,20 @@ absorb(Txn, Ledger0) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--dialyzer({nowarn_function, assert_gateway_location/4}).
 assert_gateway_location(GatewayAddress, Location, Nonce, Ledger0) ->
-    case blockchain_ledger:find_gateway_info(GatewayAddress, Ledger0) of
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger0) of
         undefined ->
             {error, {unknown_gateway, GatewayAddress, Ledger0}};
         GwInfo ->
             lager:info("gw_info from ledger: ~p", [GwInfo]),
-            LedgerNonce = blockchain_ledger_gateway:nonce(GwInfo),
+            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
             lager:info("assert_gateway_location, gw_address: ~p, Nonce: ~p, LedgerNonce: ~p", [GatewayAddress, Nonce, LedgerNonce]),
             case Nonce == LedgerNonce + 1 of
                 true ->
                     %% update the ledger with new gw_info
-                    case blockchain_ledger:add_gateway_location(GatewayAddress, Location, Nonce, Ledger0) of
-                        false ->
+                    case blockchain_ledger_v1:add_gateway_location(GatewayAddress, Location, Nonce, Ledger0) of
+                        {error, _Reason} ->
+                            lager:error("fail to add gateway location: ~p", _Reason),
                             Ledger0;
                         Ledger1 ->
                             Ledger1

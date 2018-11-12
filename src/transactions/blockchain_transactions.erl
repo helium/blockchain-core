@@ -33,7 +33,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec validate(blockchain_transaction:transactions(),
-               blockchain_ledger:ledger()) -> {blockchain_transaction:transactions(),
+               blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
                                                blockchain_transaction:transactions()}.
 validate(Transactions, Ledger) ->
     validate(Transactions, [], [], Ledger).
@@ -61,14 +61,14 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(transactions() | [], blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                                  | {error, any()}.
 absorb([], Ledger) ->    
-    Ledger1 = blockchain_ledger:update_transaction_fee(Ledger),
+    Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
     %% TODO: probably not the correct place to be incrementing the height for the ledger?
-    {ok, blockchain_ledger:increment_height(Ledger1)};
+    {ok, blockchain_ledger_v1:increment_height(Ledger1)};
 absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
-    absorb(Txns, blockchain_ledger:new());
+    absorb(Txns, blockchain_ledger_v1:new());
 absorb([Txn|Txns], Ledger0) ->
     Type = type(Txn),
     try Type:absorb(Txn, Ledger0) of

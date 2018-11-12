@@ -96,7 +96,7 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_receipts(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                                 | {error, any()}.
 absorb(Txn, Ledger0) ->
     case blockchain_txn_poc_receipts_v1:is_valid(Txn) of

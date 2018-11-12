@@ -83,7 +83,7 @@ blockchain() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec ledger() -> blockchain_ledger:ledger() | undefined.
+-spec ledger() -> blockchain_ledger_v1:ledger() | undefined.
 ledger() ->
     gen_server:call(?SERVER, ledger).
 
@@ -243,7 +243,7 @@ init(Args) ->
 handle_call(num_consensus_members, _From, #state{n=N}=State) ->
     {reply, N, State};
 handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain_ledger:consensus_members(blockchain:ledger(Chain)), State};
+    {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(_, _From, #state{blockchain={undefined, _}}=State) ->
     {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
@@ -263,14 +263,14 @@ handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm
 handle_call({assert_location_request, Owner, Location}, _From, State=#state{swarm=Swarm, blockchain=Chain}) ->
     Address = libp2p_swarm:address(Swarm),
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger:find_gateway_info(Address, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
         undefined ->
             lager:info("gateway not found in ledger."),
             {reply, {error, gateway_not_found}, State};
         GwInfo ->
-            Nonce = blockchain_ledger_gateway:nonce(GwInfo),
+            Nonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
             %% check that the correct owner has been specified
-            case Owner =:= blockchain_ledger_gateway:owner_address(GwInfo) of
+            case Owner =:= blockchain_ledger_gateway_v1:owner_address(GwInfo) of
                 true ->
                     AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(Address, Owner, Location, Nonce+1),
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
@@ -319,7 +319,7 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
             lager:info("prev hash matches the gossiped block"),
             Ledger = blockchain:ledger(Chain),
             case blockchain_block:verify_signature(Block,
-                                                   blockchain_ledger:consensus_members(Ledger),
+                                                   blockchain_ledger_v1:consensus_members(Ledger),
                                                    blockchain_block:signature(Block),
                                                    N-F)
             of
@@ -366,7 +366,7 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
                         lager:info("prev hash matches the gossiped block"),
                         Ledger = blockchain:ledger(Chain),
                         case blockchain_block:verify_signature(Block,
-                                                               blockchain_ledger:consensus_members(Ledger),
+                                                               blockchain_ledger_v1:consensus_members(Ledger),
                                                                blockchain_block:signature(Block),
                                                                N-F)
                         of
@@ -391,8 +391,8 @@ handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
-    Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
-    Nonce = blockchain_ledger:payment_nonce(Entry),
+    Entry = blockchain_ledger_v1:find_entry(Address, blockchain_ledger_v1:entries(Ledger)),
+    Nonce = blockchain_ledger_v1:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
@@ -400,8 +400,8 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    Entry = blockchain_ledger:find_entry(Address, blockchain_ledger:entries(Ledger)),
-    Nonce = blockchain_ledger:payment_nonce(Entry),
+    Entry = blockchain_ledger_v1:find_entry(Address, blockchain_ledger_v1:entries(Ledger)),
+    Nonce = blockchain_ledger_v1:payment_nonce(Entry),
     PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
@@ -534,7 +534,7 @@ add_handlers(Swarm, Chain) ->
 send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
     do_send(
         Swarm,
-        blockchain_ledger:consensus_members(blockchain:ledger(Chain)),
+        blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
         erlang:term_to_binary({Type, Txn}),
         ?TX_PROTOCOL,
         blockchain_txn_handler,

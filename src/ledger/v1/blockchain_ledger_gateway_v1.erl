@@ -3,7 +3,7 @@
 %% == Blockchain Ledger Gateway ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_gateway).
+-module(blockchain_ledger_gateway_v1).
 
 -export([
     new/2,
@@ -21,7 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(gateway, {
+-record(gateway_v1, {
     owner_address :: libp2p_crypto:address(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
@@ -29,16 +29,16 @@
     score = 0.0 :: float()
 }).
 
--type gateway() :: #gateway{}.
--export_type([gateway/0]).
+-type gateway_v1() :: #gateway_v1{}.
+-export_type([gateway_v1/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), pos_integer() | undefined) -> gateway().
+-spec new(libp2p_crypto:address(), pos_integer() | undefined) -> gateway_v1().
 new(OwnerAddress, Location) ->
-    #gateway{
+    #gateway_v1{
         owner_address=OwnerAddress,
         location=Location
     }.
@@ -47,81 +47,81 @@ new(OwnerAddress, Location) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(gateway()) -> libp2p_crypto:address().
+-spec owner_address(gateway_v1()) -> libp2p_crypto:address().
 owner_address(Gateway) ->
-    Gateway#gateway.owner_address.
+    Gateway#gateway_v1.owner_address.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(libp2p_crypto:address(), gateway()) -> gateway().
+-spec owner_address(libp2p_crypto:address(), gateway_v1()) -> gateway_v1().
 owner_address(OwnerAddress, Gateway) ->
-    Gateway#gateway{owner_address=OwnerAddress}.
+    Gateway#gateway_v1{owner_address=OwnerAddress}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(gateway()) ->  undefined | pos_integer().
+-spec location(gateway_v1()) ->  undefined | pos_integer().
 location(Gateway) ->
-    Gateway#gateway.location.
+    Gateway#gateway_v1.location.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(pos_integer(), gateway()) -> gateway().
+-spec location(pos_integer(), gateway_v1()) -> gateway_v1().
 location(Location, Gateway) ->
-    Gateway#gateway{location=Location}.
+    Gateway#gateway_v1{location=Location}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(gateway()) ->  undefined | non_neg_integer().
+-spec last_poc_challenge(gateway_v1()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
-    Gateway#gateway.last_poc_challenge.
+    Gateway#gateway_v1.last_poc_challenge.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(non_neg_integer(), gateway()) -> gateway().
+-spec last_poc_challenge(non_neg_integer(), gateway_v1()) -> gateway_v1().
 last_poc_challenge(LastPocChallenge, Gateway) ->
-    Gateway#gateway{last_poc_challenge=LastPocChallenge}.
+    Gateway#gateway_v1{last_poc_challenge=LastPocChallenge}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(gateway()) -> non_neg_integer().
+-spec nonce(gateway_v1()) -> non_neg_integer().
 nonce(Gateway) ->
-    Gateway#gateway.nonce.
+    Gateway#gateway_v1.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(non_neg_integer(), gateway()) -> gateway().
+-spec nonce(non_neg_integer(), gateway_v1()) -> gateway_v1().
 nonce(Nonce, Gateway) ->
-    Gateway#gateway{nonce=Nonce}.
+    Gateway#gateway_v1{nonce=Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(gateway()) -> float().
+-spec score(gateway_v1()) -> float().
 score(Gateway) ->
-    Gateway#gateway.score.
+    Gateway#gateway_v1.score.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(float(), gateway()) -> gateway().
+-spec score(float(), gateway_v1()) -> gateway_v1().
 score(Score, Gateway) ->
-    Gateway#gateway{score=Score}.
+    Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -147,7 +147,7 @@ print(Gateway) ->
 -ifdef(TEST).
 
 new_test() ->
-    Gw = #gateway{
+    Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
         location = 12,
         last_poc_challenge = undefined,

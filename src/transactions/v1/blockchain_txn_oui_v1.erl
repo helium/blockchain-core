@@ -116,7 +116,7 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_oui(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                        | {error, any()}.
 
 
@@ -127,10 +127,10 @@ absorb(Txn, Ledger0) ->
         true ->
             Fee = ?MODULE:fee(Txn),
             Owner = ?MODULE:owner(Txn),
-            Entries = blockchain_ledger:entries(Ledger0),
-            LastEntry = blockchain_ledger:find_entry(Owner, Entries),
-            Nonce = blockchain_ledger:payment_nonce(LastEntry) + 1,
-            case blockchain_ledger:debit_account(Owner, Fee, Nonce, Ledger0) of
+            Entries = blockchain_ledger_v1:entries(Ledger0),
+            LastEntry = blockchain_ledger_v1:find_entry(Owner, Entries),
+            Nonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
+            case blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger0) of
                 {error, _Reason}=Error -> Error;
                 Ledger1 -> {ok, Ledger1}
             end

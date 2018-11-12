@@ -52,11 +52,11 @@ is(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_genesis_consensus_group(),
-             blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+             blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                              | {error, any()}.
 absorb(Txn, Ledger0) ->
     Members = ?MODULE:members(Txn),
-    {ok, blockchain_ledger:consensus_members(Members, Ledger0)}.
+    {ok, blockchain_ledger_v1:consensus_members(Members, Ledger0)}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

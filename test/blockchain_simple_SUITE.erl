@@ -44,11 +44,11 @@ basic(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger:entries(Ledger),
+    Entries = blockchain_ledger_v1:entries(Ledger),
 
     _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger:balance(Entry),
-                         0, blockchain_ledger:payment_nonce(Entry)
+                         Balance = blockchain_ledger_v1:balance(Entry),
+                         0, blockchain_ledger_v1:payment_nonce(Entry)
                  end, Entries),
 
     % Test a payment transaction, add a block and check balances
@@ -67,11 +67,11 @@ basic(_Config) ->
 
     ?assertEqual({ok, Block}, blockchain_block:load(2, blockchain:dir(blockchain_worker:blockchain()))),
 
-    NewEntry0 = blockchain_ledger:find_entry(Recipient, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance + 2500, blockchain_ledger:balance(NewEntry0)),
+    NewEntry0 = blockchain_ledger_v1:find_entry(Recipient, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(Balance + 2500, blockchain_ledger_v1:balance(NewEntry0)),
 
-    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2510, blockchain_ledger:balance(NewEntry1)),
+    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(Balance - 2510, blockchain_ledger_v1:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
     ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
@@ -95,11 +95,11 @@ htlc_payee_redeem(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger:entries(Ledger),
+    Entries = blockchain_ledger_v1:entries(Ledger),
 
     _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger:balance(Entry),
-                         0, blockchain_ledger:payment_nonce(Entry)
+                         Balance = blockchain_ledger_v1:balance(Entry),
+                         0, blockchain_ledger_v1:payment_nonce(Entry)
                  end, Entries),
 
     % Create a Payer
@@ -128,15 +128,15 @@ htlc_payee_redeem(_Config) ->
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
-    NewEntry0 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2600, blockchain_ledger:balance(NewEntry0)),
+    NewEntry0 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(Balance - 2600, blockchain_ledger_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),    
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
+    NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_ledger_v1:htlcs(blockchain_worker:ledger())),
+    ?assertEqual(2500, blockchain_ledger_v1:balance(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger_v1:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger_v1:htlc_timelock(NewHTLC0)),    
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
@@ -152,8 +152,8 @@ htlc_payee_redeem(_Config) ->
     ?assertEqual(3, blockchain_worker:height()),
 
     % Check that the Payee now owns 2500
-    NewEntry1 = blockchain_ledger:find_entry(Payee, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(2600, blockchain_ledger:balance(NewEntry1)),
+    NewEntry1 = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(2600, blockchain_ledger_v1:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
@@ -172,11 +172,11 @@ htlc_payer_redeem(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger:entries(Ledger),
+    Entries = blockchain_ledger_v1:entries(Ledger),
 
     _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger:balance(Entry),
-                         0, blockchain_ledger:payment_nonce(Entry)
+                         Balance = blockchain_ledger_v1:balance(Entry),
+                         0, blockchain_ledger_v1:payment_nonce(Entry)
                  end, Entries),
 
     % Create a Payer
@@ -197,15 +197,15 @@ htlc_payer_redeem(_Config) ->
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
-    NewEntry0 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2500, blockchain_ledger:balance(NewEntry0)),
+    NewEntry0 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(Balance - 2500, blockchain_ledger_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    NewHTLC0 = blockchain_ledger:find_htlc(HTLCAddress, blockchain_ledger:htlcs(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger:htlc_hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger:htlc_timelock(NewHTLC0)),
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
+    NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_ledger_v1:htlcs(blockchain_worker:ledger())),
+    ?assertEqual(2500, blockchain_ledger_v1:balance(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger_v1:htlc_hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger_v1:htlc_timelock(NewHTLC0)),
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
@@ -227,8 +227,8 @@ htlc_payer_redeem(_Config) ->
     ok = blockchain_worker:add_block(Block4, self()),
 
     % Check that the Payer now owns 5000 again
-    NewEntry1 = blockchain_ledger:find_entry(Payer, blockchain_ledger:entries(blockchain_worker:ledger())),
-    ?assertEqual(5000, blockchain_ledger:balance(NewEntry1)),
+    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
+    ?assertEqual(5000, blockchain_ledger_v1:balance(NewEntry1)),
 
     % Make sure blockchain saved on file =  in memory
     Chain = blockchain_worker:blockchain(),
@@ -248,11 +248,11 @@ poc_request(_Config) ->
 
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger:entries(Ledger),
+    Entries = blockchain_ledger_v1:entries(Ledger),
 
     _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger:balance(Entry),
-                         0, blockchain_ledger:payment_nonce(Entry)
+                         Balance = blockchain_ledger_v1:balance(Entry),
+                         0, blockchain_ledger_v1:payment_nonce(Entry)
                  end, Entries),
 
     % Create a Gateway
@@ -274,8 +274,8 @@ poc_request(_Config) ->
     ?assertEqual(2, blockchain_worker:height()),
 
     % Check that the Gateway is there
-    GwInfo = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(Owner, blockchain_ledger_gateway:owner_address(GwInfo)),
+    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, 123456, 1),
@@ -302,8 +302,8 @@ poc_request(_Config) ->
     ?assertEqual(4, blockchain_worker:height()),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    GwInfo2 = blockchain_ledger:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(3, blockchain_ledger_gateway:last_poc_challenge(GwInfo2)),
+    GwInfo2 = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(3, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     true = erlang:exit(Sup, normal),
     ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end),

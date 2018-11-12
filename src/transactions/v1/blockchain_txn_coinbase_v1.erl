@@ -60,14 +60,14 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(), blockchain_ledger:ledger()) -> {ok, blockchain_ledger:ledger()}
+-spec absorb(txn_coinbase(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                             | {error, any()}.
 absorb(Txn, Ledger) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     case Amount > 0 of
         true ->
-            {ok, blockchain_ledger:credit_account(Payee, Amount, Ledger)};
+            {ok, blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)};
         false ->
             {ok, Ledger}
     end.
