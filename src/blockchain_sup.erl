@@ -14,36 +14,36 @@
 -export([init/1]).
 
 -define(SUP(I, Args), #{
-    id => I
-    ,start => {I, start_link, Args}
-    ,restart => permanent
-    ,shutdown => 5000
-    ,type => supervisor
-    ,modules => [I]
+    id => I,
+    start => {I, start_link, Args},
+    restart => permanent,
+    shutdown => 5000,
+    type => supervisor,
+    modules => [I]
 }).
 
 -define(WORKER(I, Args), #{
-    id => I
-    ,start => {I, start_link, Args}
-    ,restart => permanent
-    ,shutdown => 5000
-    ,type => worker
-    ,modules => [I]
+    id => I,
+    start => {I, start_link, Args},
+    restart => permanent,
+    shutdown => 5000,
+    type => worker,
+    modules => [I]
 }).
 
 -define(WORKER(I, Mod, Args), #{
-    id => I
-    ,start => {Mod, start_link, Args}
-    ,restart => permanent
-    ,shutdown => 5000
-    ,type => worker
-    ,modules => [I]
+    id => I,
+    start => {Mod, start_link, Args},
+    restart => permanent,
+    shutdown => 5000,
+    type => worker,
+    modules => [I]
 }).
 
 -define(FLAGS, #{
-    strategy => rest_for_one
-    ,intensity => 1
-    ,period => 5
+    strategy => rest_for_one,
+    intensity => 1,
+    period => 5
 }).
 
 -include("blockchain.hrl").
@@ -65,26 +65,26 @@ init(Args) ->
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
     SwarmWorkerOpts = [
-        {key, proplists:get_value(key, Args)}
-        ,{base_dir, proplists:get_value(base_dir, Args, "data")}
-        ,{libp2p_group_gossip, [
-            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}}
-            ,{seed_nodes, proplists:get_value(seed_nodes, Args, [])}
+        {key, proplists:get_value(key, Args)},
+        {base_dir, proplists:get_value(base_dir, Args, "data")},
+        {libp2p_group_gossip, [
+            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
+            {seed_nodes, proplists:get_value(seed_nodes, Args, [])}
         ]}
     ],
     BWorkerOpts = [
-        {port, proplists:get_value(port, Args, 0)}
-        ,{num_consensus_members, proplists:get_value(num_consensus_members, Args, 0)}
-        ,{base_dir, proplists:get_value(base_dir, Args, "data")}
-        ,{trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
+        {port, proplists:get_value(port, Args, 0)},
+        {num_consensus_members, proplists:get_value(num_consensus_members, Args, 0)},
+        {base_dir, proplists:get_value(base_dir, Args, "data")},
+        {trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
     ],
 
     BEventOpts = [],
 
     ChildSpecs = [
-        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts])
-        ,?WORKER(blockchain_swarm, [SwarmWorkerOpts])
-        ,?WORKER(blockchain_worker, [BWorkerOpts])
+        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
+        ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
+        ?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 

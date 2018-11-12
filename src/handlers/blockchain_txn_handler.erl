@@ -12,21 +12,21 @@
 %% ------------------------------------------------------------------
 
 -export([
-    server/4
-    ,client/2
+    server/4,
+    client/2
 ]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/3
-    ,handle_data/3
+    init/3,
+    handle_data/3
 ]).
 
 -record(state, {
-          group :: undefined | pid()
-         }).
+    group :: undefined | pid()
+}).
 
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).

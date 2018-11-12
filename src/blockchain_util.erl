@@ -6,11 +6,11 @@
 -module(blockchain_util).
 
 -export([
-    atomic_save/2
-    ,serialize_hash/1, deserialize_hash/1
-    ,hex_to_bin/1, bin_to_hex/1
-    ,serial_version/1
-    ,create_block/2
+    atomic_save/2,
+    serialize_hash/1, deserialize_hash/1,
+    hex_to_bin/1, bin_to_hex/1,
+    serial_version/1,
+    create_block/2
 ]).
 
 -type serial_version() :: v1 | v2 | v3.
@@ -66,9 +66,9 @@ hex_to_bin(Hex) ->
 -spec serial_version(string()) -> serial_version().
 serial_version(Dir) ->
     case
-        {string:find(Dir, "v1")
-         ,string:find(Dir, "v2")
-         ,string:find(Dir, "v3")}
+        {string:find(Dir, "v1"),
+         string:find(Dir, "v2"),
+         string:find(Dir, "v3")}
     of
         {Str, nomatch, nomatch} when is_list(Str) -> v1;
         {nomatch, Str,nomatch} when is_list(Str) -> v2;
@@ -109,7 +109,7 @@ signatures(ConsensusMembers, BinBlock) ->
         fun({A, _P, F}, Acc) ->
             Sig = F(BinBlock),
             [{A, Sig}|Acc]
-        end
-        ,[]
-        ,ConsensusMembers
+        end,
+        [],
+        ConsensusMembers
     ).

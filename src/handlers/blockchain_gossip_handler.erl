@@ -11,8 +11,10 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([init_gossip_data/1, handle_gossip_data/2]).
-
+-export([
+    init_gossip_data/1,
+    handle_gossip_data/2
+]).
 
 init_gossip_data([Address, Dir]) ->
    lager:info("gossiping init"),

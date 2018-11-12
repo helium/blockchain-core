@@ -6,36 +6,36 @@
 -module(blockchain_ledger).
 
 -export([
-    new/0
-    ,increment_height/1
-    ,balance/1
-    ,htlc_hashlock/1
-    ,htlc_timelock/1
-    ,htlc_payer/1
-    ,htlc_payee/1
-    ,payment_nonce/1
-    ,new_entry/2
-    ,new_htlc/5
-    ,find_entry/2
-    ,find_htlc/2
-    ,find_gateway_info/2
-    ,consensus_members/1, consensus_members/2
-    ,transaction_fee/1
-    ,update_transaction_fee/1
-    ,active_gateways/1
-    ,add_gateway/3
-    ,add_gateway_location/4
-    ,credit_account/3
-    ,debit_account/4
-    ,add_htlc/7
-    ,redeem_htlc/3
-    ,request_poc/2
-    ,save/2, load/1
-    ,serialize/2
-    ,deserialize/2
-    ,entries/1
-    ,current_height/1
-    ,htlcs/1
+    new/0,
+    increment_height/1,
+    balance/1,
+    htlc_hashlock/1,
+    htlc_timelock/1,
+    htlc_payer/1,
+    htlc_payee/1,
+    payment_nonce/1,
+    new_entry/2,
+    new_htlc/5,
+    find_entry/2,
+    find_htlc/2,
+    find_gateway_info/2,
+    consensus_members/1, consensus_members/2,
+    transaction_fee/1,
+    update_transaction_fee/1,
+    active_gateways/1,
+    add_gateway/3,
+    add_gateway_location/4,
+    credit_account/3,
+    debit_account/4,
+    add_htlc/7,
+    redeem_htlc/3,
+    request_poc/2,
+    save/2, load/1,
+    serialize/2,
+    deserialize/2,
+    entries/1,
+    current_height/1,
+    htlcs/1
 ]).
 
 -include("blockchain.hrl").
@@ -45,26 +45,26 @@
 -endif.
 
 -record(ledger, {
-    current_height = undefined :: undefined | pos_integer()
-    ,transaction_fee = 0 :: non_neg_integer()
-    ,consensus_members = [] :: [libp2p_crypto:address()]
-    ,active_gateways = #{} :: active_gateways()
-    ,entries = #{} :: entries()
-    ,htlcs = #{} :: htlcs()
+    current_height = undefined :: undefined | pos_integer(),
+    transaction_fee = 0 :: non_neg_integer(),
+    consensus_members = [] :: [libp2p_crypto:address()],
+    active_gateways = #{} :: active_gateways(),
+    entries = #{} :: entries(),
+    htlcs = #{} :: htlcs()
 }).
 
 -record(entry, {
-    nonce = 0 :: non_neg_integer()
-    ,balance = 0 :: non_neg_integer()
+    nonce = 0 :: non_neg_integer(),
+    balance = 0 :: non_neg_integer()
 }).
 
 -record(htlc, {
-    nonce = 0 :: non_neg_integer()
-    ,payer :: libp2p_crypto:address()
-    ,payee :: libp2p_crypto:address()
-    ,balance = 0 :: non_neg_integer()
-    ,hashlock :: undefined | binary()
-    ,timelock :: undefined | non_neg_integer()
+    nonce = 0 :: non_neg_integer(),
+    payer :: libp2p_crypto:address(),
+    payee :: libp2p_crypto:address(),
+    balance = 0 :: non_neg_integer(),
+    hashlock :: undefined | binary(),
+    timelock :: undefined | non_neg_integer()
 }).
 
 -type ledger() :: #ledger{}.
@@ -339,8 +339,6 @@ credit_account(Address, Amount, Ledger) ->
             Ledger#ledger{entries=maps:update(Address, NewEntry, Ledger#ledger.entries)}
     end.
 
-%% maps:put(Address, maps:update(Address, NewEntry, Entries), Ledger).
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -480,8 +478,8 @@ add_gateway_test() ->
     Ledger0 = #ledger{active_gateways=#{}},
     Ledger1 = add_gateway(<<"owner_address">>, gw_address, Ledger0),
     ?assertEqual(
-        blockchain_ledger_gateway:new(<<"owner_address">>, undefined)
-        ,find_gateway_info(gw_address, Ledger1)
+        blockchain_ledger_gateway:new(<<"owner_address">>, undefined),
+        find_gateway_info(gw_address, Ledger1)
     ),
     ?assertEqual({error,gateway_already_active}, add_gateway(owner_address, gw_address, Ledger1)).
 
@@ -492,12 +490,12 @@ add_gateway_location_test() ->
     GW0 = blockchain_ledger_gateway:new(<<"owner_address">>, 1),
     GW1 =  blockchain_ledger_gateway:nonce(1, GW0),
     ?assertEqual(
-       GW1
-       ,find_gateway_info(gw_address, Ledger2)
+       GW1,
+       find_gateway_info(gw_address, Ledger2)
       ),
     ?assertEqual(
-       {error,no_active_gateway}
-       ,add_gateway_location(gw_address, 1, 1, Ledger0)
+       {error,no_active_gateway},
+       add_gateway_location(gw_address, 1, 1, Ledger0)
       ).
 
 credit_account_test() ->

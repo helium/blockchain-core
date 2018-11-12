@@ -6,13 +6,13 @@
 -module(blockchain_ledger_gateway).
 
 -export([
-    new/2
-    ,owner_address/1, owner_address/2
-    ,location/1, location/2
-    ,last_poc_challenge/1, last_poc_challenge/2
-    ,nonce/1, nonce/2
-    ,score/1, score/2
-    ,print/1
+    new/2,
+    owner_address/1, owner_address/2,
+    location/1, location/2,
+    last_poc_challenge/1, last_poc_challenge/2,
+    nonce/1, nonce/2,
+    score/1, score/2,
+    print/1
 ]).
 
 -include("blockchain.hrl").
@@ -22,11 +22,11 @@
 -endif.
 
 -record(gateway, {
-    owner_address :: libp2p_crypto:address()
-    ,location :: undefined | pos_integer()
-    ,last_poc_challenge :: undefined | non_neg_integer()
-    ,nonce = 0 :: non_neg_integer()
-    ,score = 0.0 :: float()
+    owner_address :: libp2p_crypto:address(),
+    location :: undefined | pos_integer(),
+    last_poc_challenge :: undefined | non_neg_integer(),
+    nonce = 0 :: non_neg_integer(),
+    score = 0.0 :: float()
 }).
 
 -type gateway() :: #gateway{}.
@@ -39,8 +39,8 @@
 -spec new(libp2p_crypto:address(), pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
     #gateway{
-        owner_address=OwnerAddress
-        ,location=Location
+        owner_address=OwnerAddress,
+        location=Location
     }.
 
 %%--------------------------------------------------------------------
@@ -59,7 +59,6 @@ owner_address(Gateway) ->
 owner_address(OwnerAddress, Gateway) ->
     Gateway#gateway{owner_address=OwnerAddress}.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -76,7 +75,6 @@ location(Gateway) ->
 location(Location, Gateway) ->
     Gateway#gateway{location=Location}.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -92,7 +90,6 @@ last_poc_challenge(Gateway) ->
 -spec last_poc_challenge(non_neg_integer(), gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
     Gateway#gateway{last_poc_challenge=LastPocChallenge}.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -151,11 +148,11 @@ print(Gateway) ->
 
 new_test() ->
     Gw = #gateway{
-        owner_address = <<"owner_address">>
-        ,location = 12
-        ,last_poc_challenge = undefined
-        ,nonce = 0
-        ,score = 0.0
+        owner_address = <<"owner_address">>,
+        location = 12,
+        last_poc_challenge = undefined,
+        nonce = 0,
+        score = 0.0
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
