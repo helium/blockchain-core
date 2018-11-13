@@ -328,23 +328,9 @@ ledger_gateways(_CmdBase, [], []) ->
     R = [format_ledger_gateway_entry(G) || G <- maps:to_list(Gateways)],
     [clique_status:table(R)].
 
-format_ledger_gateway_entry({GatewayAddr, {gw_info,
-                                           OwnerAddr,
-                                           Location,
-                                           LastPOCChallenge,
-                                           Nonce,
-                                           Score}}) ->
-    %% NOTE: Location is an H3 Index
-    IndexToStr = fun(undefined) -> "undefined";
-                    (I) -> I
-                 end,
-    [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)},
-     {owner_address, libp2p_crypto:address_to_p2p(OwnerAddr)},
-     {location, IndexToStr(Location)},
-     {last_poc_challenge, LastPOCChallenge},
-     {nonce, Nonce},
-     {score, Score}
-    ].
+format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
+    [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)} |
+     blockchain_ledger_gateway:print(Gateway)].
 
 %%--------------------------------------------------------------------
 %% ledger assert_loc_request

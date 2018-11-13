@@ -12,6 +12,7 @@
     ,last_poc_challenge/1, last_poc_challenge/2
     ,nonce/1, nonce/2
     ,score/1, score/2
+    ,print/1
 ]).
 
 -include("blockchain.hrl").
@@ -125,6 +126,24 @@ score(Gateway) ->
 -spec score(float(), gateway()) -> gateway().
 score(Score, Gateway) ->
     Gateway#gateway{score=Score}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(gateway()) -> list().
+print(Gateway) ->
+    %% TODO: This is annoying but it makes printing happy on the CLI
+    UndefinedHandleFunc = fun(undefined) -> "undefined";
+                            (I) -> I
+                         end,
+    [
+     {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
+     {location, UndefinedHandleFunc(location(Gateway))},
+     {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
+     {nonce, nonce(Gateway)},
+     {score, score(Gateway)}
+    ].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
