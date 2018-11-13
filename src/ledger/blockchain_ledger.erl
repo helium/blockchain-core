@@ -189,7 +189,7 @@ update_transaction_fee(Ledger=#ledger{transaction_fee=Fee}) ->
             ?MODULE:current_height(Ledger) div 1000;
         false ->
             Fee
-    end,    
+    end,
     Ledger#ledger{transaction_fee=NewFee}.
 
 %%--------------------------------------------------------------------
