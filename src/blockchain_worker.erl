@@ -472,18 +472,20 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
                     Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
                     {noreply, State#state{sync_timer=Ref}};
                 [Peer] ->
-                    Ref = sync(Swarm, Chain, Peer),
-                    {noreply, State#state{sync_timer=Ref}};
+                    sync(Swarm, Chain, Peer),
+                    {noreply, State};
                 Peers ->
                     RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-                    Ref = sync(Swarm, Chain, RandomPeer),
-                    {noreply, State#state{sync_timer=Ref}}
+                    sync(Swarm, Chain, RandomPeer),
+                    {noreply, State}
             end;
         _ ->
             %% no need to sync now, check again later
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
             {noreply, State#state{sync_timer=Ref}}
     end;
+handle_info({update_timer, Ref}, State) ->
+    {noreply, State#state{sync_timer=Ref}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -568,17 +570,23 @@ do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Ret
 %% @end
 %%--------------------------------------------------------------------
 sync(Swarm, Chain, Peer) ->
-    case libp2p_swarm:dial_framed_stream(Swarm,
-                                         Peer,
-                                         ?SYNC_PROTOCOL,
-                                         blockchain_sync_handler,
-                                         [self()]) of
-        {ok, Stream} ->
-            Stream ! {hash, blockchain:head_hash(Chain)},
-            %% this timer will likely get cancelled when the sync response comes in
-            %% but if that never happens, we don't forget to sync
-            erlang:send_after(?SYNC_TIME, self(), maybe_sync);
-        _ ->
-            %% schedule a sync retry with another peer
-            erlang:send_after(5000, self(), maybe_sync)
-    end.
+    Parent = self(),
+    spawn(fun() ->
+                  Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
+                  case libp2p_swarm:dial_framed_stream(Swarm,
+                                                       Peer,
+                                                       ?SYNC_PROTOCOL,
+                                                       blockchain_sync_handler,
+                                                       [self()]) of
+                      {ok, Stream} ->
+                          Stream ! {hash, blockchain:head_hash(Chain)},
+                          %% this timer will likely get cancelled when the sync response comes in
+                          %% but if that never happens, we don't forget to sync
+                          Parent ! {update_timer, Ref};
+                      _ ->
+                          erlang:cancel_timer(Ref),
+                          %% schedule a sync retry with another peer
+                          Ref2 = erlang:send_after(5000, Parent, maybe_sync),
+                          Parent ! {update_timer, Ref2}
+                  end
+          end).
