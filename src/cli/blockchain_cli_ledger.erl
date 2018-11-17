@@ -339,7 +339,7 @@ ledger_export_usage() ->
 ledger_export(["ledger", "export", Filename], [], []) ->
     case file:write_file(Filename, blockchain_ledger_exporter:export(get_ledger())) of
         ok ->
-            [clique_status:text("ok, transactions written to ~p", [Filename])];
+            [clique_status:text(io_lib:format("ok, transactions written to ~p", [Filename]))];
         {error, Reason} ->
             [clique_status:text(io_lib:format("~p", [Reason]))]
     end;
