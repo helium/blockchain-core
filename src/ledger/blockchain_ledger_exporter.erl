@@ -7,7 +7,7 @@
 
 -export([
          export/1,
-         export_balances/1,
+         export_accounts/1,
          export_gateways/1
         ]).
 
@@ -18,7 +18,7 @@
 -spec export(blockchain_ledger:ledger()) -> any().
 export(Ledger) ->
     [
-     {balances, export_balances(Ledger)},
+     {accounts, export_accounts(Ledger)},
      {gateways, export_gateways(Ledger)}
     ].
 
@@ -27,8 +27,8 @@ export(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec export_balances(blockchain_ledger:ledger()) -> any().
-export_balances(Ledger) ->
+-spec export_accounts(blockchain_ledger:ledger()) -> any().
+export_accounts(Ledger) ->
     lists:foldl(fun({Address, Entry}, Acc) ->
                         [ {{address, libp2p_crypto:address_to_b58(Address)},
                            {balance, blockchain_ledger:balance(Entry)}} | Acc ]
