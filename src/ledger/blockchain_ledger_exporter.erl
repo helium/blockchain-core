@@ -18,8 +18,8 @@
 -spec export(blockchain_ledger:ledger()) -> any().
 export(Ledger) ->
     [
-     export_balances(Ledger),
-     export_gateways(Ledger)
+     {balances, export_balances(Ledger)},
+     {gateways, export_gateways(Ledger)}
     ].
 
 
