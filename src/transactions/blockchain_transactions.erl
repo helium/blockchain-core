@@ -63,8 +63,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %%--------------------------------------------------------------------
 -spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
                                                                  | {error, any()}.
-absorb([], Ledger) ->    
-    Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
+absorb([], Ledger) ->
+    Ledger1 = blockchain_ledger:update_transaction_fee(Ledger),
     %% TODO: probably not the correct place to be incrementing the height for the ledger?
     {ok, blockchain_ledger_v1:increment_height(Ledger1)};
 absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
