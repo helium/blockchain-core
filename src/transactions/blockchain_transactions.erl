@@ -20,6 +20,7 @@
                        | blockchain_txn_assert_location_v1:txn_assert_location()
                        | blockchain_txn_coinbase_v1:txn_coinbase()
                        | blockchain_txn_gen_consensus_group_v1:txn_genesis_consensus_group()
+                       | blockchain_txn_gen_gateway_v1:txn_genesis_gateway()
                        | blockchain_txn_payment_v1:txn_payment()
                        | blockchain_txn_create_htlc_v1:txn_create_htlc()
                        | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
