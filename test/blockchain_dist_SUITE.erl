@@ -50,8 +50,8 @@ gossip_test(Config) ->
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
     % Create genesis block
-    GenPaymentTxs = [blockchain_txn_coinbase:new(Addr, Balance) || Addr <- Addrs],
-    GenConsensusGroupTx = blockchain_txn_gen_consensus_group:new(ConsensusAddrs),
+    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
+    GenConsensusGroupTx = blockchain_txn_gen_consensus_group_v1:new(ConsensusAddrs),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
@@ -96,8 +96,8 @@ gossip_test(Config) ->
     Payer = ct_rpc:call(FirstNode, blockchain_swarm, address, []),
     {ok, _Pubkey, SigFun} = ct_rpc:call(FirstNode, blockchain_swarm, keys, []),
     Recipient = ct_rpc:call(SecondNode, blockchain_swarm, address, []),
-    Tx = blockchain_txn_payment:new(Payer, Recipient, 2500, 10, 1),
-    SignedTx = blockchain_txn_payment:sign(Tx, SigFun),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = ct_rpc:call(FirstNode, blockchain_util, create_block, [ConsensusMembers, [SignedTx]]),
     ct:pal("Block: ~p", [Block]),
 

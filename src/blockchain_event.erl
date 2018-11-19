@@ -11,20 +11,20 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
-    ,add_handler/1
+    start_link/1,
+    add_handler/1
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_event Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,handle_event/2
-    ,handle_call/2
-    ,handle_info/2
-    ,code_change/3
-    ,terminate/2
+    init/1,
+    handle_event/2,
+    handle_call/2,
+    handle_info/2,
+    code_change/3,
+    terminate/2
 ]).
 
 -include("blockchain.hrl").

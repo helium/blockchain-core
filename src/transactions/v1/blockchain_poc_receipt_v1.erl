@@ -2,32 +2,32 @@
 %% @doc
 %% == Blockchain Proof of Coverage Receipt ==
 %%%-------------------------------------------------------------------
--module(blockchain_poc_receipt).
+-module(blockchain_poc_receipt_v1).
 
 -export([
-    new/3
-    ,address/1
-    ,timestamp/1
-    ,hash/1
-    ,signature/1
-    ,sign/2
-    ,is_valid/1
-    ,encode/1
-    ,decode/1
+    new/3,
+    address/1,
+    timestamp/1,
+    hash/1,
+    signature/1,
+    sign/2,
+    is_valid/1,
+    encode/1,
+    decode/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(poc_receipt, {
-    address :: libp2p_crypto:address()
-    ,timestamp :: non_neg_integer()
-    ,hash :: binary()
-    ,signature :: binary()
+-record(poc_receipt_v1, {
+    address :: libp2p_crypto:address(),
+    timestamp :: non_neg_integer(),
+    hash :: binary(),
+    signature :: binary()
 }).
 
--type poc_receipt() :: #poc_receipt{}.
+-type poc_receipt() :: #poc_receipt_v1{}.
 -type poc_receipts() :: [poc_receipt()].
 
 -export_type([poc_receipt/0, poc_receipts/0]).
@@ -38,11 +38,11 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:address(), non_neg_integer(), binary()) -> poc_receipt().
 new(Address, Timestamp, Hash) ->
-    #poc_receipt{
-        address=Address
-        ,timestamp=Timestamp
-        ,hash=Hash
-        ,signature = <<>>
+    #poc_receipt_v1{
+        address=Address,
+        timestamp=Timestamp,
+        hash=Hash,
+        signature = <<>>
     }.
 %%--------------------------------------------------------------------
 %% @doc
@@ -50,7 +50,7 @@ new(Address, Timestamp, Hash) ->
 %%--------------------------------------------------------------------
 -spec address(poc_receipt()) -> libp2p_crypto:address().
 address(Receipt) ->
-    Receipt#poc_receipt.address.
+    Receipt#poc_receipt_v1.address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -58,7 +58,7 @@ address(Receipt) ->
 %%--------------------------------------------------------------------
 -spec timestamp(poc_receipt()) -> libp2p_crypto:address().
 timestamp(Receipt) ->
-    Receipt#poc_receipt.timestamp.
+    Receipt#poc_receipt_v1.timestamp.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -66,7 +66,7 @@ timestamp(Receipt) ->
 %%--------------------------------------------------------------------
 -spec hash(poc_receipt()) -> binary().
 hash(Receipt) ->
-    Receipt#poc_receipt.hash.
+    Receipt#poc_receipt_v1.hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -74,7 +74,7 @@ hash(Receipt) ->
 %%--------------------------------------------------------------------
 -spec signature(poc_receipt()) -> binary().
 signature(Receipt) ->
-    Receipt#poc_receipt.signature.
+    Receipt#poc_receipt_v1.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -82,17 +82,17 @@ signature(Receipt) ->
 %%--------------------------------------------------------------------
 -spec sign(poc_receipt(), libp2p_crypto:sig_fun()) -> poc_receipt().
 sign(Receipt, SigFun) ->
-    BinReceipt = erlang:term_to_binary(Receipt#poc_receipt{signature = <<>>}),
-    Receipt#poc_receipt{signature=SigFun(BinReceipt)}.
+    BinReceipt = erlang:term_to_binary(Receipt#poc_receipt_v1{signature = <<>>}),
+    Receipt#poc_receipt_v1{signature=SigFun(BinReceipt)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(poc_receipt()) -> boolean().
-is_valid(Receipt=#poc_receipt{address=Address, signature=Signature}) ->
+is_valid(Receipt=#poc_receipt_v1{address=Address, signature=Signature}) ->
     PubKey = libp2p_crypto:address_to_pubkey(Address),
-    BinReceipt = erlang:term_to_binary(Receipt#poc_receipt{signature = <<>>}),
+    BinReceipt = erlang:term_to_binary(Receipt#poc_receipt_v1{signature = <<>>}),
     libp2p_crypto:verify(BinReceipt, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -117,11 +117,11 @@ decode(Binary) ->
 -ifdef(TEST).
 
 new_test() ->
-    Receipt = #poc_receipt{
-        address= <<"address">>
-        ,timestamp= 1
-        ,hash= <<"hash">>
-        ,signature = <<>>
+    Receipt = #poc_receipt_v1{
+        address= <<"address">>,
+        timestamp= 1,
+        hash= <<"hash">>,
+        signature = <<>>
     },
     ?assertEqual(Receipt, new(<<"address">>, 1, <<"hash">>)).
 
@@ -148,7 +148,7 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Receipt1#poc_receipt{signature = <<>>}), Sig1, PubKey)).
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Receipt1#poc_receipt_v1{signature = <<>>}), Sig1, PubKey)).
 
 encode_decode_test() ->
     Receipt = new(<<"address">>, 1, <<"hash">>),

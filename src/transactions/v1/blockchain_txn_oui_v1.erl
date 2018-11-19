@@ -3,34 +3,35 @@
 %% == Blockchain Transaction OUI ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_oui).
+-module(blockchain_txn_oui_v1).
 
 -behavior(blockchain_txn).
 
 -export([
-    new/3
-    ,hash/1
-    ,oui/1
-    ,fee/1
-    ,owner/1
-    ,signature/1
-    ,sign/2
-    ,is_valid/1
-    ,is/1
+    new/3,
+    hash/1,
+    oui/1,
+    fee/1,
+    owner/1,
+    signature/1,
+    sign/2,
+    is_valid/1,
+    is/1,
+    absorb/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_oui, {
-    oui :: binary()
-    ,fee :: non_neg_integer()
-    ,owner :: libp2p_crypto:address()
-    ,signature :: binary()
+-record(txn_oui_v1, {
+    oui :: binary(),
+    fee :: non_neg_integer(),
+    owner :: libp2p_crypto:address(),
+    signature :: binary()
 }).
 
--type txn_oui() :: #txn_oui{}.
+-type txn_oui() :: #txn_oui_v1{}.
 -export_type([txn_oui/0]).
 
 %%--------------------------------------------------------------------
@@ -39,11 +40,11 @@
 %%--------------------------------------------------------------------
 -spec new(binary(), non_neg_integer(), libp2p_crypto:address()) -> txn_oui().
 new(OUI, Fee, Owner) ->
-    #txn_oui{
-        oui=OUI
-        ,fee=Fee
-        ,owner=Owner
-        ,signature= <<>>
+    #txn_oui_v1{
+        oui=OUI,
+        fee=Fee,
+        owner=Owner,
+        signature= <<>>
     }.
 
 %%--------------------------------------------------------------------
@@ -52,7 +53,7 @@ new(OUI, Fee, Owner) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_oui()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_oui{signature = <<>>},
+    BaseTxn = Txn#txn_oui_v1{signature = <<>>},
     crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
 
 %%--------------------------------------------------------------------
@@ -61,21 +62,21 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec oui(txn_oui()) -> binary().
 oui(Txn) ->
-    Txn#txn_oui.oui.
+    Txn#txn_oui_v1.oui.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec fee(txn_oui()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_oui.fee.
+    Txn#txn_oui_v1.fee.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec owner(txn_oui()) -> libp2p_crypto:address().
 owner(Txn) ->
-    Txn#txn_oui.owner.
+    Txn#txn_oui_v1.owner.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -83,7 +84,7 @@ owner(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_oui()) -> binary().
 signature(Txn) ->
-    Txn#txn_oui.signature.
+    Txn#txn_oui_v1.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -91,7 +92,7 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_oui(), libp2p_crypto:sig_fun()) -> txn_oui().
 sign(Txn, SigFun) ->
-    Txn#txn_oui{signature=SigFun(erlang:term_to_binary(Txn))}.
+    Txn#txn_oui_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
 
 
 %%--------------------------------------------------------------------
@@ -99,9 +100,9 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_oui()) -> boolean().
-is_valid(Txn=#txn_oui{owner=Owner, signature=Signature}) ->
+is_valid(Txn=#txn_oui_v1{owner=Owner, signature=Signature}) ->
     PubKey = libp2p_crypto:address_to_pubkey(Owner),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_oui{signature = <<>>}), Signature, PubKey).
+    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_oui_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -109,7 +110,31 @@ is_valid(Txn=#txn_oui{owner=Owner, signature=Signature}) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_oui).
+    erlang:is_record(Txn, txn_oui_v1).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
+                                                       | {error, any()}.
+
+
+absorb(Txn, Ledger0) ->
+    case ?MODULE:is_valid(Txn) of
+        false ->
+            {error, invalid_transaction};
+        true ->
+            Fee = ?MODULE:fee(Txn),
+            Owner = ?MODULE:owner(Txn),
+            Entries = blockchain_ledger_v1:entries(Ledger0),
+            LastEntry = blockchain_ledger_v1:find_entry(Owner, Entries),
+            Nonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
+            case blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger0) of
+                {error, _Reason}=Error -> Error;
+                Ledger1 -> {ok, Ledger1}
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -117,11 +142,11 @@ is(Txn) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_oui{
-        oui= <<"0">>
-        ,fee=1
-        ,owner= <<"owner">>
-        ,signature= <<>>
+    Tx = #txn_oui_v1{
+        oui= <<"0">>,
+        fee=1,
+        owner= <<"owner">>,
+        signature= <<>>
     },
     ?assertEqual(Tx, new(<<"0">>, 1, <<"owner">>)).
 
@@ -147,7 +172,7 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_oui{signature = <<>>}), Sig1, PubKey)).
+    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_oui_v1{signature = <<>>}), Sig1, PubKey)).
 
 is_valid_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),

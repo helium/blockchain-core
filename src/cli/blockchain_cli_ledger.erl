@@ -280,31 +280,31 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
     case (catch libp2p_crypto:b58_to_address(Str)) of
         {'EXIT', _} -> usage;
         Addr ->
-            R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, blockchain_ledger:entries(Ledger))})],
+            R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, blockchain_ledger_v1:entries(Ledger))})],
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
     Addr = blockchain_swarm:address(),
     Ledger = get_ledger(),
-    R = [format_ledger_balance({Addr, blockchain_ledger:find_entry(Addr, blockchain_ledger:entries(Ledger))})],
+    R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, blockchain_ledger_v1:entries(Ledger))})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{all, _}]) ->
     Balances = maps:filter(fun(K, _V) ->
                                    is_binary(K)
-                           end, blockchain_ledger:entries(get_ledger())),
+                           end, blockchain_ledger_v1:entries(get_ledger())),
     R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
     [clique_status:table(R)].
 
--spec format_ledger_balance({libp2p_crypto:address(), blockchain_ledger:entry()}) -> list().
+-spec format_ledger_balance({libp2p_crypto:address(), blockchain_ledger_v1:entry()}) -> list().
 format_ledger_balance({Addr, Entry}) ->
     [{p2p, libp2p_crypto:address_to_p2p(Addr)},
-     {nonce, integer_to_list(blockchain_ledger:payment_nonce(Entry))},
-     {balance, integer_to_list(blockchain_ledger:balance(Entry))}
+     {nonce, integer_to_list(blockchain_ledger_v1:payment_nonce(Entry))},
+     {balance, integer_to_list(blockchain_ledger_v1:balance(Entry))}
     ].
 
 get_ledger() ->
     case blockchain_worker:ledger() of
-        undefined -> blockchain_ledger:new();
+        undefined -> blockchain_ledger_v1:new();
         L -> L
     end.
 
@@ -324,13 +324,13 @@ ledger_gateways_usage() ->
     ].
 
 ledger_gateways(_CmdBase, [], []) ->
-    Gateways = blockchain_ledger:active_gateways(get_ledger()),
+    Gateways = blockchain_ledger_v1:active_gateways(get_ledger()),
     R = [format_ledger_gateway_entry(G) || G <- maps:to_list(Gateways)],
     [clique_status:table(R)].
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
     [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)} |
-     blockchain_ledger_gateway:print(Gateway)].
+     blockchain_ledger_gateway_v1:print(Gateway)].
 
 %%--------------------------------------------------------------------
 %% ledger assert_loc_request

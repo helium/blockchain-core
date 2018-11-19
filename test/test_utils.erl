@@ -36,9 +36,9 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    GenPaymentTxs = [blockchain_txn_coinbase:new(Addr, Balance)
+    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_gen_consensus_group:new([Addr || {Addr, _} <- ConsensusMembers]),
+    GenConsensusGroupTx = blockchain_txn_gen_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),

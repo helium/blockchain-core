@@ -6,19 +6,19 @@
 -module(blockchain).
 
 -export([
-    new/2
-    ,genesis_hash/1 ,genesis_block/1
-    ,head_hash/1, head_block/1
-    ,ledger/1
-    ,dir/1
-    ,blocks/1
-    ,blocks_size/1
-    ,add_block/2
-    ,get_block/2
-    ,save/1, load/1
-    ,build/3
-    ,reindex/1
-    ,base_dir/1
+    new/2,
+    genesis_hash/1 ,genesis_block/1,
+    head_hash/1, head_block/1,
+    ledger/1,
+    dir/1,
+    blocks/1,
+    blocks_size/1,
+    add_block/2,
+    get_block/2,
+    save/1, load/1,
+    build/3,
+    reindex/1,
+    base_dir/1
 ]).
 
 -include("blockchain.hrl").
@@ -28,10 +28,10 @@
 -endif.
 
 -record(blockchain, {
-    genesis :: {blockchain_block:hash(), blockchain_block:block()}
-    ,head :: {blockchain_block:hash(), blockchain_block:block()}
-    ,ledger :: blockchain_ledger:ledger()
-    ,dir :: file:filename_all()
+    genesis :: {blockchain_block:hash(), blockchain_block:block()},
+    head :: {blockchain_block:hash(), blockchain_block:block()},
+    ledger :: blockchain_ledger_v1:ledger(),
+    dir :: file:filename_all()
 }).
 
 % TODO: Save ledger to rocksdb
@@ -50,12 +50,12 @@
 new(GenesisBlock, Dir) ->
     Hash = blockchain_block:hash_block(GenesisBlock),
     Transactions = blockchain_block:transactions(GenesisBlock),
-    {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger:new()),
+    {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger_v1:new()),
     #blockchain{
-        genesis={Hash, GenesisBlock}
-        ,head={Hash, GenesisBlock}
-        ,ledger=Ledger
-        ,dir=base_dir(Dir)
+        genesis={Hash, GenesisBlock},
+        head={Hash, GenesisBlock},
+        ledger=Ledger,
+        dir=base_dir(Dir)
     }.
 
 %%--------------------------------------------------------------------
@@ -94,7 +94,7 @@ head_block(#blockchain{head={_, Block}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec ledger(blockchain()) -> blockchain_ledger:ledger().
+-spec ledger(blockchain()) -> blockchain_ledger_v1:ledger().
 ledger(Blockchain) ->
     Blockchain#blockchain.ledger.
 
@@ -125,9 +125,9 @@ blocks(Blockchain) ->
                     Block = blockchain_block:deserialize(V, Binary),
                     maps:put(Hash, Block, Acc)
             end
-        end
-        ,#{}
-        ,list_block_files(Blockchain)
+        end,
+        #{},
+        list_block_files(Blockchain)
     ).
 
 %%--------------------------------------------------------------------
@@ -149,7 +149,7 @@ add_block(Block, Blockchain) ->
     {ok, Ledger1} = blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger0),
     Dir = ?MODULE:dir(Blockchain),
     ok = blockchain_block:save(Hash, Block, Dir),
-    ok = blockchain_ledger:save(Ledger1, Dir),
+    ok = blockchain_ledger_v1:save(Ledger1, Dir),
     ok = save_head(Block, Dir),
     Blockchain#blockchain{head={Hash, Block}, ledger=Ledger1}.
 
@@ -178,7 +178,7 @@ save(Blockchain) ->
     Dir = ?MODULE:dir(Blockchain),
     ok = save_genesis(blockchain:genesis_block(Blockchain), Dir),
     ok = save_head(blockchain:head_block(Blockchain), Dir),
-    ok = blockchain_ledger:save(?MODULE:ledger(Blockchain), Dir),
+    ok = blockchain_ledger_v1:save(?MODULE:ledger(Blockchain), Dir),
     ok.
 
 %%--------------------------------------------------------------------
@@ -189,9 +189,9 @@ save(Blockchain) ->
 load(BaseDir) ->
     Dir = base_dir(BaseDir),
     case
-        {load_genesis(Dir)
-         ,load_head(Dir)
-         ,blockchain_ledger:load(Dir)}
+        {load_genesis(Dir),
+         load_head(Dir),
+         blockchain_ledger_v1:load(Dir)}
     of
         {{error, _}, _, _} -> undefined;
         {_, {error, _}, _} -> undefined;
@@ -200,10 +200,10 @@ load(BaseDir) ->
             GenesisHash = blockchain_block:hash_block(GenesisBlock),
             HeadHash = blockchain_block:hash_block(HeadBlock),
             #blockchain{
-                genesis={GenesisHash, GenesisBlock}
-                ,head={HeadHash, HeadBlock}
-                ,ledger=Ledger
-                ,dir=Dir
+                genesis={GenesisHash, GenesisBlock},
+                head={HeadHash, HeadBlock},
+                ledger=Ledger,
+                dir=Dir
             }
     end.
 
@@ -246,8 +246,8 @@ reindex(BaseDir) ->
                     Height = blockchain_block:height(Block),
                     lager:info("block index ~p restored: ~p", [Height, R])
             end
-        end
-        ,list_block_files(BaseDir)
+        end,
+        list_block_files(BaseDir)
     ),
     ok.
 
@@ -340,7 +340,7 @@ new_test() ->
     Chain = new(Block, BaseDir),
     ?assertEqual({Hash, Block}, Chain#blockchain.genesis),
     ?assertEqual({Hash, Block}, Chain#blockchain.head),
-    ?assertEqual(blockchain_ledger:increment_height(blockchain_ledger:new()), ledger(Chain)),
+    ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)),
     ?assertEqual(BaseDir ++ "/blockchain", Chain#blockchain.dir).
 
 genesis_hash_test() ->
@@ -368,7 +368,7 @@ head_block_test() ->
 ledger_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Chain = new(Block, test_utils:tmp_dir("ledger_test")),
-    ?assertEqual(blockchain_ledger:increment_height(blockchain_ledger:new()), ledger(Chain)).
+    ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
 dir_test() ->
     BaseDir = test_utils:tmp_dir("dir_test"),
