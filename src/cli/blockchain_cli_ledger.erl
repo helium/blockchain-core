@@ -330,7 +330,7 @@ ledger_gateways(_CmdBase, [], []) ->
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
     [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)} |
-     blockchain_ledger_gateway:print(Gateway)].
+     blockchain_ledger_gateway_v1:print(Gateway)].
 
 %%--------------------------------------------------------------------
 %% ledger assert_loc_request
