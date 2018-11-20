@@ -98,7 +98,7 @@ type(Txn) ->
         ,blockchain_txn_create_htlc_v1, blockchain_txn_redeem_htlc_v1
         ,blockchain_txn_add_gateway_v1 ,blockchain_txn_coinbase_v1
         ,blockchain_txn_gen_consensus_group_v1 ,blockchain_txn_poc_request_v1
-        ,blockchain_txn_poc_receipts_v1
+        ,blockchain_txn_poc_receipts_v1, blockchain_txn_gen_gateway_v1
     ],
     case lists:filter(fun(M) -> M:is(Txn) end, Types) of
         [Type] -> Type;

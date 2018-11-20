@@ -3,7 +3,7 @@
 %% == Blockchain Transaction Genesis Gateway ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_gen_gateway).
+-module(blockchain_txn_gen_gateway_v1).
 
 -export([
          new/6
@@ -14,13 +14,14 @@
          ,nonce/1
          ,score/1
          ,is/1
+         ,absorb/2
         ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_genesis_gateway, {
+-record(txn_genesis_gateway_v1, {
           gateway_address :: libp2p_crypto:address()
           ,owner_address :: libp2p_crypto:address()
           ,location :: undefined | pos_integer()
@@ -29,7 +30,7 @@
           ,score = 0.0 :: float()
          }).
 
--type txn_genesis_gateway() :: #txn_genesis_gateway{}.
+-type txn_genesis_gateway() :: #txn_genesis_gateway_v1{}.
 -export_type([txn_genesis_gateway/0]).
 
 %%--------------------------------------------------------------------
@@ -43,12 +44,12 @@
           Nonce :: non_neg_integer(),
           Score :: float()) -> txn_genesis_gateway().
 new(GatewayAddress, OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
-    #txn_genesis_gateway{gateway_address=GatewayAddress,
-                         owner_address=OwnerAddress,
-                         location=Location,
-                         last_poc_challenge=LastPocChallenge,
-                         nonce=Nonce,
-                         score=Score}.
+    #txn_genesis_gateway_v1{gateway_address=GatewayAddress,
+                            owner_address=OwnerAddress,
+                            location=Location,
+                            last_poc_challenge=LastPocChallenge,
+                            nonce=Nonce,
+                            score=Score}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,7 +57,7 @@ new(GatewayAddress, OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
 %%--------------------------------------------------------------------
 -spec gateway_address(txn_genesis_gateway()) -> libp2p_crypto:address().
 gateway_address(Txn) ->
-    Txn#txn_genesis_gateway.gateway_address.
+    Txn#txn_genesis_gateway_v1.gateway_address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -64,7 +65,7 @@ gateway_address(Txn) ->
 %%--------------------------------------------------------------------
 -spec owner_address(txn_genesis_gateway()) -> libp2p_crypto:address().
 owner_address(Txn) ->
-    Txn#txn_genesis_gateway.owner_address.
+    Txn#txn_genesis_gateway_v1.owner_address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,7 +73,7 @@ owner_address(Txn) ->
 %%--------------------------------------------------------------------
 -spec location(txn_genesis_gateway()) -> undefined | pos_integer().
 location(Txn) ->
-    Txn#txn_genesis_gateway.location.
+    Txn#txn_genesis_gateway_v1.location.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -80,7 +81,7 @@ location(Txn) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(txn_genesis_gateway()) -> undefined | non_neg_integer().
 last_poc_challenge(Txn) ->
-    Txn#txn_genesis_gateway.last_poc_challenge.
+    Txn#txn_genesis_gateway_v1.last_poc_challenge.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -88,7 +89,7 @@ last_poc_challenge(Txn) ->
 %%--------------------------------------------------------------------
 -spec nonce(txn_genesis_gateway()) -> non_neg_integer().
 nonce(Txn) ->
-    Txn#txn_genesis_gateway.nonce.
+    Txn#txn_genesis_gateway_v1.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -96,7 +97,7 @@ nonce(Txn) ->
 %%--------------------------------------------------------------------
 -spec score(txn_genesis_gateway()) -> float().
 score(Txn) ->
-    Txn#txn_genesis_gateway.score.
+    Txn#txn_genesis_gateway_v1.score.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -104,20 +105,37 @@ score(Txn) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_genesis_gateway).
+    erlang:is_record(Txn, txn_genesis_gateway_v1).
 
+-spec absorb(txn_genesis_gateway(),
+             blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
+                                               | {error, any()}.
+absorb(Txn, Ledger0) ->
+    GatewayAddress = ?MODULE:gateway_address(Txn),
+    OwnerAddress = ?MODULE:owner_address(Txn),
+    Location = ?MODULE:location(Txn),
+    LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
+    Nonce = ?MODULE:nonce(Txn),
+    Score = ?MODULE:score(Txn),
+    {ok, blockchain_ledger_v1:add_gateway(OwnerAddress,
+                                          GatewayAddress,
+                                          Location,
+                                          LastPocChallenge,
+                                          Nonce,
+                                          Score,
+                                          Ledger0)}.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_genesis_gateway{gateway_address = <<"0">>,
-                              owner_address = <<"1">>,
-                              location=1000,
-                              last_poc_challenge=30,
-                              nonce=10,
-                              score=0.8},
+    Tx = #txn_genesis_gateway_v1{gateway_address = <<"0">>,
+                                 owner_address = <<"1">>,
+                                 location=1000,
+                                 last_poc_challenge=30,
+                                 nonce=10,
+                                 score=0.8},
     ?assertEqual(Tx, new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8)).
 
 is_test() ->
