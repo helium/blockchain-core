@@ -227,10 +227,16 @@ init(Args) ->
     Swarm = blockchain_swarm:swarm(),
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
     N = proplists:get_value(num_consensus_members, Args, 0),
-    Dir = proplists:get_value(base_dir, Args, "data"),
+    BaseDir = proplists:get_value(base_dir, Args, "data"),
+    GenDir = proplists:get_value(update_dir, Args, undefined),
     Blockchain =
-        case blockchain:load(Dir) of
-            undefined -> {undefined, Dir};
+        case blockchain:load(BaseDir, GenDir) of
+            undefined ->
+                {undefined, BaseDir};
+            {update, GenDir} ->
+                {ok, Block} = blockchain:load_genesis(GenDir),
+                ok = ?MODULE:integrate_genesis_block(Block),
+                {undefined, BaseDir};
             Chain ->
                 ok = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,

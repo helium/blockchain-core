@@ -15,10 +15,11 @@
     blocks_size/1,
     add_block/2,
     get_block/2,
-    save/1, load/1,
+    save/1, load/1, load/2,
     build/3,
     reindex/1,
-    base_dir/1
+    base_dir/1,
+    load_genesis/1
 ]).
 
 -include("blockchain.hrl").
@@ -209,6 +210,28 @@ load(BaseDir) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Compare genesis block given before loading
+%% @end
+%%--------------------------------------------------------------------
+-spec load(file:filename_all(), file:filename_all() | undefined) -> blockchain() | undefined | {update, file:filename_all()}.
+load(BaseDir, undefined) ->
+    load(BaseDir);
+load(BaseDir, GenDir) ->
+    case load_genesis(GenDir) of
+        {error, _} ->
+            load(BaseDir);
+        {ok, _}=LoadRes ->
+            case LoadRes =:= load_genesis(BaseDir) of
+                true ->
+                    load(BaseDir);
+                false ->
+                    ok = clean(BaseDir),
+                    {update, GenDir}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec build(blockchain_block:block(), file:filename_all(), non_neg_integer()) -> [blockchain_block:block()].
@@ -259,6 +282,20 @@ reindex(BaseDir) ->
 base_dir(BaseDir) ->
     filename:join(BaseDir, ?BASE_DIR).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec load_genesis(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
+load_genesis(Dir) ->
+    File = filename:join(Dir, ?GEN_HASH_FILE),
+    case file:read_file(File) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Binary} ->
+            {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -293,20 +330,6 @@ save_genesis(Block, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load_genesis(file:filename_all()) -> {ok, blockchain_block:block()} | {error, any()}.
-load_genesis(Dir) ->
-    File = filename:join(Dir, ?GEN_HASH_FILE),
-    case file:read_file(File) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Binary} ->
-            {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec save_head(blockchain_block:block(), file:filename_all()) -> ok.
 save_head(Block, Dir) ->
     File = filename:join(Dir, ?HEAD_FILE),
@@ -327,6 +350,18 @@ load_head(Dir) ->
         {ok, Binary} ->
             {ok, blockchain_block:deserialize(blockchain_util:serial_version(Dir), Binary)}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec clean(file:filename_all()) ->  ok | {error, any()}.
+clean(Dir) ->
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
