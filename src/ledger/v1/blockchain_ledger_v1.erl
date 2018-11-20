@@ -166,7 +166,7 @@ payment_nonce(#entry_v1{nonce=Nonce}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec htlc_nonce(htlc()) -> non_neg_integer().
-htlc_nonce(#htlc{nonce=Nonce}) ->
+htlc_nonce(#htlc_v1{nonce=Nonce}) ->
     Nonce.
 
 %%--------------------------------------------------------------------
@@ -198,7 +198,7 @@ update_transaction_fee(Ledger=#ledger_v1{transaction_fee=Fee}) ->
             ?MODULE:current_height(Ledger) div 1000;
         false ->
             Fee
-    end,    
+    end,
     Ledger#ledger_v1{transaction_fee=NewFee}.
 
 %%--------------------------------------------------------------------
@@ -308,7 +308,7 @@ add_gateway(OwnerAddr,
                                                    LastPocChallenge,
                                                    Nonce,
                                                    Score),
-            Ledger#ledger{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+            Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
     end.
 
 %%--------------------------------------------------------------------

@@ -45,7 +45,7 @@ new(OwnerAddress, Location) ->
 
 -spec new(libp2p_crypto:address(), pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer(), float()) -> gateway().
 new(OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
-    #gateway{
+    #gateway_v1{
         owner_address=OwnerAddress
         ,location=Location
         ,last_poc_challenge=LastPocChallenge
