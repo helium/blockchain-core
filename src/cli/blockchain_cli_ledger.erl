@@ -337,8 +337,10 @@ ledger_export_usage() ->
     ].
 
 ledger_export(["ledger", "export", Filename], [], []) ->
-    case file:write_file(Filename,
-                         io_lib:fwrite("~p.\n", [blockchain_ledger_exporter:export(get_ledger())])) of
+    case (catch file:write_file(Filename,
+                                io_lib:fwrite("~p.\n", [blockchain_ledger_exporter_v1:export(get_ledger())]))) of
+        {'EXIT', _} ->
+            usage;
         ok ->
             [clique_status:text(io_lib:format("ok, transactions written to ~p", [Filename]))];
         {error, Reason} ->

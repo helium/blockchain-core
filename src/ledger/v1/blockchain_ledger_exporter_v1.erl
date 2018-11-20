@@ -3,7 +3,7 @@
 %% == Blockchain Ledger Exporter ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_exporter).
+-module(blockchain_ledger_exporter_v1).
 
 -export([
          export/1,
