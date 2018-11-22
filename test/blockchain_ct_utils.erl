@@ -1,20 +1,20 @@
 -module(blockchain_ct_utils).
 -include_lib("eunit/include/eunit.hrl").
 
--export([pmap/2
-         ,wait_until/1
-         ,wait_until/3
-         ,wait_until_disconnected/2
-         ,start_node/3
-         ,partition_cluster/2
-         ,heal_cluster/2
-         ,connect/1
-         ,count/2
-         ,randname/1
-         ,get_config/2
-         ,random_n/2
-         ,init_per_testcase/2
-         ,end_per_testcase/2
+-export([pmap/2,
+         wait_until/1,
+         wait_until/3,
+         wait_until_disconnected/2,
+         start_node/3,
+         partition_cluster/2,
+         heal_cluster/2,
+         connect/1,
+         count/2,
+         randname/1,
+         get_config/2,
+         random_n/2,
+         init_per_testcase/2,
+         end_per_testcase/2
         ]).
 
 pmap(F, L) ->

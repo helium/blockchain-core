@@ -6,37 +6,37 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/0
-    ,increment_height/1
-    ,balance/1
-    ,htlc_hashlock/1
-    ,htlc_timelock/1
-    ,htlc_payer/1
-    ,htlc_payee/1
-    ,payment_nonce/1
-    ,htlc_nonce/1
-    ,new_entry/2
-    ,new_htlc/5
-    ,find_entry/2
-    ,find_htlc/2
-    ,find_gateway_info/2
-    ,consensus_members/1, consensus_members/2
-    ,transaction_fee/1
-    ,update_transaction_fee/1
-    ,active_gateways/1
-    ,add_gateway/3, add_gateway/7
-    ,add_gateway_location/4
-    ,credit_account/3
-    ,debit_account/4
-    ,add_htlc/7
-    ,redeem_htlc/3
-    ,request_poc/2
-    ,save/2, load/1
-    ,serialize/2
-    ,deserialize/2
-    ,entries/1
-    ,current_height/1
-    ,htlcs/1
+    new/0,
+    increment_height/1,
+    balance/1,
+    htlc_hashlock/1,
+    htlc_timelock/1,
+    htlc_payer/1,
+    htlc_payee/1,
+    payment_nonce/1,
+    htlc_nonce/1,
+    new_entry/2,
+    new_htlc/5,
+    find_entry/2,
+    find_htlc/2,
+    find_gateway_info/2,
+    consensus_members/1, consensus_members/2,
+    transaction_fee/1,
+    update_transaction_fee/1,
+    active_gateways/1,
+    add_gateway/3, add_gateway/7,
+    add_gateway_location/4,
+    credit_account/3,
+    debit_account/4,
+    add_htlc/7,
+    redeem_htlc/3,
+    request_poc/2,
+    save/2, load/1,
+    serialize/2,
+    deserialize/2,
+    entries/1,
+    current_height/1,
+    htlcs/1
 ]).
 
 -include("blockchain.hrl").

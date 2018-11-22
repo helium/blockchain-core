@@ -4,13 +4,13 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    init/1, init_chain/2
-    ,generate_keys/1
-    ,wait_until/1, wait_until/3
-    ,compare_chains/2
-    ,create_block/2
-    ,tmp_dir/0, tmp_dir/1
-    ,nonl/1
+    init/1, init_chain/2,
+    generate_keys/1,
+    wait_until/1, wait_until/3,
+    compare_chains/2,
+    create_block/2,
+    tmp_dir/0, tmp_dir/1,
+    nonl/1
 ]).
 
 init(BaseDir) ->

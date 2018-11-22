@@ -6,13 +6,13 @@
 -module(blockchain_ledger_gateway_v1).
 
 -export([
-    new/2, new/5
-    ,owner_address/1, owner_address/2
-    ,location/1, location/2
-    ,last_poc_challenge/1, last_poc_challenge/2
-    ,nonce/1, nonce/2
-    ,score/1, score/2
-    ,print/1
+    new/2, new/5,
+    owner_address/1, owner_address/2,
+    location/1, location/2,
+    last_poc_challenge/1, last_poc_challenge/2,
+    nonce/1, nonce/2,
+    score/1, score/2,
+    print/1
 ]).
 
 -include("blockchain.hrl").

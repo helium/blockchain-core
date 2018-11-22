@@ -20,16 +20,16 @@ register_all_usage() ->
                           apply(clique, register_usage, Args)
                   end,
                   [
-                   ledger_pay_usage()
-                   ,ledger_create_htlc_usage()
-                   ,ledger_redeem_htlc_usage()
-                   ,ledger_balance_usage()
-                   ,ledger_export_usage()
-                   ,ledger_gateways_usage()
-                   ,ledger_add_gateway_usage()
-                   ,ledger_assert_loc_request_usage()
-                   ,ledger_assert_loc_txn_usage()
-                   ,ledger_usage()
+                   ledger_pay_usage(),
+                   ledger_create_htlc_usage(),
+                   ledger_redeem_htlc_usage(),
+                   ledger_balance_usage(),
+                   ledger_export_usage(),
+                   ledger_gateways_usage(),
+                   ledger_add_gateway_usage(),
+                   ledger_assert_loc_request_usage(),
+                   ledger_assert_loc_txn_usage(),
+                   ledger_usage()
                   ]).
 
 register_all_cmds() ->
@@ -37,16 +37,16 @@ register_all_cmds() ->
                           [apply(clique, register_command, Cmd) || Cmd <- Cmds]
                   end,
                   [
-                   ledger_pay_cmd()
-                   ,ledger_create_htlc_cmd()
-                   ,ledger_redeem_htlc_cmd()
-                   ,ledger_balance_cmd()
-                   ,ledger_export_cmd()
-                   ,ledger_gateways_cmd()
-                   ,ledger_add_gateway_cmd()
-                   ,ledger_assert_loc_request_cmd()
-                   ,ledger_assert_loc_txn_cmd()
-                   ,ledger_cmd()
+                   ledger_pay_cmd(),
+                   ledger_create_htlc_cmd(),
+                   ledger_redeem_htlc_cmd(),
+                   ledger_balance_cmd(),
+                   ledger_export_cmd(),
+                   ledger_gateways_cmd(),
+                   ledger_add_gateway_cmd(),
+                   ledger_assert_loc_request_cmd(),
+                   ledger_assert_loc_txn_cmd(),
+                   ledger_cmd()
                   ]).
 
 %%--------------------------------------------------------------------
