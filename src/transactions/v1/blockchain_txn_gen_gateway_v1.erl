@@ -109,21 +109,28 @@ is(Txn) ->
 
 -spec absorb(txn_genesis_gateway(),
              blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                               | {error, any()}.
+                                               | {error, not_in_genesis_block}.
 absorb(Txn, Ledger0) ->
-    GatewayAddress = ?MODULE:gateway_address(Txn),
-    OwnerAddress = ?MODULE:owner_address(Txn),
-    Location = ?MODULE:location(Txn),
-    LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
-    Nonce = ?MODULE:nonce(Txn),
-    Score = ?MODULE:score(Txn),
-    {ok, blockchain_ledger_v1:add_gateway(OwnerAddress,
-                                          GatewayAddress,
-                                          Location,
-                                          LastPocChallenge,
-                                          Nonce,
-                                          Score,
-                                          Ledger0)}.
+    %% NOTE: This transaction should only be absorbed when it's in the genesis block
+    case blockchain_ledger_v1:current_height(Ledger0) of
+        undefined ->
+            GatewayAddress = ?MODULE:gateway_address(Txn),
+            OwnerAddress = ?MODULE:owner_address(Txn),
+            Location = ?MODULE:location(Txn),
+            LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
+            Nonce = ?MODULE:nonce(Txn),
+            Score = ?MODULE:score(Txn),
+            {ok, blockchain_ledger_v1:add_gateway(OwnerAddress,
+                                                  GatewayAddress,
+                                                  Location,
+                                                  LastPocChallenge,
+                                                  Nonce,
+                                                  Score,
+                                                  Ledger0)};
+        _ ->
+            {error, not_in_genesis_block}
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
