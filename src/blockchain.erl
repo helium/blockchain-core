@@ -221,7 +221,7 @@ load(BaseDir, GenDir) ->
         {error, _} ->
             load(BaseDir);
         {ok, _}=LoadRes ->
-            case LoadRes =:= load_genesis(BaseDir) of
+            case LoadRes =:= load_genesis(base_dir(BaseDir)) of
                 true ->
                     load(BaseDir);
                 false ->

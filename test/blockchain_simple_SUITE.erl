@@ -10,6 +10,7 @@
 -export([
     basic/1,
     reload/1,
+    restart/1,
     htlc_payee_redeem/1,
     htlc_payer_redeem/1,
     poc_request/1
@@ -26,7 +27,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, reload, htlc_payee_redeem, htlc_payer_redeem, poc_request].
+    [basic, reload, restart, htlc_payee_redeem, htlc_payer_redeem, poc_request].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -134,6 +135,61 @@ reload(_Config) ->
 
     true = erlang:exit(Sup1, normal),
     ok.
+
+
+restart(_Config) ->
+    BaseDir = "data/test_SUITE/restart",
+    GenDir = "data/test_SUITE/restart2",
+    Balance = 5000,
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    Chain0 = blockchain_worker:blockchain(),
+    GenBlock = blockchain:head_block(Chain0),
+    true = erlang:exit(Sup, normal),
+
+    % Restart with an empty 'GenDir'
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Opts = [
+        {key, {PubKey, SigFun}}
+        ,{seed_nodes, []}
+        ,{port, 0}
+        ,{num_consensus_members, 7}
+        ,{base_dir, BaseDir}
+        ,{update_dir, GenDir}
+    ],
+    {ok, Sup1} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    Chain = blockchain_worker:blockchain(),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
+    ?assertEqual(GenBlock, blockchain:head_block(Chain)),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain)),
+    ?assertEqual(GenBlock, blockchain:genesis_block(Chain)),
+    ?assertEqual(1, blockchain_worker:height()),
+
+    true = erlang:exit(Sup1, normal),
+
+    % Restart with the existing genesis block in 'GenDir'
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
+    ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),
+
+    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(v1, GenBlock)),
+
+    {ok, Sup2} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    Chain1 = blockchain_worker:blockchain(),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
+    ?assertEqual(GenBlock, blockchain:head_block(Chain1)),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain1)),
+    ?assertEqual(GenBlock, blockchain:genesis_block(Chain1)),
+    ?assertEqual(1, blockchain_worker:height()),
+
+    true = erlang:exit(Sup2, normal),
+    ok.
+
 
 htlc_payee_redeem(_Config) ->
     BaseDir = "data/test_SUITE/htlc_payee_redeem",
