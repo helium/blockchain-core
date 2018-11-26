@@ -142,7 +142,7 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
         {'EXIT', _Reason} ->
             usage;
         ok ->
-            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:address_to_b58(?HTLC_VER, Address)]),
+            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:address_to_b58(?B58_HTLC_VER, Address)]),
             [clique_status:text(Text)];
         _ -> usage
     end.
@@ -315,7 +315,7 @@ format_ledger_balance({Addr, Entry}) ->
     ].
 
 format_htlc_balance({Addr, HTLC}) ->
-    [{address, libp2p_crypto:address_to_b58(?HTLC_VER, Addr)},
+    [{address, libp2p_crypto:address_to_b58(?B58_HTLC_VER, Addr)},
      {payer, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payer(HTLC))},
      {payee, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payee(HTLC))},
      {hashlock, blockchain_util:bin_to_hex(blockchain_ledger:htlc_hashlock(HTLC))},
