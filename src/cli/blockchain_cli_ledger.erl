@@ -9,6 +9,8 @@
 
 -export([register_cli/0]).
 
+-include("blockchain.hrl").
+
 register_cli() ->
     register_all_usage()
     ,register_all_cmds().
@@ -140,7 +142,7 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
         {'EXIT', _Reason} ->
             usage;
         ok ->
-            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:address_to_b58(24, Address)]),
+            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:address_to_b58(?B58_HTLC_VER, Address)]),
             [clique_status:text(Text)];
         _ -> usage
     end.
@@ -257,21 +259,25 @@ ledger_add_gateway_txn(_, _, _) ->
 %%--------------------------------------------------------------------
 ledger_balance_cmd() ->
     [
+     [["ledger", "balance", '*'], [], [], fun ledger_balance/3],
      [["ledger", "balance"], [],
-      [{all, [{shortname, "a"},
+      [ {htlc, [{shortname, "p"},
+              {longname, "htlc"}]},
+        {all, [{shortname, "a"},
               {longname, "all"}]}
-      ], fun ledger_balance/3],
-     [["ledger", "balance", '*'], [], [], fun ledger_balance/3]
+      ], fun ledger_balance/3]   
     ].
 
 ledger_balance_usage() ->
     [["ledger", "balance"],
-     ["ledger balance [<p2p> | -a]\n\n",
+     ["ledger balance [<address> | -a | -h]\n\n",
       "  Retrieve the current balanace for this node, all nodes,\n",
-      "  or a given <p2p> node.\n\n"
+      "  or a given <address>.\n\n"
       "Options\n\n",
       "  -a, --all\n",
-      "    Display balances for all known nodes.\n"
+      "    Display balances for all known addresses.\n"
+      "  -p, --htlc\n",
+      "    Display balances for all known HTLCs.\n"
      ]
     ].
 
@@ -288,6 +294,12 @@ ledger_balance(_CmdBase, [], []) ->
     Ledger = get_ledger(),
     R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, blockchain_ledger_v1:entries(Ledger))})],
     [clique_status:table(R)];
+ledger_balance(_CmdBase, [], [{htlc, _}]) ->
+    Balances = maps:filter(fun(K, _V) ->
+                                   is_binary(K)
+                           end, blockchain_ledger_v1:htlcs(get_ledger())),
+    R = [format_htlc_balance(E) || E <- maps:to_list(Balances)],
+    [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{all, _}]) ->
     Balances = maps:filter(fun(K, _V) ->
                                    is_binary(K)
@@ -300,6 +312,15 @@ format_ledger_balance({Addr, Entry}) ->
     [{p2p, libp2p_crypto:address_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_v1:payment_nonce(Entry))},
      {balance, integer_to_list(blockchain_ledger_v1:balance(Entry))}
+    ].
+
+format_htlc_balance({Addr, HTLC}) ->
+    [{address, libp2p_crypto:address_to_b58(?B58_HTLC_VER, Addr)},
+     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payer(HTLC))},
+     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payee(HTLC))},
+     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_v1:htlc_hashlock(HTLC))},
+     {timelock, integer_to_list(blockchain_ledger_v1:htlc_timelock(HTLC))},
+     {amount, integer_to_list(blockchain_ledger_v1:balance(HTLC))}
     ].
 
 get_ledger() ->

@@ -13,5 +13,10 @@
 -define(HEAD_FILE, "head").
 -define(LEDGER_FILE, "ledger").
 
+% B58 Address Versions
+-define(B58_MAINNET_VER, 0).
+-define(B58_TESTNET_VER, 2).
+-define(B58_HTLC_VER, 24).
+
 % Misc
 -define(EVT_MGR, blockchain_event_mgr).
