@@ -297,7 +297,7 @@ ledger_balance(_CmdBase, [], []) ->
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
     Balances = maps:filter(fun(K, _V) ->
                                    is_binary(K)
-                           end, blockchain_ledger:htlcs(get_ledger())),
+                           end, blockchain_ledger_v1:htlcs(get_ledger())),
     R = [format_htlc_balance(E) || E <- maps:to_list(Balances)],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{all, _}]) ->
@@ -316,11 +316,11 @@ format_ledger_balance({Addr, Entry}) ->
 
 format_htlc_balance({Addr, HTLC}) ->
     [{address, libp2p_crypto:address_to_b58(?B58_HTLC_VER, Addr)},
-     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payer(HTLC))},
-     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger:htlc_payee(HTLC))},
-     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger:htlc_hashlock(HTLC))},
-     {timelock, integer_to_list(blockchain_ledger:htlc_timelock(HTLC))},
-     {amount, integer_to_list(blockchain_ledger:balance(HTLC))}
+     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payer(HTLC))},
+     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payee(HTLC))},
+     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_v1:htlc_hashlock(HTLC))},
+     {timelock, integer_to_list(blockchain_ledger_v1:htlc_timelock(HTLC))},
+     {amount, integer_to_list(blockchain_ledger_v1:balance(HTLC))}
     ].
 
 get_ledger() ->
