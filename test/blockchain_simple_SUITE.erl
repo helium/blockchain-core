@@ -421,9 +421,6 @@ bogus_coinbase_test(Config) ->
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
     Block2 = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
 
-    %% NOTE: I'm not sure what happens to the block in this case, does it get added?
-    %% Assuming it does get added (it may contain some good transactions as well), regardless
-    %% this particular transaction must not affect the balances
     ok = blockchain_worker:add_block(Block2, self()),
     timer:sleep(500),
 
@@ -433,14 +430,13 @@ bogus_coinbase_test(Config) ->
               end,
               maps:values(blockchain_ledger_v1:entries(blockchain_worker:ledger()))),
 
-    %% Check that the chain grew to 2
-    ?assertEqual(2, blockchain_worker:height()),
+    %% Check that the chain didn't grow
+    ?assertEqual(1, blockchain_worker:height()),
 
     ok.
 
 bogus_coinbase_with_good_payment_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
 
     %% Lets give the first member a bunch of coinbase tokens
@@ -457,14 +453,8 @@ bogus_coinbase_with_good_payment_test(Config) ->
     ok = blockchain_worker:add_block(Block2, self()),
     timer:sleep(500),
 
-    %% Check that the chain grew to 2
-    ?assertEqual(2, blockchain_worker:height()),
-
-    NewEntry0 = blockchain_ledger_v1:find_entry(Recipient, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance + 2500, blockchain_ledger_v1:balance(NewEntry0)),
-
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2510, blockchain_ledger_v1:balance(NewEntry1)),
+    %% Check that the chain didnt' grow
+    ?assertEqual(1, blockchain_worker:height()),
 
     ok.
 

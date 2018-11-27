@@ -78,15 +78,11 @@ absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
     absorb(Txns, blockchain_ledger_v1:new());
 absorb([Txn|Txns], Ledger0) ->
     Type = type(Txn),
-    %% XXX: Raising an error here serves no purpose since that clause
-    %% is never actually caught whenever we add a block in blockchain.erl
-    %% Furthermore, maybe there is no reason to error out in the first place
-    %% because IF there _is_ an error while absorbing a transaction in the ledger
-    %% we still want to integrate that block regardless albeit we don't want to update
-    %% the ledger itself
-    case Type:absorb(Txn, Ledger0) of
-        {error, _Reason} -> absorb(Txns, Ledger0);
+    try Type:absorb(Txn, Ledger0) of
+        {error, _Reason}=Error -> Error;
         {ok, Ledger1} -> absorb(Txns, Ledger1)
+    catch
+        What:Why -> {error, {type(Txn), What, Why}}
     end.
 
 

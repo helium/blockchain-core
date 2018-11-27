@@ -147,12 +147,17 @@ blocks_size(Blockchain) ->
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     Ledger0 = ?MODULE:ledger(Blockchain),
-    {ok, Ledger1} = blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger0),
-    Dir = ?MODULE:dir(Blockchain),
-    ok = blockchain_block:save(Hash, Block, Dir),
-    ok = blockchain_ledger_v1:save(Ledger1, Dir),
-    ok = save_head(Block, Dir),
-    Blockchain#blockchain{head={Hash, Block}, ledger=Ledger1}.
+    case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger0) of
+        {ok, Ledger1} ->
+            Dir = ?MODULE:dir(Blockchain),
+            ok = blockchain_block:save(Hash, Block, Dir),
+            ok = blockchain_ledger_v1:save(Ledger1, Dir),
+            ok = save_head(Block, Dir),
+            Blockchain#blockchain{head={Hash, Block}, ledger=Ledger1};
+        {error, Reason} ->
+            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [Hash, Reason]),
+            Blockchain
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
