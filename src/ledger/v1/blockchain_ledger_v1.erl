@@ -173,7 +173,7 @@ htlc_nonce(#htlc_v1{nonce=Nonce}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_height(ledger()) -> non_neg_integer().
+-spec current_height(ledger()) -> undefined | pos_integer().
 current_height(Ledger) ->
     Ledger#ledger_v1.current_height.
 
