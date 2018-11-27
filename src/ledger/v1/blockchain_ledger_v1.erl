@@ -14,6 +14,7 @@
     htlc_payer/1,
     htlc_payee/1,
     payment_nonce/1,
+    htlc_nonce/1,
     new_entry/2,
     new_htlc/5,
     find_entry/2,
@@ -23,7 +24,7 @@
     transaction_fee/1,
     update_transaction_fee/1,
     active_gateways/1,
-    add_gateway/3,
+    add_gateway/3, add_gateway/7,
     add_gateway_location/4,
     credit_account/3,
     debit_account/4,
@@ -164,7 +165,15 @@ payment_nonce(#entry_v1{nonce=Nonce}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_height(ledger()) -> non_neg_integer().
+-spec htlc_nonce(htlc()) -> non_neg_integer().
+htlc_nonce(#htlc_v1{nonce=Nonce}) ->
+    Nonce.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec current_height(ledger()) -> undefined | pos_integer().
 current_height(Ledger) ->
     Ledger#ledger_v1.current_height.
 
@@ -189,7 +198,7 @@ update_transaction_fee(Ledger=#ledger_v1{transaction_fee=Fee}) ->
             ?MODULE:current_height(Ledger) div 1000;
         false ->
             Fee
-    end,    
+    end,
     Ledger#ledger_v1{transaction_fee=NewFee}.
 
 %%--------------------------------------------------------------------
@@ -257,7 +266,7 @@ active_gateways(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ledger() | {error, any()}.
+-spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> {error, gateway_already_active} | ledger().
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of
@@ -272,7 +281,41 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> ledger() | {error, any()}.
+%% NOTE: This should only be allowed when adding a gateway which was
+%% added in an old blockchain and is being added via a special
+%% genesis block transaction to a new chain.
+-spec add_gateway(OwnerAddress :: libp2p_crypto:address(),
+                  GatewayAddress :: libp2p_crypto:address(),
+                  Location :: undefined | pos_integer(),
+                  LastPocChallenge :: undefined | non_neg_integer(),
+                  Nonce :: non_neg_integer(),
+                  Score :: float(),
+                  Ledger :: ledger()) -> {error, gateway_already_active} | ledger().
+add_gateway(OwnerAddr,
+            GatewayAddress,
+            Location,
+            LastPocChallenge,
+            Nonce,
+            Score,
+            Ledger) ->
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
+    case maps:is_key(GatewayAddress, ActiveGateways) of
+        true ->
+            {error, gateway_already_active};
+        false ->
+            GwInfo = blockchain_ledger_gateway_v1:new(OwnerAddr,
+                                                   Location,
+                                                   LastPocChallenge,
+                                                   Nonce,
+                                                   Score),
+            Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> {error, no_active_gateway | no_gateway_info} | ledger().
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     case maps:is_key(GatewayAddress, ActiveGateways) of

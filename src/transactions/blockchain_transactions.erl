@@ -20,6 +20,7 @@
                        | blockchain_txn_assert_location_v1:txn_assert_location()
                        | blockchain_txn_coinbase_v1:txn_coinbase()
                        | blockchain_txn_gen_consensus_group_v1:txn_genesis_consensus_group()
+                       | blockchain_txn_gen_gateway_v1:txn_genesis_gateway()
                        | blockchain_txn_payment_v1:txn_payment()
                        | blockchain_txn_create_htlc_v1:txn_create_htlc()
                        | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
@@ -32,6 +33,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+%% NOTE: Called in the miner
 -spec validate(blockchain_transaction:transactions(),
                blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
                                                blockchain_transaction:transactions()}.
@@ -62,8 +64,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                 | {error, any()}.
-absorb([], Ledger) ->    
+                                                                    | {error, any()}.
+absorb([], Ledger) ->
     Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
     %% TODO: probably not the correct place to be incrementing the height for the ledger?
     {ok, blockchain_ledger_v1:increment_height(Ledger1)};
@@ -77,6 +79,7 @@ absorb([Txn|Txns], Ledger0) ->
     catch
         What:Why -> {error, {type(Txn), What, Why}}
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -95,9 +98,9 @@ type(Txn) ->
     Types = [
         blockchain_txn_assert_location_v1, blockchain_txn_payment_v1
         ,blockchain_txn_create_htlc_v1, blockchain_txn_redeem_htlc_v1
-        ,blockchain_txn_add_gateway_v1 ,blockchain_txn_coinbase_v1
+        ,blockchain_txn_add_gateway_v1, blockchain_txn_coinbase_v1
         ,blockchain_txn_gen_consensus_group_v1 ,blockchain_txn_poc_request_v1
-        ,blockchain_txn_poc_receipts_v1
+        ,blockchain_txn_poc_receipts_v1, blockchain_txn_gen_gateway_v1
     ],
     case lists:filter(fun(M) -> M:is(Txn) end, Types) of
         [Type] -> Type;

@@ -15,7 +15,7 @@
 %%====================================================================
 
 start(_StartType, _StartArgs) ->
-    Key = 
+    Key =
         case application:get_env(blockchain, key) of
             undefined ->
                 {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
@@ -30,7 +30,7 @@ start(_StartType, _StartArgs) ->
     SeedNodeDNS = application:get_env(blockchain, seed_node_dns, []),
     % look up the DNS record and add any resulting addresses to the SeedNodes
     % no need to do any checks here as any bad combination results in an empty list
-    SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),    
+    SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),
     Args = [
         {base_dir, BaseDir},
         {num_consensus_members, NumConsensusMembers},

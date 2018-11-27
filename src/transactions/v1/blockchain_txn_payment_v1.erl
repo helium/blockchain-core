@@ -42,7 +42,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), pos_integer(), 
+-spec new(libp2p_crypto:address(), libp2p_crypto:address(), pos_integer(),
           non_neg_integer(), non_neg_integer()) -> txn_payment().
 new(Payer, Recipient, Amount, Fee, Nonce) ->
     #txn_payment_v1{
@@ -155,7 +155,7 @@ absorb(Txn, Ledger0) ->
             case ?MODULE:is_valid(Txn) of
                 true ->
                     Payer = ?MODULE:payer(Txn),
-                    Nonce = ?MODULE:nonce(Txn),                     
+                    Nonce = ?MODULE:nonce(Txn),
                     case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;

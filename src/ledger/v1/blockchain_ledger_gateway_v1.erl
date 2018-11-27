@@ -6,7 +6,7 @@
 -module(blockchain_ledger_gateway_v1).
 
 -export([
-    new/2,
+    new/2, new/5,
     owner_address/1, owner_address/2,
     location/1, location/2,
     last_poc_challenge/1, last_poc_challenge/2,
@@ -41,6 +41,16 @@ new(OwnerAddress, Location) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location
+    }.
+
+-spec new(libp2p_crypto:address(), pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer(), float()) -> gateway().
+new(OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
+    #gateway_v1{
+        owner_address=OwnerAddress
+        ,location=Location
+        ,last_poc_challenge=LastPocChallenge
+        ,nonce=Nonce
+        ,score=Score
     }.
 
 %%--------------------------------------------------------------------

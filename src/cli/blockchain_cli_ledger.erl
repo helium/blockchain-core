@@ -20,15 +20,16 @@ register_all_usage() ->
                           apply(clique, register_usage, Args)
                   end,
                   [
-                   ledger_pay_usage()
-                   ,ledger_create_htlc_usage()
-                   ,ledger_redeem_htlc_usage()
-                   ,ledger_balance_usage()
-                   ,ledger_gateways_usage()
-                   ,ledger_add_gateway_usage()
-                   ,ledger_assert_loc_request_usage()
-                   ,ledger_assert_loc_txn_usage()
-                   ,ledger_usage()
+                   ledger_pay_usage(),
+                   ledger_create_htlc_usage(),
+                   ledger_redeem_htlc_usage(),
+                   ledger_balance_usage(),
+                   ledger_export_usage(),
+                   ledger_gateways_usage(),
+                   ledger_add_gateway_usage(),
+                   ledger_assert_loc_request_usage(),
+                   ledger_assert_loc_txn_usage(),
+                   ledger_usage()
                   ]).
 
 register_all_cmds() ->
@@ -36,15 +37,16 @@ register_all_cmds() ->
                           [apply(clique, register_command, Cmd) || Cmd <- Cmds]
                   end,
                   [
-                   ledger_pay_cmd()
-                   ,ledger_create_htlc_cmd()
-                   ,ledger_redeem_htlc_cmd()
-                   ,ledger_balance_cmd()
-                   ,ledger_gateways_cmd()
-                   ,ledger_add_gateway_cmd()
-                   ,ledger_assert_loc_request_cmd()
-                   ,ledger_assert_loc_txn_cmd()
-                   ,ledger_cmd()
+                   ledger_pay_cmd(),
+                   ledger_create_htlc_cmd(),
+                   ledger_redeem_htlc_cmd(),
+                   ledger_balance_cmd(),
+                   ledger_export_cmd(),
+                   ledger_gateways_cmd(),
+                   ledger_add_gateway_cmd(),
+                   ledger_assert_loc_request_cmd(),
+                   ledger_assert_loc_txn_cmd(),
+                   ledger_cmd()
                   ]).
 
 %%--------------------------------------------------------------------
@@ -54,6 +56,7 @@ ledger_usage() ->
     [["ledger"],
      ["blockchain ledger commands\n\n",
       "  ledger balance             - Get the balance for this or all addresses.\n"
+      "  ledger export              - Export transactions from the ledger to <file>.\n"
       "  ledger pay                 - Transfer tokens to a crypto address.\n"
       "  ledger create_htlc         - Create or a hashed timelock address.\n"
       "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
@@ -317,6 +320,34 @@ get_ledger() ->
         undefined -> blockchain_ledger_v1:new();
         L -> L
     end.
+
+%%--------------------------------------------------------------------
+%% ledger export
+%%--------------------------------------------------------------------
+ledger_export_cmd() ->
+    [
+     [["ledger", "export", '*'], [], [], fun ledger_export/3]
+    ].
+
+ledger_export_usage() ->
+    [["ledger", "export"],
+     ["ledger export <filename>\n\n",
+      "  Export transactions from the ledger to a given <filename>.\n"
+     ]
+    ].
+
+ledger_export(["ledger", "export", Filename], [], []) ->
+    case (catch file:write_file(Filename,
+                                io_lib:fwrite("~p.\n", [blockchain_ledger_exporter_v1:export(get_ledger())]))) of
+        {'EXIT', _} ->
+            usage;
+        ok ->
+            [clique_status:text(io_lib:format("ok, transactions written to ~p", [Filename]))];
+        {error, Reason} ->
+            [clique_status:text(io_lib:format("~p", [Reason]))]
+    end;
+ledger_export(_, _, _) ->
+    usage.
 
 %%--------------------------------------------------------------------
 %% ledger gateways

@@ -4,13 +4,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    init/1, init_chain/2
-    ,generate_keys/1
-    ,wait_until/1, wait_until/3
-    ,compare_chains/2
-    ,create_block/2
-    ,tmp_dir/0, tmp_dir/1
-    ,nonl/1
+    init/1, init_chain/2,
+    generate_keys/1,
+    wait_until/1, wait_until/3,
+    compare_chains/2,
+    create_block/2,
+    tmp_dir/0, tmp_dir/1,
+    nonl/1,
+    create_payment_transaction/6
 ]).
 
 init(BaseDir) ->
@@ -117,3 +118,7 @@ nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
 nonl([]) -> [].
 
+create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) ->
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    blockchain_txn_payment_v1:sign(Tx, SigFun).
