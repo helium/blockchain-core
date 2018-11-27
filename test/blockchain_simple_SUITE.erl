@@ -99,6 +99,16 @@ reload(_Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+
+    % Add some blocks
+    lists:foreach(
+        fun(_) ->
+            Block = test_utils:create_block(ConsensusMembers, []),
+            ok = blockchain_worker:add_block(Block, self())
+        end,
+        lists:seq(1, 10)
+    ),
+    ?assertEqual(11, blockchain_worker:height()),
     true = erlang:exit(Sup, normal),
 
     % Create new genesis block
@@ -145,6 +155,20 @@ restart(_Config) ->
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     GenBlock = blockchain:head_block(Chain0),
+
+    % Add some blocks
+    [LastBlock| _Blocks] = lists:foldl(
+        fun(_, Acc) ->
+            Block = test_utils:create_block(ConsensusMembers, []),
+            ok = blockchain_worker:add_block(Block, self()),
+            timer:sleep(100),
+            [Block|Acc]
+        end,
+        [],
+        lists:seq(1, 10)
+    ),
+    ?assertEqual(11, blockchain_worker:height()),
+
     true = erlang:exit(Sup, normal),
 
     % Restart with an empty 'GenDir'
@@ -163,11 +187,11 @@ restart(_Config) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(GenBlock, blockchain:head_block(Chain)),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
+    ?assertEqual(LastBlock, blockchain:head_block(Chain)),
     ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain)),
     ?assertEqual(GenBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual(11, blockchain_worker:height()),
 
     true = erlang:exit(Sup1, normal),
 
@@ -181,11 +205,11 @@ restart(_Config) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain1 = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
-    ?assertEqual(GenBlock, blockchain:head_block(Chain1)),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
+    ?assertEqual(LastBlock, blockchain:head_block(Chain1)),
     ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain1)),
     ?assertEqual(GenBlock, blockchain:genesis_block(Chain1)),
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual(11, blockchain_worker:height()),
 
     true = erlang:exit(Sup2, normal),
     ok.
