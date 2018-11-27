@@ -25,7 +25,7 @@
     submit_txn/2,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
-    add_gateway_request/1,
+    add_gateway_request/3,
     add_gateway_txn/1,
     assert_location_request/2,
     assert_location_txn/1,
@@ -148,7 +148,7 @@ payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
-create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) -> 
+create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) ->
     gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}).
 
 %%--------------------------------------------------------------------
@@ -171,9 +171,9 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_request(libp2p_crypto:address()) -> ok.
-add_gateway_request(OwnerAddress) ->
-    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress}).
+-spec add_gateway_request(Owner::libp2p_crypto:address(), AuthAddress::string(), AuthToken::string()) -> ok.
+add_gateway_request(OwnerAddress, AuthAddress, AuthToken) ->
+    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -254,11 +254,18 @@ handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain:ledger(Chain), State};
-handle_call({add_gateway_request, OwnerAddress}, _From, State=#state{swarm=Swarm}) ->
+handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
     AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
+    Protocol = "gw_registration/1.0.0",
+    {ok, StreamPid} =  libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
+                                                       AuthAddress,
+                                                       Protocol,
+                                                       blockchain_gw_registration_handler,
+                                                       [SignedAddGwTxn, AuthToken]),
+    unlink(StreamPid),
     {reply, SignedAddGwTxn, State};
 handle_call({assert_location_request, Owner, Location}, _From, State=#state{swarm=Swarm, blockchain=Chain}) ->
     Address = libp2p_swarm:address(Swarm),
