@@ -6,15 +6,15 @@
 -module(blockchain_txn_gen_gateway_v1).
 
 -export([
-         new/6
-         ,gateway_address/1
-         ,owner_address/1
-         ,location/1
-         ,last_poc_challenge/1
-         ,nonce/1
-         ,score/1
-         ,is/1
-         ,absorb/2
+         new/6,
+         gateway_address/1,
+         owner_address/1,
+         location/1,
+         last_poc_challenge/1,
+         nonce/1,
+         score/1,
+         is/1,
+         absorb/2
         ]).
 
 -ifdef(TEST).
