@@ -23,8 +23,7 @@ register_all_usage() ->
                    ,ledger_redeem_htlc_usage()
                    ,ledger_balance_usage()
                    ,ledger_gateways_usage()
-                   ,ledger_add_gateway_request_usage()
-                   ,ledger_add_gateway_txn_usage()
+                   ,ledger_add_gateway_usage()
                    ,ledger_assert_loc_request_usage()
                    ,ledger_assert_loc_txn_usage()
                    ,ledger_usage()
@@ -40,8 +39,7 @@ register_all_cmds() ->
                    ,ledger_redeem_htlc_cmd()
                    ,ledger_balance_cmd()
                    ,ledger_gateways_cmd()
-                   ,ledger_add_gateway_request_cmd()
-                   ,ledger_add_gateway_txn_cmd()
+                   ,ledger_add_gateway_cmd()
                    ,ledger_assert_loc_request_cmd()
                    ,ledger_assert_loc_txn_cmd()
                    ,ledger_cmd()
@@ -58,8 +56,7 @@ ledger_usage() ->
       "  ledger create_htlc         - Create or a hashed timelock address.\n"
       "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
-      "  ledger add_gateway_request - Request the addition of a gateway.\n"
-      "  ledger add_gateway_txn     - Countersign the addition of a gateway and submit it.\n"
+      "  ledger add_gateway         - Register a gateway.\n"
       "  ledger assert_loc_request  - Request the assertion of a gateway's location.\n"
       "  ledger assert_loc_txn      - Countersign the assertion of a gateway's location and submit it.\n"
      ]
@@ -196,61 +193,51 @@ ledger_redeem_htlc_helper(Flags) ->
     blockchain_worker:redeem_htlc_txn(Address, Preimage, Fee).
 
 %%--------------------------------------------------------------------
-%% ledger add gateway_request
+%% ledger add_gateway
 %%--------------------------------------------------------------------
-ledger_add_gateway_request_cmd() ->
+ledger_add_gateway_cmd() ->
     [
-     [["ledger", "add_gateway_request", '*'], [], [], fun ledger_add_gateway_request/3]
-    ].
-
-ledger_add_gateway_request_usage() ->
-    [["ledger", "add_gateway_request"],
-     ["ledger add_gateway_request <p2p>\n\n",
-      "  Request the addition of the current node as a gateway owned by <p2p>.\n"
+     [
+      ["ledger", "add_gateway"], '_', [
+                                       {address, [{shortname, "a"}, {longname, "address"}]},
+                                       {request, [{shortname, "r"}, {longname, "request"}]},
+                                       {token, [{shortname, "t"}, {longname, "token"}]}
+                                      ], fun ledger_add_gateway/3
      ]
     ].
 
-ledger_add_gateway_request(["ledger", "add_gateway_request", Addr], [], []) ->
-    case (catch libp2p_crypto:b58_to_address(Addr)) of
+ledger_add_gateway_usage() ->
+    [["ledger", "add_gateway"],
+     ["ledger add_gateway\n\n",
+      "  Request the addition of the current node as a gateway owned by the given owner.\n"
+      "  The authorization is signed by the given authorization address and the given\n"
+      "  authorization token is passed through to with the authorization request.\n"
+      "  Use key=value args to set options.\n\n",
+      "Required:\n\n"
+      "  -a, --address [P2PAddress]\n",
+      "   The p2paddress of the node (usually a wallet) that will authorize this request\n",
+      "  -o, --owner [OwnerAddress]\n",
+      "   The crypto address of the owner of the gateway. Used as the payee for mined tokens\n"
+      "  -t, --token [Token]\n",
+      "   The token given by the running wallet to identify the authorization request\n"
+     ]
+    ].
+
+ledger_add_gateway(_CmdBase, _, Flags) ->
+    case (catch ledger_add_gateway_helper(Flags)) of
         {'EXIT', _Reason} ->
             usage;
-        Owner when is_binary(Owner) ->
-            Txn = blockchain_worker:add_gateway_request(Owner),
-            [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))];
-        _ ->
-            usage
-    end;
-ledger_add_gateway_request(_, _, _) ->
-    usage.
+        ok ->
+            [clique_status:text("ok")];
+        _ -> usage
+    end.
 
-
-%%--------------------------------------------------------------------
-%% ledger add_gateway_txn
-%%--------------------------------------------------------------------
-ledger_add_gateway_txn_cmd() ->
-    [
-     [["ledger", "add_gateway_txn", '*'], [], [], fun ledger_add_gateway_txn/3]
-    ].
-
-ledger_add_gateway_txn_usage() ->
-    [["ledger", "add_gateway_txn"],
-     ["ledger add_gateway_txn <txn>\n\n",
-      "  Countersign the add_gateway transaction <txn> and submit it.\n"
-     ]
-    ].
-
-ledger_add_gateway_txn(["ledger", "add_gateway_txn", AddGatewayRequest], [], []) ->
-    case (catch binary_to_term(base58:base58_to_binary(AddGatewayRequest))) of
-        {'EXIT', _} ->
-            usage;
-        Txn ->
-            blockchain_worker:add_gateway_txn(Txn),
-            [clique_status:text("ok")]
-            %_ -> usage
-    end;
-ledger_add_gateway_txn(_, _, _) ->
-    usage.
-
+ledger_add_gateway_helper(Flags) ->
+    OwnerAddress = libp2p_crypto:b58_to_address(clean(proplists:get_value(owner, Flags))),
+    AuthAddress = clean(proplists:get_value(address, Flags)),
+    AuthToken = clean(proplists:get_value(token, Flags)),
+    blockchain_worker:add_gateway_request(OwnerAddress, AuthAddress, AuthToken),
+    ok.
 
 %%--------------------------------------------------------------------
 %% ledger balance
