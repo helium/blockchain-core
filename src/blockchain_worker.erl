@@ -171,7 +171,8 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_request(Owner::libp2p_crypto:address(), AuthAddress::string(), AuthToken::string()) -> ok.
+-spec add_gateway_request(Owner::libp2p_crypto:address(), AuthAddress::string(), AuthToken::string())
+                         -> ok | {error, any()}.
 add_gateway_request(OwnerAddress, AuthAddress, AuthToken) ->
     gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}).
 
@@ -259,10 +260,9 @@ handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, 
     AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
-    Protocol = "gw_registration/1.0.0",
     case libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
                                          AuthAddress,
-                                         Protocol,
+                                         ?GW_REGISTRATION_PROTOCOL,
                                          blockchain_gw_registration_handler,
                                          [SignedAddGwTxn, AuthToken]) of
         {ok, StreamPid} ->
