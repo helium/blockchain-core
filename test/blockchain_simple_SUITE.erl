@@ -462,7 +462,7 @@ export_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
     [_,
-     {Payer1, {_, PayerPrivKey1, _}},
+     {Payer1, {PayerPubKey1, PayerPrivKey1, _}},
      {Payer2, {_, PayerPrivKey2, _}},
      {Payer3, {_, PayerPrivKey3, _}}
      | _] = ConsensusMembers,
@@ -472,11 +472,39 @@ export_test(Config) ->
     PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:address()),
     PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:address()),
 
-    Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3]),
+    % Create a Gateway
+    Owner = libp2p_crypto:pubkey_to_address(PayerPubKey1),
+    {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
+    Gateway = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
+
+    % Add a Gateway
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+
+    % Assert the Gateways location
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, 123456, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+
+    Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
     ok = blockchain_worker:add_block(Block2, self()),
+
+    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
+
     timer:sleep(500),
 
-    [{accounts, Accounts}, {gateways, _Gateways}] = blockchain_ledger_exporter_v1:export(blockchain_worker:ledger()),
+    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain_worker:ledger()),
+
+    ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
+              {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
+              {location,123456},
+              {last_poc_challenge,undefined},
+              {nonce,1},
+              {score,0.0}]], Gateways),
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
                                                    AccontAddress = proplists:get_value(address, Account),
