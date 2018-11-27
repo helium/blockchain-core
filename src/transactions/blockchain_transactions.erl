@@ -6,7 +6,7 @@
 -module(blockchain_transactions).
 
 -export([
-    %% validate/2,
+    validate/2,
     absorb/2,
     sort/2,
     type/1
@@ -33,36 +33,31 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-%% FIXME: We never call this anywhere! Why?
-%% I'm ignoring this for now but it needs to be fixed. From what I understand
-%% instead of calling blockchain_transactions:absorb in blockchain.erl we need
-%% to call validate (since validate calls absorb internally) and also does the sorting
-%% of payment transactions.
-%%
-%% -spec validate(blockchain_transaction:transactions(),
-%%                blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
-%%                                                blockchain_transaction:transactions()}.
-%% validate(Transactions, Ledger) ->
-%%     validate(Transactions, [], [], Ledger).
-%%
-%% validate([], Valid,  Invalid, _Ledger) ->
-%%     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
-%%     {Valid, Invalid};
-%% validate([Txn | Tail], Valid, Invalid, Ledger) ->
-%%     %% sort the new transaction in with the accumulated list
-%%     SortedPaymentTxns = Valid ++ [Txn],
-%%     %% check that these transactions are valid to apply in this order
-%%     case absorb(SortedPaymentTxns, Ledger) of
-%%         {ok, _NewLedger} ->
-%%             validate(Tail, SortedPaymentTxns, Invalid, Ledger);
-%%         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
-%%             %% we don't have enough context to decide if this transaction is valid yet, keep it
-%%             %% but don't include it in the block (so it stays in the buffer)
-%%             validate(Tail, Valid, Invalid, Ledger);
-%%         _ ->
-%%             %% any other error means we drop it
-%%             validate(Tail, Valid, [Txn | Invalid], Ledger)
-%%     end.
+%% NOTE: Called in the miner
+-spec validate(blockchain_transaction:transactions(),
+               blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
+                                               blockchain_transaction:transactions()}.
+validate(Transactions, Ledger) ->
+    validate(Transactions, [], [], Ledger).
+
+validate([], Valid,  Invalid, _Ledger) ->
+    lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
+    {Valid, Invalid};
+validate([Txn | Tail], Valid, Invalid, Ledger) ->
+    %% sort the new transaction in with the accumulated list
+    SortedPaymentTxns = Valid ++ [Txn],
+    %% check that these transactions are valid to apply in this order
+    case absorb(SortedPaymentTxns, Ledger) of
+        {ok, _NewLedger} ->
+            validate(Tail, SortedPaymentTxns, Invalid, Ledger);
+        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+            %% we don't have enough context to decide if this transaction is valid yet, keep it
+            %% but don't include it in the block (so it stays in the buffer)
+            validate(Tail, Valid, Invalid, Ledger);
+        _ ->
+            %% any other error means we drop it
+            validate(Tail, Valid, [Txn | Invalid], Ledger)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
