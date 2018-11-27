@@ -231,6 +231,9 @@ ledger_add_gateway(_CmdBase, _, Flags) ->
             usage;
         ok ->
             [clique_status:text("ok")];
+        {error, Reason} ->
+            ReasonText = clique_status:text(io_lib:format("~p", Reason)),
+            [clique_status:alert([ReasonText])];
         _ -> usage
     end.
 
@@ -238,8 +241,7 @@ ledger_add_gateway_helper(Flags) ->
     OwnerAddress = libp2p_crypto:b58_to_address(clean(proplists:get_value(owner, Flags))),
     AuthAddress = clean(proplists:get_value(address, Flags)),
     AuthToken = clean(proplists:get_value(token, Flags)),
-    blockchain_worker:add_gateway_request(OwnerAddress, AuthAddress, AuthToken),
-    ok.
+    blockchain_worker:add_gateway_request(OwnerAddress, AuthAddress, AuthToken).
 
 %%--------------------------------------------------------------------
 %% ledger balance
