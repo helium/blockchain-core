@@ -8,10 +8,12 @@
 ]).
 
 -export([
-    basic/1
-    ,htlc_payee_redeem/1
-    ,htlc_payer_redeem/1
-    ,poc_request/1
+    basic/1,
+    reload/1,
+    restart/1,
+    htlc_payee_redeem/1,
+    htlc_payer_redeem/1,
+    poc_request/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -25,7 +27,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, htlc_payee_redeem, htlc_payer_redeem, poc_request].
+    [basic, reload, restart, htlc_payee_redeem, htlc_payer_redeem, poc_request].
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -86,6 +88,132 @@ basic(_Config) ->
     ok = test_utils:compare_chains(Chain, blockchain_worker:blockchain()),
     true = erlang:exit(Sup1, normal),
     ok.
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+reload(_Config) ->
+    BaseDir = "data/test_SUITE/reload",
+    Balance = 5000,
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+
+    % Add some blocks
+    lists:foreach(
+        fun(_) ->
+            Block = test_utils:create_block(ConsensusMembers, []),
+            ok = blockchain_worker:add_block(Block, self())
+        end,
+        lists:seq(1, 10)
+    ),
+    ?assertEqual(11, blockchain_worker:height()),
+    true = erlang:exit(Sup, normal),
+
+    % Create new genesis block
+    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
+                     || {Addr, _} <- ConsensusMembers],
+    GenConsensusGroupTx = blockchain_txn_gen_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
+    Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
+    NewGenBlock = blockchain_block:new_genesis_block(Txs),
+    GenDir = "data/test_SUITE/reload2",
+    File = filename:join(GenDir, "genesis"),
+    V = blockchain_util:serial_version(GenDir),
+    ok = blockchain_util:atomic_save(File, blockchain_block:serialize(V, NewGenBlock)),
+
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Opts = [
+        {key, {PubKey, SigFun}}
+        ,{seed_nodes, []}
+        ,{port, 0}
+        ,{num_consensus_members, 7}
+        ,{base_dir, BaseDir}
+        ,{update_dir, GenDir}
+    ],
+    {ok, Sup1} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    Chain = blockchain_worker:blockchain(),
+    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
+    ?assertEqual(NewGenBlock, blockchain:head_block(Chain)),
+    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain:genesis_hash(Chain)),
+    ?assertEqual(NewGenBlock, blockchain:genesis_block(Chain)),
+    ?assertEqual(1, blockchain_worker:height()),
+
+    true = erlang:exit(Sup1, normal),
+    ok.
+
+
+restart(_Config) ->
+    BaseDir = "data/test_SUITE/restart",
+    GenDir = "data/test_SUITE/restart2",
+    Balance = 5000,
+    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    Chain0 = blockchain_worker:blockchain(),
+    GenBlock = blockchain:head_block(Chain0),
+
+    % Add some blocks
+    [LastBlock| _Blocks] = lists:foldl(
+        fun(_, Acc) ->
+            Block = test_utils:create_block(ConsensusMembers, []),
+            ok = blockchain_worker:add_block(Block, self()),
+            timer:sleep(100),
+            [Block|Acc]
+        end,
+        [],
+        lists:seq(1, 10)
+    ),
+    ?assertEqual(11, blockchain_worker:height()),
+
+    true = erlang:exit(Sup, normal),
+
+    % Restart with an empty 'GenDir'
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Opts = [
+        {key, {PubKey, SigFun}}
+        ,{seed_nodes, []}
+        ,{port, 0}
+        ,{num_consensus_members, 7}
+        ,{base_dir, BaseDir}
+        ,{update_dir, GenDir}
+    ],
+    {ok, Sup1} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    Chain = blockchain_worker:blockchain(),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
+    ?assertEqual(LastBlock, blockchain:head_block(Chain)),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain)),
+    ?assertEqual(GenBlock, blockchain:genesis_block(Chain)),
+    ?assertEqual(11, blockchain_worker:height()),
+
+    true = erlang:exit(Sup1, normal),
+
+    % Restart with the existing genesis block in 'GenDir'
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
+    ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),
+
+    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(v1, GenBlock)),
+
+    {ok, Sup2} = blockchain_sup:start_link(Opts),
+    ?assert(erlang:is_pid(blockchain_swarm:swarm())),
+
+    Chain1 = blockchain_worker:blockchain(),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
+    ?assertEqual(LastBlock, blockchain:head_block(Chain1)),
+    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain1)),
+    ?assertEqual(GenBlock, blockchain:genesis_block(Chain1)),
+    ?assertEqual(11, blockchain_worker:height()),
+
+    true = erlang:exit(Sup2, normal),
+    ok.
+
 
 htlc_payee_redeem(_Config) ->
     BaseDir = "data/test_SUITE/htlc_payee_redeem",

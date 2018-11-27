@@ -13,3 +13,6 @@ test: compile
 
 typecheck:
 	$(REBAR) dialyzer
+
+cover:
+	$(REBAR) cover
