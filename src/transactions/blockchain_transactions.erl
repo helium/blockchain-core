@@ -6,7 +6,7 @@
 -module(blockchain_transactions).
 
 -export([
-    validate/2,
+    %% validate/2,
     absorb/2,
     sort/2,
     type/1
@@ -33,37 +33,43 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec validate(blockchain_transaction:transactions(),
-               blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
-                                               blockchain_transaction:transactions()}.
-validate(Transactions, Ledger) ->
-    validate(Transactions, [], [], Ledger).
-
-validate([], Valid,  Invalid, _Ledger) ->
-    lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
-    {Valid, Invalid};
-validate([Txn | Tail], Valid, Invalid, Ledger) ->
-    %% sort the new transaction in with the accumulated list
-    SortedPaymentTxns = Valid ++ [Txn],
-    %% check that these transactions are valid to apply in this order
-    case absorb(SortedPaymentTxns, Ledger) of
-        {ok, _NewLedger} ->
-            validate(Tail, SortedPaymentTxns, Invalid, Ledger);
-        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
-            %% we don't have enough context to decide if this transaction is valid yet, keep it
-            %% but don't include it in the block (so it stays in the buffer)
-            validate(Tail, Valid, Invalid, Ledger);
-        _ ->
-            %% any other error means we drop it
-            validate(Tail, Valid, [Txn | Invalid], Ledger)
-    end.
+%% FIXME: We never call this anywhere! Why?
+%% I'm ignoring this for now but it needs to be fixed. From what I understand
+%% instead of calling blockchain_transactions:absorb in blockchain.erl we need
+%% to call validate (since validate calls absorb internally) and also does the sorting
+%% of payment transactions.
+%%
+%% -spec validate(blockchain_transaction:transactions(),
+%%                blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
+%%                                                blockchain_transaction:transactions()}.
+%% validate(Transactions, Ledger) ->
+%%     validate(Transactions, [], [], Ledger).
+%%
+%% validate([], Valid,  Invalid, _Ledger) ->
+%%     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
+%%     {Valid, Invalid};
+%% validate([Txn | Tail], Valid, Invalid, Ledger) ->
+%%     %% sort the new transaction in with the accumulated list
+%%     SortedPaymentTxns = Valid ++ [Txn],
+%%     %% check that these transactions are valid to apply in this order
+%%     case absorb(SortedPaymentTxns, Ledger) of
+%%         {ok, _NewLedger} ->
+%%             validate(Tail, SortedPaymentTxns, Invalid, Ledger);
+%%         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+%%             %% we don't have enough context to decide if this transaction is valid yet, keep it
+%%             %% but don't include it in the block (so it stays in the buffer)
+%%             validate(Tail, Valid, Invalid, Ledger);
+%%         _ ->
+%%             %% any other error means we drop it
+%%             validate(Tail, Valid, [Txn | Invalid], Ledger)
+%%     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                 | {error, any()}.
+                                                                    | {error, any()}.
 absorb([], Ledger) ->
     Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
     %% TODO: probably not the correct place to be incrementing the height for the ledger?
@@ -72,12 +78,17 @@ absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
     absorb(Txns, blockchain_ledger_v1:new());
 absorb([Txn|Txns], Ledger0) ->
     Type = type(Txn),
-    try Type:absorb(Txn, Ledger0) of
-        {error, _Reason}=Error -> Error;
+    %% XXX: Raising an error here serves no purpose since that clause
+    %% is never actually caught whenever we add a block in blockchain.erl
+    %% Furthermore, maybe there is no reason to error out in the first place
+    %% because IF there _is_ an error while absorbing a transaction in the ledger
+    %% we still want to integrate that block regardless albeit we don't want to update
+    %% the ledger itself
+    case Type:absorb(Txn, Ledger0) of
+        {error, _Reason} -> absorb(Txns, Ledger0);
         {ok, Ledger1} -> absorb(Txns, Ledger1)
-    catch
-        What:Why -> {error, {type(Txn), What, Why}}
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -96,7 +107,7 @@ type(Txn) ->
     Types = [
         blockchain_txn_assert_location_v1, blockchain_txn_payment_v1
         ,blockchain_txn_create_htlc_v1, blockchain_txn_redeem_htlc_v1
-        ,blockchain_txn_add_gateway_v1 ,blockchain_txn_coinbase_v1
+        ,blockchain_txn_add_gateway_v1, blockchain_txn_coinbase_v1
         ,blockchain_txn_gen_consensus_group_v1 ,blockchain_txn_poc_request_v1
         ,blockchain_txn_poc_receipts_v1, blockchain_txn_gen_gateway_v1
     ],
