@@ -69,7 +69,8 @@ init(Args) ->
         {base_dir, proplists:get_value(base_dir, Args, "data")},
         {libp2p_group_gossip, [
             {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
-            {seed_nodes, proplists:get_value(seed_nodes, Args, [])}
+            {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
+            {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)}
         ]}
     ],
     BWorkerOpts = [
