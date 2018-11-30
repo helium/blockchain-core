@@ -146,7 +146,7 @@ is(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                               | {error, any()}.
+                                                                  | {error, any()}.
 absorb(Txn, Ledger0) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn)} of
@@ -157,11 +157,16 @@ absorb(Txn, Ledger0) ->
         {true, true} ->
             OwnerAddress = ?MODULE:owner_address(Txn),
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger0) of
-                {error, _Reason}=Error ->
-                    Error;
+            MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
+            case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger0) of
+                {error, _Reason}=Error -> Error;
                 Ledger1 ->
-                    {ok, Ledger1}
+                    case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger1) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        Ledger2 ->
+                            {ok, Ledger2}
+                    end
             end
     end.
 
