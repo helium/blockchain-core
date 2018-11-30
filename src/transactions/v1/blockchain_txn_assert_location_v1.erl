@@ -16,7 +16,6 @@
     gateway_signature/1,
     owner_signature/1,
     nonce/1,
-    fee/1,
     sign_request/2,
     sign/2,
     is/1,
@@ -33,10 +32,7 @@
     gateway_signature :: binary(),
     owner_signature :: binary(),
     location :: location(),
-    nonce = 0 :: non_neg_integer(),
-    %% TODO: fee needs to be calculated on the fly
-    %% using the gateways already present in the nearby geography
-    fee = 1 :: non_neg_integer()
+    nonce = 0 :: non_neg_integer()
 }).
 
 -type location() :: non_neg_integer(). %% h3 index
@@ -118,13 +114,6 @@ owner_signature(Txn) ->
 nonce(Txn) ->
     Txn#txn_assert_location_v1.nonce.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec fee(txn_assert_location()) -> non_neg_integer().
-fee(Txn) ->
-    Txn#txn_assert_location_v1.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -161,17 +150,14 @@ is(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                   | {error, any()}.
+                                                                      | {error, any()}.
 absorb(Txn, Ledger0) ->
     GatewayAddress = ?MODULE:gateway_address(Txn),
     OwnerAddress = ?MODULE:owner_address(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    Fee = ?MODULE:fee(Txn),
-    Entries = blockchain_ledger_v1:entries(Ledger0),
-    LastEntry = blockchain_ledger_v1:find_entry(OwnerAddress, Entries),
-    PaymentNonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
-    case blockchain_ledger_v1:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
+    MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
+    case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger0) of
         {error, _Reason}=Error -> Error;
         Ledger1 ->
             case assert_gateway_location(GatewayAddress, Location, Nonce, Ledger1) of
@@ -238,10 +224,6 @@ location_test() ->
 nonce_test() ->
     Tx = new(),
     ?assertEqual(1, nonce(Tx)).
-
-fee_test() ->
-    Tx = new(),
-    ?assertEqual(1, fee(Tx)).
 
 owner_address_test() ->
     Tx = new(),
