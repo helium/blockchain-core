@@ -28,6 +28,7 @@
     add_gateway_location/4,
     credit_account/3,
     debit_account/4,
+    debit_fee/3,
     add_htlc/7,
     redeem_htlc/3,
     request_poc/2,
@@ -407,6 +408,24 @@ debit_account(Address, Amount, Nonce, Ledger=#ledger_v1{entries=Entries}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ledger() | {error, any()}.
+debit_fee(Address, Fee, Ledger=#ledger_v1{entries=Entries}) ->
+    Entry = ?MODULE:find_entry(Address, Entries),
+    case (?MODULE:balance(Entry) - Fee) >= 0 of
+        true ->
+            %% NOTE: There is no nonce required when debiting a fee, I think
+            Ledger#ledger_v1{entries=maps:update(Address,
+                                                 ?MODULE:new_entry(?MODULE:payment_nonce(Entry), (?MODULE:balance(Entry) - Fee)),
+                                                 Entries)};
+        false ->
+            {error, {insufficient_balance, Fee, ?MODULE:balance(Entry)}}
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
     case maps:is_key(Address, htlcs(Ledger)) of
         false ->
@@ -557,6 +576,15 @@ debit_account_test() ->
     Entry = find_entry(address, entries(Ledger2)),
     ?assertEqual(500, balance(Entry)),
     ?assertEqual(1, payment_nonce(Entry)).
+
+debit_fee_test() ->
+    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
+    Ledger1 = credit_account(address, 1000, Ledger0),
+    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(address, 9999, Ledger1)),
+    Ledger2 = debit_fee(address, 500, Ledger1),
+    Entry = find_entry(address, entries(Ledger2)),
+    ?assertEqual(500, balance(Entry)),
+    ?assertEqual(0, payment_nonce(Entry)).
 
 save_load_test() ->
     BaseDir = test_utils:tmp_dir(),
