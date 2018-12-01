@@ -188,10 +188,7 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-%% TODO: better spec for location
--spec assert_location_request(libp2p_crypto:address(), integer()) -> {error, gateway_not_found} |
-                                                                     {error, invalid_owner} |
-                                                                     blockchain_txn_assert_location_v1:txn_assert_location().
+-spec assert_location_request(libp2p_crypto:address(), integer()) -> ok | {error, any()}.
 assert_location_request(OwnerAddress, Location) ->
     gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}).
 
@@ -272,7 +269,7 @@ handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, 
                                          blockchain_gw_registration_handler,
                                          [SignedAddGwTxn, AuthToken]) of
         {ok, StreamPid} ->
-            unlink(StreamPid),
+            erlang:unlink(StreamPid),
             {reply, ok, State};
         {error, Error} ->
             {reply, {error, Error}, State}
@@ -293,10 +290,21 @@ handle_call({assert_location_request, Owner, Location}, _From, State=#state{swar
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
                     SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
                     lager:info(
-                      "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
-                      [Address, Location, Nonce, SignedAssertLocRequestTxn]
-                     ),
-                    {reply, SignedAssertLocRequestTxn, State};
+                        "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
+                        [Address, Location, Nonce, SignedAssertLocRequestTxn]
+                    ),
+                    P2PAddress = libp2p_crypto:address_to_p2p(Owner),
+                    case libp2p_swarm:dial_framed_stream(Swarm,
+                                                         P2PAddress,
+                                                         ?LOC_ASSERTION_PROTOCOL,
+                                                         blockchain_loc_assertion_handler,
+                                                         [SignedAssertLocRequestTxn]) of
+                        {ok, StreamPid} ->
+                            erlang:unlink(StreamPid),
+                            {reply, ok, State};
+                        {error, Error} ->
+                            {reply, {error, Error}, State}
+                    end;
                 false ->
                     {reply, {error, invalid_owner}, State}
             end
