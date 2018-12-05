@@ -274,7 +274,7 @@ handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, 
         {error, Error} ->
             {reply, {error, Error}, State}
     end;
-handle_call({assert_location_request, Owner, Location}, _From, State=#state{swarm=Swarm, blockchain=Chain}) ->
+handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
     Address = libp2p_swarm:address(Swarm),
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
@@ -293,17 +293,38 @@ handle_call({assert_location_request, Owner, Location}, _From, State=#state{swar
                         "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
                         [Address, Location, Nonce, SignedAssertLocRequestTxn]
                     ),
-                    P2PAddress = libp2p_crypto:address_to_p2p(Owner),
-                    case libp2p_swarm:dial_framed_stream(Swarm,
-                                                         P2PAddress,
-                                                         ?LOC_ASSERTION_PROTOCOL,
-                                                         blockchain_loc_assertion_handler,
-                                                         [SignedAssertLocRequestTxn]) of
-                        {ok, StreamPid} ->
-                            erlang:unlink(StreamPid),
-                            {reply, ok, State};
-                        {error, Error} ->
-                            {reply, {error, Error}, State}
+                    PeerBook = libp2p_swarm:peerbook(Swarm),
+                    case libp2p_peerbook:lookup_association(PeerBook, "wallet_account", Owner) of
+                        [] ->
+                            {reply, {error, unknown_owner}, State};
+                        Peers ->
+                            %% do this in a sub process because dialing can be slow
+                            spawn(fun() ->
+                                          SendResults = lists:map(fun(Peer) ->
+                                                            PeerAddress = libp2p_peer:address(Peer),
+                                                            P2PAddress = libp2p_crypto:address_to_p2p(PeerAddress),
+                                                            lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:address_to_b58(Address)]),
+                                                            case libp2p_swarm:dial_framed_stream(Swarm,
+                                                                                                 P2PAddress,
+                                                                                                 ?LOC_ASSERTION_PROTOCOL,
+                                                                                                 blockchain_loc_assertion_handler,
+                                                                                                 [SignedAssertLocRequestTxn]) of
+                                                                {ok, StreamPid} ->
+                                                                    erlang:unlink(StreamPid),
+                                                                    ok;
+                                                                {error, Error} ->
+                                                                    {error, Error}
+                                                            end
+                                                    end, Peers),
+                                          case lists:member(ok, SendResults) of
+                                              true ->
+                                                  %% at least someone accepted the message
+                                                  gen_server:reply(From, ok);
+                                              false ->
+                                                  gen_server:reply(From, error)
+                                          end
+                                  end),
+                            {noreply, State}
                     end;
                 false ->
                     {reply, {error, invalid_owner}, State}
