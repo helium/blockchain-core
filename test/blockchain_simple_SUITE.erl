@@ -396,7 +396,8 @@ poc_request_test(Config) ->
     ?assertEqual(3, blockchain_worker:height()),
 
     % Create the PoC challenge request txn
-    Tx = blockchain_txn_poc_request_v1:new(Gateway),
+    Secret = crypto:strong_rand_bytes(8),
+    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret)),
     SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block3, self()),
