@@ -5,10 +5,11 @@
 -module(blockchain_txn_poc_receipts_v1).
 
 -export([
-    new/2,
+    new/3,
     receipts/1,
     signature/1,
     challenger/1,
+    secret/1,
     sign/2,
     is_valid/1,
     is/1,
@@ -22,6 +23,7 @@
 -record(txn_poc_receipts_v1, {
     receipts :: blockchain_poc_receipt_v1:poc_receipts(),
     challenger :: libp2p_crypto:address(),
+    secret :: binary(),
     signature :: binary()
 }).
 
@@ -33,11 +35,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:address()) -> txn_poc_receipts().
-new(Receipts, Challenger) ->
+-spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:address(), binary()) -> txn_poc_receipts().
+new(Receipts, Challenger, Secret) ->
     #txn_poc_receipts_v1{
         receipts=Receipts,
         challenger=Challenger,
+        secret=Secret,
         signature = <<>>
     }.
 
@@ -56,6 +59,14 @@ receipts(Txn) ->
 -spec challenger(txn_poc_receipts()) -> libp2p_crypto:address().
 challenger(Txn) ->
     Txn#txn_poc_receipts_v1.challenger.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec secret(txn_poc_receipts()) -> binary().
+secret(Txn) ->
+    Txn#txn_poc_receipts_v1.secret.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -103,6 +114,10 @@ absorb(Txn, Ledger0) ->
         false ->
             {error, invalid_transaction};
         true ->
+            % TODO:
+                % 1. Get POC request (check last few blocks)
+                % 2. Validate poc request hash from secret
+                % 3. Re-create entropy target and path from secret and block hash
             % TODO: Update score and last_poc_challenge
             {ok, Ledger0}
     end.
@@ -116,33 +131,38 @@ new_test() ->
     Tx = #txn_poc_receipts_v1{
         receipts=[],
         challenger = <<"challenger">>,
+        secret = <<"secret">>,
         signature = <<>>
     },
-    ?assertEqual(Tx, new([], <<"challenger">>)).
+    ?assertEqual(Tx, new([], <<"challenger">>, <<"secret">>)).
 
 receipts_test() ->
-    Tx = new([], <<"challenger">>),
+    Tx = new([], <<"challenger">>, <<"secret">>),
     ?assertEqual([], receipts(Tx)).
 
 challenger_test() ->
-    Tx = new([], <<"challenger">>),
+    Tx = new([], <<"challenger">>, <<"secret">>),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
 
+secret_test() ->
+    Tx = new([], <<"challenger">>, <<"secret">>),
+    ?assertEqual(<<"secret">>, secret(Tx)).
+
 signature_test() ->
-    Tx = new([], <<"challenger">>),
+    Tx = new([], <<"challenger">>, <<"secret">>),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
     Challenger = libp2p_crypto:pubkey_to_address(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx0 = new([], Challenger),
+    Tx0 = new([], Challenger, <<"secret">>),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_poc_receipts_v1{signature = <<>>}), Sig, PubKey)).
 
 is_test() ->
-    Tx = new([], <<"challenger">>),
+    Tx = new([], <<"challenger">>, <<"secret">>),
     ?assert(is(Tx)).
 
 -endif.
