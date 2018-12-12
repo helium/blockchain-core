@@ -32,7 +32,6 @@
     add_htlc/7,
     redeem_htlc/3,
     request_poc/2,
-    save/2, load/1,
     serialize/2,
     deserialize/2,
     entries/1,
@@ -445,30 +444,6 @@ redeem_htlc(Address, Payee, Ledger) ->
     Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
     NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
     Ledger1#ledger_v1{htlcs=NewHTLCS}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec save(ledger(), string()) -> ok | {error, any()}.
-save(Ledger, BaseDir) ->
-    BinLedger = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Ledger),
-    File = filename:join(BaseDir, ?LEDGER_FILE),
-    blockchain_util:atomic_save(File, BinLedger).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec load(file:filename_all()) -> {ok, ledger()} | {error, any()}.
-load(BaseDir) ->
-    File = filename:join(BaseDir, ?LEDGER_FILE),
-    case file:read_file(File) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Binary} ->
-            {ok, ?MODULE:deserialize(blockchain_util:serial_version(BaseDir), Binary)}
-    end.
 
 %%--------------------------------------------------------------------
 %% @doc

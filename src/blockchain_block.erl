@@ -25,7 +25,6 @@
     assert_location_transactions/1,
     poc_request_transactions/1,
     dir/1,
-    save/3, save_link/3, load/2,
     serialize/2,
     deserialize/2,
     find_next/2
@@ -241,35 +240,6 @@ poc_request_transactions(Block) ->
 -spec dir(file:filename_all()) -> file:filename_all().
 dir(Dir) ->
     filename:join(Dir, ?BLOCKS_DIR).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec save(hash(), block(), file:filename_all()) -> ok | {error, any()}.
-save(Hash, Block, BaseDir) ->
-    Dir = ?MODULE:dir(BaseDir),
-    BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
-    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    case blockchain_util:atomic_save(File, BinBlock) of
-        {error, _}=Error ->
-            Error;
-        ok ->
-            ?MODULE:save_link(Hash, Block, BaseDir)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec save_link(hash(), block(), file:filename_all()) -> ok | {error, any()}.
-save_link(Hash, Block, BaseDir) ->
-    Dir = ?MODULE:dir(BaseDir),
-    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    Height = ?MODULE:height(Block),
-    Link = link(BaseDir, Height),
-    ok = filelib:ensure_dir(Link),
-    file:make_symlink(filename:absname(File), Link).
 
 %%--------------------------------------------------------------------
 %% @doc
