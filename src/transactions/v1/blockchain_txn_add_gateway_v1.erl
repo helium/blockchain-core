@@ -157,16 +157,11 @@ absorb(Txn, Ledger0) ->
         {true, true} ->
             OwnerAddress = ?MODULE:owner_address(Txn),
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
-            case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger0) of
-                {error, _Reason}=Error -> Error;
+            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger0) of
+                {error, _Reason}=Error ->
+                    Error;
                 Ledger1 ->
-                    case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger1) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        Ledger2 ->
-                            {ok, Ledger2}
-                    end
+                    {ok, Ledger1}
             end
     end.
 
