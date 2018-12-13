@@ -561,15 +561,6 @@ debit_fee_test() ->
     ?assertEqual(500, balance(Entry)),
     ?assertEqual(0, payment_nonce(Entry)).
 
-save_load_test() ->
-    BaseDir = test_utils:tmp_dir(),
-    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
-    Ledger1 = credit_account(address, 1000, Ledger0),
-    ?assertEqual(ok, save(Ledger1, BaseDir)),
-    ?assertEqual({ok, Ledger1}, load(BaseDir)),
-    ?assertEqual({error, enoent}, load("data/test2")),
-    ok.
-
 serialize_deserialize_test() ->
     Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
     Ledger1 = credit_account(address, 1000, Ledger0),

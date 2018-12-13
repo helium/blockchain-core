@@ -16,15 +16,11 @@
     handle_gossip_data/2
 ]).
 
-init_gossip_data([Address, Dir]) ->
+init_gossip_data([Address, Blockchain]) ->
    lager:info("gossiping init"),
-   case blockchain:get_block(head, Dir) of
-       {ok, Block} ->
-           lager:info("gossiping block to peers on init"),
-           {send, term_to_binary({block, Address, Block})};
-       {error, _Reason} ->
-           ok
-   end.
+    Block =  blockchain:head_block(Blockchain),
+    lager:info("gossiping block to peers on init"),
+    {send, term_to_binary({block, Address, Block})}.
 
 handle_gossip_data(Data, [_Address, _Dir]) ->
     case erlang:binary_to_term(Data) of

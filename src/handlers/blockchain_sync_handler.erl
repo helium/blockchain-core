@@ -26,7 +26,7 @@
 ]).
 
 -record(state, {
-    dir :: undefined | file:filename_all()
+    blockchain :: blockchain:blochain()
 }).
 
 %% ------------------------------------------------------------------
@@ -44,26 +44,26 @@ server(Connection, Path, _TID, Args) ->
 init(client, _Conn, _Args) ->
     lager:info("started sync_handler client"),
     {ok, #state{}};
-init(server, _Conn, [_Path, _, Dir]) ->
+init(server, _Conn, [_Path, _, Blockchain]) ->
     lager:info("started sync_handler server"),
-    {ok, #state{dir=Dir}}.
+    {ok, #state{blockchain=Blockchain}}.
 
 handle_data(client, Data, State) ->
     lager:info("client got data: ~p", [Data]),
     blockchain_worker:sync_blocks(erlang:binary_to_term(Data)),
     {stop, normal, State};
-handle_data(server, Data, #state{dir=BaseDir}=State) ->
+handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     lager:info("server got data: ~p", [Data]),
     {hash, Hash} = erlang:binary_to_term(Data),
     lager:info("syncing blocks with peer hash ~p", [Hash]),
     StartingBlock =
-        case blockchain:get_block(Hash, BaseDir) of
-            {ok, Block} -> Block;
+        case blockchain:get_block(Hash, Blockchain) of
+            {ok, Block} ->
+                Block;
             {error, _Reason} ->
-                {ok, SB} = blockchain:get_block(genesis, BaseDir),
-                SB
+                blockchain:genesis_block(Blockchain)
         end,
-    Blocks = blockchain:build(StartingBlock, BaseDir, 200),
+    Blocks = blockchain:build(StartingBlock, Blockchain, 200),
     {stop, normal, State, erlang:term_to_binary(Blocks)}.
 
 handle_info(client, {hash, Hash}, State) ->

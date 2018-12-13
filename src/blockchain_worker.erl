@@ -229,10 +229,7 @@ init(Args) ->
     GenDir = proplists:get_value(update_dir, Args, undefined),
     Blockchain =
         case blockchain:load(BaseDir, GenDir) of
-            undefined ->
-                {undefined, BaseDir};
-            {update, GenDir} ->
-                {ok, Block} = blockchain:load_genesis(GenDir),
+            {update, Block} ->
                 ok = ?MODULE:integrate_genesis_block(Block),
                 {undefined, BaseDir};
             Chain ->
@@ -346,7 +343,6 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
                                 || T <- blockchain_block:transactions(GenesisBlock)
                                 ,blockchain_txn_gen_consensus_group_v1:is(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
-            ok = blockchain:save(Blockchain),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, Blockchain),
             self() ! maybe_sync,
@@ -551,14 +547,14 @@ terminate(_Reason, _State) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_handlers(pid(), blockchain:blockchain()) -> ok.
-add_handlers(Swarm, Chain) ->
+add_handlers(Swarm, Blockchain) ->
     Address = libp2p_swarm:address(Swarm),
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, blockchain:dir(Chain)]}),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, Blockchain]}),
 
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, blockchain:dir(Chain)]}
+        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
     ),
 
     ok = libp2p_swarm:add_stream_handler(
