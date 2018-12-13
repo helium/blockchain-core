@@ -278,13 +278,13 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
     case (catch libp2p_crypto:b58_to_address(Str)) of
         {'EXIT', _} -> usage;
         Addr ->
-            R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, blockchain_ledger_v1:entries(Ledger))})],
+            R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, Ledger)})],
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
     Addr = blockchain_swarm:address(),
     Ledger = get_ledger(),
-    R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, blockchain_ledger_v1:entries(Ledger))})],
+    R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, Ledger)})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
     Balances = maps:filter(fun(K, _V) ->
@@ -299,20 +299,20 @@ ledger_balance(_CmdBase, [], [{all, _}]) ->
     R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
     [clique_status:table(R)].
 
--spec format_ledger_balance({libp2p_crypto:address(), blockchain_ledger_v1:entry()}) -> list().
+-spec format_ledger_balance({libp2p_crypto:address(), blockchain_ledger_entry_v1:entry()}) -> list().
 format_ledger_balance({Addr, Entry}) ->
     [{p2p, libp2p_crypto:address_to_p2p(Addr)},
-     {nonce, integer_to_list(blockchain_ledger_v1:payment_nonce(Entry))},
-     {balance, integer_to_list(blockchain_ledger_v1:balance(Entry))}
+     {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},
+     {balance, integer_to_list(blockchain_ledger_entry_v1:balance(Entry))}
     ].
 
 format_htlc_balance({Addr, HTLC}) ->
     [{address, libp2p_crypto:address_to_b58(?B58_HTLC_VER, Addr)},
-     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payer(HTLC))},
-     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger_v1:htlc_payee(HTLC))},
-     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_v1:htlc_hashlock(HTLC))},
-     {timelock, integer_to_list(blockchain_ledger_v1:htlc_timelock(HTLC))},
-     {amount, integer_to_list(blockchain_ledger_v1:balance(HTLC))}
+     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger_htlc_v1:payer(HTLC))},
+     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger_htlc_v1:payee(HTLC))},
+     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_htlc_v1:hashlock(HTLC))},
+     {timelock, integer_to_list(blockchain_ledger_htlc_v1:timelock(HTLC))},
+     {amount, integer_to_list(blockchain_ledger_htlc_v1:balance(HTLC))}
     ].
 
 get_ledger() ->

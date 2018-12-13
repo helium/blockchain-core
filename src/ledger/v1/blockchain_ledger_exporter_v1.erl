@@ -32,7 +32,7 @@ export_accounts(Ledger) ->
     lists:foldl(
         fun({Address, Entry}, Acc) ->
             [[{address, libp2p_crypto:address_to_b58(Address)},
-              {balance, blockchain_ledger_v1:balance(Entry)}] | Acc]
+              {balance, blockchain_ledger_entry_v1:balance(Entry)}] | Acc]
         end,
         [],
         maps:to_list(blockchain_ledger_v1:entries(Ledger))

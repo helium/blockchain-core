@@ -48,7 +48,7 @@ nonce(#entry_v1{nonce=Nonce}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(non_neg_integer(), entry()) -> non_neg_integer().
+-spec nonce(non_neg_integer(), entry()) -> entry().
 nonce(Nonce, Entry) ->
     Entry#entry_v1{nonce=Nonce}.
 
@@ -64,7 +64,7 @@ balance(#entry_v1{balance=Balance}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec balance(non_neg_integer(), entry()) -> non_neg_integer().
+-spec balance(non_neg_integer(), entry()) -> entry().
 balance(Balance, Entry) ->
     Entry#entry_v1{balance=Balance}.
 

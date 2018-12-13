@@ -260,8 +260,9 @@ request_poc(GatewayAddress, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:address(), entries()) -> blockchain_ledger_entry_v1:entry().
-find_entry(Address, Entries) ->
+-spec find_entry(libp2p_crypto:address(), ledger()) -> blockchain_ledger_entry_v1:entry().
+find_entry(Address, Ledger) ->
+    Entries = ?MODULE:entries(Ledger),
     maps:get(Address, Entries, blockchain_ledger_entry_v1:new()).
 
 %%--------------------------------------------------------------------
@@ -276,7 +277,7 @@ credit_account(Address, Amount, Ledger) ->
             Entry = blockchain_ledger_entry_v1:new(1, Amount),
             Ledger#ledger_v1{entries=maps:put(Address, Entry, Entries)};
         true ->
-            Entry = ?MODULE:find_entry(Address, Entries),
+            Entry = ?MODULE:find_entry(Address, Ledger),
             NewEntry = blockchain_ledger_entry_v1:new(
                 blockchain_ledger_entry_v1:nonce(Entry),
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
@@ -290,8 +291,7 @@ credit_account(Address, Amount, Ledger) ->
 %%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ledger() | {error, any()}.
 debit_account(Address, Amount, Nonce, Ledger) ->
-    Entries0 = ?MODULE:entries(Ledger),
-    Entry = ?MODULE:find_entry(Address, Entries0),
+    Entry = ?MODULE:find_entry(Address, Ledger),
     case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
         true ->
             case (blockchain_ledger_entry_v1:balance(Entry) - Amount) >= 0 of
@@ -302,7 +302,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                             Nonce,
                             (blockchain_ledger_entry_v1:balance(Entry) - Amount)
                         ),
-                        Entries0
+                        ?MODULE:entries(Ledger)
                     ),
                     Ledger#ledger_v1{entries=Entries1};
                 false ->
@@ -318,8 +318,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %%--------------------------------------------------------------------
 -spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ledger() | {error, any()}.
 debit_fee(Address, Fee, Ledger) ->
-    Entries0 = ?MODULE:entries(Ledger),
-    Entry = ?MODULE:find_entry(Address, Entries0),
+    Entry = ?MODULE:find_entry(Address, Ledger),
     case (blockchain_ledger_entry_v1:balance(Entry) - Fee) >= 0 of
         true ->
             %% NOTE: There is no nonce required when debiting a fee, I think
@@ -329,7 +328,7 @@ debit_fee(Address, Fee, Ledger) ->
                     blockchain_ledger_entry_v1:nonce(Entry),
                     (blockchain_ledger_entry_v1:balance(Entry) - Fee)
                 ),
-                Entries0
+                ?MODULE:entries(Ledger)
             ),
             Ledger#ledger_v1{entries=Entries1};
         false ->
@@ -340,8 +339,9 @@ debit_fee(Address, Fee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_htlc(libp2p_crypto:address(), htlcs()) ->blockchain_ledger_htlc_v1:htlc().
-find_htlc(Address, HTLCS) ->
+-spec find_htlc(libp2p_crypto:address(), ledger()) ->blockchain_ledger_htlc_v1:htlc().
+find_htlc(Address, Ledger) ->
+    HTLCS = ?MODULE:htlcs(Ledger),
     maps:get(Address, HTLCS , blockchain_ledger_htlc_v1:new()).
 
 %%--------------------------------------------------------------------
@@ -363,10 +363,10 @@ add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 redeem_htlc(Address, Payee, Ledger) ->
-    HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
+    HTLC = ?MODULE:find_htlc(Address, Ledger),
     Amount = blockchain_ledger_htlc_v1:balance(HTLC),
     Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
-    NewHTLCS = maps:remove(Address, ?MODULE:htlcs(Ledger1)),
+    NewHTLCS = maps:remove(Address, ?MODULE:htlcs(Ledger)),
     Ledger1#ledger_v1{htlcs=NewHTLCS}.
 
 %%--------------------------------------------------------------------

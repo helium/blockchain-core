@@ -127,9 +127,8 @@ absorb(Txn, Ledger0) ->
         true ->
             Fee = ?MODULE:fee(Txn),
             Owner = ?MODULE:owner(Txn),
-            Entries = blockchain_ledger_v1:entries(Ledger0),
-            LastEntry = blockchain_ledger_v1:find_entry(Owner, Entries),
-            Nonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
+            LastEntry = blockchain_ledger_v1:find_entry(Owner, Ledger0),
+            Nonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
             case blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger0) of
                 {error, _Reason}=Error -> Error;
                 Ledger1 -> {ok, Ledger1}

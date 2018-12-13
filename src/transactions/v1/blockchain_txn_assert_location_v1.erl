@@ -168,9 +168,8 @@ absorb(Txn, Ledger0) ->
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
-    Entries = blockchain_ledger_v1:entries(Ledger0),
-    LastEntry = blockchain_ledger_v1:find_entry(OwnerAddress, Entries),
-    PaymentNonce = blockchain_ledger_v1:payment_nonce(LastEntry) + 1,
+    LastEntry = blockchain_ledger_v1:find_entry(OwnerAddress, Ledger0),
+    PaymentNonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
     case blockchain_ledger_v1:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger0) of
         {error, _Reason}=Error -> Error;
         Ledger1 ->

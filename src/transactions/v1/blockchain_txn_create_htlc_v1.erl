@@ -183,8 +183,8 @@ absorb(Txn, Ledger0) ->
                 true ->
                     Payer = ?MODULE:payer(Txn),
                     Payee = ?MODULE:payee(Txn),
-                    Entry = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(Ledger0)),
-                    Nonce = blockchain_ledger_v1:payment_nonce(Entry) + 1,
+                    Entry = blockchain_ledger_v1:find_entry(Payer, Ledger0),
+                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
                     case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;

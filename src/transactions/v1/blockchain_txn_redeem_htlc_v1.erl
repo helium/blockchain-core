@@ -143,12 +143,12 @@ absorb(Txn, Ledger0) ->
             case ?MODULE:is_valid(Txn) of
                 true ->
                     Address = ?MODULE:address(Txn),
-                    HTLC =  blockchain_ledger_v1:find_htlc(Address, blockchain_ledger_v1:htlcs(Ledger0)),
+                    HTLC =  blockchain_ledger_v1:find_htlc(Address, Ledger0),
                     Redeemer = ?MODULE:payee(Txn),
-                    Payer = blockchain_ledger_v1:htlc_payer(HTLC),
-                    Payee = blockchain_ledger_v1:htlc_payee(HTLC),
-                    Entry = blockchain_ledger_v1:find_entry(Redeemer, blockchain_ledger_v1:entries(Ledger0)),
-                    Nonce = blockchain_ledger_v1:payment_nonce(Entry) + 1,
+                    Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                    Payee = blockchain_ledger_htlc_v1:payee(HTLC),
+                    Entry = blockchain_ledger_v1:find_entry(Redeemer, Ledger0),
+                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
                     case blockchain_ledger_v1:debit_account(Redeemer, Fee, Nonce, Ledger0) of
                         {error, _Reason}=Error ->
                             Error;
@@ -160,7 +160,7 @@ absorb(Txn, Ledger0) ->
                                     %% check that the address trying to redeem matches the HTLC
                                     case Redeemer =:= Payee of
                                         true ->
-                                            Hashlock = blockchain_ledger_v1:htlc_hashlock(HTLC),
+                                            Hashlock = blockchain_ledger_htlc_v1:hashlock(HTLC),
                                             Preimage = ?MODULE:preimage(Txn),
                                             case (crypto:hash(sha256, Preimage) =:= Hashlock) of
                                                 true ->
@@ -172,7 +172,7 @@ absorb(Txn, Ledger0) ->
                                             {error, invalid_payee}
                                     end;
                                 true ->
-                                    Timelock = blockchain_ledger_v1:htlc_timelock(HTLC),
+                                    Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
                                     Height = blockchain_ledger_v1:current_height(Ledger1),
                                     case Timelock >= Height of
                                         true ->
