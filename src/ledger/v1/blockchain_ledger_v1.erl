@@ -7,36 +7,28 @@
 
 -export([
     new/0,
-    increment_height/1,
-    balance/1,
-    htlc_hashlock/1,
-    htlc_timelock/1,
-    htlc_payer/1,
-    htlc_payee/1,
-    payment_nonce/1,
-    htlc_nonce/1,
-    new_entry/2,
-    new_htlc/5,
-    find_entry/2,
-    find_htlc/2,
-    find_gateway_info/2,
+    current_height/1, increment_height/1,
+    transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
-    transaction_fee/1,
-    update_transaction_fee/1,
     active_gateways/1,
+    entries/1,
+    htlcs/1,
+
+    find_gateway_info/2,
     add_gateway/3, add_gateway/7,
     add_gateway_location/4,
+    request_poc/2,
+
+    find_entry/2,
     credit_account/3,
     debit_account/4,
     debit_fee/3,
+
+    find_htlc/2,
     add_htlc/7,
     redeem_htlc/3,
-    request_poc/2,
-    serialize/2,
-    deserialize/2,
-    entries/1,
-    current_height/1,
-    htlcs/1
+    
+    serialize/1, deserialize/1
 ]).
 
 -include("blockchain.hrl").
@@ -54,28 +46,12 @@
     htlcs = #{} :: htlcs()
 }).
 
--record(entry_v1, {
-    nonce = 0 :: non_neg_integer(),
-    balance = 0 :: non_neg_integer()
-}).
-
--record(htlc_v1, {
-    nonce = 0 :: non_neg_integer(),
-    payer :: libp2p_crypto:address(),
-    payee :: libp2p_crypto:address(),
-    balance = 0 :: non_neg_integer(),
-    hashlock :: undefined | binary(),
-    timelock :: undefined | non_neg_integer()
-}).
-
 -type ledger() :: #ledger_v1{}.
--type entry() :: #entry_v1{}.
--type entries() :: #{libp2p_crypto:address() => entry()}.
--type htlc() :: #htlc_v1{}.
--type htlcs() :: #{libp2p_crypto:address() => htlc()}.
+-type entries() :: #{libp2p_crypto:address() => blockchain_ledger_entry_v1:entry()}.
 -type active_gateways() :: #{libp2p_crypto:address() => blockchain_ledger_gateway_v1:gateway()}.
+-type htlcs() :: #{libp2p_crypto:address() => blockchain_ledger_htlc_v1:htlc()}.
 
--export_type([ledger/0, entry/0]).
+-export_type([ledger/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -89,8 +65,16 @@ new() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec current_height(ledger()) -> undefined | pos_integer().
+current_height(Ledger) ->
+    Ledger#ledger_v1.current_height.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec increment_height(ledger()) -> ledger().
-increment_height(Ledger=#ledger_v1{current_height=Height}) when Height /= undefined ->
+increment_height(#ledger_v1{current_height=Height}=Ledger) when Height /= undefined ->
     Ledger#ledger_v1{current_height=(Height + 1)};
 increment_height(Ledger) ->
     Ledger#ledger_v1{current_height=1}.
@@ -99,43 +83,49 @@ increment_height(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec balance(entry() | htlc()) -> non_neg_integer().
-balance(#entry_v1{balance=Balance}) ->
-    Balance;
-balance(#htlc_v1{balance=Balance}) ->
-    Balance.
+-spec transaction_fee(ledger()) -> non_neg_integer().
+transaction_fee(#ledger_v1{transaction_fee=Fee}) ->
+    Fee.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec htlc_hashlock(htlc()) -> binary().
-htlc_hashlock(HTLC) ->
-    HTLC#htlc_v1.hashlock.
+-spec update_transaction_fee(ledger()) -> ledger().
+update_transaction_fee(#ledger_v1{transaction_fee=Fee}=Ledger) ->
+    %% TODO - this should calculate a new transaction fee for the network
+    %% TODO - based on the average of usage fees
+    NewFee = case ?MODULE:current_height(Ledger) /= undefined of
+        true ->
+            ?MODULE:current_height(Ledger) div 1000;
+        false ->
+            Fee
+    end,
+    Ledger#ledger_v1{transaction_fee=NewFee}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec htlc_timelock(htlc()) -> non_neg_integer().
-htlc_timelock(HTLC) ->
-    HTLC#htlc_v1.timelock.
+-spec consensus_members(ledger()) -> [libp2p_crypto:address()].
+consensus_members(#ledger_v1{consensus_members=Members}) ->
+    Members.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec htlc_payer(htlc()) -> libp2p_crypto:address().
-htlc_payer(HTLC) ->
-    HTLC#htlc_v1.payer.
+-spec consensus_members([libp2p_crypto:address()], ledger()) -> ledger().
+consensus_members(Members, Ledger) ->
+    Ledger#ledger_v1{consensus_members=Members}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec htlc_payee(htlc()) -> libp2p_crypto:address().
-htlc_payee(HTLC) ->
-    HTLC#htlc_v1.payee.
+-spec active_gateways(ledger()) -> active_gateways().
+active_gateways(Ledger) ->
+    Ledger#ledger_v1.active_gateways.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -157,110 +147,10 @@ htlcs(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_nonce(entry()) -> non_neg_integer().
-payment_nonce(#entry_v1{nonce=Nonce}) ->
-    Nonce.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec htlc_nonce(htlc()) -> non_neg_integer().
-htlc_nonce(#htlc_v1{nonce=Nonce}) ->
-    Nonce.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec current_height(ledger()) -> undefined | pos_integer().
-current_height(Ledger) ->
-    Ledger#ledger_v1.current_height.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec transaction_fee(ledger()) -> non_neg_integer().
-transaction_fee(Ledger) ->
-    Ledger#ledger_v1.transaction_fee.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec update_transaction_fee(ledger()) -> ledger().
-update_transaction_fee(Ledger=#ledger_v1{transaction_fee=Fee}) ->
-    %% TODO - this should calculate a new transaction fee for the network
-    %% TODO - based on the average of usage fees
-    NewFee = case ?MODULE:current_height(Ledger) /= undefined of
-        true ->
-            ?MODULE:current_height(Ledger) div 1000;
-        false ->
-            Fee
-    end,
-    Ledger#ledger_v1{transaction_fee=NewFee}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec new_entry(non_neg_integer(), non_neg_integer()) -> entry().
-new_entry(Nonce, Balance) when Nonce /= undefined andalso Balance /= undefined ->
-    #entry_v1{nonce=Nonce, balance=Balance}.
-
--spec new_htlc(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(), binary(), non_neg_integer()) -> htlc().
-new_htlc(Payer, Payee, Balance, Hashlock, Timelock) when Balance /= undefined ->
-    #htlc_v1{payer=Payer, payee=Payee, balance=Balance, hashlock=Hashlock, timelock=Timelock}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:address(), entries()) -> entry().
-find_entry(Address, Entries) ->
-    maps:get(Address, Entries, #entry_v1{}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec find_htlc(libp2p_crypto:address(), htlcs()) -> htlc().
-find_htlc(Address, HTLCS) ->
-    maps:get(Address, HTLCS , #htlc_v1{}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec find_gateway_info(libp2p_crypto:address(), ledger()) -> undefined | blockchain_ledger_gateway_v1:gateway().
 find_gateway_info(GatewayAddress, Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     maps:get(GatewayAddress, ActiveGateways, undefined).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec consensus_members(ledger()) -> [libp2p_crypto:address()].
-consensus_members(Ledger) ->
-    Ledger#ledger_v1.consensus_members.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec consensus_members([libp2p_crypto:address()], ledger()) -> ledger().
-consensus_members(Members, Ledger) ->
-    Ledger#ledger_v1{consensus_members=Members}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec active_gateways(ledger()) -> active_gateways().
-active_gateways(Ledger) ->
-    Ledger#ledger_v1.active_gateways.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -339,6 +229,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                     Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, NewGw, ActiveGateways)}
             end
     end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -369,17 +260,28 @@ request_poc(GatewayAddress, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec find_entry(libp2p_crypto:address(), entries()) -> blockchain_ledger_entry_v1:entry().
+find_entry(Address, Entries) ->
+    maps:get(Address, Entries, blockchain_ledger_entry_v1:new()).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ledger().
 credit_account(Address, Amount, Ledger) ->
-    case maps:is_key(Address, entries(Ledger)) of
+    Entries = ?MODULE:entries(Ledger),
+    case maps:is_key(Address, Entries) of
         false ->
-            Entry = #entry_v1{},
-            NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
-            Ledger#ledger_v1{entries=maps:put(Address, NewEntry, Ledger#ledger_v1.entries)};
+            Entry = blockchain_ledger_entry_v1:new(1, Amount),
+            Ledger#ledger_v1{entries=maps:put(Address, Entry, Entries)};
         true ->
-            Entry = ?MODULE:find_entry(Address, Ledger#ledger_v1.entries),
-            NewEntry = ?MODULE:new_entry(?MODULE:payment_nonce(Entry), ?MODULE:balance(Entry) + Amount),
-            Ledger#ledger_v1{entries=maps:update(Address, NewEntry, Ledger#ledger_v1.entries)}
+            Entry = ?MODULE:find_entry(Address, Entries),
+            NewEntry = blockchain_ledger_entry_v1:new(
+                blockchain_ledger_entry_v1:nonce(Entry),
+                blockchain_ledger_entry_v1:balance(Entry) + Amount
+            ),
+            Ledger#ledger_v1{entries=maps:update(Address, NewEntry, Entries)}
     end.
 
 %%--------------------------------------------------------------------
@@ -387,20 +289,27 @@ credit_account(Address, Amount, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ledger() | {error, any()}.
-debit_account(Address, Amount, Nonce, Ledger=#ledger_v1{entries=Entries}) ->
-    Entry = ?MODULE:find_entry(Address, Entries),
-    case Nonce == ?MODULE:payment_nonce(Entry) + 1 of
+debit_account(Address, Amount, Nonce, Ledger) ->
+    Entries0 = ?MODULE:entries(Ledger),
+    Entry = ?MODULE:find_entry(Address, Entries0),
+    case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
         true ->
-            case (?MODULE:balance(Entry) - Amount) >= 0 of
+            case (blockchain_ledger_entry_v1:balance(Entry) - Amount) >= 0 of
                 true ->
-                    Ledger#ledger_v1{entries=maps:update(Address,
-                                                      ?MODULE:new_entry(Nonce, (?MODULE:balance(Entry) - Amount)),
-                                                      Entries)};
+                    Entries1 = maps:update(
+                        Address,
+                        blockchain_ledger_entry_v1:new(
+                            Nonce,
+                            (blockchain_ledger_entry_v1:balance(Entry) - Amount)
+                        ),
+                        Entries0
+                    ),
+                    Ledger#ledger_v1{entries=Entries1};
                 false ->
-                    {error, {insufficient_balance, Amount, ?MODULE:balance(Entry)}}
+                    {error, {insufficient_balance, Amount, blockchain_ledger_entry_v1:balance(Entry)}}
             end;
         false ->
-            {error, {bad_nonce, Nonce, ?MODULE:payment_nonce(Entry)}}
+            {error, {bad_nonce, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}
     end.
 
 %%--------------------------------------------------------------------
@@ -408,28 +317,43 @@ debit_account(Address, Amount, Nonce, Ledger=#ledger_v1{entries=Entries}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ledger() | {error, any()}.
-debit_fee(Address, Fee, Ledger=#ledger_v1{entries=Entries}) ->
-    Entry = ?MODULE:find_entry(Address, Entries),
-    case (?MODULE:balance(Entry) - Fee) >= 0 of
+debit_fee(Address, Fee, Ledger) ->
+    Entries0 = ?MODULE:entries(Ledger),
+    Entry = ?MODULE:find_entry(Address, Entries0),
+    case (blockchain_ledger_entry_v1:balance(Entry) - Fee) >= 0 of
         true ->
             %% NOTE: There is no nonce required when debiting a fee, I think
-            Ledger#ledger_v1{entries=maps:update(Address,
-                                                 ?MODULE:new_entry(?MODULE:payment_nonce(Entry), (?MODULE:balance(Entry) - Fee)),
-                                                 Entries)};
+            Entries1 = maps:update(
+                Address,
+                blockchain_ledger_entry_v1:new(
+                    blockchain_ledger_entry_v1:nonce(Entry),
+                    (blockchain_ledger_entry_v1:balance(Entry) - Fee)
+                ),
+                Entries0
+            ),
+            Ledger#ledger_v1{entries=Entries1};
         false ->
-            {error, {insufficient_balance, Fee, ?MODULE:balance(Entry)}}
+            {error, {insufficient_balance, Fee, blockchain_ledger_entry_v1:balance(Entry)}}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_htlc(libp2p_crypto:address(), htlcs()) ->blockchain_ledger_htlc_v1:htlc().
+find_htlc(Address, HTLCS) ->
+    maps:get(Address, HTLCS , blockchain_ledger_htlc_v1:new()).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
-    case maps:is_key(Address, htlcs(Ledger)) of
+    HTLCS = ?MODULE:htlcs(Ledger),
+    case maps:is_key(Address, HTLCS) of
         false ->
-            NewHTLC = ?MODULE:new_htlc(Payer, Payee, Amount, Hashlock, Timelock),
-            Ledger#ledger_v1{htlcs=maps:put(Address, NewHTLC, Ledger#ledger_v1.htlcs)};
+            NewHTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
+            Ledger#ledger_v1{htlcs=maps:put(Address, NewHTLC, HTLCS)};
         true ->
             {error, address_already_exists}
     end.
@@ -440,25 +364,25 @@ add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
 %%--------------------------------------------------------------------
 redeem_htlc(Address, Payee, Ledger) ->
     HTLC = ?MODULE:find_htlc(Address, htlcs(Ledger)),
-    Amount = ?MODULE:balance(HTLC),
+    Amount = blockchain_ledger_htlc_v1:balance(HTLC),
     Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
-    NewHTLCS = maps:remove(Address, htlcs(Ledger1)),
+    NewHTLCS = maps:remove(Address, ?MODULE:htlcs(Ledger1)),
     Ledger1#ledger_v1{htlcs=NewHTLCS}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(blockchain_util:serial_version(), ledger()) -> binary().
-serialize(_Version, Ledger) ->
+-spec serialize(ledger()) -> binary().
+serialize(Ledger) ->
     erlang:term_to_binary(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec deserialize(blockchain_util:serial_version(), binary()) -> ledger().
-deserialize(_Version, Bin) ->
+-spec deserialize(binary()) -> ledger().
+deserialize(Bin) ->
     erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
@@ -470,24 +394,11 @@ deserialize(_Version, Bin) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-balance_test() ->
-    Entry = new_entry(1, 1),
-    ?assertEqual(1, balance(Entry)).
-
-payment_nonce_test() ->
-    Entry = new_entry(1, 1),
-    ?assertEqual(1, payment_nonce(Entry)).
-
-new_entry_test() ->
-    Entry = new_entry(2, 1),
-    ?assertEqual(1, balance(Entry)),
-    ?assertEqual(2, payment_nonce(Entry)).
-
 find_entry_test() ->
-    Entry = new_entry(1, 1),
+    Entry = blockchain_ledger_entry_v1:new(1, 1),
     Ledger = #ledger_v1{entries=#{test => Entry}},
     ?assertEqual(Entry, find_entry(test, entries(Ledger))),
-    ?assertEqual(#entry_v1{}, find_entry(test2, entries(Ledger))).
+    ?assertEqual(blockchain_ledger_entry_v1:new(), find_entry(test2, entries(Ledger))).
 
 find_gateway_info_test() ->
     Info = blockchain_ledger_gateway_v1:new(<<>>, undefined),
@@ -536,34 +447,34 @@ add_gateway_location_test() ->
       ).
 
 credit_account_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
+    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     Entry = find_entry(address, entries(Ledger1)),
-    ?assertEqual(1000, balance(Entry)).
+    ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)).
 
 debit_account_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
+    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(address, 1000, 0, Ledger1)),
     ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(address, 1000, 12, Ledger1)),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(address, 9999, 1, Ledger1)),
     Ledger2 = debit_account(address, 500, 1, Ledger1),
     Entry = find_entry(address, entries(Ledger2)),
-    ?assertEqual(500, balance(Entry)),
-    ?assertEqual(1, payment_nonce(Entry)).
+    ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
 
 debit_fee_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
+    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
     Ledger1 = credit_account(address, 1000, Ledger0),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(address, 9999, Ledger1)),
     Ledger2 = debit_fee(address, 500, Ledger1),
     Entry = find_entry(address, entries(Ledger2)),
-    ?assertEqual(500, balance(Entry)),
-    ?assertEqual(0, payment_nonce(Entry)).
+    ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
 
 serialize_deserialize_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => #entry_v1{}}},
+    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
     Ledger1 = credit_account(address, 1000, Ledger0),
-    ?assertEqual(Ledger1, deserialize(v1, serialize(v1, Ledger1))).
+    ?assertEqual(Ledger1, deserialize(serialize(Ledger1))).
 
 -endif.
