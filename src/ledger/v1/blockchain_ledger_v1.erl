@@ -7,6 +7,7 @@
 
 -export([
     new/1,
+    dir/1,
     current_height/1, increment_height/1,
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
@@ -26,7 +27,9 @@
 
     find_htlc/2,
     add_htlc/7,
-    redeem_htlc/3
+    redeem_htlc/3,
+
+    clean/1
 ]).
 
 -include("blockchain.hrl").
@@ -71,6 +74,14 @@ new(Dir) ->
         entries=EntriesCF,
         htlcs=HTLCsCF
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec dir(ledger()) -> file:filename_all().
+dir(Ledger) ->
+    Ledger#ledger_v1.dir.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -463,6 +474,16 @@ redeem_htlc(Address, Payee, Ledger) ->
                 ok -> rocksdb:delete(DB, HTLCsCF, Address, [])
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+clean(Ledger) ->
+    Dir = ?MODULE:dir(Ledger),
+    DBDir = filename:join(Dir, ?DB_FILE),
+    rocksdb:destroy(DBDir, []).
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

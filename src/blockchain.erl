@@ -6,13 +6,13 @@
 -module(blockchain).
 
 -export([
-    new/2,
+    new/2, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
     ledger/1,
     dir/1,
     blocks/1, add_block/2, get_block/2,
-    load/2, build/3
+    build/3
 ]).
 
 -include("blockchain.hrl").
@@ -45,31 +45,54 @@
 %% blockchain_worker:integrate_genesis_block
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_block:block(), file:filename_all()) -> blockchain().
-new(GenesisBlock, Dir) ->
+-spec new(file:filename_all(), file:filename_all()
+                               | blockchain_block:block()
+                               | undefined) -> {ok, blockchain()} | {no_genesis, blockchain()}.
+new(Dir, Genesis) when is_list(Genesis) ->
+    case load_genesis(Genesis) of
+        {error, _} ->
+            ?MODULE:new(Dir, undefined);
+        {ok, Block} ->
+            ?MODULE:new(Dir, Block)
+    end;
+new(Dir, undefined) ->
+    case load(Dir) of
+        {Blockchain, {error, _}} ->
+            {no_genesis, Blockchain};
+        {Blockchain, {ok, _GenBlock}} ->
+            {ok, Blockchain}
+    end;
+new(Dir, GenBlock) ->
+    case load(Dir) of
+        {Blockchain, {error, _}} ->
+            ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
+            {ok, Blockchain};
+        {Blockchain, {ok, GenBlock}} ->
+            {ok, Blockchain};
+        {Blockchain, {ok, _OldGenBlock}} ->
+            ok = clean(Blockchain),
+            ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
+            {ok, Blockchain}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
 
-    Ledger = blockchain_ledger_v1:new(Dir),
+    Ledger = ?MODULE:ledger(Blockchain),
     Transactions = blockchain_block:transactions(GenesisBlock),
     ok = blockchain_transactions:absorb(Transactions, Ledger),
 
-    {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(Dir),
-
-    Blockchain = #blockchain{
-        dir=Dir,
-        db=DB,
-        default=DefaultCF,
-        blocks=BlocksCF,
-        heights=HeightsCF,
-        ledger=Ledger
-    },
     ok = save_block(GenesisBlock, Blockchain),
 
     GenBin = blockchain_block:serialize(GenesisBlock),
     % TODO: Make this a batch
     ok = rocksdb:put(DB, DefaultCF, GenHash, GenBin, []),
     ok = rocksdb:put(DB, DefaultCF, ?GENESIS, GenHash, []),
-    Blockchain.
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -201,30 +224,6 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Compare genesis block given before loading
-%% @end
-%%--------------------------------------------------------------------
--spec load(file:filename_all(), file:filename_all() | undefined) -> blockchain() | {update, blockchain_block:block()}.
-load(BaseDir, undefined) ->
-    load(BaseDir);
-load(BaseDir, GenDir) ->
-    case load_genesis(GenDir) of
-        {error, _} ->
-            load(BaseDir);
-        {ok, GenBlock} ->
-            Blockchain = load(BaseDir),
-            case ?MODULE:genesis_hash(Blockchain) =:= {ok, blockchain_block:hash_block(GenBlock)} of
-                false ->
-                    _ = rocksdb:close(Blockchain#blockchain.db),
-                    ok = clean(BaseDir),
-                    {update, GenBlock};
-                true ->
-                    Blockchain
-            end
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec build(blockchain_block:block(), blockchain(), non_neg_integer()) -> [blockchain_block:block()].
@@ -251,17 +250,29 @@ build(StartingBlock, Blockchain, N, Acc) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(file:filename_all()) -> blockchain().
+clean(Blockchain) ->
+    Dir = ?MODULE:dir(Blockchain),
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = rocksdb:destroy(DBDir, []),
+    ok = blockchain_ledger_v1:clean(?MODULE:ledger(Blockchain)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec load(file:filename_all()) -> {blockchain(), {ok, blockchain_block:block()} | {error, any()}}.
 load(Dir) ->
     {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(Dir),
-    #blockchain{
+    Ledger = blockchain_ledger_v1:new(Dir),
+    Blockchain = #blockchain{
         dir=Dir,
         db=DB,
         default=DefaultCF,
         blocks=BlocksCF,
         heights=HeightsCF,
-        ledger=blockchain_ledger_v1:new(Dir)
-    }.
+        ledger=Ledger
+    },
+    {Blockchain, ?MODULE:genesis_block(Blockchain)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -277,6 +288,10 @@ load_genesis(Dir) ->
             {ok, blockchain_block:deserialize(Binary)}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
 open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
@@ -319,18 +334,6 @@ save_block(Block, #blockchain{db=DB, default=DefaultCF, blocks=BlocksCF, heights
     %% lexiographic ordering works better with big endian
     ok = rocksdb:put(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash, []).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec clean(file:filename_all()) ->  ok | {error, any()}.
-clean(Dir) ->
-    Paths = filelib:wildcard(Dir ++ "/**"),
-    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
-    ok = lists:foreach(fun file:delete/1, Files),
-    Sorted = lists:reverse(lists:sort(Dirs)),
-    ok = lists:foreach(fun file:del_dir/1, Sorted).
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -340,7 +343,7 @@ new_test() ->
     BaseDir = test_utils:tmp_dir("new_test"),
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
-    Chain = new(Block, BaseDir),
+    {ok, Chain} = new(BaseDir, Block),
     ?assertEqual({ok, Hash}, genesis_hash(Chain)),
     ?assertEqual({ok, Block}, genesis_block(Chain)),
     ?assertEqual({ok, Hash}, head_hash(Chain)),
@@ -356,7 +359,7 @@ new_test() ->
 blocks_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
-    Chain = new(GenBlock, test_utils:tmp_dir("blocks_test")),
+    {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
@@ -369,7 +372,7 @@ blocks_test() ->
 get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
-    Chain = new(GenBlock, test_utils:tmp_dir("get_block_test")),
+    {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),

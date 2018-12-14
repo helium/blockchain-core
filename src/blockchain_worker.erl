@@ -51,7 +51,7 @@
 -define(SYNC_TIME, 60000).
 
 -record(state, {
-    blockchain :: {undefined, file:filename_all()} | blockchain:blockchain()
+    blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain()
     ,swarm :: undefined | pid()
     ,n :: integer()
     ,sync_timer = make_ref() :: reference()
@@ -228,11 +228,10 @@ init(Args) ->
     BaseDir = proplists:get_value(base_dir, Args, "data"),
     GenDir = proplists:get_value(update_dir, Args, undefined),
     Blockchain =
-        case blockchain:load(BaseDir, GenDir) of
-            {update, Block} ->
-                ok = ?MODULE:integrate_genesis_block(Block),
-                {undefined, BaseDir};
-            Chain ->
+        case blockchain:new(BaseDir, GenDir) of
+            {no_genesis, _Chain}=R ->
+                R;
+            {ok, Chain} ->
                 ok = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
                 Chain
@@ -243,10 +242,10 @@ init(Args) ->
 %% NOTE: num_consensus_members and consensus_addrs can be called before there is a blockchain
 handle_call(num_consensus_members, _From, #state{n=N}=State) ->
     {reply, N, State};
+handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
+    {reply, undefined, State};
 handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
-handle_call(_, _From, #state{blockchain={undefined, _}}=State) ->
-    {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
     case blockchain:head_block(Chain) of
         {error, _}=Error ->
@@ -335,14 +334,14 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefined, Dir}
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain}
                                                             ,swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
             lager:warning("~p is not a genesis block", [GenesisBlock]),
             {noreply, State};
         true ->
-            Blockchain = blockchain:new(GenesisBlock, Dir),
+            ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
             [ConsensusAddrs] = [blockchain_txn_gen_consensus_group_v1:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
                                 ,blockchain_txn_gen_consensus_group_v1:is(T)],
@@ -352,7 +351,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={undefine
             self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain}}
     end;
-handle_cast(_, #state{blockchain={undefined, _}}=State) ->
+handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
     {noreply, State};
 handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                 ,n=N}=State) ->
@@ -547,7 +546,9 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     erlang:cancel_timer(State#state.sync_timer),
     case blockchain:head_block(Chain) of
         {error, _Reason} ->
-            lager:error("could not get head block ~p", [_Reason]);
+            lager:error("could not get head block ~p", [_Reason]),
+            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+            {noreply, State#state{sync_timer=Ref}};
         {ok, Head} ->
             Meta = blockchain_block:meta(Head),
             BlockTime = maps:get(block_time, Meta, 0),
