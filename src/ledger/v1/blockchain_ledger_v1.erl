@@ -587,13 +587,13 @@ debit_account_test() ->
     BaseDir = test_utils:tmp_dir("debit_account_test"),
     Ledger = new(BaseDir),
     ok = credit_account(<<"address">>, 1000, Ledger),
-    ?assertEqual({error, {bad_nonce, 0, 1}}, debit_account(<<"address">>, 1000, 0, Ledger)),
-    ?assertEqual({error, {bad_nonce, 12, 1}}, debit_account(<<"address">>, 1000, 12, Ledger)),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 2, Ledger)),
-    ok = debit_account(<<"address">>, 500, 2, Ledger),
+    ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(<<"address">>, 1000, 0, Ledger)),
+    ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(<<"address">>, 1000, 12, Ledger)),
+    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 1, Ledger)),
+    ok = debit_account(<<"address">>, 500, 1, Ledger),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(2, blockchain_ledger_entry_v1:nonce(Entry)).
+    ?assertEqual(1c, blockchain_ledger_entry_v1:nonce(Entry)).
 
 debit_fee_test() ->
     BaseDir = test_utils:tmp_dir("debit_fee_test"),
@@ -603,6 +603,6 @@ debit_fee_test() ->
     ok = debit_fee(<<"address">>, 500, Ledger),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
+    ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
 
 -endif.
