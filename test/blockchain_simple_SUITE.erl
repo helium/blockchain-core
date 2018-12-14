@@ -43,7 +43,7 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    BaseDir = "data/test_SUITE/" ++ atom_to_list(TestCase),
+    BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
@@ -51,32 +51,29 @@ init_per_testcase(TestCase, Config) ->
     % Check ledger to make sure everyone has the right balance
     Ledger = blockchain_worker:ledger(),
     Entries = blockchain_ledger_v1:entries(Ledger),
+    _ = lists:foreach(fun(Entry) ->
+        Balance = blockchain_ledger_entry_v1:balance(Entry),
+        0 = blockchain_ledger_entry_v1:nonce(Entry)
+    end, maps:values(Entries)),
 
-    _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger_v1:balance(Entry),
-                         0, blockchain_ledger_v1:payment_nonce(Entry)
-                 end, Entries),
     [
-     {basedir, BaseDir},
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {consensus_members, ConsensusMembers} | Config
+        {basedir, BaseDir},
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {consensus_members, ConsensusMembers} | Config
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
     Sup = proplists:get_value(sup, Config),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
         true ->
-            Chain = blockchain_worker:blockchain(),
-            ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
             true = erlang:exit(Sup, normal),
             ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end);
         false ->
@@ -109,18 +106,18 @@ basic_test(Config) ->
     ok = blockchain_worker:add_block(Block, self()),
     Chain = blockchain_worker:blockchain(),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain:head_hash(Chain)),
-    ?assertEqual(Block, blockchain:head_block(Chain)),
-    ?assertEqual(2, blockchain_worker:height()),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain_worker:height()),
 
-    ?assertEqual({ok, Block}, blockchain_block:load(2, blockchain:dir(blockchain_worker:blockchain()))),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    NewEntry0 = blockchain_ledger_v1:find_entry(Recipient, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance + 2500, blockchain_ledger_v1:balance(NewEntry0)),
+    Ledger = blockchain_worker:ledger(),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
+    ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2510, blockchain_ledger_v1:balance(NewEntry1)),
-
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 %%--------------------------------------------------------------------

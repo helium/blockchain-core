@@ -7,7 +7,6 @@
     init/1, init_chain/2,
     generate_keys/1,
     wait_until/1, wait_until/3,
-    compare_chains/2,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
     nonl/1,
@@ -45,12 +44,12 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
     Chain = blockchain_worker:blockchain(),
-
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(GenesisBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(GenesisBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(1, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain_worker:height()),
     {ok, ConsensusMembers}.
 
 generate_keys(N) ->
@@ -79,19 +78,11 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             wait_until(Fun, Retry-1, Delay)
     end.
 
-compare_chains(Expected, Got) ->
-    ?assertEqual(blockchain:dir(Expected), blockchain:dir(Got)),
-    ?assertEqual(blockchain:head_hash(Expected), blockchain:head_hash(Got)),
-    ?assertEqual(blockchain:head_block(Expected), blockchain:head_block(Got)),
-    ?assertEqual(blockchain:genesis_hash(Expected), blockchain:genesis_hash(Got)),
-    ?assertEqual(blockchain:genesis_block(Expected), blockchain:genesis_block(Got)),
-    ?assertEqual(blockchain:ledger(Expected), blockchain:ledger(Got)),
-    ok.
-
 create_block(ConsensusMembers, Txs) ->
     Blockchain = blockchain_worker:blockchain(),
-    PrevHash = blockchain:head_hash(Blockchain),
-    Height = blockchain_block:height(blockchain:head_block(Blockchain)) + 1,
+    {ok, PrevHash} = blockchain:head_hash(Blockchain),
+    {ok, HeadBlock} = blockchain:head_block(Blockchain),
+    Height = blockchain_block:height(HeadBlock) + 1,
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),
