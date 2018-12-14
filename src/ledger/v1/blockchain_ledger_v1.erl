@@ -593,7 +593,7 @@ debit_account_test() ->
     ok = debit_account(<<"address">>, 500, 1, Ledger),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(1c, blockchain_ledger_entry_v1:nonce(Entry)).
+    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
 
 debit_fee_test() ->
     BaseDir = test_utils:tmp_dir("debit_fee_test"),
