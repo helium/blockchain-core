@@ -99,7 +99,7 @@ num_consensus_members() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_addrs() -> [libp2p_crypto:address()].
+-spec consensus_addrs() -> {ok, [libp2p_crypto:address()]} | {error, any()}.
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs).
 
@@ -367,27 +367,32 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                 true ->
                     lager:info("prev hash matches the gossiped block"),
                     Ledger = blockchain:ledger(Chain),
-                    case blockchain_block:verify_signature(Block,
-                                                        blockchain_ledger_v1:consensus_members(Ledger),
-                                                        blockchain_block:signature(Block),
-                                                        N-F)
-                    of
-                        {true, _} ->
-                            case blockchain:add_block(Block, Chain) of
-                                {error, _Reason} ->
-                                    lager:error("failed to add block ~p", [_Reason]);
-                                ok ->
-                                    lager:info("sending the gossipped block to other workers"),
-                                    Address = libp2p_swarm:address(Swarm),
-                                    libp2p_group_gossip:send(
-                                        libp2p_swarm:gossip_group(Swarm),
-                                        ?GOSSIP_PROTOCOL,
-                                        term_to_binary({block, Address, Block})
-                                    ),
-                                    ok = notify({add_block, Hash, true})
-                            end;
-                        false ->
-                            lager:warning("signature on block ~p is invalid", [Block])
+                    case blockchain_ledger_v1:consensus_members(Ledger) of
+                        {error, _Reason} ->
+                            lager:error("could not get consensus_members ~p", [_Reason]);
+                        {ok, ConsensusAddrs} ->
+                            case blockchain_block:verify_signature(Block,
+                                                                   ConsensusAddrs,
+                                                                   blockchain_block:signature(Block),
+                                                                   N-F)
+                            of
+                                {true, _} ->
+                                    case blockchain:add_block(Block, Chain) of
+                                        {error, _Reason} ->
+                                            lager:error("failed to add block ~p", [_Reason]);
+                                        ok ->
+                                            lager:info("sending the gossipped block to other workers"),
+                                            Address = libp2p_swarm:address(Swarm),
+                                            libp2p_group_gossip:send(
+                                                libp2p_swarm:gossip_group(Swarm),
+                                                ?GOSSIP_PROTOCOL,
+                                                term_to_binary({block, Address, Block})
+                                            ),
+                                            ok = notify({add_block, Hash, true})
+                                    end;
+                                false ->
+                                    lager:warning("signature on block ~p is invalid", [Block])
+                            end
                     end;
                 false when Hash == Head ->
                     lager:info("already have this block");
@@ -425,20 +430,25 @@ handle_cast({sync_blocks, Blocks}, #state{blockchain=Chain, n=N}=State) when is_
                         true ->
                             lager:info("prev hash matches the gossiped block"),
                             Ledger = blockchain:ledger(Chain),
-                            case blockchain_block:verify_signature(Block,
-                                                                   blockchain_ledger_v1:consensus_members(Ledger),
-                                                                   blockchain_block:signature(Block),
-                                                                   N-F)
-                            of
-                                false ->
-                                    ok;
-                                {true, _} ->
-                                    case blockchain:add_block(Block, Chain) of
-                                        {error, _} ->
+                            case blockchain_ledger_v1:consensus_members(Ledger) of
+                                {error, _Reason} ->
+                                    lager:error("could not get consensus_members ~p", [_Reason]);
+                                {ok, ConsensusAddrs} ->
+                                    case blockchain_block:verify_signature(Block,
+                                                                        ConsensusAddrs,
+                                                                        blockchain_block:signature(Block),
+                                                                        N-F)
+                                    of
+                                        false ->
                                             ok;
-                                        ok ->
-                                            ok = notify({add_block, blockchain_block:hash_block(Block), false})
-                                    end            
+                                        {true, _} ->
+                                            case blockchain:add_block(Block, Chain) of
+                                                {error, _} ->
+                                                    ok;
+                                                ok ->
+                                                    ok = notify({add_block, blockchain_block:hash_block(Block), false})
+                                            end            
+                                    end
                             end
                     end
             end
@@ -589,19 +599,16 @@ terminate(_Reason, _State) ->
 add_handlers(Swarm, Blockchain) ->
     Address = libp2p_swarm:address(Swarm),
     libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, Blockchain]}),
-
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
     ),
-
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?GW_REGISTRATION_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
     ),
-
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?LOC_ASSERTION_PROTOCOL,
@@ -613,15 +620,20 @@ add_handlers(Swarm, Blockchain) ->
 %% @end
 %%--------------------------------------------------------------------
 send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
-    do_send(
-        Swarm,
-        blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-        erlang:term_to_binary({Type, Txn}),
-        ?TX_PROTOCOL,
-        blockchain_txn_handler,
-        [self()],
-        false
-    ).
+    case blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)) of
+        {error, _Reason} ->
+            lager:error("could not get consensus_members ~p", [_Reason]);
+        {ok, ConsensusAddrs} ->
+            do_send(
+                Swarm,
+                ConsensusAddrs,
+                erlang:term_to_binary({Type, Txn}),
+                ?TX_PROTOCOL,
+                blockchain_txn_handler,
+                [self()],
+                false
+            )
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -652,21 +664,21 @@ do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Ret
 sync(Swarm, Chain, Peer) ->
     Parent = self(),
     spawn(fun() ->
-                  Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
-                  case libp2p_swarm:dial_framed_stream(Swarm,
-                                                       Peer,
-                                                       ?SYNC_PROTOCOL,
-                                                       blockchain_sync_handler,
-                                                       [self()]) of
-                      {ok, Stream} ->
-                          Stream ! {hash, blockchain:head_hash(Chain)},
-                          %% this timer will likely get cancelled when the sync response comes in
-                          %% but if that never happens, we don't forget to sync
-                          Parent ! {update_timer, Ref};
-                      _ ->
-                          erlang:cancel_timer(Ref),
-                          %% schedule a sync retry with another peer
-                          Ref2 = erlang:send_after(5000, Parent, maybe_sync),
-                          Parent ! {update_timer, Ref2}
-                  end
-          end).
+        Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
+        case libp2p_swarm:dial_framed_stream(Swarm,
+                                             Peer,
+                                             ?SYNC_PROTOCOL,
+                                             blockchain_sync_handler,
+                                             [self()]) of
+            {ok, Stream} ->
+                Stream ! {hash, blockchain:head_hash(Chain)},
+                %% this timer will likely get cancelled when the sync response comes in
+                %% but if that never happens, we don't forget to sync
+                Parent ! {update_timer, Ref};
+            _ ->
+                erlang:cancel_timer(Ref),
+                %% schedule a sync retry with another peer
+                Ref2 = erlang:send_after(5000, Parent, maybe_sync),
+                Parent ! {update_timer, Ref2}
+        end
+    end).

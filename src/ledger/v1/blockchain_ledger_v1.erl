@@ -137,7 +137,7 @@ update_transaction_fee(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members(ledger()) -> [libp2p_crypto:address()].
+-spec consensus_members(ledger()) -> {ok, [libp2p_crypto:address()]} | {error, any()}.
 consensus_members(#ledger_v1{db=DB, default=DefaultCF}) ->
     case rocksdb:get(DB, DefaultCF, ?CONSENSUS_MEMBERS, []) of
         {ok, Bin} ->
