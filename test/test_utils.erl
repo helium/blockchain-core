@@ -92,13 +92,17 @@ create_block(ConsensusMembers, Txs) ->
 
 signatures(ConsensusMembers, BinBlock) ->
     lists:foldl(
-        fun({A, {_, _, F}}, Acc) ->
-            Sig = F(BinBlock),
-            [{A, Sig}|Acc]
-        end
-        ,[]
-        ,ConsensusMembers
-    ).
+      fun({A, {_, _, F}}, Acc) ->
+              Sig = F(BinBlock),
+              [{A, Sig}|Acc];
+         %% NOTE: This clause matches the consensus members generated for the dist suite
+         ({A, _, F}, Acc) ->
+              Sig = F(BinBlock),
+              [{A, Sig}|Acc]
+      end
+      ,[]
+      ,ConsensusMembers
+     ).
 
 tmp_dir() ->
     ?MODULE:nonl(os:cmd("mktemp -d")).
@@ -115,13 +119,14 @@ create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) -
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
 
-%%--------------------------------------------------------------------	
-%% @doc	
-%% @end	
-%%--------------------------------------------------------------------	
--spec atomic_save(file:filename_all(), binary() | string()) -> ok | {error, any()}.	
-atomic_save(File, Bin) ->	
-    ok = filelib:ensure_dir(File),	
-    TmpFile = File ++ "-tmp",	
-    ok = file:write_file(TmpFile, Bin),	
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%-------------------------------------------------------------------
+-spec atomic_save(file:filename_all(), binary() | string()) -> ok | {error, any()}.
+atomic_save(File, Bin) ->
+    ok = filelib:ensure_dir(File),
+    TmpFile = File ++ "-tmp",
+    ok = file:write_file(TmpFile, Bin),
     file:rename(TmpFile, File).

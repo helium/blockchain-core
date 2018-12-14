@@ -63,16 +63,16 @@ gossip_test(Config) ->
     %% wait till each worker gets the gensis block
     ok = lists:foreach(fun(Node) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           1 == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                           {ok, 1} == ct_rpc:call(Node, blockchain_worker, height, [])
                                                                    end, 10, timer:seconds(6))
                        end, Nodes),
 
     %% FIXME: should do this for each test case presumably
     lists:foreach(fun(Node) ->
                           Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                          HeadBlock = blockchain:head_block(Blockchain),
-                          WorkerGenesisBlock = blockchain:genesis_block(Blockchain),
-                          Height = ct_rpc:call(Node, blockchain_worker, height, []),
+                          {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
+                          {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
+                          {ok, Height} = ct_rpc:call(Node, blockchain_worker, height, []),
                           ?assertEqual(GenesisBlock, HeadBlock),
                           ?assertEqual(GenesisBlock, WorkerGenesisBlock),
                           ?assertEqual(1, Height)
@@ -98,7 +98,7 @@ gossip_test(Config) ->
     Recipient = ct_rpc:call(SecondNode, blockchain_swarm, address, []),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
-    Block = ct_rpc:call(FirstNode, blockchain_util, create_block, [ConsensusMembers, [SignedTx]]),
+    Block = ct_rpc:call(FirstNode, test_utils, create_block, [ConsensusMembers, [SignedTx]]),
     ct:pal("Block: ~p", [Block]),
 
     PayerSwarm = ct_rpc:call(FirstNode, blockchain_swarm, swarm, []),
@@ -109,7 +109,7 @@ gossip_test(Config) ->
 
     ok = lists:foreach(fun(Node) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           2 == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                           {ok, 2} == ct_rpc:call(Node, blockchain_worker, height, [])
                                                                    end, 10, timer:seconds(6))
                        end, Nodes),
     ok.
