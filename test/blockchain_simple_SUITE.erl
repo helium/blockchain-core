@@ -310,22 +310,23 @@ htlc_payer_redeem_test(Config) ->
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     ok = blockchain_worker:add_block(Block, self()),
-    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(2, blockchain_worker:height()),
+    Chain = blockchain_worker:blockchain(),
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
+    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 2}, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
-    NewEntry0 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2500, blockchain_ledger_v1:balance(NewEntry0)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
     % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_ledger_v1:htlcs(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger_v1:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger_v1:htlc_hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger_v1:htlc_timelock(NewHTLC0)),
+    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
+    ?assertEqual(2500, blockchain_ledger_htlc_v1:balance(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger_htlc_v1:hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger_htlc_v1:timelock(NewHTLC0)),
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
@@ -335,9 +336,10 @@ htlc_payer_redeem_test(Config) ->
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check we are at height 4
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(4, blockchain_worker:height()),
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block3), HeadHash2),
+    ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 4}, blockchain_worker:height()),
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
@@ -347,8 +349,8 @@ htlc_payer_redeem_test(Config) ->
     ok = blockchain_worker:add_block(Block4, self()),
 
     % Check that the Payer now owns 5000 again
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(5000, blockchain_ledger_v1:balance(NewEntry1)),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
+    ?assertEqual(5000, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     ok.
 
