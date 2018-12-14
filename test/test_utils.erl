@@ -10,7 +10,8 @@
     create_block/2,
     tmp_dir/0, tmp_dir/1,
     nonl/1,
-    create_payment_transaction/6
+    create_payment_transaction/6,
+    atomic_save/2
 ]).
 
 init(BaseDir) ->
@@ -113,3 +114,14 @@ create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) -
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
+
+%%--------------------------------------------------------------------	
+%% @doc	
+%% @end	
+%%--------------------------------------------------------------------	
+-spec atomic_save(file:filename_all(), binary() | string()) -> ok | {error, any()}.	
+atomic_save(File, Bin) ->	
+    ok = filelib:ensure_dir(File),	
+    TmpFile = File ++ "-tmp",	
+    ok = file:write_file(TmpFile, Bin),	
+    file:rename(TmpFile, File).

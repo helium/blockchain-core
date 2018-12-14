@@ -57,23 +57,28 @@ new(Dir, Genesis) when is_list(Genesis) ->
             ?MODULE:new(Dir, Block)
     end;
 new(Dir, undefined) ->
+    lager:info("loading blockchain from ~p", [Dir]),
     case load(Dir) of
         {Blockchain, {error, _}} ->
+            lager:info("no genesis block found"),
             {no_genesis, Blockchain};
         {Blockchain, {ok, _GenBlock}} ->
             {ok, Blockchain}
     end;
 new(Dir, GenBlock) ->
+    lager:info("loading blockchain from ~p and checking ~p", [Dir, GenBlock]),
     case load(Dir) of
         {Blockchain, {error, _}} ->
+            lager:warning("failed to load genesis, integrating new one"),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
             {ok, Blockchain};
         {Blockchain, {ok, GenBlock}} ->
+            lager:info("new gen = old gen"),
             {ok, Blockchain};
         {Blockchain, {ok, _OldGenBlock}} ->
+            lager:info("replacing old genesis block"),
             ok = clean(Blockchain),
-            ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
-            {ok, Blockchain}
+            new(Dir, GenBlock)
     end.
 
 %%--------------------------------------------------------------------

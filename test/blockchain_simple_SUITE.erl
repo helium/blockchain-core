@@ -139,8 +139,9 @@ reload_test(Config) ->
         end,
         lists:seq(1, 10)
     ),
-    ?assertEqual(11, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain_worker:height()),
     true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
     % Create new genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
@@ -150,20 +151,18 @@ reload_test(Config) ->
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
     GenDir = "data/test_SUITE/reload2",
     File = filename:join(GenDir, "genesis"),
-    V = blockchain_util:serial_version(GenDir),
-    ok = blockchain_util:atomic_save(File, blockchain_block:serialize(V, NewGenBlock)),
-
-    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+    ok = test_utils:atomic_save(File, blockchain_block:serialize(NewGenBlock)),
 
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(NewGenBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(NewGenBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(1, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual(NewGenBlock, HeadBlock),
+    ?assertEqual({ok, blockchain_block:hash_block(NewGenBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, NewGenBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain_worker:height()),
 
     true = erlang:exit(Sup1, normal),
     ok.
