@@ -42,23 +42,30 @@ basic(_Config) ->
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
-    Genesis = blockchain:genesis_block(Chain0),
-
-    % Create BlocksN empty blocks
-    Blocks = create_blocks(BlocksN, ConsensusMembers),
-    LastBlock = lists:last(Blocks),
+    {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Simulate other chain with sync handler only
     {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     SimDir = "data/sync_SUITE/basic_sim",
-    Chain = blockchain:new(Genesis, SimDir),
-    blockchain:save(Chain),
-    [blockchain_block:save(blockchain_block:hash_block(B), B, blockchain:dir(Chain)) || B <- Blocks],
+    Chain = blockchain:new(SimDir, Genesis),
+
+    % Add some blocks
+    Blocks = lists:reverse(lists:foldl(
+        fun(_, Acc) ->
+            Block = test_utils:create_block(ConsensusMembers, []),
+            ok = blockchain_worker:add_block(Block, self()),
+            [Block|Acc]
+        end,
+        [],
+        lists:seq(1, BlocksN)
+    )),
+    LastBlock = lists:last(Blocks),
+
     ok = libp2p_swarm:add_stream_handler(
         SimSwarm
         ,?SYNC_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_sync_handler, ?MODULE, blockchain:dir(Chain)]}
+        ,{libp2p_framed_stream, server, [c, ?MODULE, Chain]}
     ),
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
@@ -68,43 +75,43 @@ basic(_Config) ->
     % Simulate add block from other chain
     ok = blockchain_worker:add_block(LastBlock, libp2p_swarm:address(SimSwarm)),
 
-    ok = test_utils:wait_until(fun() -> BlocksN + 1 =:= blockchain_worker:height() end),
-    ?assertEqual(LastBlock, blockchain:head_block(blockchain_worker:blockchain())),
+    ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain_worker:height() end),
+    ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     true = erlang:exit(Sup, normal),
     ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-create_blocks(N, ConsensusMembers) ->
-    create_blocks(N, ConsensusMembers, []).
+% create_blocks(N, ConsensusMembers) ->
+%     create_blocks(N, ConsensusMembers, []).
 
-create_blocks(0, _, Blocks) ->
-    lists:reverse(Blocks);
-create_blocks(N, ConsensusMembers, []=Blocks) ->
-    Blockchain = blockchain_worker:blockchain(),
-    PrevHash = blockchain:head_hash(Blockchain),
-    Height = blockchain_worker:height() + 1,
-    Block0 = blockchain_block:new(PrevHash, Height, [], <<>>, #{}),
-    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
-    Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
-    create_blocks(N-1, ConsensusMembers, [Block1|Blocks]);
-create_blocks(N, ConsensusMembers, [LastBlock|_]=Blocks) ->
-    PrevHash = blockchain_block:hash_block(LastBlock),
-    Height = blockchain_block:height(LastBlock) + 1,
-    Block0 = blockchain_block:new(PrevHash, Height, [], <<>>, #{}),
-    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
-    Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
-    create_blocks(N-1, ConsensusMembers, [Block1|Blocks]).
+% create_blocks(0, _, Blocks) ->
+%     lists:reverse(Blocks);
+% create_blocks(N, ConsensusMembers, []=Blocks) ->
+%     Blockchain = blockchain_worker:blockchain(),
+%     PrevHash = blockchain:head_hash(Blockchain),
+%     Height = blockchain_worker:height() + 1,
+%     Block0 = blockchain_block:new(PrevHash, Height, [], <<>>, #{}),
+%     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+%     Signatures = signatures(ConsensusMembers, BinBlock),
+%     Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
+%     create_blocks(N-1, ConsensusMembers, [Block1|Blocks]);
+% create_blocks(N, ConsensusMembers, [LastBlock|_]=Blocks) ->
+%     PrevHash = blockchain_block:hash_block(LastBlock),
+%     Height = blockchain_block:height(LastBlock) + 1,
+%     Block0 = blockchain_block:new(PrevHash, Height, [], <<>>, #{}),
+%     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+%     Signatures = signatures(ConsensusMembers, BinBlock),
+%     Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
+%     create_blocks(N-1, ConsensusMembers, [Block1|Blocks]).
 
-signatures(ConsensusMembers, BinBlock) ->
-    lists:foldl(
-        fun({A, {_, _, F}}, Acc) ->
-            Sig = F(BinBlock),
-            [{A, Sig}|Acc]
-        end
-        ,[]
-        ,ConsensusMembers
-    ).
+% signatures(ConsensusMembers, BinBlock) ->
+%     lists:foldl(
+%         fun({A, {_, _, F}}, Acc) ->
+%             Sig = F(BinBlock),
+%             [{A, Sig}|Acc]
+%         end
+%         ,[]
+%         ,ConsensusMembers
+%     ).
