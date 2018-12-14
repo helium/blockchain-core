@@ -167,14 +167,13 @@ reload_test(Config) ->
     true = erlang:exit(Sup1, normal),
     ok.
 
-
 restart_test(Config) ->
     GenDir = "data/test_SUITE/restart2",
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
     Opts = proplists:get_value(opts, Config),
     Chain0 = blockchain_worker:blockchain(),
-    GenBlock = blockchain:head_block(Chain0),
+    {ok, GenBlock} = blockchain:head_block(Chain0),
 
     % Add some blocks
     [LastBlock| _Blocks] = lists:foldl(
@@ -187,40 +186,40 @@ restart_test(Config) ->
         [],
         lists:seq(1, 10)
     ),
-    ?assertEqual(11, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain_worker:height()),
 
     true = erlang:exit(Sup, normal),
-
-    % Restart with an empty 'GenDir'
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
+    % Restart with an empty 'GenDir'
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(LastBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(GenBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(11, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 11}, blockchain_worker:height()),
 
     true = erlang:exit(Sup1, normal),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
 
     % Restart with the existing genesis block in 'GenDir'
-    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
     ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),
-
-    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(v1, GenBlock)),
+    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(GenBlock)),
 
     {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain1 = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
-    ?assertEqual(LastBlock, blockchain:head_block(Chain1)),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain1)),
-    ?assertEqual(GenBlock, blockchain:genesis_block(Chain1)),
-    ?assertEqual(11, blockchain_worker:height()),
+    {ok, HeadBlock1} = blockchain:head_block(Chain1),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(HeadBlock1)),
+    ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain1)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain1)),
+    ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain1)),
+    ?assertEqual({ok, 11}, blockchain_worker:height()),
 
     true = erlang:exit(Sup2, normal),
     ok.
