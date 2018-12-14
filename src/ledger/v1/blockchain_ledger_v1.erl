@@ -93,7 +93,7 @@ current_height(#ledger_v1{db=DB, default=DefaultCF}) ->
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
-            {error, not_found};
+            {ok, 1};
         Error ->
             Error
     end.
