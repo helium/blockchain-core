@@ -163,17 +163,16 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> blockchain().
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     Ledger = ?MODULE:ledger(Blockchain),
     case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger) of
         ok ->
-            ok = save_block(Block, Blockchain),
-            Blockchain;
-        {error, Reason} ->
+            save_block(Block, Blockchain);
+        {error, Reason}=Error ->
             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [Hash, Reason]),
-            Blockchain
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -360,12 +359,12 @@ blocks_test() ->
     Chain = new(GenBlock, test_utils:tmp_dir("blocks_test")),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
-    Chain2 = add_block(Block, Chain),
+    ok = add_block(Block, Chain),
     Map = #{
         GenHash => GenBlock,
         Hash => Block
     },
-    ?assertMatch(Map, blocks(Chain2)).
+    ?assertMatch(Map, blocks(Chain)).
 
 get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
@@ -373,8 +372,8 @@ get_block_test() ->
     Chain = new(GenBlock, test_utils:tmp_dir("get_block_test")),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
-    Chain2 = add_block(Block, Chain),
-    ?assertMatch({ok, Block}, get_block(Hash, Chain2)).
+    ok = add_block(Block, Chain),
+    ?assertMatch({ok, Block}, get_block(Hash, Chain)).
 
 % load_test() ->
 %     BaseDir = test_utils:tmp_dir("save_load_test"),

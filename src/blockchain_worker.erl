@@ -67,7 +67,7 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec height() -> integer()  | undefined.
+-spec height() -> {ok, integer()}  | {error, any()}.
 height() ->
     gen_server:call(?SERVER, height).
 
@@ -248,9 +248,13 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
 handle_call(_, _From, #state{blockchain={undefined, _}}=State) ->
     {reply, undefined, State};
 handle_call(height, _From, #state{blockchain=Chain}=State) ->
-    CurrentBlock = blockchain:head_block(Chain),
-    Height = blockchain_block:height(CurrentBlock),
-    {reply, Height, State};
+    case blockchain:head_block(Chain) of
+        {error, _}=Error ->
+            {reply, Error, State};
+        {ok, Block} ->
+            Height = blockchain_block:height(Block),
+            {reply, {ok, Height}, State}
+    end;
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
 handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
@@ -275,10 +279,10 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
     Address = libp2p_swarm:address(Swarm),
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
-        undefined ->
+        {error, _}=Error ->
             lager:info("gateway not found in ledger."),
-            {reply, {error, gateway_not_found}, State};
-        GwInfo ->
+            {reply, Error, State};
+        {ok, GwInfo} ->
             Nonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
             %% check that the correct owner has been specified
             case Owner =:= blockchain_ledger_gateway_v1:owner_address(GwInfo) of
@@ -353,101 +357,124 @@ handle_cast(_, #state{blockchain={undefined, _}}=State) ->
 handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                 ,n=N}=State) ->
     lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
-    Head = blockchain:head_hash(Chain),
     Hash = blockchain_block:hash_block(Block),
     F = ((N-1) div 3),
-    case blockchain_block:prev_hash(Block) == Head of
-        true ->
-            lager:info("prev hash matches the gossiped block"),
-            Ledger = blockchain:ledger(Chain),
-            case blockchain_block:verify_signature(Block,
-                                                   blockchain_ledger_v1:consensus_members(Ledger),
-                                                   blockchain_block:signature(Block),
-                                                   N-F)
-            of
-                {true, _} ->
-                    NewChain = blockchain:add_block(Block, Chain),
-                    lager:info("sending the gossipped block to other workers"),
-                    Address = libp2p_swarm:address(Swarm),
-                    libp2p_group_gossip:send(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, term_to_binary({block, Address, Block})),
-                    ok = notify({add_block, Hash, true}),
-                    {noreply, State#state{blockchain=NewChain}};
+    case blockchain:head_hash(Chain) of
+        {error, _Reason} ->
+            lager:error("could not get head hash ~p", [_Reason]);
+        {ok, Head} ->
+            case blockchain_block:prev_hash(Block) =:= Head of
+                true ->
+                    lager:info("prev hash matches the gossiped block"),
+                    Ledger = blockchain:ledger(Chain),
+                    case blockchain_block:verify_signature(Block,
+                                                        blockchain_ledger_v1:consensus_members(Ledger),
+                                                        blockchain_block:signature(Block),
+                                                        N-F)
+                    of
+                        {true, _} ->
+                            case blockchain:add_block(Block, Chain) of
+                                {error, _Reason} ->
+                                    lager:error("failed to add block ~p", [_Reason]);
+                                ok ->
+                                    lager:info("sending the gossipped block to other workers"),
+                                    Address = libp2p_swarm:address(Swarm),
+                                    libp2p_group_gossip:send(
+                                        libp2p_swarm:gossip_group(Swarm),
+                                        ?GOSSIP_PROTOCOL,
+                                        term_to_binary({block, Address, Block})
+                                    ),
+                                    ok = notify({add_block, Hash, true})
+                            end;
+                        false ->
+                            lager:warning("signature on block ~p is invalid", [Block])
+                    end;
+                false when Hash == Head ->
+                    lager:info("already have this block");
                 false ->
-                    lager:warning("signature on block ~p is invalid", [Block]),
-                    {noreply, State}
-            end;
-        false when Hash == Head ->
-            lager:info("already have this block"),
-            {noreply, State};
-        false ->
-            lager:warning("gossipped block doesn't fit with our chain"),
-            P2PAddress = libp2p_crypto:address_to_p2p(Sender),
-            lager:info("syncing with the sender ~p", [P2PAddress]),
-            case libp2p_swarm:dial_framed_stream(Swarm,
-                                                 P2PAddress,
-                                                 ?SYNC_PROTOCOL,
-                                                 blockchain_sync_handler,
-                                                 [self()]) of
-                {ok, Stream} ->
-                    Stream ! {hash, blockchain:head_hash(Chain)};
-                _Error ->
-                    lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
-            end,
-            {noreply, State}
-    end;
-handle_cast({sync_blocks, Blocks}, #state{n=N}=State0) when is_list(Blocks) ->
+                    lager:warning("gossipped block doesn't fit with our chain"),
+                    P2PAddress = libp2p_crypto:address_to_p2p(Sender),
+                    lager:info("syncing with the sender ~p", [P2PAddress]),
+                    case libp2p_swarm:dial_framed_stream(Swarm,
+                                                        P2PAddress,
+                                                        ?SYNC_PROTOCOL,
+                                                        blockchain_sync_handler,
+                                                        [self()]) of
+                        {ok, Stream} ->
+                            Stream ! {hash, blockchain:head_hash(Chain)};
+                        _Error ->
+                            lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
+                    end
+            end
+    end,
+    {noreply, State};
+handle_cast({sync_blocks, Blocks}, #state{blockchain=Chain, n=N}=State) when is_list(Blocks) ->
     lager:info("got sync_blocks msg ~p", [Blocks]),
     F = ((N-1) div 3),
     % TODO: Too much nesting
-    State1 =
-        lists:foldl(
-            fun(Block, #state{blockchain=Chain}=State) ->
-                Head = blockchain:head_hash(Chain),
-                case blockchain_block:prev_hash(Block) == Head of
-                    true ->
-                        lager:info("prev hash matches the gossiped block"),
-                        Ledger = blockchain:ledger(Chain),
-                        case blockchain_block:verify_signature(Block,
-                                                               blockchain_ledger_v1:consensus_members(Ledger),
-                                                               blockchain_block:signature(Block),
-                                                               N-F)
-                        of
-                            {true, _} ->
-                                NewChain = blockchain:add_block(Block, Chain),
-                                ok = notify({add_block, blockchain_block:hash_block(Block), false}),
-                                State#state{blockchain=NewChain};
-                            false ->
-                                State
-                        end;
-                    false ->
-                        State
-                end
-            end,
-            State0,
-            Blocks
-        ),
-    erlang:cancel_timer(State1#state.sync_timer),
+    lists:foreach(
+        fun(Block) ->
+            case blockchain:head_hash(Chain) of
+                {error, _Reason} ->
+                    lager:error("could not get head hash ~p", [_Reason]),
+                    ok;
+                {ok, Head} -> 
+                    case blockchain_block:prev_hash(Block) == Head of
+                        false ->
+                            ok;
+                        true ->
+                            lager:info("prev hash matches the gossiped block"),
+                            Ledger = blockchain:ledger(Chain),
+                            case blockchain_block:verify_signature(Block,
+                                                                   blockchain_ledger_v1:consensus_members(Ledger),
+                                                                   blockchain_block:signature(Block),
+                                                                   N-F)
+                            of
+                                false ->
+                                    ok;
+                                {true, _} ->
+                                    case blockchain:add_block(Block, Chain) of
+                                        {error, _} ->
+                                            ok;
+                                        ok ->
+                                            ok = notify({add_block, blockchain_block:hash_block(Block), false})
+                                    end            
+                            end
+                    end
+            end
+        end,
+        Blocks
+    ),
+    erlang:cancel_timer(State#state.sync_timer),
     %% schedule another sync to see if there's more waiting
     Ref = erlang:send_after(5000, self(), maybe_sync),
-    {noreply, State1#state{sync_timer=Ref}};
+    {noreply, State#state{sync_timer=Ref}};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Address = libp2p_swarm:address(Swarm),
-    Entry = blockchain_ledger_v1:find_entry(Address, Ledger),
-    Nonce = blockchain_ledger_entry_v1:nonce(Entry),
-    PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-    ok = send_txn(payment_txn, SignedPaymentTxn, State),
+    case blockchain_ledger_v1:find_entry(Address, Ledger) of
+        {error, _Reason} ->
+            lager:error("could not get entry ~p", [_Reason]);
+        {ok, Entry} ->
+            Nonce = blockchain_ledger_entry_v1:nonce(Entry),
+            PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
+            {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+            SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+            ok = send_txn(payment_txn, SignedPaymentTxn, State)
+    end,
     {noreply, State};
 handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    Entry = blockchain_ledger_v1:find_entry(Address, Ledger),
-    Nonce = blockchain_ledger_entry_v1:nonce(Entry),
-    PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-    ok = send_txn(payment_txn, SignedPaymentTxn, State),
+    case blockchain_ledger_v1:find_entry(Address, Ledger) of
+        {error, _Reason} ->
+            lager:error("could not get entry ~p", [_Reason]);
+        {ok, Entry} ->
+            Nonce = blockchain_ledger_entry_v1:nonce(Entry),
+            PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+            ok = send_txn(payment_txn, SignedPaymentTxn, State)
+    end,
     {noreply, State};
 handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:address(Swarm),
@@ -478,20 +505,28 @@ handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
-    LocalHead = blockchain:head_hash(Chain),
-    LocalHeight = blockchain_block:height(blockchain:head_block(Chain)),
-    case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
-        true ->
-            case libp2p_swarm:dial_framed_stream(Swarm,
-                                                 libp2p_crypto:address_to_p2p(Sender),
-                                                 ?SYNC_PROTOCOL,
-                                                 blockchain_sync_handler,
-                                                 [self()]) of
-                {ok, Stream} ->
-                    Stream ! {hash, blockchain:head_hash(Chain)};
-                _ -> lager:notice("Failed to dial sync service on: ~p", [Sender])
-            end;
-        false -> ok
+    case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
+        {{error, _Reason}, _} ->
+            lager:error("could not get head hash ~p", [_Reason]);
+        {_, {error, _Reason}} ->
+            lager:error("could not get head block ~p", [_Reason]);
+        {{ok, LocalHead}, {ok, LocalHeadBlock}} ->
+            LocalHeight = blockchain_block:height(LocalHeadBlock),
+            case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
+                false ->
+                    ok;
+                true ->
+                    case libp2p_swarm:dial_framed_stream(Swarm,
+                                                         libp2p_crypto:address_to_p2p(Sender),
+                                                         ?SYNC_PROTOCOL,
+                                                         blockchain_sync_handler,
+                                                         [self()]) of
+                        {ok, Stream} ->
+                            Stream ! {hash, LocalHead};
+                        _ ->
+                            lager:warning("Failed to dial sync service on: ~p", [Sender])
+                    end
+            end
     end,
     {noreply, State};
 handle_cast(_Msg, State) ->
@@ -500,30 +535,34 @@ handle_cast(_Msg, State) ->
 
 handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     erlang:cancel_timer(State#state.sync_timer),
-    Head = blockchain:head_block(Chain),
-    Meta = blockchain_block:meta(Head),
-    BlockTime = maps:get(block_time, Meta, 0),
-    case erlang:system_time(seconds) - BlockTime of
-        X when X > 300 ->
-            %% figure out our gossip peers
-            Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
-            case Peers of
-                [] ->
-                    %% try again later when there's peers
+    case blockchain:head_block(Chain) of
+        {error, _Reason} ->
+            lager:error("could not get head block ~p", [_Reason]);
+        {ok, Head} ->
+            Meta = blockchain_block:meta(Head),
+            BlockTime = maps:get(block_time, Meta, 0),
+            case erlang:system_time(seconds) - BlockTime of
+                X when X > 300 ->
+                    %% figure out our gossip peers
+                    Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
+                    case Peers of
+                        [] ->
+                            %% try again later when there's peers
+                            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                            {noreply, State#state{sync_timer=Ref}};
+                        [Peer] ->
+                            sync(Swarm, Chain, Peer),
+                            {noreply, State};
+                        Peers ->
+                            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
+                            sync(Swarm, Chain, RandomPeer),
+                            {noreply, State}
+                    end;
+                _ ->
+                    %% no need to sync now, check again later
                     Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                    {noreply, State#state{sync_timer=Ref}};
-                [Peer] ->
-                    sync(Swarm, Chain, Peer),
-                    {noreply, State};
-                Peers ->
-                    RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-                    sync(Swarm, Chain, RandomPeer),
-                    {noreply, State}
-            end;
-        _ ->
-            %% no need to sync now, check again later
-            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            {noreply, State#state{sync_timer=Ref}}
+                    {noreply, State#state{sync_timer=Ref}}
+            end
     end;
 handle_info({update_timer, Ref}, State) ->
     {noreply, State#state{sync_timer=Ref}};
