@@ -361,7 +361,7 @@ find_entry(Address, #ledger_v1{db=DB, entries=EntriesCF}) ->
 credit_account(Address, Amount, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _} ->
-            Entry = blockchain_ledger_entry_v1:new(1, Amount),
+            Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
             rocksdb:put(DB, EntriesCF, Address, Bin, []);
         {ok, Entry} ->
