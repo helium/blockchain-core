@@ -116,24 +116,25 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                       | {error, any()}.
+-spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
 
-absorb(Txn, Ledger0) ->
+absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         false ->
             {error, invalid_transaction};
         true ->
             Fee = ?MODULE:fee(Txn),
             Owner = ?MODULE:owner(Txn),
-            LastEntry = blockchain_ledger_v1:find_entry(Owner, Ledger0),
-            Nonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
-            case blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger0) of
-                {error, _Reason}=Error -> Error;
-                Ledger1 -> {ok, Ledger1}
+            case blockchain_ledger_v1:find_entry(Owner, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, LastEntry} ->
+                    Nonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
+                    blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger)
             end
     end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -26,10 +26,11 @@
     db :: rockdb:db_handle(),
     default :: rockdb:cf_handle(),
     blocks :: rockdb:cf_handle(),
-    ledger :: rockdb:cf_handle(),
-    heights :: rockdb:cf_handle()
+    heights :: rockdb:cf_handle(),
+    ledger :: blockchain_ledger_v1:ledger()
 }).
 
+-define(GEN_HASH_FILE, "genesis").
 -define(DB_FILE, "blockchain.db").
 -define(HEAD, <<"head">>).
 -define(GENESIS, <<"genesis">>).
@@ -48,17 +49,19 @@
 new(GenesisBlock, Dir) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
 
-    % Transactions = blockchain_block:transactions(GenesisBlock),
-    % {ok, Ledger} = blockchain_transactions:absorb(Transactions, blockchain_ledger_v1:new()),
+    Ledger = blockchain_ledger_v1:new(Dir),
+    Transactions = blockchain_block:transactions(GenesisBlock),
+    ok = blockchain_transactions:absorb(Transactions, Ledger),
 
     {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(Dir),
 
     Blockchain = #blockchain{
-        dir=base_dir(Dir),
+        dir=Dir,
         db=DB,
         default=DefaultCF,
         blocks=BlocksCF,
-        heights=HeightsCF
+        heights=HeightsCF,
+        ledger=Ledger
     },
     ok = save_block(GenesisBlock, Blockchain),
 
@@ -72,47 +75,64 @@ new(GenesisBlock, Dir) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec genesis_hash(blockchain()) -> blockchain_block:hash().
+-spec genesis_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
 genesis_hash(#blockchain{db=DB, default=DefaultCF}) ->
-   {ok, Hash} = rocksdb:get(DB, DefaultCF, ?GENESIS, []),
-    Hash.
+   case rocksdb:get(DB, DefaultCF, ?GENESIS, []) of
+       {ok, Hash} ->
+            {ok, Hash};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec genesis_block(blockchain()) -> blockchain_block:block().
+-spec genesis_block(blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
 genesis_block(Blockchain) ->
-    Hash = ?MODULE:genesis_hash(Blockchain),
-    {ok, Block} = get_block(Hash, Blockchain),
-    Block.
+    case ?MODULE:genesis_hash(Blockchain) of
+        {error, _}=Error ->
+            Error;
+        {ok, Hash} ->
+            get_block(Hash, Blockchain)
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec head_hash(blockchain()) -> blockchain_block:hash().
+-spec head_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
 head_hash(#blockchain{db=DB, default=DefaultCF}) ->
-    {ok, Hash} = rocksdb:get(DB, DefaultCF, ?HEAD, []),
-    Hash.
+    case rocksdb:get(DB, DefaultCF, ?HEAD, []) of
+       {ok, Hash} ->
+            {ok, Hash};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec head_block(blockchain()) -> blockchain_block:block().
+-spec head_block(blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
 head_block(Blockchain) ->
-    Hash = ?MODULE:head_hash(Blockchain),
-    {ok, Block} = get_block(Hash, Blockchain),
-    Block.
+    case ?MODULE:head_hash(Blockchain) of
+        {error, _}=Error ->
+            Error;
+        {ok, Hash} ->
+            get_block(Hash, Blockchain)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec ledger(blockchain()) -> blockchain_ledger_v1:ledger().
-ledger(_Blockchain) ->
-    % TODO: Fix
-    blockchain_ledger_v1:new().
+ledger(#blockchain{ledger=Ledger}) ->
+    Ledger.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -146,11 +166,10 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 -spec add_block(blockchain_block:block(), blockchain()) -> blockchain().
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
-    Ledger0 = ?MODULE:ledger(Blockchain),
-    case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger0) of
-        {ok, Ledger1} ->
+    Ledger = ?MODULE:ledger(Blockchain),
+    case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger) of
+        ok ->
             ok = save_block(Block, Blockchain),
-            ok = save_ledger(Ledger1, Blockchain),
             Blockchain;
         {error, Reason} ->
             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [Hash, Reason]),
@@ -195,7 +214,7 @@ load(BaseDir, GenDir) ->
             load(BaseDir);
         {ok, GenBlock} ->
             Blockchain = load(BaseDir),
-            case ?MODULE:genesis_hash(Blockchain) =:= blockchain_block:hash_block(GenBlock) of
+            case ?MODULE:genesis_hash(Blockchain) =:= {ok, blockchain_block:hash_block(GenBlock)} of
                 false ->
                     _ = rocksdb:close(Blockchain#blockchain.db),
                     ok = clean(BaseDir),
@@ -234,23 +253,16 @@ build(StartingBlock, Blockchain, N, Acc) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec load(file:filename_all()) -> blockchain().
-load(BaseDir) ->
-    {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(BaseDir),
+load(Dir) ->
+    {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(Dir),
     #blockchain{
-        dir=base_dir(BaseDir),
+        dir=Dir,
         db=DB,
         default=DefaultCF,
         blocks=BlocksCF,
-        heights=HeightsCF
+        heights=HeightsCF,
+        ledger=blockchain_ledger_v1:new(Dir)
     }.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec base_dir(file:filename_all()) -> file:filename_all().
-base_dir(BaseDir) ->
-    filename:join(BaseDir, ?BASE_DIR).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -268,12 +280,10 @@ load_genesis(Dir) ->
 
 -spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
 open_db(Dir) ->
-    BaseDir = base_dir(Dir),
-    DBDir = filename:join(BaseDir, ?DB_FILE),
+    DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
     DefaultCFs = ["default", "blocks", "heights"],
-
     ExistingCFs = 
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -281,7 +291,6 @@ open_db(Dir) ->
             {error, _} ->
                 ["default"]
         end,
-
 
     {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
 
@@ -315,14 +324,6 @@ save_block(Block, #blockchain{db=DB, default=DefaultCF, blocks=BlocksCF, heights
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec save_ledger(blockchain_ledger_v1:ledger(), blockchain()) -> ok.
-save_ledger(_Ledger, _Blockchain) ->
-    ok.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec clean(file:filename_all()) ->  ok | {error, any()}.
 clean(Dir) ->
     Paths = filelib:wildcard(Dir ++ "/**"),
@@ -341,10 +342,10 @@ new_test() ->
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
     Chain = new(Block, BaseDir),
-    ?assertEqual(Hash, genesis_hash(Chain)),
-    ?assertEqual(Block, genesis_block(Chain)),
-    ?assertEqual(Hash, head_hash(Chain)),
-    ?assertEqual(Block, head_block(Chain)),
+    ?assertEqual({ok, Hash}, genesis_hash(Chain)),
+    ?assertEqual({ok, Block}, genesis_block(Chain)),
+    ?assertEqual({ok, Hash}, head_hash(Chain)),
+    ?assertEqual({ok, Block}, head_block(Chain)),
     ?assertEqual({ok, Block}, get_block(Hash, Chain)),
     ?assertEqual({ok, Block}, get_block(1, Chain)).
 
@@ -352,12 +353,6 @@ new_test() ->
 %     Block = blockchain_block:new_genesis_block([]),
 %     Chain = new(Block, test_utils:tmp_dir("ledger_test")),
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
-
-dir_test() ->
-    BaseDir = test_utils:tmp_dir("dir_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    Chain = new(Block, BaseDir),
-    ?assertEqual(BaseDir ++ "/blockchain", dir(Chain)).
 
 blocks_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),

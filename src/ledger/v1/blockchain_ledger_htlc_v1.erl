@@ -12,7 +12,8 @@
     payee/1, payee/2,
     balance/1, balance/2,
     hashlock/1, hashlock/2,
-    timelock/1, timelock/2
+    timelock/1, timelock/2,
+    serialize/1, deserialize/1
 ]).
 
 -ifdef(TEST).
@@ -146,6 +147,25 @@ timelock(#htlc_v1{timelock=Timelock}) ->
 -spec timelock(non_neg_integer(), htlc()) -> htlc().
 timelock(Timelock, HTLC) ->
     HTLC#htlc_v1{timelock=Timelock}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Version 1
+%% @end
+%%--------------------------------------------------------------------
+-spec serialize(htlc()) -> binary().
+serialize(HTLC) ->
+    BinHTLC = erlang:term_to_binary(HTLC),
+    <<1, BinHTLC/binary>>.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Later _ could becomre 1, 2, 3 for different versions.
+%% @end
+%%--------------------------------------------------------------------
+-spec deserialize(binary()) -> htlc().
+deserialize(<<_:1/binary, Bin/binary>>) ->
+    erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -317,7 +317,7 @@ format_htlc_balance({Addr, HTLC}) ->
 
 get_ledger() ->
     case blockchain_worker:ledger() of
-        undefined -> blockchain_ledger_v1:new();
+        undefined -> blockchain_ledger_v1:new("data");
         L -> L
     end.
 

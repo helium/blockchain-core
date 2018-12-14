@@ -104,19 +104,12 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_request(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                               | {error, any()}.
-
-absorb(Txn, Ledger0) ->
+-spec absorb(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         true ->
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            case blockchain_ledger_v1:request_poc(GatewayAddress, Ledger0) of
-                {error, _Reason}=Error ->
-                    Error;
-                Ledger1 ->
-                    {ok, Ledger1}
-            end;
+            blockchain_ledger_v1:request_poc(GatewayAddress, Ledger);
         false ->
             {error, bad_signature}
     end.

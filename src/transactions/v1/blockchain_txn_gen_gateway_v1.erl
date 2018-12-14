@@ -6,29 +6,29 @@
 -module(blockchain_txn_gen_gateway_v1).
 
 -export([
-         new/6,
-         gateway_address/1,
-         owner_address/1,
-         location/1,
-         last_poc_challenge/1,
-         nonce/1,
-         score/1,
-         is/1,
-         absorb/2
-        ]).
+    new/6,
+    gateway_address/1,
+    owner_address/1,
+    location/1,
+    last_poc_challenge/1,
+    nonce/1,
+    score/1,
+    is/1,
+    absorb/2
+]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
 -record(txn_genesis_gateway_v1, {
-          gateway_address :: libp2p_crypto:address()
-          ,owner_address :: libp2p_crypto:address()
-          ,location :: undefined | pos_integer()
-          ,last_poc_challenge :: undefined | non_neg_integer()
-          ,nonce = 0 :: non_neg_integer()
-          ,score = 0.0 :: float()
-         }).
+    gateway_address :: libp2p_crypto:address(),
+    owner_address :: libp2p_crypto:address(),
+    location :: undefined | pos_integer(),
+    last_poc_challenge :: undefined | non_neg_integer(),
+    nonce = 0 :: non_neg_integer(),
+    score = 0.0 :: float()
+}).
 
 -type txn_genesis_gateway() :: #txn_genesis_gateway_v1{}.
 -export_type([txn_genesis_gateway/0]).
@@ -107,26 +107,28 @@ score(Txn) ->
 is(Txn) ->
     erlang:is_record(Txn, txn_genesis_gateway_v1).
 
--spec absorb(txn_genesis_gateway(),
-             blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                               | {error, not_in_genesis_block}.
-absorb(Txn, Ledger0) ->
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_genesis_gateway(),  blockchain_ledger_v1:ledger()) -> ok | {error, not_in_genesis_block}.
+absorb(Txn, Ledger) ->
     %% NOTE: This transaction should only be absorbed when it's in the genesis block
-    case blockchain_ledger_v1:current_height(Ledger0) of
-        undefined ->
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 1} ->
             GatewayAddress = ?MODULE:gateway_address(Txn),
             OwnerAddress = ?MODULE:owner_address(Txn),
             Location = ?MODULE:location(Txn),
             LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
             Nonce = ?MODULE:nonce(Txn),
             Score = ?MODULE:score(Txn),
-            {ok, blockchain_ledger_v1:add_gateway(OwnerAddress,
-                                                  GatewayAddress,
-                                                  Location,
-                                                  LastPocChallenge,
-                                                  Nonce,
-                                                  Score,
-                                                  Ledger0)};
+            blockchain_ledger_v1:add_gateway(OwnerAddress,
+                                             GatewayAddress,
+                                             Location,
+                                             LastPocChallenge,
+                                             Nonce,
+                                             Score,
+                                             Ledger);
         _ ->
             {error, not_in_genesis_block}
     end.

@@ -48,7 +48,7 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
     SortedPaymentTxns = Valid ++ [Txn],
     %% check that these transactions are valid to apply in this order
     case absorb(SortedPaymentTxns, Ledger) of
-        {ok, _NewLedger} ->
+        ok ->
             validate(Tail, SortedPaymentTxns, Invalid, Ledger);
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
@@ -63,19 +63,17 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                    | {error, any()}.
+-spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb([], Ledger) ->
-    Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
-    %% TODO: probably not the correct place to be incrementing the height for the ledger?
-    {ok, blockchain_ledger_v1:increment_height(Ledger1)};
-absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
-    absorb(Txns, blockchain_ledger_v1:new());
-absorb([Txn|Txns], Ledger0) ->
+    case blockchain_ledger_v1:update_transaction_fee(Ledger) of
+        ok ->
+            blockchain_ledger_v1:increment_height(Ledger)
+    end;
+absorb([Txn|Txns], Ledger) ->
     Type = type(Txn),
-    try Type:absorb(Txn, Ledger0) of
+    try Type:absorb(Txn, Ledger) of
         {error, _Reason}=Error -> Error;
-        {ok, Ledger1} -> absorb(Txns, Ledger1)
+        ok -> absorb(Txns, Ledger)
     catch
         What:Why -> {error, {type(Txn), What, Why}}
     end.

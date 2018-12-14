@@ -6,7 +6,7 @@
 -module(blockchain_ledger_v1).
 
 -export([
-    new/0,
+    new/1,
     current_height/1, increment_height/1,
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
@@ -26,9 +26,7 @@
 
     find_htlc/2,
     add_htlc/7,
-    redeem_htlc/3,
-    
-    serialize/1, deserialize/1
+    redeem_htlc/3
 ]).
 
 -include("blockchain.hrl").
@@ -38,13 +36,18 @@
 -endif.
 
 -record(ledger_v1, {
-    current_height = undefined :: undefined | pos_integer(),
-    transaction_fee = 0 :: non_neg_integer(),
-    consensus_members = [] :: [libp2p_crypto:address()],
-    active_gateways = #{} :: active_gateways(),
-    entries = #{} :: entries(),
-    htlcs = #{} :: htlcs()
+    dir :: file:filename_all(),
+    db :: rockdb:db_handle(),
+    default :: rockdb:cf_handle(),
+    active_gateways :: rockdb:cf_handle(),
+    entries :: rockdb:cf_handle(),
+    htlcs :: rockdb:cf_handle()
 }).
+
+-define(DB_FILE, "ledger.db").
+-define(CURRENT_HEIGHT, <<"current_height">>).
+-define(TRANSACTION_FEE, <<"transaction_fee">>).
+-define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 
 -type ledger() :: #ledger_v1{}.
 -type entries() :: #{libp2p_crypto:address() => blockchain_ledger_entry_v1:entry()}.
@@ -57,114 +60,183 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new() -> ledger().
-new() ->
-    #ledger_v1{}.
+-spec new(file:filename_all()) -> ledger().
+new(Dir) ->
+    {ok, DB, [DefaultCF, AGwsCF, EntriesCF, HTLCsCF]} = open_db(Dir),
+    #ledger_v1{
+        dir=Dir,
+        db=DB,
+        default=DefaultCF,
+        active_gateways=AGwsCF,
+        entries=EntriesCF,
+        htlcs=HTLCsCF
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_height(ledger()) -> undefined | pos_integer().
-current_height(Ledger) ->
-    Ledger#ledger_v1.current_height.
+-spec current_height(ledger()) -> {ok, pos_integer()} | {error, any()}.
+current_height(#ledger_v1{db=DB, default=DefaultCF}) ->
+    case rocksdb:get(DB, DefaultCF, ?CURRENT_HEIGHT, []) of
+        {ok, <<Height:64/integer-unsigned-big>>} ->
+            {ok, Height};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec increment_height(ledger()) -> ledger().
-increment_height(#ledger_v1{current_height=Height}=Ledger) when Height /= undefined ->
-    Ledger#ledger_v1{current_height=(Height + 1)};
-increment_height(Ledger) ->
-    Ledger#ledger_v1{current_height=1}.
+-spec increment_height(ledger()) -> ok | {error, any()}.
+increment_height(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
+    case current_height(Ledger) of
+        {error, _} ->
+            rocksdb:put(DB, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>, []);
+        {ok, Height0} ->
+            Height1 = Height0 + 1,
+            rocksdb:put(DB, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>, [])
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec transaction_fee(ledger()) -> non_neg_integer().
-transaction_fee(#ledger_v1{transaction_fee=Fee}) ->
-    Fee.
+-spec transaction_fee(ledger()) -> {ok, pos_integer()} | {error, any()}.
+transaction_fee(#ledger_v1{db=DB, default=DefaultCF}) ->
+    case rocksdb:get(DB, DefaultCF, ?TRANSACTION_FEE, []) of
+        {ok, <<Height:64/integer-unsigned-big>>} ->
+            {ok, Height};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec update_transaction_fee(ledger()) -> ledger().
-update_transaction_fee(#ledger_v1{transaction_fee=Fee}=Ledger) ->
+-spec update_transaction_fee(ledger()) -> ok.
+update_transaction_fee(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
     %% TODO - this should calculate a new transaction fee for the network
     %% TODO - based on the average of usage fees
-    NewFee = case ?MODULE:current_height(Ledger) /= undefined of
-        true ->
-            ?MODULE:current_height(Ledger) div 1000;
-        false ->
-            Fee
-    end,
-    Ledger#ledger_v1{transaction_fee=NewFee}.
+    case ?MODULE:current_height(Ledger) of
+        {error, _} ->
+            ok;
+        {ok, Fee0} ->
+            Fee1 = Fee0 div 1000,
+            rocksdb:put(DB, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>, [])
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec consensus_members(ledger()) -> [libp2p_crypto:address()].
-consensus_members(#ledger_v1{consensus_members=Members}) ->
-    Members.
+consensus_members(#ledger_v1{db=DB, default=DefaultCF}) ->
+    case rocksdb:get(DB, DefaultCF, ?CONSENSUS_MEMBERS, []) of
+        {ok, Bin} ->
+            {ok, erlang:binary_to_term(Bin)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members([libp2p_crypto:address()], ledger()) -> ledger().
-consensus_members(Members, Ledger) ->
-    Ledger#ledger_v1{consensus_members=Members}.
+-spec consensus_members([libp2p_crypto:address()], ledger()) ->  ok | {error, any()}.
+consensus_members(Members, #ledger_v1{db=DB, default=DefaultCF}) ->
+    Bin = erlang:term_to_binary(Members),
+    rocksdb:put(DB, DefaultCF, ?CONSENSUS_MEMBERS, Bin, []).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
-active_gateways(Ledger) ->
-    Ledger#ledger_v1.active_gateways.
+active_gateways(#ledger_v1{db=DB, active_gateways=AGwsCF}) ->
+    rocksdb:fold(
+        DB,
+        AGwsCF,
+        fun({Address, Binary}, Acc) ->
+            Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
+            maps:put(Address, Gw, Acc)
+        end,
+        #{},
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec entries(ledger()) -> entries().
-entries(Ledger) ->
-    Ledger#ledger_v1.entries.
+entries(#ledger_v1{db=DB, entries=EntriesCF}) ->
+    rocksdb:fold(
+        DB,
+        EntriesCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{},
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec htlcs(ledger()) -> htlcs().
-htlcs(Ledger) ->
-    Ledger#ledger_v1.htlcs.
+htlcs(#ledger_v1{db=DB, htlcs=HTLCsCF}) ->
+    rocksdb:fold(
+        DB,
+        HTLCsCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{},
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_gateway_info(libp2p_crypto:address(), ledger()) -> undefined | blockchain_ledger_gateway_v1:gateway().
-find_gateway_info(GatewayAddress, Ledger) ->
-    ActiveGateways = ?MODULE:active_gateways(Ledger),
-    maps:get(GatewayAddress, ActiveGateways, undefined).
+-spec find_gateway_info(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
+                                                              | {error, any()}.
+find_gateway_info(Address, #ledger_v1{db=DB, active_gateways=AGwsCF}) ->
+    case rocksdb:get(DB, AGwsCF, Address, []) of
+        {ok, BinGw} ->
+            {ok, blockchain_ledger_gateway_v1:deserialize(BinGw)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> {error, gateway_already_active} | ledger().
-add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
-    ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:is_key(GatewayAddress, ActiveGateways) of
-        true ->
+-spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, gateway_already_active}.
+add_gateway(OwnerAddr, GatewayAddress, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {ok, _} ->
             {error, gateway_already_active};
-        false ->
-            GwInfo = blockchain_ledger_gateway_v1:new(OwnerAddr, undefined),
-            Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+        _ ->
+            Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr, undefined),
+            Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
+            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
     end.
 
 %%--------------------------------------------------------------------
@@ -180,78 +252,76 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   LastPocChallenge :: undefined | non_neg_integer(),
                   Nonce :: non_neg_integer(),
                   Score :: float(),
-                  Ledger :: ledger()) -> {error, gateway_already_active} | ledger().
+                  Ledger :: ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             LastPocChallenge,
             Nonce,
             Score,
-            Ledger) ->
-    ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:is_key(GatewayAddress, ActiveGateways) of
-        true ->
+            #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {ok, _} ->
             {error, gateway_already_active};
-        false ->
-            GwInfo = blockchain_ledger_gateway_v1:new(OwnerAddr,
-                                                   Location,
-                                                   LastPocChallenge,
-                                                   Nonce,
-                                                   Score),
-            Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, GwInfo, ActiveGateways)}
+        _ ->
+            Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
+                                                       Location,
+                                                       LastPocChallenge,
+                                                       Nonce,
+                                                       Score),
+            Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
+            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> {error, no_active_gateway | no_gateway_info} | ledger().
-add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
-    ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:is_key(GatewayAddress, ActiveGateways) of
-        false ->
+-spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
             {error, no_active_gateway};
-        true ->
-            case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {ok, Gw} ->
+            NewGw = case blockchain_ledger_gateway_v1:location(Gw) of
                 undefined ->
-                    %% there is no GwInfo for this gateway, assert_location sould not be allowed
-                    {error, no_gateway_info};
-                Gw ->
-                    NewGw = case blockchain_ledger_gateway_v1:location(Gw) of
-                        undefined ->
-                            Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                            blockchain_ledger_gateway_v1:nonce(Nonce, Gw1);
-                        _Loc ->
-                            %%XXX: this gw already had a location asserted, do something about it here
-                            Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                            blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
-                    end,
-                    Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, NewGw, ActiveGateways)}
-            end
+                    Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
+                    blockchain_ledger_gateway_v1:nonce(Nonce, Gw1);
+                _Loc ->
+                    %%XXX: this gw already had a location asserted, do something about it here
+                    Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
+                    blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
+            end,
+            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
+            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-request_poc(GatewayAddress, Ledger) ->
-    ActiveGateways = ?MODULE:active_gateways(Ledger),
-    case maps:get(GatewayAddress, ActiveGateways, undefined) of
-        undefined ->
-            %% there is no GwInfo for this gateway, request_poc sould not be allowed
-            {error, no_gateway};
-        GwInfo ->
-            case blockchain_ledger_gateway_v1:location(GwInfo) of
+-spec request_poc(libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
+request_poc(GatewayAddress, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw} ->
+            case blockchain_ledger_gateway_v1:location(Gw) of
                 undefined ->
                     {error, no_gateway_location};
                 _Location ->
-                    case blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo) > (current_height(Ledger) - 30) of
-                        false ->
-                            {error, too_many_challenges};
-                        true ->
-                            LastPocChallenge = current_height(Ledger),
-                            NewGwInfo = blockchain_ledger_gateway_v1:last_poc_challenge(LastPocChallenge, GwInfo),
-                            Ledger#ledger_v1{active_gateways=maps:put(GatewayAddress, NewGwInfo, ActiveGateways)}
+                    case ?MODULE:current_height(Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        {ok, Height} ->
+                            case blockchain_ledger_gateway_v1:last_poc_challenge(Gw) > (Height - 30) of
+                                false ->
+                                    {error, too_many_challenges};
+                                true ->
+                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
+                                    Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
+                                    rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
+                            end
                     end
             end
     end.
@@ -260,134 +330,173 @@ request_poc(GatewayAddress, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:address(), ledger()) -> blockchain_ledger_entry_v1:entry().
-find_entry(Address, Ledger) ->
-    Entries = ?MODULE:entries(Ledger),
-    maps:get(Address, Entries, blockchain_ledger_entry_v1:new()).
+-spec find_entry(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
+                                                       | {error, any()}.
+find_entry(Address, #ledger_v1{db=DB, entries=EntriesCF}) ->
+    case rocksdb:get(DB, EntriesCF, Address, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ledger().
-credit_account(Address, Amount, Ledger) ->
-    Entries = ?MODULE:entries(Ledger),
-    case maps:is_key(Address, Entries) of
-        false ->
+-spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ok | {error, any()}.
+credit_account(Address, Amount, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _} ->
             Entry = blockchain_ledger_entry_v1:new(1, Amount),
-            Ledger#ledger_v1{entries=maps:put(Address, Entry, Entries)};
-        true ->
-            Entry = ?MODULE:find_entry(Address, Ledger),
-            NewEntry = blockchain_ledger_entry_v1:new(
+            Bin = blockchain_ledger_entry_v1:serialize(Entry),
+            rocksdb:put(DB, EntriesCF, Address, Bin, []);
+        {ok, Entry} ->
+            Entry1 = blockchain_ledger_entry_v1:new(
                 blockchain_ledger_entry_v1:nonce(Entry),
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
-            Ledger#ledger_v1{entries=maps:update(Address, NewEntry, Entries)}
+            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+            rocksdb:put(DB, EntriesCF, Address, Bin, [])
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ledger() | {error, any()}.
-debit_account(Address, Amount, Nonce, Ledger) ->
-    Entry = ?MODULE:find_entry(Address, Ledger),
-    case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
-        true ->
-            case (blockchain_ledger_entry_v1:balance(Entry) - Amount) >= 0 of
+-spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ok | {error, any()}.
+debit_account(Address, Amount, Nonce, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
                 true ->
-                    Entries1 = maps:update(
-                        Address,
-                        blockchain_ledger_entry_v1:new(
-                            Nonce,
-                            (blockchain_ledger_entry_v1:balance(Entry) - Amount)
-                        ),
-                        ?MODULE:entries(Ledger)
-                    ),
-                    Ledger#ledger_v1{entries=Entries1};
+                    Balance = blockchain_ledger_entry_v1:balance(Entry),
+                    case (Balance - Amount) >= 0 of
+                        true ->
+                            Entry1 = blockchain_ledger_entry_v1:new(
+                                Nonce,
+                                (Balance - Amount)
+                            ),
+                            Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                            rocksdb:put(DB, EntriesCF, Address, Bin, []);
+                        false ->
+                            {error, {insufficient_balance, Amount, Balance}}
+                    end;
                 false ->
-                    {error, {insufficient_balance, Amount, blockchain_ledger_entry_v1:balance(Entry)}}
-            end;
-        false ->
-            {error, {bad_nonce, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}
+                    {error, {bad_nonce, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}
+            end
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ledger() | {error, any()}.
-debit_fee(Address, Fee, Ledger) ->
-    Entry = ?MODULE:find_entry(Address, Ledger),
-    case (blockchain_ledger_entry_v1:balance(Entry) - Fee) >= 0 of
-        true ->
-            %% NOTE: There is no nonce required when debiting a fee, I think
-            Entries1 = maps:update(
-                Address,
-                blockchain_ledger_entry_v1:new(
-                    blockchain_ledger_entry_v1:nonce(Entry),
-                    (blockchain_ledger_entry_v1:balance(Entry) - Fee)
-                ),
-                ?MODULE:entries(Ledger)
-            ),
-            Ledger#ledger_v1{entries=Entries1};
-        false ->
-            {error, {insufficient_balance, Fee, blockchain_ledger_entry_v1:balance(Entry)}}
+-spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
+debit_fee(Address, Fee, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Fee) >= 0 of
+                true ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                        blockchain_ledger_entry_v1:nonce(Entry),
+                        (Balance - Fee)
+                    ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    rocksdb:put(DB, EntriesCF, Address, Bin, []);
+                false ->
+                    {error, {insufficient_balance, Fee, Balance}}
+            end
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_htlc(libp2p_crypto:address(), ledger()) ->blockchain_ledger_htlc_v1:htlc().
-find_htlc(Address, Ledger) ->
-    HTLCS = ?MODULE:htlcs(Ledger),
-    maps:get(Address, HTLCS , blockchain_ledger_htlc_v1:new()).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
-    HTLCS = ?MODULE:htlcs(Ledger),
-    case maps:is_key(Address, HTLCS) of
-        false ->
-            NewHTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
-            Ledger#ledger_v1{htlcs=maps:put(Address, NewHTLC, HTLCS)};
-        true ->
-            {error, address_already_exists}
+-spec find_htlc(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
+                                                      | {error, any()}.
+find_htlc(Address, #ledger_v1{db=DB, htlcs=HTLCsCF}) ->
+    case rocksdb:get(DB, HTLCsCF, Address, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_htlc_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_htlc(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(),
+               non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
+add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{db=DB, htlcs=HTLCsCF}=Ledger) ->
+    case ?MODULE:find_htlc(Address, Ledger) of
+        {ok, _} ->
+            {error, address_already_exists};
+        {error, _} ->
+            HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
+            Bin = blockchain_ledger_htlc_v1:serialize(HTLC),
+            rocksdb:put(DB, HTLCsCF, Address, Bin, [])
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec redeem_htlc(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
 redeem_htlc(Address, Payee, Ledger) ->
-    HTLC = ?MODULE:find_htlc(Address, Ledger),
-    Amount = blockchain_ledger_htlc_v1:balance(HTLC),
-    Ledger1 = ?MODULE:credit_account(Payee, Amount, Ledger),
-    NewHTLCS = maps:remove(Address, ?MODULE:htlcs(Ledger)),
-    Ledger1#ledger_v1{htlcs=NewHTLCS}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec serialize(ledger()) -> binary().
-serialize(Ledger) ->
-    erlang:term_to_binary(Ledger).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec deserialize(binary()) -> ledger().
-deserialize(Bin) ->
-    erlang:binary_to_term(Bin).
-
+    case ?MODULE:find_htlc(Address,  #ledger_v1{db=DB, htlcs=HTLCsCF}=Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, HTLC} ->
+            Amount = blockchain_ledger_htlc_v1:balance(HTLC),
+            case ?MODULE:credit_account(Payee, Amount, Ledger) of
+                {error, _}=Error -> Error;
+                ok -> rocksdb:delete(DB, HTLCsCF, Address, [])
+            end
+    end.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = filelib:ensure_dir(DBDir),
+    DBOptions = [{create_if_missing, true}],
+    DefaultCFs = ["default", "active_gateways", "entries", "htlcs"],
+    ExistingCFs = 
+        case rocksdb:list_column_families(DBDir, DBOptions) of
+            {ok, CFs0} ->
+                CFs0;
+            {error, _} ->
+                ["default"]
+        end,
+        
+    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
+
+    L1 = lists:zip(ExistingCFs, OpenedCFs),
+    L2 = lists:map(
+        fun(CF) ->
+            {ok, CF1} = rocksdb:create_column_family(DB, CF, []),
+            {CF, CF1}
+        end,
+        DefaultCFs -- ExistingCFs
+    ),
+    L3 = L1 ++ L2,
+    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -395,86 +504,77 @@ deserialize(Bin) ->
 -ifdef(TEST).
 
 find_entry_test() ->
-    Entry = blockchain_ledger_entry_v1:new(1, 1),
-    Ledger = #ledger_v1{entries=#{test => Entry}},
-    ?assertEqual(Entry, find_entry(test, entries(Ledger))),
-    ?assertEqual(blockchain_ledger_entry_v1:new(), find_entry(test2, entries(Ledger))).
+    BaseDir = test_utils:tmp_dir("find_entry_test"),
+    Ledger = new(BaseDir),
+    ?assertEqual({error, not_found}, find_entry(<<"test">>, Ledger)).
 
 find_gateway_info_test() ->
-    Info = blockchain_ledger_gateway_v1:new(<<>>, undefined),
-    Ledger = #ledger_v1{active_gateways=#{address => Info}},
-    ?assertEqual(Info, find_gateway_info(address, Ledger)),
-    ?assertEqual(undefined, find_gateway_info(test, Ledger)).
+    BaseDir = test_utils:tmp_dir("find_gateway_info_test"),
+    Ledger = new(BaseDir),
+    ?assertEqual({error, not_found}, find_gateway_info(<<"address">>, Ledger)).
 
 consensus_members_1_test() ->
-    Ledger0 = #ledger_v1{consensus_members=[1, 2, 3]},
-    Ledger1 = #ledger_v1{},
-    ?assertEqual([1, 2, 3], consensus_members(Ledger0)),
-    ?assertEqual([], consensus_members(Ledger1)).
+    BaseDir = test_utils:tmp_dir("consensus_members_1_test"),
+    Ledger = new(BaseDir),
+    ?assertEqual({error, not_found}, consensus_members(Ledger)).
 
 consensus_members_2_test() ->
-    Ledger0 = #ledger_v1{consensus_members=[]},
-    Ledger1 = consensus_members([1, 2, 3], Ledger0),
-    ?assertEqual([1, 2, 3], consensus_members(Ledger1)).
+    BaseDir = test_utils:tmp_dir("consensus_members_2_test"),
+    Ledger = new(BaseDir),
+    ok = consensus_members([1, 2, 3], Ledger),
+    ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)).
 
 active_gateways_test() ->
-    Ledger = #ledger_v1{active_gateways = #{address => info}},
-    ?assertEqual(#{address => info}, active_gateways(Ledger)),
-    ?assertEqual(#{}, active_gateways(#ledger_v1{})).
+    BaseDir = test_utils:tmp_dir("active_gateways_test"),
+    Ledger = new(BaseDir),
+    ?assertEqual(#{}, active_gateways(Ledger)).
 
 add_gateway_test() ->
-    Ledger0 = #ledger_v1{active_gateways=#{}},
-    Ledger1 = add_gateway(<<"owner_address">>, gw_address, Ledger0),
-    ?assertEqual(
-        blockchain_ledger_gateway_v1:new(<<"owner_address">>, undefined),
-        find_gateway_info(gw_address, Ledger1)
+    BaseDir = test_utils:tmp_dir("add_gateway_test"),
+    Ledger = new(BaseDir),
+    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger),
+    ?assertMatch(
+        {ok, _},
+        find_gateway_info(<<"gw_address">>, Ledger)
     ),
-    ?assertEqual({error,gateway_already_active}, add_gateway(owner_address, gw_address, Ledger1)).
+    ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)).
 
 add_gateway_location_test() ->
-    Ledger0 = #ledger_v1{active_gateways=#{}},
-    Ledger1 = add_gateway(<<"owner_address">>, gw_address, Ledger0),
-    Ledger2 = add_gateway_location(gw_address, 1, 1, Ledger1),
-    GW0 = blockchain_ledger_gateway_v1:new(<<"owner_address">>, 1),
-    GW1 =  blockchain_ledger_gateway_v1:nonce(1, GW0),
+    BaseDir = test_utils:tmp_dir("add_gateway_location_test"),
+    Ledger = new(BaseDir),
+    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger),
     ?assertEqual(
-       GW1,
-       find_gateway_info(gw_address, Ledger2)
-      ),
-    ?assertEqual(
-       {error,no_active_gateway},
-       add_gateway_location(gw_address, 1, 1, Ledger0)
-      ).
+       ok,
+       add_gateway_location(<<"gw_address">>, 1, 1, Ledger)
+    ).
 
 credit_account_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
-    Ledger1 = credit_account(address, 1000, Ledger0),
-    Entry = find_entry(address, entries(Ledger1)),
+    BaseDir = test_utils:tmp_dir("credit_account_test"),
+    Ledger = new(BaseDir),
+    ok = credit_account(<<"address">>, 1000, Ledger),
+    {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)).
 
 debit_account_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
-    Ledger1 = credit_account(address, 1000, Ledger0),
-    ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(address, 1000, 0, Ledger1)),
-    ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(address, 1000, 12, Ledger1)),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(address, 9999, 1, Ledger1)),
-    Ledger2 = debit_account(address, 500, 1, Ledger1),
-    Entry = find_entry(address, entries(Ledger2)),
+    BaseDir = test_utils:tmp_dir("debit_account_test"),
+    Ledger = new(BaseDir),
+    ok = credit_account(<<"address">>, 1000, Ledger),
+    ?assertEqual({error, {bad_nonce, 0, 1}}, debit_account(<<"address">>, 1000, 0, Ledger)),
+    ?assertEqual({error, {bad_nonce, 12, 1}}, debit_account(<<"address">>, 1000, 12, Ledger)),
+    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 2, Ledger)),
+    ok = debit_account(<<"address">>, 500, 2, Ledger),
+    {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
+    ?assertEqual(2, blockchain_ledger_entry_v1:nonce(Entry)).
 
 debit_fee_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
-    Ledger1 = credit_account(address, 1000, Ledger0),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(address, 9999, Ledger1)),
-    Ledger2 = debit_fee(address, 500, Ledger1),
-    Entry = find_entry(address, entries(Ledger2)),
+    BaseDir = test_utils:tmp_dir("debit_fee_test"),
+    Ledger = new(BaseDir),
+    ok = credit_account(<<"address">>, 1000, Ledger),
+    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(<<"address">>, 9999, Ledger)),
+    ok = debit_fee(<<"address">>, 500, Ledger),
+    {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
-
-serialize_deserialize_test() ->
-    Ledger0 = #ledger_v1{entries=#{address => blockchain_ledger_entry_v1:new()}},
-    Ledger1 = credit_account(address, 1000, Ledger0),
-    ?assertEqual(Ledger1, deserialize(serialize(Ledger1))).
+    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
 
 -endif.

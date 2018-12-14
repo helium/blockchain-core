@@ -8,7 +8,8 @@
 -export([
     new/0, new/2,
     nonce/1, nonce/2,
-    balance/1, balance/2
+    balance/1, balance/2,
+    serialize/1, deserialize/1
 ]).
 
 -ifdef(TEST).
@@ -67,6 +68,25 @@ balance(#entry_v1{balance=Balance}) ->
 -spec balance(non_neg_integer(), entry()) -> entry().
 balance(Balance, Entry) ->
     Entry#entry_v1{balance=Balance}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Version 1
+%% @end
+%%--------------------------------------------------------------------
+-spec serialize(entry()) -> binary().
+serialize(Entry) ->
+    BinEntry = erlang:term_to_binary(Entry),
+    <<1, BinEntry/binary>>.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Later _ could becomre 1, 2, 3 for different versions.
+%% @end
+%%--------------------------------------------------------------------
+-spec deserialize(binary()) -> entry().
+deserialize(<<_:1/binary, Bin/binary>>) ->
+    erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

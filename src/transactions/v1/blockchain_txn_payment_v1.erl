@@ -141,30 +141,33 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_payment(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                           | {error, any()}.
-absorb(Txn, Ledger0) ->
+-spec absorb(txn_payment(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
     Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
-    MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
-    case (Amount >= 0) andalso (Fee >= MinerFee) of
-        false ->
-            lager:error("amount < 0 for PaymentTxn: ~p", [Txn]),
-            {error, invalid_transaction};
-        true ->
-            case ?MODULE:is_valid(Txn) of
-                true ->
-                    Payer = ?MODULE:payer(Txn),
-                    Nonce = ?MODULE:nonce(Txn),
-                    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        Ledger1 ->
-                            Payee = ?MODULE:payee(Txn),
-                            {ok, blockchain_ledger_v1:credit_account(Payee, Amount, Ledger1)}
-                    end;
+    case blockchain_ledger_v1:transaction_fee(Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, MinerFee} ->
+            case (Amount >= 0) andalso (Fee >= MinerFee) of
                 false ->
-                    {error, bad_signature}
+                    lager:error("amount < 0 for PaymentTxn: ~p", [Txn]),
+                    {error, invalid_transaction};
+                true ->
+                    case ?MODULE:is_valid(Txn) of
+                        true ->
+                            Payer = ?MODULE:payer(Txn),
+                            Nonce = ?MODULE:nonce(Txn),
+                            case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger) of
+                                {error, _Reason}=Error ->
+                                    Error;
+                                ok ->
+                                    Payee = ?MODULE:payee(Txn),
+                                    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+                            end;
+                        false ->
+                            {error, bad_signature}
+                    end
             end
     end.
 

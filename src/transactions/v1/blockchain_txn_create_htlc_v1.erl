@@ -167,44 +167,46 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                               | {error, any()}.
+-spec absorb(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
-absorb(Txn, Ledger0) ->
+absorb(Txn, Ledger) ->
     Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
-    MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
-    case (Amount >= 0) andalso (Fee >= MinerFee) of
-        false ->
-            lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
-            {error, invalid_transaction};
-        true ->
-            case ?MODULE:is_valid(Txn) of
-                true ->
-                    Payer = ?MODULE:payer(Txn),
-                    Payee = ?MODULE:payee(Txn),
-                    Entry = blockchain_ledger_v1:find_entry(Payer, Ledger0),
-                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-                    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger0) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        Ledger1 ->
-                            Address = ?MODULE:address(Txn),
-                            case blockchain_ledger_v1:add_htlc(Address,
-                                                            Payer,
-                                                            Payee,
-                                                            Amount,
-                                                            ?MODULE:hashlock(Txn),
-                                                            ?MODULE:timelock(Txn),
-                                                            Ledger1) of
-                                {error, _Reason}=Error ->
-                                    Error;
-                                Ledger2 ->
-                                    {ok, Ledger2}
-                            end
-                    end;
+    case blockchain_ledger_v1:transaction_fee(Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, MinerFee} ->
+            case (Amount >= 0) andalso (Fee >= MinerFee) of
                 false ->
-                    {error, bad_signature}
+                    lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
+                    {error, invalid_transaction};
+                true ->
+                    case ?MODULE:is_valid(Txn) of
+                        true ->
+                            Payer = ?MODULE:payer(Txn),
+                            Payee = ?MODULE:payee(Txn),
+                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+                                {error, _}=Error ->
+                                    Error;
+                                {ok, Entry} ->
+                                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+                                    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger) of
+                                        {error, _Reason}=Error ->
+                                            Error;
+                                        ok ->
+                                            Address = ?MODULE:address(Txn),
+                                            blockchain_ledger_v1:add_htlc(Address,
+                                                                        Payer,
+                                                                        Payee,
+                                                                        Amount,
+                                                                        ?MODULE:hashlock(Txn),
+                                                                        ?MODULE:timelock(Txn),
+                                                                        Ledger)
+                                    end
+                            end;
+                        false ->
+                            {error, bad_signature}
+                    end
             end
     end.
 
