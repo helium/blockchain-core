@@ -29,7 +29,7 @@
     add_htlc/7,
     redeem_htlc/3,
 
-    clean/1
+    clean/1, close/1
 ]).
 
 -include("blockchain.hrl").
@@ -479,10 +479,17 @@ redeem_htlc(Address, Payee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-clean(Ledger) ->
-    Dir = ?MODULE:dir(Ledger),
+clean(#ledger_v1{dir=Dir, db=DB}) ->
     DBDir = filename:join(Dir, ?DB_FILE),
+    ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+close(#ledger_v1{db=DB}) ->
+    rocksdb:close(DB).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

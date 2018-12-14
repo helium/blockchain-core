@@ -12,7 +12,8 @@
     ledger/1,
     dir/1,
     blocks/1, add_block/2, get_block/2,
-    build/3
+    build/3,
+    close/1
 ]).
 
 -include("blockchain.hrl").
@@ -242,6 +243,14 @@ build(StartingBlock, Blockchain, N, Acc) ->
             lists:reverse(Acc)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+close(#blockchain{db=DB, ledger=Ledger}) ->
+    ok = blockchain_ledger_v1:close(Ledger),
+    rocksdb:close(DB).
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -250,9 +259,9 @@ build(StartingBlock, Blockchain, N, Acc) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-clean(Blockchain) ->
-    Dir = ?MODULE:dir(Blockchain),
+clean(#blockchain{dir=Dir, db=DB}=Blockchain) ->
     DBDir = filename:join(Dir, ?DB_FILE),
+    ok = rocksdb:close(DB),
     ok = rocksdb:destroy(DBDir, []),
     ok = blockchain_ledger_v1:clean(?MODULE:ledger(Blockchain)).
 
