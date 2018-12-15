@@ -372,14 +372,15 @@ poc_request_test(Config) ->
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
     ok = blockchain_worker:add_block(Block, self()),
-    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(2, blockchain_worker:height()),
+    Chain = blockchain_worker:blockchain(),
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
+    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 2}, blockchain_worker:height()),
 
     % Check that the Gateway is there
-    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
@@ -391,9 +392,10 @@ poc_request_test(Config) ->
     ok = blockchain_worker:add_block(Block2, self()),
     timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block2}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(3, blockchain_worker:height()),
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
+    ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 3}, blockchain_worker:height()),
 
     % Create the PoC challenge request txn
     Secret = crypto:strong_rand_bytes(8),
@@ -403,13 +405,14 @@ poc_request_test(Config) ->
     ok = blockchain_worker:add_block(Block3, self()),
     timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(4, blockchain_worker:height()),
+    {ok, HeadHash3} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
+    ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
+    ?assertEqual({ok, 4}, blockchain_worker:height()),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    GwInfo2 = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(3, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     ok.
 
@@ -427,12 +430,12 @@ bogus_coinbase_test(Config) ->
 
     %% None of the balances should have changed
     lists:all(fun(Entry) ->
-                      blockchain_ledger_v1:balance(Entry) == Balance
+                      blockchain_ledger_entry_v1:balance(Entry) == Balance
               end,
               maps:values(blockchain_ledger_v1:entries(blockchain_worker:ledger()))),
 
     %% Check that the chain didn't grow
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain_worker:height()),
 
     ok.
 
@@ -455,7 +458,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     timer:sleep(500),
 
     %% Check that the chain didnt' grow
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain_worker:height()),
 
     ok.
 
@@ -493,7 +496,7 @@ export_test(Config) ->
     Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
     ok = blockchain_worker:add_block(Block2, self()),
 
-    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     timer:sleep(500),
