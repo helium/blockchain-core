@@ -63,7 +63,8 @@ gossip_test(Config) ->
     %% wait till each worker gets the gensis block
     ok = lists:foreach(fun(Node) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           {ok, 1} == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                           C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                                                                           {ok, 1} == ct_rpc:call(Node, blockchain, height, [C0])
                                                                    end, 10, timer:seconds(6))
                        end, Nodes),
 
@@ -72,7 +73,7 @@ gossip_test(Config) ->
                           Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                           {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
                           {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
-                          {ok, Height} = ct_rpc:call(Node, blockchain_worker, height, []),
+                          {ok, Height} = ct_rpc:call(Node, blockchain, height, [Blockchain]),
                           ?assertEqual(GenesisBlock, HeadBlock),
                           ?assertEqual(GenesisBlock, WorkerGenesisBlock),
                           ?assertEqual(1, Height)
@@ -116,7 +117,8 @@ gossip_test(Config) ->
 
     ok = lists:foreach(fun(Node) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           {ok, 2} == ct_rpc:call(Node, blockchain_worker, height, [])
+                                                                           C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                                                                           {ok, 2} == ct_rpc:call(Node, blockchain, height, [C])
                                                                    end, 10, timer:seconds(6))
                        end, Nodes),
 
@@ -124,7 +126,8 @@ gossip_test(Config) ->
     ct:pal("FirstNode Chain2: ~p", [Chain2]),
 
     Heights = lists:foldl(fun(Node, Acc) ->
-                                  {ok, H} = ct_rpc:call(Node, blockchain_worker, height, []),
+                                  C2 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                                  {ok, H} = ct_rpc:call(Node, blockchain, height, [C2]),
                                   [{Node, H} | Acc]
                           end, [], Nodes),
 

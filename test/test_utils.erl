@@ -50,7 +50,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
-    ?assertEqual({ok, 1}, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
     {ok, ConsensusMembers}.
 
 generate_keys(N) ->

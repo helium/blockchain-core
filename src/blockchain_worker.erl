@@ -12,9 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    height/0,
     blockchain/0,
-    ledger/0,
     num_consensus_members/0,
     consensus_addrs/0,
     integrate_genesis_block/1,
@@ -66,25 +64,9 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec height() -> {ok, integer()}  | {error, any()}.
-height() ->
-    gen_server:call(?SERVER, height).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec blockchain() -> blockchain:blockchain()  | undefined.
 blockchain() ->
     gen_server:call(?SERVER, blockchain).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec ledger() -> blockchain_ledger_v1:ledger() | undefined.
-ledger() ->
-    gen_server:call(?SERVER, ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -237,18 +219,8 @@ handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
 handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
-handle_call(height, _From, #state{blockchain=Chain}=State) ->
-    case blockchain:head_block(Chain) of
-        {error, _}=Error ->
-            {reply, Error, State};
-        {ok, Block} ->
-            Height = blockchain_block:height(Block),
-            {reply, {ok, Height}, State}
-    end;
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call(ledger, _From, #state{blockchain=Chain}=State) ->
-    {reply, blockchain:ledger(Chain), State};
 handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, State=#state{swarm=Swarm}) ->
     Address = libp2p_swarm:address(Swarm),
     AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),

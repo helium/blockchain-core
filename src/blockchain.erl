@@ -9,6 +9,7 @@
     new/2, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
+    height/1,
     ledger/1,
     dir/1,
     blocks/1, add_block/2, get_block/2,
@@ -153,6 +154,23 @@ head_block(Blockchain) ->
             Error;
         {ok, Hash} ->
             get_block(Hash, Blockchain)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec height(blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+height(Blockchain) ->
+    case ?MODULE:head_hash(Blockchain) of
+        {error, _}=Error ->
+            Error;
+        {ok, Hash} ->
+            case get_block(Hash, Blockchain) of
+                {error, _Reason}=Error -> Error;
+                {ok, Block} ->
+                    {ok, blockchain_block:height(Block)}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -312,7 +330,7 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
     DefaultCFs = ["default", "blocks", "heights"],
-    ExistingCFs = 
+    ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
                 CFs0;

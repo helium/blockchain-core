@@ -48,17 +48,18 @@ init_per_testcase(TestCase, Config) ->
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
+    Chain = blockchain_worker:blockchain(),
+    Swarm = blockchain_swarm:swarm(),
+    N = length(ConsensusMembers),
+
     % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain_worker:ledger(),
+    Ledger = blockchain:ledger(Chain),
     Entries = blockchain_ledger_v1:entries(Ledger),
     _ = lists:foreach(fun(Entry) ->
         Balance = blockchain_ledger_entry_v1:balance(Entry),
         0 = blockchain_ledger_entry_v1:nonce(Entry)
     end, maps:values(Entries)),
 
-    Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
-    N = length(ConsensusMembers),
 
     [
         {basedir, BaseDir},
@@ -117,11 +118,11 @@ basic_test(Config) ->
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 2}, blockchain_worker:height()),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    Ledger = blockchain_worker:ledger(),
+    Ledger = blockchain:ledger(Chain),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
@@ -151,7 +152,7 @@ reload_test(Config) ->
         end,
         lists:seq(1, 10)
     ),
-    ?assertEqual({ok, 11}, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
     true = erlang:exit(Sup, normal),
@@ -176,7 +177,7 @@ reload_test(Config) ->
     ?assertEqual(NewGenBlock, HeadBlock),
     ?assertEqual({ok, blockchain_block:hash_block(NewGenBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, NewGenBlock}, blockchain:genesis_block(Chain)),
-    ?assertEqual({ok, 1}, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     true = erlang:exit(Sup1, normal),
     ok.
@@ -202,7 +203,7 @@ restart_test(Config) ->
         [],
         lists:seq(1, 10)
     ),
-    ?assertEqual({ok, 11}, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
     true = erlang:exit(Sup, normal),
@@ -218,7 +219,7 @@ restart_test(Config) ->
     ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain)),
     ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain)),
-    ?assertEqual({ok, 11}, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
     true = erlang:exit(Sup1, normal),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
@@ -236,7 +237,7 @@ restart_test(Config) ->
     ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain1)),
     ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain1)),
     ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain1)),
-    ?assertEqual({ok, 11}, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain1)),
 
     true = erlang:exit(Sup2, normal),
     ok.
@@ -274,20 +275,18 @@ htlc_payee_redeem_test(Config) ->
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
-    Chain = blockchain_worker:blockchain(),
     {ok, HeadHash} = blockchain:head_hash(Chain),
-
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
     ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
-    ?assertEqual({ok, 2}, blockchain_worker:height()),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Payer balance has been reduced by 2500
-    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     ?assertEqual(Balance - 2600, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
     ?assertEqual(2500, blockchain_ledger_htlc_v1:balance(NewHTLC0)),
     ?assertEqual(Hashlock, blockchain_ledger_htlc_v1:hashlock(NewHTLC0)),
     ?assertEqual(3, blockchain_ledger_htlc_v1:timelock(NewHTLC0)),
@@ -304,10 +303,10 @@ htlc_payee_redeem_test(Config) ->
     {ok, HeadHash2} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
     ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
-    ?assertEqual({ok, 3}, blockchain_worker:height()),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Check that the Payee now owns 2500
-    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payee, blockchain_worker:ledger()),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payee, blockchain:ledger(Chain)),
     ?assertEqual(2600, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     ok.
@@ -338,15 +337,15 @@ htlc_payer_redeem_test(Config) ->
     {ok, HeadHash} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
     ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
-    ?assertEqual({ok, 2}, blockchain_worker:height()),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Payer balance has been reduced by 2500
-    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
     ?assertEqual(2500, blockchain_ledger_htlc_v1:balance(NewHTLC0)),
     ?assertEqual(Hashlock, blockchain_ledger_htlc_v1:hashlock(NewHTLC0)),
     ?assertEqual(3, blockchain_ledger_htlc_v1:timelock(NewHTLC0)),
@@ -362,7 +361,7 @@ htlc_payer_redeem_test(Config) ->
     {ok, HeadHash2} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block3), HeadHash2),
     ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash2, Chain)),
-    ?assertEqual({ok, 4}, blockchain_worker:height()),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
@@ -372,7 +371,7 @@ htlc_payer_redeem_test(Config) ->
     _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
 
     % Check that the Payer now owns 5000 again
-    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     ?assertEqual(5000, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     ok.
@@ -402,10 +401,10 @@ poc_request_test(Config) ->
     {ok, HeadHash} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
     ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
-    ?assertEqual({ok, 2}, blockchain_worker:height()),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Gateway is there
-    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
@@ -420,7 +419,7 @@ poc_request_test(Config) ->
     {ok, HeadHash2} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
     ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
-    ?assertEqual({ok, 3}, blockchain_worker:height()),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Create the PoC challenge request txn
     Secret = crypto:strong_rand_bytes(8),
@@ -433,10 +432,10 @@ poc_request_test(Config) ->
     {ok, HeadHash3} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
     ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
-    ?assertEqual({ok, 4}, blockchain_worker:height()),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     ok.
@@ -459,10 +458,10 @@ bogus_coinbase_test(Config) ->
     lists:all(fun(Entry) ->
                       blockchain_ledger_entry_v1:balance(Entry) == Balance
               end,
-              maps:values(blockchain_ledger_v1:entries(blockchain_worker:ledger()))),
+              maps:values(blockchain_ledger_v1:entries(blockchain:ledger(Chain)))),
 
     %% Check that the chain didn't grow
-    ?assertEqual({ok, 1}, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     ok.
 
@@ -488,7 +487,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     timer:sleep(500),
 
     %% Check that the chain didnt' grow
-    ?assertEqual({ok, 1}, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     ok.
 
@@ -530,12 +529,12 @@ export_test(Config) ->
     Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
-    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     timer:sleep(500),
 
-    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain_worker:ledger()),
+    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
               {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
