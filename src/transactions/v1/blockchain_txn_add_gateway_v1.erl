@@ -156,14 +156,19 @@ absorb(Txn, Ledger) ->
         {true, true} ->
             OwnerAddress = ?MODULE:owner_address(Txn),
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            case blockchain_ledger_v1:transaction_fee(Ledger) of
-                {error, Error} ->
-                    Error;
-                {ok, MinerFee} ->
-                    case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger) of
-                        {error, _Reason}=Error -> Error;
-                        ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
-                    end
+            %% NOTE: This causes a chain fork, commenting out till we roll new rules new chain
+            %% case blockchain_ledger_v1:transaction_fee(Ledger) of
+            %%     {error, Error} ->
+            %%         Error;
+            %%     {ok, MinerFee} ->
+            %%         case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger) of
+            %%             {error, _Reason}=Error -> Error;
+            %%             ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
+            %%         end
+            %% end
+            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger) of
+                {error, _Reason}=Error -> Error;
+                ok -> ok
             end
     end.
 
