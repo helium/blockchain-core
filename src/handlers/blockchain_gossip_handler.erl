@@ -31,18 +31,13 @@ init_gossip_data(WAT) ->
 
 handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     case erlang:binary_to_term(Data) of
-        {block, From, Res} ->
-            case Res of
-                {ok, Block} ->
-                    case blockchain_block:is_block(Block) of
-                        true ->
-                            lager:info("Got block: ~p from: ~p", [Block, From]),
-                            add_block(Swarm, Block, Blockchain, N, From);
-                        _ ->
-                            lager:notice("gossip_handler received invalid data: ~p", [Block])
-                    end;
-                Error ->
-                    lager:notice("gossip_handler received invalid result, error: ~p", [Error])
+        {block, From, Block} ->
+            case blockchain_block:is_block(Block) of
+                true ->
+                    lager:info("Got block: ~p from: ~p", [Block, From]),
+                    add_block(Swarm, Block, Blockchain, N, From);
+                _ ->
+                    lager:notice("gossip_handler received invalid data: ~p", [Block])
             end;
         Other ->
             lager:notice("gossip handler got unknown data ~p", [Other])
