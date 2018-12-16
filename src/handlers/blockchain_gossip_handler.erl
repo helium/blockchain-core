@@ -23,7 +23,10 @@ init_gossip_data([Swarm, _N, Blockchain]) ->
     Block =  blockchain:head_block(Blockchain),
     lager:info("gossiping block to peers on init"),
     Address = libp2p_swarm:address(Swarm),
-    {send, term_to_binary({block, Address, Block})}.
+    {send, term_to_binary({block, Address, Block})};
+init_gossip_data(WAT) ->
+    lager:info("WAT ~p", [WAT]),
+    {send, <<>>}.
 
 handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     case erlang:binary_to_term(Data) of
@@ -90,9 +93,11 @@ add_block(Swarm, Block, Chain, N, Sender) ->
                                                          P2PAddress,
                                                          ?SYNC_PROTOCOL,
                                                          blockchain_sync_handler,
-                                                         [self()]) of
+                                                         [N, Chain]) of
                         {ok, Stream} ->
-                            Stream ! {hash, blockchain:head_hash(Chain)};
+                            unlink(Stream),
+                            {ok, HeadHash} = blockchain:head_hash(Chain), 
+                            Stream ! {hash, HeadHash};
                         _Error ->
                             lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
                     end

@@ -42,9 +42,9 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, _Args) ->
+init(client, _Conn, [N, Blockchain]) ->
     lager:info("started sync_handler client"),
-    {ok, #state{}};
+    {ok, #state{n=N, blockchain=Blockchain}};
 init(server, _Conn, [_Path, _, N, Blockchain]) ->
     lager:info("started sync_handler server"),
     {ok, #state{n=N, blockchain=Blockchain}}.
@@ -103,7 +103,8 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
             {ok, Block} ->
                 Block;
             {error, _Reason} ->
-                blockchain:genesis_block(Blockchain)
+                {ok, B} = blockchain:genesis_block(Blockchain),
+                B
         end,
     Blocks = blockchain:build(StartingBlock, Blockchain, 200),
     {stop, normal, State, erlang:term_to_binary(Blocks)}.

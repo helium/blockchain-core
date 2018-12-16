@@ -405,9 +405,10 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                         P2PAddress,
                                                         ?SYNC_PROTOCOL,
                                                         blockchain_sync_handler,
-                                                        [self()]) of
+                                                        [N, Chain]) of
                         {ok, Stream} ->
-                            Stream ! {hash, blockchain:head_hash(Chain)};
+                            {ok, HeadHash} = blockchain:head_hash(Chain),
+                            Stream ! {hash, HeadHash};
                         _Error ->
                             lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
                     end
@@ -474,7 +475,7 @@ handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
     ok = send_txn(assert_location_txn, SignedAssertLocTxn, State),
     {noreply, State};
-handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
+handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
     case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
         {{error, _Reason}, _} ->
@@ -491,7 +492,7 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
                                                          libp2p_crypto:address_to_p2p(Sender),
                                                          ?SYNC_PROTOCOL,
                                                          blockchain_sync_handler,
-                                                         [self()]) of
+                                                         [N, Chain]) of
                         {ok, Stream} ->
                             Stream ! {hash, LocalHead};
                         _ ->
@@ -524,11 +525,11 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
                             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
                             {noreply, State#state{sync_timer=Ref}};
                         [Peer] ->
-                            sync(Swarm, Chain, Peer),
+                            sync(Swarm, State#state.n, Chain, Peer),
                             {noreply, State};
                         Peers ->
                             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-                            sync(Swarm, Chain, RandomPeer),
+                            sync(Swarm, State#state.n, Chain, RandomPeer),
                             {noreply, State}
                     end;
                 _ ->
@@ -624,7 +625,7 @@ do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Ret
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-sync(Swarm, Chain, Peer) ->
+sync(Swarm, N, Chain, Peer) ->
     Parent = self(),
     spawn(fun() ->
         Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
@@ -632,9 +633,10 @@ sync(Swarm, Chain, Peer) ->
                                              Peer,
                                              ?SYNC_PROTOCOL,
                                              blockchain_sync_handler,
-                                             [self()]) of
+                                             [N, Chain]) of
             {ok, Stream} ->
-                Stream ! {hash, blockchain:head_hash(Chain)},
+                {ok, HeadHash} = blockchain:head_hash(Chain),
+                Stream ! {hash, HeadHash},
                 %% this timer will likely get cancelled when the sync response comes in
                 %% but if that never happens, we don't forget to sync
                 Parent ! {update_timer, Ref};
