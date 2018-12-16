@@ -26,6 +26,7 @@
 ]).
 
 -record(state, {
+          n :: pos_integer(),
     blockchain :: blockchain:blochain()
 }).
 
@@ -44,13 +45,54 @@ server(Connection, Path, _TID, Args) ->
 init(client, _Conn, _Args) ->
     lager:info("started sync_handler client"),
     {ok, #state{}};
-init(server, _Conn, [_Path, _, Blockchain]) ->
+init(server, _Conn, [_Path, _, N, Blockchain]) ->
     lager:info("started sync_handler server"),
-    {ok, #state{blockchain=Blockchain}}.
+    {ok, #state{n=N, blockchain=Blockchain}}.
 
-handle_data(client, Data, State) ->
+handle_data(client, Data, #state{blockchain=Chain, n=N}=State) ->
     lager:info("client got data: ~p", [Data]),
-    blockchain_worker:sync_blocks(erlang:binary_to_term(Data)),
+    Blocks = erlang:binary_to_term(Data),
+    F = ((N-1) div 3),
+    % TODO: Too much nesting
+    lists:foreach(
+      fun(Block) ->
+              case blockchain:head_hash(Chain) of
+                  {error, _Reason} ->
+                      lager:error("could not get head hash ~p", [_Reason]),
+                      ok;
+                  {ok, Head} -> 
+                      case blockchain_block:prev_hash(Block) == Head of
+                          false ->
+                              ok;
+                          true ->
+                              lager:info("prev hash matches the gossiped block"),
+                              Ledger = blockchain:ledger(Chain),
+                              case blockchain_ledger_v1:consensus_members(Ledger) of
+                                  {error, _Reason} ->
+                                      lager:error("could not get consensus_members ~p", [_Reason]);
+                                  {ok, ConsensusAddrs} ->
+                                      case blockchain_block:verify_signature(Block,
+                                                                             ConsensusAddrs,
+                                                                             blockchain_block:signature(Block),
+                                                                             N-F)
+                                      of
+                                          false ->
+                                              ok;
+                                          {true, _} ->
+                                              case blockchain:add_block(Block, Chain) of
+                                                  {error, _} ->
+                                                      ok;
+                                                  ok ->
+                                                      ok = blockchain_worker:notify({add_block, blockchain_block:hash_block(Block), false})
+                                              end
+                                      end
+                              end
+                      end
+              end
+      end,
+        Blocks
+    ),
+    blockchain_worker:synced_blocks(),
     {stop, normal, State};
 handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     lager:info("server got data: ~p", [Data]),

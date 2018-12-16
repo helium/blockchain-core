@@ -19,7 +19,7 @@
     consensus_addrs/0,
     integrate_genesis_block/1,
     add_block/2,
-    sync_blocks/1,
+    synced_blocks/0,
     spend/3,
     payment_txn/5,
     submit_txn/2,
@@ -123,9 +123,9 @@ add_block(Block, Sender) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sync_blocks([blockchain_block:block()]) -> ok.
-sync_blocks(Blocks) ->
-    gen_server:cast(?SERVER, {sync_blocks, Blocks}).
+-spec synced_blocks() -> ok.
+synced_blocks() ->
+    gen_server:cast(?SERVER, synced_blocks).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -232,7 +232,7 @@ init(Args) ->
             {no_genesis, _Chain}=R ->
                 R;
             {ok, Chain} ->
-                ok = add_handlers(Swarm, Chain),
+                ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
                 Chain
         end,
@@ -347,7 +347,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
                                 ,blockchain_txn_gen_consensus_group_v1:is(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
-            ok = add_handlers(Swarm, Blockchain),
+            ok = add_handlers(Swarm, State#state.n, Blockchain),
             self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain}}
     end;
@@ -355,6 +355,8 @@ handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
     {noreply, State};
 handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
                                                 ,n=N}=State) ->
+    %% XXX this is not actually needed because the gossip handler handles this now, but
+    %% all the tests use this function. we need to fix that and remove this!
     lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
     Hash = blockchain_block:hash_block(Block),
     F = ((N-1) div 3),
@@ -412,49 +414,9 @@ handle_cast({add_block, Block, Sender}, #state{blockchain=Chain, swarm=Swarm
             end
     end,
     {noreply, State};
-handle_cast({sync_blocks, Blocks}, #state{blockchain=Chain, n=N}=State) when is_list(Blocks) ->
-    lager:info("got sync_blocks msg ~p", [Blocks]),
-    F = ((N-1) div 3),
-    % TODO: Too much nesting
-    lists:foreach(
-        fun(Block) ->
-            case blockchain:head_hash(Chain) of
-                {error, _Reason} ->
-                    lager:error("could not get head hash ~p", [_Reason]),
-                    ok;
-                {ok, Head} -> 
-                    case blockchain_block:prev_hash(Block) == Head of
-                        false ->
-                            ok;
-                        true ->
-                            lager:info("prev hash matches the gossiped block"),
-                            Ledger = blockchain:ledger(Chain),
-                            case blockchain_ledger_v1:consensus_members(Ledger) of
-                                {error, _Reason} ->
-                                    lager:error("could not get consensus_members ~p", [_Reason]);
-                                {ok, ConsensusAddrs} ->
-                                    case blockchain_block:verify_signature(Block,
-                                                                        ConsensusAddrs,
-                                                                        blockchain_block:signature(Block),
-                                                                        N-F)
-                                    of
-                                        false ->
-                                            ok;
-                                        {true, _} ->
-                                            case blockchain:add_block(Block, Chain) of
-                                                {error, _} ->
-                                                    ok;
-                                                ok ->
-                                                    ok = notify({add_block, blockchain_block:hash_block(Block), false})
-                                            end            
-                                    end
-                            end
-                    end
-            end
-        end,
-        Blocks
-    ),
-    erlang:cancel_timer(State#state.sync_timer),
+handle_cast(synced_blocks, State) ->
+    lager:info("got synced_blocks msg"),
+        erlang:cancel_timer(State#state.sync_timer),
     %% schedule another sync to see if there's more waiting
     Ref = erlang:send_after(5000, self(), maybe_sync),
     {noreply, State#state{sync_timer=Ref}};
@@ -597,14 +559,13 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_handlers(pid(), blockchain:blockchain()) -> ok.
-add_handlers(Swarm, Blockchain) ->
-    Address = libp2p_swarm:address(Swarm),
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Address, Blockchain]}),
+-spec add_handlers(pid(), pos_integer(), blockchain:blockchain()) -> ok.
+add_handlers(Swarm, N, Blockchain) ->
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
+        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, N, Blockchain]}
     ),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
