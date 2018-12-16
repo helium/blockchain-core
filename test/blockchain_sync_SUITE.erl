@@ -54,7 +54,7 @@ basic(_Config) ->
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            ok = blockchain_worker:add_block(Block, self()),
+            _ = blockchain_gossip_handler:add_block(blockchain_swarm:swarm(), Block, Chain0, length(ConsensusMembers), self()),
             [Block|Acc]
         end,
         [],
@@ -73,7 +73,7 @@ basic(_Config) ->
     ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
 
     % Simulate add block from other chain
-    ok = blockchain_worker:add_block(LastBlock, libp2p_swarm:address(SimSwarm)),
+    _ = blockchain_gossip_handler:add_block(SimSwarm, LastBlock, Chain0, length(ConsensusMembers), self()),
 
     ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain_worker:height() end),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),

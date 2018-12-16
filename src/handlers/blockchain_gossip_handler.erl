@@ -15,7 +15,8 @@
 
 -export([
          init_gossip_data/1,
-         handle_gossip_data/2
+         handle_gossip_data/2,
+         add_block/5
         ]).
 
 init_gossip_data([Swarm, _N, Blockchain]) ->
@@ -30,13 +31,18 @@ init_gossip_data(WAT) ->
 
 handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     case erlang:binary_to_term(Data) of
-        {block, From, Block} ->
-            case blockchain_block:is_block(Block) of
-                true ->
-                    lager:info("Got block: ~p from: ~p", [Block, From]),
-                    add_block(Swarm, Block, Blockchain, N, From);
-                _ ->
-                    lager:notice("gossip_handler received invalid data")
+        {block, From, Res} ->
+            case Res of
+                {ok, Block} ->
+                    case blockchain_block:is_block(Block) of
+                        true ->
+                            lager:info("Got block: ~p from: ~p", [Block, From]),
+                            add_block(Swarm, Block, Blockchain, N, From);
+                        _ ->
+                            lager:notice("gossip_handler received invalid data: ~p", [Block])
+                    end;
+                Error ->
+                    lager:notice("gossip_handler received invalid result, error: ~p", [Error])
             end;
         Other ->
             lager:notice("gossip handler got unknown data ~p", [Other])
@@ -96,7 +102,7 @@ add_block(Swarm, Block, Chain, N, Sender) ->
                                                          [N, Chain]) of
                         {ok, Stream} ->
                             unlink(Stream),
-                            {ok, HeadHash} = blockchain:head_hash(Chain), 
+                            {ok, HeadHash} = blockchain:head_hash(Chain),
                             Stream ! {hash, HeadHash};
                         _Error ->
                             lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
