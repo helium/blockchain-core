@@ -50,7 +50,7 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
     %% sort the new transaction in with the accumulated list
     SortedPaymentTxns = Valid ++ [Txn],
     %% check that these transactions are valid to apply in this order
-    case absorb(SortedPaymentTxns, Ledger) of
+    case absorb_(SortedPaymentTxns, Ledger) of
         ok ->
             validate(Tail, SortedPaymentTxns, Invalid, Ledger);
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
