@@ -48,7 +48,8 @@
     active_gateways :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
-    context :: undefined | rocksdb:batch_handle()
+    context :: undefined | rocksdb:batch_handle(),
+    cache :: undefined | ets:tid()
 }).
 
 -define(DB_FILE, "ledger.db").
@@ -88,13 +89,18 @@ dir(Ledger) ->
     Ledger#ledger_v1.dir.
 
 new_context(Ledger=#ledger_v1{context=undefined}) ->
+    %% accumulate DB operations in a rocksdb batch
     {ok, Batch} = rocksdb:batch(),
-    Ledger#ledger_v1{context=Batch}.
+    %% accumulate ledger changes in a read-through ETS cache
+    Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
+    Ledger#ledger_v1{context=Batch, cache=Cache}.
 
-delete_context(Ledger=#ledger_v1{context=Context}) ->
+delete_context(Ledger=#ledger_v1{context=Context, cache=Cache}) ->
     %% we can just let the batch GC, but let's clear it just in case
     rocksdb:batch_clear(Context),
-    Ledger#ledger_v1{context=undefined}.
+    %% wipe the ets cache
+    ets:delete(Cache),
+    Ledger#ledger_v1{context=undefined, cache=undefined}.
 
 commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
@@ -106,8 +112,8 @@ commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec current_height(ledger()) -> {ok, pos_integer()} | {error, any()}.
-current_height(#ledger_v1{db=DB, default=DefaultCF}) ->
-    case rocksdb:get(DB, DefaultCF, ?CURRENT_HEIGHT, []) of
+current_height(#ledger_v1{default=DefaultCF}=Ledger) ->
+    case cache_get(Ledger, DefaultCF, ?CURRENT_HEIGHT, []) of
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
@@ -121,13 +127,13 @@ current_height(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec increment_height(ledger()) -> ok | {error, any()}.
-increment_height(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
+increment_height(#ledger_v1{default=DefaultCF}=Ledger) ->
     case current_height(Ledger) of
         {error, _} ->
-            rocksdb:batch_put(Context, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>);
+            cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>);
         {ok, Height0} ->
             Height1 = Height0 + 1,
-            rocksdb:batch_put(Context, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
+            cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
 
 
@@ -136,8 +142,8 @@ increment_height(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec transaction_fee(ledger()) -> {ok, pos_integer()} | {error, any()}.
-transaction_fee(#ledger_v1{db=DB, default=DefaultCF}) ->
-    case rocksdb:get(DB, DefaultCF, ?TRANSACTION_FEE, []) of
+transaction_fee(#ledger_v1{default=DefaultCF}=Ledger) ->
+    case cache_get(Ledger, DefaultCF, ?TRANSACTION_FEE, []) of
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
@@ -151,7 +157,7 @@ transaction_fee(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec update_transaction_fee(ledger()) -> ok.
-update_transaction_fee(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
+update_transaction_fee(#ledger_v1{default=DefaultCF}=Ledger) ->
     %% TODO - this should calculate a new transaction fee for the network
     %% TODO - based on the average of usage fees
     case ?MODULE:current_height(Ledger) of
@@ -159,7 +165,7 @@ update_transaction_fee(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
             ok;
         {ok, Fee0} ->
             Fee1 = Fee0 div 1000,
-            rocksdb:batch_put(Context, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>)
+            cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>)
     end.
 
 %%--------------------------------------------------------------------
@@ -167,8 +173,8 @@ update_transaction_fee(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec consensus_members(ledger()) -> {ok, [libp2p_crypto:address()]} | {error, any()}.
-consensus_members(#ledger_v1{db=DB, default=DefaultCF}) ->
-    case rocksdb:get(DB, DefaultCF, ?CONSENSUS_MEMBERS, []) of
+consensus_members(#ledger_v1{default=DefaultCF}=Ledger) ->
+    case cache_get(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, []) of
         {ok, Bin} ->
             {ok, erlang:binary_to_term(Bin)};
         not_found ->
@@ -182,9 +188,9 @@ consensus_members(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec consensus_members([libp2p_crypto:address()], ledger()) ->  ok | {error, any()}.
-consensus_members(Members, #ledger_v1{context=Context, default=DefaultCF}) ->
+consensus_members(Members, #ledger_v1{default=DefaultCF}=Ledger) ->
     Bin = erlang:term_to_binary(Members),
-    rocksdb:batch_put(Context, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
+    cache_put(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -243,8 +249,8 @@ htlcs(#ledger_v1{db=DB, htlcs=HTLCsCF}) ->
 %%--------------------------------------------------------------------
 -spec find_gateway_info(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
                                                               | {error, any()}.
-find_gateway_info(Address, #ledger_v1{db=DB, active_gateways=AGwsCF}) ->
-    case rocksdb:get(DB, AGwsCF, Address, []) of
+find_gateway_info(Address, #ledger_v1{active_gateways=AGwsCF}=Ledger) ->
+    case cache_get(Ledger, AGwsCF, Address, []) of
         {ok, BinGw} ->
             {ok, blockchain_ledger_gateway_v1:deserialize(BinGw)};
         not_found ->
@@ -258,14 +264,14 @@ find_gateway_info(Address, #ledger_v1{db=DB, active_gateways=AGwsCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, gateway_already_active}.
-add_gateway(OwnerAddr, GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
+add_gateway(OwnerAddr, GatewayAddress, #ledger_v1{active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr, undefined),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
-            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -288,7 +294,7 @@ add_gateway(OwnerAddr,
             LastPocChallenge,
             Nonce,
             Score,
-            #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
+            #ledger_v1{active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
@@ -299,7 +305,7 @@ add_gateway(OwnerAddr,
                                                        Nonce,
                                                        Score),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
-            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -307,7 +313,7 @@ add_gateway(OwnerAddr,
 %% @end
 %%--------------------------------------------------------------------
 -spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
-add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
+add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -322,7 +328,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{context=Context
                     blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
             end,
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
-            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -330,7 +336,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{context=Context
 %% @end
 %%--------------------------------------------------------------------
 -spec request_poc(libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
+request_poc(GatewayAddress, #ledger_v1{active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -349,7 +355,7 @@ request_poc(GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=
                                 true ->
                                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
                                     Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
-                                    rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
+                                    cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
                             end
                     end
             end
@@ -361,8 +367,8 @@ request_poc(GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=
 %%--------------------------------------------------------------------
 -spec find_entry(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
                                                        | {error, any()}.
-find_entry(Address, #ledger_v1{db=DB, entries=EntriesCF}) ->
-    case rocksdb:get(DB, EntriesCF, Address, []) of
+find_entry(Address, #ledger_v1{entries=EntriesCF}=Ledger) ->
+    case cache_get(Ledger, EntriesCF, Address, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_entry_v1:deserialize(BinEntry)};
         not_found ->
@@ -376,19 +382,19 @@ find_entry(Address, #ledger_v1{db=DB, entries=EntriesCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ok | {error, any()}.
-credit_account(Address, Amount, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
+credit_account(Address, Amount, #ledger_v1{entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _} ->
             Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
-            rocksdb:batch_put(Context, EntriesCF, Address, Bin);
+            cache_put(Ledger, EntriesCF, Address, Bin);
         {ok, Entry} ->
             Entry1 = blockchain_ledger_entry_v1:new(
                 blockchain_ledger_entry_v1:nonce(Entry),
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-            rocksdb:batch_put(Context, EntriesCF, Address, Bin)
+            cache_put(Ledger, EntriesCF, Address, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -396,7 +402,7 @@ credit_account(Address, Amount, #ledger_v1{context=Context, entries=EntriesCF}=L
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Nonce, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
+debit_account(Address, Amount, Nonce, #ledger_v1{entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -411,7 +417,7 @@ debit_account(Address, Amount, Nonce, #ledger_v1{context=Context, entries=Entrie
                                 (Balance - Amount)
                             ),
                             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                            rocksdb:batch_put(Context, EntriesCF, Address, Bin);
+                            cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
                             {error, {insufficient_balance, Amount, Balance}}
                     end;
@@ -425,7 +431,7 @@ debit_account(Address, Amount, Nonce, #ledger_v1{context=Context, entries=Entrie
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(Address, Fee, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
+debit_fee(Address, Fee, #ledger_v1{entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -438,7 +444,7 @@ debit_fee(Address, Fee, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) -
                         (Balance - Fee)
                     ),
                     Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    rocksdb:batch_put(Context, EntriesCF, Address, Bin);
+                    cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance, Fee, Balance}}
             end
@@ -450,8 +456,8 @@ debit_fee(Address, Fee, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) -
 %%--------------------------------------------------------------------
 -spec find_htlc(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
                                                       | {error, any()}.
-find_htlc(Address, #ledger_v1{db=DB, htlcs=HTLCsCF}) ->
-    case rocksdb:get(DB, HTLCsCF, Address, []) of
+find_htlc(Address, #ledger_v1{htlcs=HTLCsCF}=Ledger) ->
+    case cache_get(Ledger, HTLCsCF, Address, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_htlc_v1:deserialize(BinEntry)};
         not_found ->
@@ -466,14 +472,14 @@ find_htlc(Address, #ledger_v1{db=DB, htlcs=HTLCsCF}) ->
 %%--------------------------------------------------------------------
 -spec add_htlc(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(),
                non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{context=Context, htlcs=HTLCsCF}=Ledger) ->
+add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{htlcs=HTLCsCF}=Ledger) ->
     case ?MODULE:find_htlc(Address, Ledger) of
         {ok, _} ->
             {error, address_already_exists};
         {error, _} ->
             HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
             Bin = blockchain_ledger_htlc_v1:serialize(HTLC),
-            rocksdb:batch_put(Context, HTLCsCF, Address, Bin)
+            cache_put(Ledger, HTLCsCF, Address, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -481,7 +487,7 @@ add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{context=C
 %% @end
 %%--------------------------------------------------------------------
 -spec redeem_htlc(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-redeem_htlc(Address, Payee, #ledger_v1{context=Context}=Ledger) ->
+redeem_htlc(Address, Payee, Ledger) ->
     case ?MODULE:find_htlc(Address,  #ledger_v1{htlcs=HTLCsCF}=Ledger) of
         {error, _}=Error ->
             Error;
@@ -489,7 +495,7 @@ redeem_htlc(Address, Payee, #ledger_v1{context=Context}=Ledger) ->
             Amount = blockchain_ledger_htlc_v1:balance(HTLC),
             case ?MODULE:credit_account(Payee, Amount, Ledger) of
                 {error, _}=Error -> Error;
-                ok -> rocksdb:batch_delete(Context, HTLCsCF, Address)
+                ok -> cache_delete(Ledger, HTLCsCF, Address)
             end
     end.
 
@@ -512,6 +518,40 @@ close(#ledger_v1{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+cache_put(#ledger_v1{context=Context, cache=Cache}, CF, Key, Value) ->
+    CFCache = case ets:lookup(Cache, CF) of
+                  [] ->
+                      #{};
+                  [{CF, X}] ->
+                      X
+              end,
+    ets:insert(Cache, {CF, maps:put(Key, Value, CFCache)}),
+    rocksdb:batch_put(Context, CF, Key, Value).
+
+cache_get(#ledger_v1{cache=undefined, db=DB}, CF, Key, Options) ->
+    rocksdb:get(DB, CF, Key, Options);
+cache_get(#ledger_v1{cache=Cache}=Ledger, CF, Key, Options) ->
+    case ets:lookup(Cache, CF) of
+        [] ->
+            cache_get(Ledger#ledger_v1{cache=undefined}, CF, Key, Options);
+        [{CF, CFCache}] ->
+            case maps:find(Key, CFCache) of
+                {ok, Value} ->
+                    {ok, Value};
+                error ->
+                    cache_get(Ledger#ledger_v1{cache=undefined}, CF, Key, Options)
+            end
+    end.
+
+cache_delete(#ledger_v1{context=Context, cache=Cache}, CF, Key) ->
+    case ets:lookup(Cache, CF) of
+        [] ->
+            ok;
+        [{CF, CFCache}] ->
+            ets:insert(Cache, {CF, maps:remove(Key, CFCache)})
+    end,
+    rocksdb:batch_delete(Context, CF, Key).
 
 %%--------------------------------------------------------------------
 %% @doc
