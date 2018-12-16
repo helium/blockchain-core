@@ -8,6 +8,9 @@
 -export([
     new/1,
     dir/1,
+
+    new_context/1, delete_context/1, commit_context/1,
+
     current_height/1, increment_height/1,
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
@@ -40,11 +43,12 @@
 
 -record(ledger_v1, {
     dir :: file:filename_all(),
-    db :: rockdb:db_handle(),
-    default :: rockdb:cf_handle(),
-    active_gateways :: rockdb:cf_handle(),
-    entries :: rockdb:cf_handle(),
-    htlcs :: rockdb:cf_handle()
+    db :: rocksdb:db_handle(),
+    default :: rocksdb:cf_handle(),
+    active_gateways :: rocksdb:cf_handle(),
+    entries :: rocksdb:cf_handle(),
+    htlcs :: rocksdb:cf_handle(),
+    context :: undefined | rocksdb:batch_handle()
 }).
 
 -define(DB_FILE, "ledger.db").
@@ -83,6 +87,20 @@ new(Dir) ->
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
 
+new_context(Ledger=#ledger_v1{context=undefined}) ->
+    {ok, Batch} = rocksdb:batch(),
+    Ledger#ledger_v1{context=Batch}.
+
+delete_context(Ledger=#ledger_v1{context=Context}) ->
+    %% we can just let the batch GC, but let's clear it just in case
+    rocksdb:batch_clear(Context),
+    Ledger#ledger_v1{context=undefined}.
+
+commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
+    ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
+    delete_context(Ledger),
+    ok.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -103,13 +121,13 @@ current_height(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec increment_height(ledger()) -> ok | {error, any()}.
-increment_height(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
+increment_height(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
     case current_height(Ledger) of
         {error, _} ->
-            rocksdb:put(DB, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>, []);
+            rocksdb:batch_put(Context, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>);
         {ok, Height0} ->
             Height1 = Height0 + 1,
-            rocksdb:put(DB, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>, [])
+            rocksdb:batch_put(Context, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
 
 
@@ -133,7 +151,7 @@ transaction_fee(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec update_transaction_fee(ledger()) -> ok.
-update_transaction_fee(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
+update_transaction_fee(#ledger_v1{context=Context, default=DefaultCF}=Ledger) ->
     %% TODO - this should calculate a new transaction fee for the network
     %% TODO - based on the average of usage fees
     case ?MODULE:current_height(Ledger) of
@@ -141,7 +159,7 @@ update_transaction_fee(#ledger_v1{db=DB, default=DefaultCF}=Ledger) ->
             ok;
         {ok, Fee0} ->
             Fee1 = Fee0 div 1000,
-            rocksdb:put(DB, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>, [])
+            rocksdb:batch_put(Context, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>)
     end.
 
 %%--------------------------------------------------------------------
@@ -164,9 +182,9 @@ consensus_members(#ledger_v1{db=DB, default=DefaultCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec consensus_members([libp2p_crypto:address()], ledger()) ->  ok | {error, any()}.
-consensus_members(Members, #ledger_v1{db=DB, default=DefaultCF}) ->
+consensus_members(Members, #ledger_v1{context=Context, default=DefaultCF}) ->
     Bin = erlang:term_to_binary(Members),
-    rocksdb:put(DB, DefaultCF, ?CONSENSUS_MEMBERS, Bin, []).
+    rocksdb:batch_put(Context, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -240,14 +258,14 @@ find_gateway_info(Address, #ledger_v1{db=DB, active_gateways=AGwsCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, gateway_already_active}.
-add_gateway(OwnerAddr, GatewayAddress, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+add_gateway(OwnerAddr, GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr, undefined),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
-            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
+            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -270,7 +288,7 @@ add_gateway(OwnerAddr,
             LastPocChallenge,
             Nonce,
             Score,
-            #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+            #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
@@ -281,7 +299,7 @@ add_gateway(OwnerAddr,
                                                        Nonce,
                                                        Score),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
-            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
+            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -289,7 +307,7 @@ add_gateway(OwnerAddr,
 %% @end
 %%--------------------------------------------------------------------
 -spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
-add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -304,7 +322,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{db=DB, active_g
                     blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
             end,
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
-            rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
+            rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -312,7 +330,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, #ledger_v1{db=DB, active_g
 %% @end
 %%--------------------------------------------------------------------
 -spec request_poc(libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
+request_poc(GatewayAddress, #ledger_v1{context=Context, active_gateways=AGwsCF}=Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -331,7 +349,7 @@ request_poc(GatewayAddress, #ledger_v1{db=DB, active_gateways=AGwsCF}=Ledger) ->
                                 true ->
                                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
                                     Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
-                                    rocksdb:put(DB, AGwsCF, GatewayAddress, Bin, [])
+                                    rocksdb:batch_put(Context, AGwsCF, GatewayAddress, Bin)
                             end
                     end
             end
@@ -358,19 +376,19 @@ find_entry(Address, #ledger_v1{db=DB, entries=EntriesCF}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ok | {error, any()}.
-credit_account(Address, Amount, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+credit_account(Address, Amount, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _} ->
             Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
-            rocksdb:put(DB, EntriesCF, Address, Bin, []);
+            rocksdb:batch_put(Context, EntriesCF, Address, Bin);
         {ok, Entry} ->
             Entry1 = blockchain_ledger_entry_v1:new(
                 blockchain_ledger_entry_v1:nonce(Entry),
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-            rocksdb:put(DB, EntriesCF, Address, Bin, [])
+            rocksdb:batch_put(Context, EntriesCF, Address, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -378,7 +396,7 @@ credit_account(Address, Amount, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ok | {error, any()}.
-debit_account(Address, Amount, Nonce, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+debit_account(Address, Amount, Nonce, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -393,7 +411,7 @@ debit_account(Address, Amount, Nonce, #ledger_v1{db=DB, entries=EntriesCF}=Ledge
                                 (Balance - Amount)
                             ),
                             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                            rocksdb:put(DB, EntriesCF, Address, Bin, []);
+                            rocksdb:batch_put(Context, EntriesCF, Address, Bin);
                         false ->
                             {error, {insufficient_balance, Amount, Balance}}
                     end;
@@ -406,8 +424,8 @@ debit_account(Address, Amount, Nonce, #ledger_v1{db=DB, entries=EntriesCF}=Ledge
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(Address, Fee, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
+-spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
+debit_fee(Address, Fee, #ledger_v1{context=Context, entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -420,7 +438,7 @@ debit_fee(Address, Fee, #ledger_v1{db=DB, entries=EntriesCF}=Ledger) ->
                         (Balance - Fee)
                     ),
                     Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    rocksdb:put(DB, EntriesCF, Address, Bin, []);
+                    rocksdb:batch_put(Context, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance, Fee, Balance}}
             end
@@ -448,14 +466,14 @@ find_htlc(Address, #ledger_v1{db=DB, htlcs=HTLCsCF}) ->
 %%--------------------------------------------------------------------
 -spec add_htlc(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(),
                non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{db=DB, htlcs=HTLCsCF}=Ledger) ->
+add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{context=Context, htlcs=HTLCsCF}=Ledger) ->
     case ?MODULE:find_htlc(Address, Ledger) of
         {ok, _} ->
             {error, address_already_exists};
         {error, _} ->
             HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
             Bin = blockchain_ledger_htlc_v1:serialize(HTLC),
-            rocksdb:put(DB, HTLCsCF, Address, Bin, [])
+            rocksdb:batch_put(Context, HTLCsCF, Address, Bin)
     end.
 
 %%--------------------------------------------------------------------
@@ -463,15 +481,15 @@ add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, #ledger_v1{db=DB, ht
 %% @end
 %%--------------------------------------------------------------------
 -spec redeem_htlc(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-redeem_htlc(Address, Payee, Ledger) ->
-    case ?MODULE:find_htlc(Address,  #ledger_v1{db=DB, htlcs=HTLCsCF}=Ledger) of
+redeem_htlc(Address, Payee, #ledger_v1{context=Context}=Ledger) ->
+    case ?MODULE:find_htlc(Address,  #ledger_v1{htlcs=HTLCsCF}=Ledger) of
         {error, _}=Error ->
             Error;
         {ok, HTLC} ->
             Amount = blockchain_ledger_htlc_v1:balance(HTLC),
             case ?MODULE:credit_account(Payee, Amount, Ledger) of
                 {error, _}=Error -> Error;
-                ok -> rocksdb:delete(DB, HTLCsCF, Address, [])
+                ok -> rocksdb:batch_delete(Context, HTLCsCF, Address)
             end
     end.
 
@@ -549,7 +567,9 @@ consensus_members_1_test() ->
 consensus_members_2_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_2_test"),
     Ledger = new(BaseDir),
-    ok = consensus_members([1, 2, 3], Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = consensus_members([1, 2, 3], Ledger1),
+    commit_context(Ledger1),
     ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)).
 
 active_gateways_test() ->
@@ -560,7 +580,9 @@ active_gateways_test() ->
 add_gateway_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_test"),
     Ledger = new(BaseDir),
-    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
+    commit_context(Ledger1),
     ?assertMatch(
         {ok, _},
         find_gateway_info(<<"gw_address">>, Ledger)
@@ -570,27 +592,36 @@ add_gateway_test() ->
 add_gateway_location_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_location_test"),
     Ledger = new(BaseDir),
-    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
+    commit_context(Ledger1),
+    Ledger2 = new_context(Ledger),
     ?assertEqual(
        ok,
-       add_gateway_location(<<"gw_address">>, 1, 1, Ledger)
+       add_gateway_location(<<"gw_address">>, 1, 1, Ledger2)
     ).
 
 credit_account_test() ->
     BaseDir = test_utils:tmp_dir("credit_account_test"),
     Ledger = new(BaseDir),
-    ok = credit_account(<<"address">>, 1000, Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = credit_account(<<"address">>, 1000, Ledger1),
+    commit_context(Ledger1),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)).
 
 debit_account_test() ->
     BaseDir = test_utils:tmp_dir("debit_account_test"),
     Ledger = new(BaseDir),
-    ok = credit_account(<<"address">>, 1000, Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = credit_account(<<"address">>, 1000, Ledger1),
+    commit_context(Ledger1),
     ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(<<"address">>, 1000, 0, Ledger)),
     ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(<<"address">>, 1000, 12, Ledger)),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 1, Ledger)),
-    ok = debit_account(<<"address">>, 500, 1, Ledger),
+    Ledger2 = new_context(Ledger),
+    ok = debit_account(<<"address">>, 500, 1, Ledger2),
+    commit_context(Ledger2),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
@@ -598,9 +629,13 @@ debit_account_test() ->
 debit_fee_test() ->
     BaseDir = test_utils:tmp_dir("debit_fee_test"),
     Ledger = new(BaseDir),
-    ok = credit_account(<<"address">>, 1000, Ledger),
+    Ledger1 = new_context(Ledger),
+    ok = credit_account(<<"address">>, 1000, Ledger1),
+    commit_context(Ledger1),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(<<"address">>, 9999, Ledger)),
-    ok = debit_fee(<<"address">>, 500, Ledger),
+    Ledger2 = new_context(Ledger),
+    ok = debit_fee(<<"address">>, 500, Ledger2),
+    commit_context(Ledger2),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).

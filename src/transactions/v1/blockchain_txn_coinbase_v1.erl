@@ -60,7 +60,7 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(), blockchain_ledger_v1:ledger()) -> ok
+-spec absorb(txn_coinbase(),  blockchain_ledger_v1:ledger()) -> ok
                                                                | {error, not_in_genesis_block}
                                                                | {error, zero_or_negative_amount}.
 absorb(Txn, Ledger) ->

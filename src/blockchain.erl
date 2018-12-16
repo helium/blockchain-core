@@ -24,10 +24,10 @@
 
 -record(blockchain, {
     dir :: file:filename_all(),
-    db :: rockdb:db_handle(),
-    default :: rockdb:cf_handle(),
-    blocks :: rockdb:cf_handle(),
-    heights :: rockdb:cf_handle(),
+    db :: rocksdb:db_handle(),
+    default :: rocksdb:cf_handle(),
+    blocks :: rocksdb:cf_handle(),
+    heights :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 

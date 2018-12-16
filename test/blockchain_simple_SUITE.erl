@@ -250,7 +250,11 @@ htlc_payee_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
-    Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
+    %% these transactions depend on each other, so they need to appear in different blocks
+    Block0 = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
+    ok = blockchain_worker:add_block(Block0, self()),
+
+    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     ok = blockchain_worker:add_block(Block, self()),
 
     Chain = blockchain_worker:blockchain(),
@@ -258,7 +262,7 @@ htlc_payee_redeem_test(Config) ->
 
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
     ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
-    ?assertEqual({ok, 2}, blockchain_worker:height()),
+    ?assertEqual({ok, 3}, blockchain_worker:height()),
 
     % Check that the Payer balance has been reduced by 2500
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain_worker:ledger()),
@@ -283,7 +287,7 @@ htlc_payee_redeem_test(Config) ->
     {ok, HeadHash2} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
     ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
-    ?assertEqual({ok, 3}, blockchain_worker:height()),
+    ?assertEqual({ok, 4}, blockchain_worker:height()),
 
     % Check that the Payee now owns 2500
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payee, blockchain_worker:ledger()),
@@ -493,8 +497,13 @@ export_test(Config) ->
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
-    Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
+    Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx]),
     ok = blockchain_worker:add_block(Block2, self()),
+
+    %% this has to be done in a subsequent block
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
+    ok = blockchain_worker:add_block(Block3, self()),
+
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
