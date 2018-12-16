@@ -96,9 +96,10 @@ integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain
     ok = save_block(GenesisBlock, Blockchain),
 
     GenBin = blockchain_block:serialize(GenesisBlock),
-    % TODO: Make this a batch
-    ok = rocksdb:put(DB, DefaultCF, GenHash, GenBin, []),
-    ok = rocksdb:put(DB, DefaultCF, ?GENESIS, GenHash, []),
+    {ok, Batch} = rocksdb:batch(),
+    ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
+    ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
+    ok = rocksdb:write_batch(DB, Batch, []),
     ok.
 
 %%--------------------------------------------------------------------
@@ -360,11 +361,12 @@ open_db(Dir) ->
 save_block(Block, #blockchain{db=DB, default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
-    % TODO: Bath this
-    ok = rocksdb:put(DB, BlocksCF, Hash, blockchain_block:serialize(Block), []),
-    ok = rocksdb:put(DB, DefaultCF, ?HEAD, Hash, []),
+    {ok, Batch} = rocksdb:batch(),
+    ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
+    ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, Hash),
     %% lexiographic ordering works better with big endian
-    ok = rocksdb:put(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash, []).
+    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
+    ok = rocksdb:write_batch(DB, Batch, []).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
