@@ -14,7 +14,7 @@
     meta/1,
     remove_signature/1,
     sign_block/2,
-    new_genesis_block/1,
+    new_genesis_block/1, new_genesis_block/2,
     is_genesis/1,
     is_block/1,
     hash_block/1,
@@ -24,11 +24,8 @@
     add_gateway_transactions/1,
     assert_location_transactions/1,
     poc_request_transactions/1,
-    dir/1,
-    save/3, save_link/3, load/2,
-    serialize/2,
-    deserialize/2,
-    find_next/2
+    serialize/1,
+    deserialize/1
 ]).
 
 -include("blockchain.hrl").
@@ -129,6 +126,14 @@ sign_block(Signature, Block) ->
 -spec new_genesis_block(blockchain_transactions:transactions()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, #{}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_genesis_block(blockchain_transactions:transactions(), meta()) -> block().
+new_genesis_block(Transactions, MetaData) ->
+    ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, MetaData).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -236,105 +241,22 @@ poc_request_transactions(Block) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Version 1
 %% @end
 %%--------------------------------------------------------------------
--spec dir(file:filename_all()) -> file:filename_all().
-dir(Dir) ->
-    filename:join(Dir, ?BLOCKS_DIR).
+-spec serialize(block()) -> binary().
+serialize(Block) ->
+    BinBlock = erlang:term_to_binary(Block),
+    <<1, BinBlock/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Later _ could becomre 1, 2, 3 for different versions.
 %% @end
 %%--------------------------------------------------------------------
--spec save(hash(), block(), file:filename_all()) -> ok | {error, any()}.
-save(Hash, Block, BaseDir) ->
-    Dir = ?MODULE:dir(BaseDir),
-    BinBlock = ?MODULE:serialize(blockchain_util:serial_version(BaseDir), Block),
-    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    case blockchain_util:atomic_save(File, BinBlock) of
-        {error, _}=Error ->
-            Error;
-        ok ->
-            ?MODULE:save_link(Hash, Block, BaseDir)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec save_link(hash(), block(), file:filename_all()) -> ok | {error, any()}.
-save_link(Hash, Block, BaseDir) ->
-    Dir = ?MODULE:dir(BaseDir),
-    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    Height = ?MODULE:height(Block),
-    Link = link(BaseDir, Height),
-    ok = filelib:ensure_dir(Link),
-    file:make_symlink(filename:absname(File), Link).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec load(hash() | integer(), file:filename_all()) -> {ok, block()} | {error, any()}.
-load(Height, BaseDir) when is_integer(Height) ->
-    Link = link(BaseDir, Height),
-    case file:read_file(Link) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Binary} ->
-            V = blockchain_util:serial_version(BaseDir),
-            Block = ?MODULE:deserialize(V, Binary),
-            {ok, Block}
-    end;
-load(Hash, BaseDir) ->
-    Dir = filename:join(BaseDir, ?BLOCKS_DIR),
-    File = filename:join(Dir, blockchain_util:serialize_hash(Hash)),
-    case file:read_file(File) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Binary} ->
-            V = blockchain_util:serial_version(BaseDir),
-            Block = ?MODULE:deserialize(V, Binary),
-            {ok, Block}
-    end.
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec serialize(blockchain_util:serial_version(), block()) -> binary().
-serialize(_Version, Block) ->
-    erlang:term_to_binary(Block).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec deserialize(blockchain_util:serial_version(), binary()) -> block().
-deserialize(_Version, Bin) ->
+-spec deserialize(binary()) -> block().
+deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec find_next(blockchain_block:block(), file:filename_all()) -> {ok, blockchain_block:block()}
-                                                                  | {error, any()}.
-
-find_next(Block, BaseDir) ->
-    Height = ?MODULE:height(Block),
-    ?MODULE:load(Height + 1, BaseDir).
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec link(file:filename_all(), integer()) -> file:filename_all().
-link(BaseDir, Height) ->
-    filename:join([BaseDir, ?HEIGHTS_DIR, erlang:integer_to_list(Height)]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -428,21 +350,9 @@ verify_signature_test() ->
     ?assertMatch(false, verify_signature(Block1, [], BinSigs, 7)),
     ok.
 
-dir_test() ->
-    ?assertEqual("data/" ++ ?BLOCKS_DIR, dir("data")).
-
-save_load_test() ->
-    BaseDir = test_utils:tmp_dir(),
-    Block = new_genesis_block([]),
-    Hash = hash_block(Block),
-    ?assertEqual(ok, save(Hash, Block, BaseDir)),
-    ?assertEqual({ok, Block}, load(Hash, BaseDir)),
-    ?assertEqual({error, enoent}, load(Hash, "data/test2")),
-    ok.
-
 serialize_deserialize_test() ->
     Block = new_genesis_block([]),
-    ?assertEqual(Block, deserialize(v1, serialize(v1, Block))).
+    ?assertEqual(Block, deserialize(serialize(Block))).
 
 generate_keys(N) ->
     lists:foldl(

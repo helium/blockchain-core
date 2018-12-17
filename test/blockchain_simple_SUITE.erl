@@ -43,40 +43,45 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    BaseDir = "data/test_SUITE/" ++ atom_to_list(TestCase),
+    BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
-    % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain_worker:ledger(),
-    Entries = blockchain_ledger_v1:entries(Ledger),
+    Chain = blockchain_worker:blockchain(),
+    Swarm = blockchain_swarm:swarm(),
+    N = length(ConsensusMembers),
 
-    _ = maps:map(fun(_K, Entry) ->
-                         Balance = blockchain_ledger_v1:balance(Entry),
-                         0, blockchain_ledger_v1:payment_nonce(Entry)
-                 end, Entries),
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain:ledger(Chain),
+    Entries = blockchain_ledger_v1:entries(Ledger),
+    _ = lists:foreach(fun(Entry) ->
+        Balance = blockchain_ledger_entry_v1:balance(Entry),
+        0 = blockchain_ledger_entry_v1:nonce(Entry)
+    end, maps:values(Entries)),
+
+
     [
-     {basedir, BaseDir},
-     {balance, Balance},
-     {sup, Sup},
-     {pubkey, PubKey},
-     {privkey, PrivKey},
-     {opts, Opts},
-     {consensus_members, ConsensusMembers} | Config
+        {basedir, BaseDir},
+        {balance, Balance},
+        {sup, Sup},
+        {pubkey, PubKey},
+        {privkey, PrivKey},
+        {opts, Opts},
+        {chain, Chain},
+        {swarm, Swarm},
+        {n, N},
+        {consensus_members, ConsensusMembers} | Config
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
     Sup = proplists:get_value(sup, Config),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
         true ->
-            Chain = blockchain_worker:blockchain(),
-            ok = test_utils:compare_chains(Chain, blockchain:load(BaseDir)),
             true = erlang:exit(Sup, normal),
             ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end);
         false ->
@@ -98,6 +103,9 @@ basic_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
     BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -106,21 +114,20 @@ basic_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    ok = blockchain_worker:add_block(Block, self()),
-    Chain = blockchain_worker:blockchain(),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain:head_hash(Chain)),
-    ?assertEqual(Block, blockchain:head_block(Chain)),
-    ?assertEqual(2, blockchain_worker:height()),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
-    ?assertEqual({ok, Block}, blockchain_block:load(2, blockchain:dir(blockchain_worker:blockchain()))),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-    NewEntry0 = blockchain_ledger_v1:find_entry(Recipient, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance + 2500, blockchain_ledger_v1:balance(NewEntry0)),
+    Ledger = blockchain:ledger(Chain),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
+    ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2510, blockchain_ledger_v1:balance(NewEntry1)),
-
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -133,17 +140,23 @@ reload_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
     Opts = proplists:get_value(opts, Config),
+    Chain0 = proplists:get_value(chain, Config),
+    Swarm0 = proplists:get_value(swarm, Config),
+    N0 = proplists:get_value(n, Config),
 
     % Add some blocks
     lists:foreach(
         fun(_) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            ok = blockchain_worker:add_block(Block, self())
+            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, N0, self())
         end,
         lists:seq(1, 10)
     ),
-    ?assertEqual(11, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain0)),
+
+    %% Kill this blockchain sup
     true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
     % Create new genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
@@ -153,78 +166,78 @@ reload_test(Config) ->
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
     GenDir = "data/test_SUITE/reload2",
     File = filename:join(GenDir, "genesis"),
-    V = blockchain_util:serial_version(GenDir),
-    ok = blockchain_util:atomic_save(File, blockchain_block:serialize(V, NewGenBlock)),
-
-    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+    ok = test_utils:atomic_save(File, blockchain_block:serialize(NewGenBlock)),
 
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(NewGenBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(NewGenBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(1, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(NewGenBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual(NewGenBlock, HeadBlock),
+    ?assertEqual({ok, blockchain_block:hash_block(NewGenBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, NewGenBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     true = erlang:exit(Sup1, normal),
     ok.
-
 
 restart_test(Config) ->
     GenDir = "data/test_SUITE/restart2",
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
     Opts = proplists:get_value(opts, Config),
-    Chain0 = blockchain_worker:blockchain(),
-    GenBlock = blockchain:head_block(Chain0),
+    Chain0 = proplists:get_value(chain, Config),
+    Swarm0 = proplists:get_value(swarm, Config),
+    N0 = proplists:get_value(n, Config),
+    {ok, GenBlock} = blockchain:head_block(Chain0),
 
     % Add some blocks
     [LastBlock| _Blocks] = lists:foldl(
         fun(_, Acc) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            ok = blockchain_worker:add_block(Block, self()),
+            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, N0, self()),
             timer:sleep(100),
             [Block|Acc]
         end,
         [],
         lists:seq(1, 10)
     ),
-    ?assertEqual(11, blockchain_worker:height()),
+    ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
+    %% Kill this blockchain sup
     true = erlang:exit(Sup, normal),
-
-    % Restart with an empty 'GenDir'
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
+    % Restart with an empty 'GenDir'
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(LastBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(GenBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(11, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
     true = erlang:exit(Sup1, normal),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
 
     % Restart with the existing genesis block in 'GenDir'
-    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
     ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),
-
-    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(v1, GenBlock)),
+    ok = file:write_file(filename:join([GenDir, "genesis"]), blockchain_block:serialize(GenBlock)),
 
     {ok, Sup2} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     Chain1 = blockchain_worker:blockchain(),
-    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(blockchain:head_block(Chain1))),
-    ?assertEqual(LastBlock, blockchain:head_block(Chain1)),
-    ?assertEqual(blockchain_block:hash_block(GenBlock), blockchain:genesis_hash(Chain1)),
-    ?assertEqual(GenBlock, blockchain:genesis_block(Chain1)),
-    ?assertEqual(11, blockchain_worker:height()),
+    {ok, HeadBlock1} = blockchain:head_block(Chain1),
+    ?assertEqual(blockchain_block:hash_block(LastBlock), blockchain_block:hash_block(HeadBlock1)),
+    ?assertEqual({ok, LastBlock}, blockchain:head_block(Chain1)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenBlock)}, blockchain:genesis_hash(Chain1)),
+    ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain1)),
+    ?assertEqual({ok, 11}, blockchain:height(Chain1)),
 
     true = erlang:exit(Sup2, normal),
     ok.
@@ -237,6 +250,9 @@ htlc_payee_redeem_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_address(PubKey),
@@ -255,41 +271,43 @@ htlc_payee_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
+    %% these transactions depend on each other, but they should be able to exist in the same block
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
-    ok = blockchain_worker:add_block(Block, self()),
-    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(2, blockchain_worker:height()),
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
+    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Payer balance has been reduced by 2500
-    NewEntry0 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2600, blockchain_ledger_v1:balance(NewEntry0)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
+    ?assertEqual(Balance - 2600, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_ledger_v1:htlcs(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger_v1:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger_v1:htlc_hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger_v1:htlc_timelock(NewHTLC0)),
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    ?assertEqual(2500, blockchain_ledger_htlc_v1:balance(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger_htlc_v1:hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger_htlc_v1:timelock(NewHTLC0)),
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check that the second block with the Redeem TX was mined properly
-    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block2}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(3, blockchain_worker:height()),
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
+    ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Check that the Payee now owns 2500
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(2600, blockchain_ledger_v1:balance(NewEntry1)),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payee, blockchain:ledger(Chain)),
+    ?assertEqual(2600, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     ok.
 
@@ -300,6 +318,9 @@ htlc_payer_redeem_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_address(PubKey),
@@ -311,46 +332,47 @@ htlc_payer_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
-    ok = blockchain_worker:add_block(Block, self()),
-    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(2, blockchain_worker:height()),
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
+    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Payer balance has been reduced by 2500
-    NewEntry0 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(Balance - 2500, blockchain_ledger_v1:balance(NewEntry0)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     % Check that the HLTC address exists and has the correct balance, hashlock and timelock
-    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_worker:ledger()),
-    NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain_ledger_v1:htlcs(blockchain_worker:ledger())),
-    ?assertEqual(2500, blockchain_ledger_v1:balance(NewHTLC0)),
-    ?assertEqual(Hashlock, blockchain_ledger_v1:htlc_hashlock(NewHTLC0)),
-    ?assertEqual(3, blockchain_ledger_v1:htlc_timelock(NewHTLC0)),
+    % NewHTLC0 = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    {ok, NewHTLC0} = blockchain_ledger_v1:find_htlc(HTLCAddress, blockchain:ledger(Chain)),
+    ?assertEqual(2500, blockchain_ledger_htlc_v1:balance(NewHTLC0)),
+    ?assertEqual(Hashlock, blockchain_ledger_htlc_v1:hashlock(NewHTLC0)),
+    ?assertEqual(3, blockchain_ledger_htlc_v1:timelock(NewHTLC0)),
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
     Block3 = test_utils:create_block(ConsensusMembers, []),
-    ok = blockchain_worker:add_block(Block3, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check we are at height 4
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(4, blockchain_worker:height()),
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block3), HeadHash2),
+    ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    ok = blockchain_worker:add_block(Block4, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
 
     % Check that the Payer now owns 5000 again
-    NewEntry1 = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:entries(blockchain_worker:ledger())),
-    ?assertEqual(5000, blockchain_ledger_v1:balance(NewEntry1)),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
+    ?assertEqual(5000, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     ok.
 
@@ -359,6 +381,9 @@ poc_request_test(Config) ->
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
     Owner = libp2p_crypto:pubkey_to_address(PubKey),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     % Create a Gateway
     {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
@@ -371,15 +396,15 @@ poc_request_test(Config) ->
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
-    ok = blockchain_worker:add_block(Block, self()),
-    ChainDir = blockchain:dir(blockchain_worker:blockchain()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
-    ?assertEqual(blockchain_block:hash_block(Block), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(2, blockchain_worker:height()),
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
+    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
     % Check that the Gateway is there
-    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
@@ -388,28 +413,30 @@ poc_request_test(Config) ->
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
     timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block2), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block2}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(3, blockchain_worker:height()),
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
+    ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Create the PoC challenge request txn
     Secret = crypto:strong_rand_bytes(8),
     Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret)),
     SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    ok = blockchain_worker:add_block(Block3, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
     timer:sleep(500),
 
-    ?assertEqual(blockchain_block:hash_block(Block3), blockchain_block:hash_block(element(2, blockchain:get_block(head, ChainDir)))),
-    ?assertEqual({ok, Block3}, blockchain:get_block(head, ChainDir)),
-    ?assertEqual(4, blockchain_worker:height()),
+    {ok, HeadHash3} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
+    ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
+    ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    GwInfo2 = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
-    ?assertEqual(3, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
+    ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     ok.
 
@@ -417,28 +444,33 @@ bogus_coinbase_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
     Block2 = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
-
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
     timer:sleep(500),
 
     %% None of the balances should have changed
     lists:all(fun(Entry) ->
-                      blockchain_ledger_v1:balance(Entry) == Balance
+                      blockchain_ledger_entry_v1:balance(Entry) == Balance
               end,
-              maps:values(blockchain_ledger_v1:entries(blockchain_worker:ledger()))),
+              maps:values(blockchain_ledger_v1:entries(blockchain:ledger(Chain)))),
 
     %% Check that the chain didn't grow
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     ok.
 
 bogus_coinbase_with_good_payment_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
@@ -451,11 +483,11 @@ bogus_coinbase_with_good_payment_test(Config) ->
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
     timer:sleep(500),
 
     %% Check that the chain didnt' grow
-    ?assertEqual(1, blockchain_worker:height()),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     ok.
 
@@ -469,6 +501,9 @@ export_test(Config) ->
      | _] = ConsensusMembers,
     Amount = 2500,
     Fee = 10,
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
     PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 1, blockchain_swarm:address()),
     PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:address()),
     PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:address()),
@@ -490,15 +525,16 @@ export_test(Config) ->
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
+    %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
     Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
-    ok = blockchain_worker:add_block(Block2, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
-    GwInfo = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain_worker:ledger()),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     timer:sleep(500),
 
-    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain_worker:ledger()),
+    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
               {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},

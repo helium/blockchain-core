@@ -131,60 +131,74 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                               | {error, any()}.
-absorb(Txn, Ledger0) ->
+-spec absorb(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
     Fee = ?MODULE:fee(Txn),
-    MinerFee = blockchain_ledger_v1:transaction_fee(Ledger0),
-    case (Fee >= MinerFee) of
-        false ->
-            {error, insufficient_fee};
-        true ->
-            case ?MODULE:is_valid(Txn) of
-                true ->
-                    Address = ?MODULE:address(Txn),
-                    HTLC =  blockchain_ledger_v1:find_htlc(Address, blockchain_ledger_v1:htlcs(Ledger0)),
-                    Redeemer = ?MODULE:payee(Txn),
-                    Payer = blockchain_ledger_v1:htlc_payer(HTLC),
-                    Payee = blockchain_ledger_v1:htlc_payee(HTLC),
-                    Entry = blockchain_ledger_v1:find_entry(Redeemer, blockchain_ledger_v1:entries(Ledger0)),
-                    Nonce = blockchain_ledger_v1:payment_nonce(Entry) + 1,
-                    case blockchain_ledger_v1:debit_account(Redeemer, Fee, Nonce, Ledger0) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        Ledger1 ->
-                            %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
-                            %% otherwise check that the timelock has expired which allows the Creator to redeem
-                            case Payer =:= Redeemer of
-                                false ->
-                                    %% check that the address trying to redeem matches the HTLC
-                                    case Redeemer =:= Payee of
-                                        true ->
-                                            Hashlock = blockchain_ledger_v1:htlc_hashlock(HTLC),
-                                            Preimage = ?MODULE:preimage(Txn),
-                                            case (crypto:hash(sha256, Preimage) =:= Hashlock) of
-                                                true ->
-                                                    {ok, blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger1)};
-                                                false ->
-                                                    {error, invalid_preimage}
-                                            end;
-                                        false ->
-                                            {error, invalid_payee}
-                                    end;
-                                true ->
-                                    Timelock = blockchain_ledger_v1:htlc_timelock(HTLC),
-                                    Height = blockchain_ledger_v1:current_height(Ledger1),
-                                    case Timelock >= Height of
-                                        true ->
-                                            {error, timelock_not_expired};
-                                        false ->
-                                            {ok, blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger1)}
-                                    end
-                            end
-                        end;
+    case blockchain_ledger_v1:transaction_fee(Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, MinerFee} ->
+            case (Fee >= MinerFee) of
                 false ->
-                    {error, bad_signature}
-        end
+                    {error, insufficient_fee};
+                true ->
+                    case ?MODULE:is_valid(Txn) of
+                        true ->
+                            Address = ?MODULE:address(Txn),
+                            Redeemer = ?MODULE:payee(Txn),
+                            case {blockchain_ledger_v1:find_entry(Redeemer, Ledger),
+                                  blockchain_ledger_v1:find_htlc(Address, Ledger)}
+                            of
+                                {{error, _}=Error, _} ->
+                                    Error;
+                                {_, {error, _}=Error} ->
+                                    Error;
+                                {{ok, Entry}, {ok, HTLC}} ->
+                                    Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                                    Payee = blockchain_ledger_htlc_v1:payee(HTLC),
+                                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+                                    case blockchain_ledger_v1:debit_account(Redeemer, Fee, Nonce, Ledger) of
+                                        {error, _Reason}=Error ->
+                                            Error;
+                                        ok ->
+                                            %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
+                                            %% otherwise check that the timelock has expired which allows the Creator to redeem
+                                            case Payer =:= Redeemer of
+                                                false ->
+                                                    %% check that the address trying to redeem matches the HTLC
+                                                    case Redeemer =:= Payee of
+                                                        true ->
+                                                            Hashlock = blockchain_ledger_htlc_v1:hashlock(HTLC),
+                                                            Preimage = ?MODULE:preimage(Txn),
+                                                            case (crypto:hash(sha256, Preimage) =:= Hashlock) of
+                                                                true ->
+                                                                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger);
+                                                                false ->
+                                                                    {error, invalid_preimage}
+                                                            end;
+                                                        false ->
+                                                            {error, invalid_payee}
+                                                    end;
+                                                true ->
+                                                    Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
+                                                    case blockchain_ledger_v1:current_height(Ledger) of
+                                                        {error, _}=Error ->
+                                                            Error;
+                                                        {ok, Height} ->
+                                                            case Timelock >= Height of
+                                                                true ->
+                                                                    {error, timelock_not_expired};
+                                                                false ->
+                                                                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
+                                                            end
+                                                    end
+                                            end
+                                    end
+                            end;
+                        false ->
+                            {error, bad_signature}
+                end
+            end
     end.
 
 %% ------------------------------------------------------------------

@@ -37,8 +37,11 @@
 -spec validate(blockchain_transaction:transactions(),
                blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
                                                blockchain_transaction:transactions()}.
+%% TODO we should separate validation from absorbing transactions and validate transactions
+%% before absorbing them.
 validate(Transactions, Ledger) ->
-    validate(Transactions, [], [], Ledger).
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    validate(Transactions, [], [], Ledger1).
 
 validate([], Valid,  Invalid, _Ledger) ->
     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
@@ -47,8 +50,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
     %% sort the new transaction in with the accumulated list
     SortedPaymentTxns = Valid ++ [Txn],
     %% check that these transactions are valid to apply in this order
-    case absorb(SortedPaymentTxns, Ledger) of
-        {ok, _NewLedger} ->
+    case absorb_(SortedPaymentTxns, Ledger) of
+        ok ->
             validate(Tail, SortedPaymentTxns, Invalid, Ledger);
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
@@ -63,19 +66,27 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                    | {error, any()}.
-absorb([], Ledger) ->
-    Ledger1 = blockchain_ledger_v1:update_transaction_fee(Ledger),
-    %% TODO: probably not the correct place to be incrementing the height for the ledger?
-    {ok, blockchain_ledger_v1:increment_height(Ledger1)};
-absorb(Txns, Ledger) when map_size(Ledger) == 0 ->
-    absorb(Txns, blockchain_ledger_v1:new());
-absorb([Txn|Txns], Ledger0) ->
+-spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Transactions, Ledger0) ->
+   Ledger = blockchain_ledger_v1:new_context(Ledger0),
+   case absorb_(Transactions, Ledger) of
+       ok ->
+           %% these should be all done atomically in the same context
+           ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
+           ok = blockchain_ledger_v1:increment_height(Ledger),
+           ok = blockchain_ledger_v1:commit_context(Ledger);
+       Error ->
+           blockchain_ledger_v1:delete_context(Ledger),
+           Error
+   end.
+
+absorb_([], _Ledger) ->
+    ok;
+absorb_([Txn|Txns], Ledger) ->
     Type = type(Txn),
-    try Type:absorb(Txn, Ledger0) of
+    try Type:absorb(Txn,  Ledger) of
         {error, _Reason}=Error -> Error;
-        {ok, Ledger1} -> absorb(Txns, Ledger1)
+        ok -> absorb_(Txns, Ledger)
     catch
         What:Why -> {error, {type(Txn), What, Why}}
     end.

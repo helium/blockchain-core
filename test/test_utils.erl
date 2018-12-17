@@ -7,11 +7,11 @@
     init/1, init_chain/2,
     generate_keys/1,
     wait_until/1, wait_until/3,
-    compare_chains/2,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
     nonl/1,
-    create_payment_transaction/6
+    create_payment_transaction/6,
+    atomic_save/2
 ]).
 
 init(BaseDir) ->
@@ -45,12 +45,12 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
     Chain = blockchain_worker:blockchain(),
-
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(blockchain:head_block(Chain))),
-    ?assertEqual(GenesisBlock, blockchain:head_block(Chain)),
-    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain:genesis_hash(Chain)),
-    ?assertEqual(GenesisBlock, blockchain:genesis_block(Chain)),
-    ?assertEqual(1, blockchain_worker:height()),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
     {ok, ConsensusMembers}.
 
 generate_keys(N) ->
@@ -79,19 +79,11 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             wait_until(Fun, Retry-1, Delay)
     end.
 
-compare_chains(Expected, Got) ->
-    ?assertEqual(blockchain:dir(Expected), blockchain:dir(Got)),
-    ?assertEqual(blockchain:head_hash(Expected), blockchain:head_hash(Got)),
-    ?assertEqual(blockchain:head_block(Expected), blockchain:head_block(Got)),
-    ?assertEqual(blockchain:genesis_hash(Expected), blockchain:genesis_hash(Got)),
-    ?assertEqual(blockchain:genesis_block(Expected), blockchain:genesis_block(Got)),
-    ?assertEqual(blockchain:ledger(Expected), blockchain:ledger(Got)),
-    ok.
-
 create_block(ConsensusMembers, Txs) ->
     Blockchain = blockchain_worker:blockchain(),
-    PrevHash = blockchain:head_hash(Blockchain),
-    Height = blockchain_block:height(blockchain:head_block(Blockchain)) + 1,
+    {ok, PrevHash} = blockchain:head_hash(Blockchain),
+    {ok, HeadBlock} = blockchain:head_block(Blockchain),
+    Height = blockchain_block:height(HeadBlock) + 1,
     Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
     BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
     Signatures = signatures(ConsensusMembers, BinBlock),
@@ -100,13 +92,17 @@ create_block(ConsensusMembers, Txs) ->
 
 signatures(ConsensusMembers, BinBlock) ->
     lists:foldl(
-        fun({A, {_, _, F}}, Acc) ->
-            Sig = F(BinBlock),
-            [{A, Sig}|Acc]
-        end
-        ,[]
-        ,ConsensusMembers
-    ).
+      fun({A, {_, _, F}}, Acc) ->
+              Sig = F(BinBlock),
+              [{A, Sig}|Acc];
+         %% NOTE: This clause matches the consensus members generated for the dist suite
+         ({A, _, F}, Acc) ->
+              Sig = F(BinBlock),
+              [{A, Sig}|Acc]
+      end
+      ,[]
+      ,ConsensusMembers
+     ).
 
 tmp_dir() ->
     ?MODULE:nonl(os:cmd("mktemp -d")).
@@ -122,3 +118,15 @@ create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) -
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%-------------------------------------------------------------------
+-spec atomic_save(file:filename_all(), binary() | string()) -> ok | {error, any()}.
+atomic_save(File, Bin) ->
+    ok = filelib:ensure_dir(File),
+    TmpFile = File ++ "-tmp",
+    ok = file:write_file(TmpFile, Bin),
+    file:rename(TmpFile, File).

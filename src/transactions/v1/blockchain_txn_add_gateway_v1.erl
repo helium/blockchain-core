@@ -145,9 +145,8 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                  | {error, any()}.
-absorb(Txn, Ledger0) ->
+-spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn)} of
         {false, _} ->
@@ -157,11 +156,19 @@ absorb(Txn, Ledger0) ->
         {true, true} ->
             OwnerAddress = ?MODULE:owner_address(Txn),
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger0) of
-                {error, _Reason}=Error ->
-                    Error;
-                Ledger1 ->
-                    {ok, Ledger1}
+            %% NOTE: This causes a chain fork, commenting out till we roll new rules new chain
+            %% case blockchain_ledger_v1:transaction_fee(Ledger) of
+            %%     {error, Error} ->
+            %%         Error;
+            %%     {ok, MinerFee} ->
+            %%         case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger) of
+            %%             {error, _Reason}=Error -> Error;
+            %%             ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
+            %%         end
+            %% end
+            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger) of
+                {error, _Reason}=Error -> Error;
+                ok -> ok
             end
     end.
 

@@ -12,7 +12,8 @@
     last_poc_challenge/1, last_poc_challenge/2,
     nonce/1, nonce/2,
     score/1, score/2,
-    print/1
+    print/1,
+    serialize/1, deserialize/1
 ]).
 
 -include("blockchain.hrl").
@@ -140,16 +141,36 @@ score(Score, Gateway) ->
 -spec print(gateway()) -> list().
 print(Gateway) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
-    UndefinedHandleFunc = fun(undefined) -> "undefined";
-                            (I) -> I
-                         end,
+    UndefinedHandleFunc =
+        fun(undefined) -> "undefined";
+           (I) -> I
+        end,
     [
-     {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
-     {location, UndefinedHandleFunc(location(Gateway))},
-     {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
-     {nonce, nonce(Gateway)},
-     {score, score(Gateway)}
+        {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
+        {location, UndefinedHandleFunc(location(Gateway))},
+        {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
+        {nonce, nonce(Gateway)},
+        {score, score(Gateway)}
     ].
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Version 1
+%% @end
+%%--------------------------------------------------------------------
+-spec serialize(gateway()) -> binary().
+serialize(Gw) ->
+    BinGw = erlang:term_to_binary(Gw),
+    <<1, BinGw/binary>>.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Later _ could becomre 1, 2, 3 for different versions.
+%% @end
+%%--------------------------------------------------------------------
+-spec deserialize(binary()) -> gateway().
+deserialize(<<_:1/binary, Bin/binary>>) ->
+    erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

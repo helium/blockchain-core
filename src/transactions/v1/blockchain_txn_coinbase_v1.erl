@@ -60,18 +60,18 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
+-spec absorb(txn_coinbase(),  blockchain_ledger_v1:ledger()) -> ok
                                                                | {error, not_in_genesis_block}
                                                                | {error, zero_or_negative_amount}.
 absorb(Txn, Ledger) ->
     %% NOTE: This transaction is only allowed in the genesis block
     case blockchain_ledger_v1:current_height(Ledger) of
-        undefined ->
+        {ok, 1} ->
             Payee = ?MODULE:payee(Txn),
             Amount = ?MODULE:amount(Txn),
             case Amount > 0 of
                 true ->
-                    {ok, blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)};
+                    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger);
                 false ->
                     {error, zero_or_negative_amount}
             end;

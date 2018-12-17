@@ -107,9 +107,8 @@ is(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()}
-                                                                | {error, any()}.
-absorb(Txn, Ledger0) ->
+-spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, _Ledger) ->
     case blockchain_txn_poc_receipts_v1:is_valid(Txn) of
         false ->
             {error, invalid_transaction};
@@ -119,7 +118,7 @@ absorb(Txn, Ledger0) ->
                 % 2. Validate poc request hash from secret
                 % 3. Re-create entropy target and path from secret and block hash
             % TODO: Update score and last_poc_challenge
-            {ok, Ledger0}
+            ok
     end.
 
 %% ------------------------------------------------------------------

@@ -5,14 +5,6 @@
 -define(GW_REGISTRATION_PROTOCOL, "gw_registration/1.0.0").
 -define(LOC_ASSERTION_PROTOCOL, "loc_assertion/1.0.0").
 
-% Directory / File
--define(BASE_DIR, "blockchain").
--define(BLOCKS_DIR, "blocks").
--define(HEIGHTS_DIR, "heights").
--define(GEN_HASH_FILE, "genesis").
--define(HEAD_FILE, "head").
--define(LEDGER_FILE, "ledger").
-
 % B58 Address Versions
 -define(B58_MAINNET_VER, 0).
 -define(B58_TESTNET_VER, 2).
