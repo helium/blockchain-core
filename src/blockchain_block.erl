@@ -14,7 +14,7 @@
     meta/1,
     remove_signature/1,
     sign_block/2,
-    new_genesis_block/1,
+    new_genesis_block/1, new_genesis_block/2,
     is_genesis/1,
     is_block/1,
     hash_block/1,
@@ -126,6 +126,14 @@ sign_block(Signature, Block) ->
 -spec new_genesis_block(blockchain_transactions:transactions()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, #{}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_genesis_block(blockchain_transactions:transactions(), meta()) -> block().
+new_genesis_block(Transactions, MetaData) ->
+    ?MODULE:new(<<0:256>>, 1, Transactions, <<>>, MetaData).
 
 %%--------------------------------------------------------------------
 %% @doc
