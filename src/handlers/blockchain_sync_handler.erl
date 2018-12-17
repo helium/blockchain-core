@@ -60,7 +60,7 @@ handle_data(client, Data, #state{blockchain=Chain, n=N}=State) ->
                   {error, _Reason} ->
                       lager:error("could not get head hash ~p", [_Reason]),
                       ok;
-                  {ok, Head} -> 
+                  {ok, Head} ->
                       case blockchain_block:prev_hash(Block) == Head of
                           false ->
                               ok;

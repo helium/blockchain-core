@@ -21,7 +21,7 @@
 
 init_gossip_data([Swarm, _N, Blockchain]) ->
     lager:info("gossiping init"),
-    Block =  blockchain:head_block(Blockchain),
+    {ok, Block} = blockchain:head_block(Blockchain),
     lager:info("gossiping block to peers on init"),
     Address = libp2p_swarm:address(Swarm),
     {send, term_to_binary({block, Address, Block})};
