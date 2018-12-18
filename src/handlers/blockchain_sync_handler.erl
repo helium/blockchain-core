@@ -52,8 +52,13 @@ init(server, _Conn, [_Path, _, N, Blockchain]) ->
 handle_data(client, Data, #state{blockchain=Chain}=State) ->
     lager:info("client got data: ~p", [Data]),
     Blocks = erlang:binary_to_term(Data),
-    lists:foreach(fun(Block) -> blockchain:add_block(Block, Chain) end, Blocks),
-    blockchain_worker:synced_blocks(),
+    case blockchain:add_blocks(Blocks, Chain) of
+        ok ->
+            blockchain_worker:synced_blocks();
+        Error ->
+            %% TODO: maybe dial for sync again?
+            lager:error("Couldn't sync blocks, error: ~p", [Error])
+    end,
     {stop, normal, State};
 handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     lager:info("server got data: ~p", [Data]),

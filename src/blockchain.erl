@@ -12,7 +12,7 @@
     height/1,
     ledger/1,
     dir/1,
-    blocks/1, add_block/2, get_block/2,
+    blocks/1, add_block/2, get_block/2, add_blocks/2,
     build/3,
     close/1
 ]).
@@ -213,12 +213,15 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 -spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()} | {error, disjoint_chain}.
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
-    case blockchain:head_hash(Blockchain) of
+    case blockchain:head_block(Blockchain) of
         {error, Reason}=Error ->
             lager:error("could not get head hash ~p", [Reason]),
             Error;
-        {ok, HeadHash} ->
-            case blockchain_block:prev_hash(Block) =:= HeadHash of
+        {ok, HeadBlock} ->
+            HeadHash = blockchain_block:hash_block(HeadBlock),
+            case blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                 blockchain_block:height(Block) == blockchain_block:height(HeadBlock) + 1
+            of
                 false ->
                     lager:warning("gossipped block doesn't fit with our chain"),
                     {error, disjoint_chain};
@@ -284,11 +287,24 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
+add_blocks([], _Chain) -> ok;
+add_blocks([Head | Tail], Chain) ->
+    case ?MODULE:add_block(Head, Chain) of
+        ok -> add_blocks(Tail, Chain);
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec build(blockchain_block:block(), blockchain(), non_neg_integer()) -> [blockchain_block:block()].
 build(StartingBlock, Blockchain, Limit) ->
     build(StartingBlock, Blockchain, Limit, []).
 
--spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockhain_block:block()].
+-spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockchain_block:block()].
 build(_StartingBlock, _Blockchain, 0, Acc) ->
     lists:reverse(Acc);
 build(StartingBlock, Blockchain, N, Acc) ->
