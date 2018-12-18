@@ -90,8 +90,7 @@ integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain
     GenHash = blockchain_block:hash_block(GenesisBlock),
 
     Ledger = ?MODULE:ledger(Blockchain),
-    Transactions = blockchain_block:transactions(GenesisBlock),
-    ok = blockchain_transactions:absorb(Transactions, Ledger),
+    ok = blockchain_transactions:absorb(GenesisBlock, Ledger),
 
     ok = save_block(GenesisBlock, Blockchain),
 
@@ -219,7 +218,7 @@ add_block(Block, Blockchain) ->
             lager:error("could not get head hash ~p", [Reason]),
             Error;
         {ok, HeadHash} ->
-            case blockchain_block:prev_hash(Block) == HeadHash of
+            case blockchain_block:prev_hash(Block) =:= HeadHash of
                 false ->
                     lager:warning("gossipped block doesn't fit with our chain"),
                     {error, disjoint_chain};
@@ -244,7 +243,7 @@ add_block(Block, Blockchain) ->
                                 false ->
                                     {error, failed_verify_signature};
                                 {true, _} ->
-                                    case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger) of
+                                    case blockchain_transactions:absorb(Block, Ledger) of
                                         ok ->
                                             save_block(Block, Blockchain),
                                             ok = blockchain_worker:notify({add_block, HeadHash, false});
@@ -425,27 +424,27 @@ new_test() ->
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
 %% XXX: fix these
-%% blocks_test() ->
-%%     GenBlock = blockchain_block:new_genesis_block([]),
-%%     GenHash = blockchain_block:hash_block(GenBlock),
-%%     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
-%%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
-%%     Hash = blockchain_block:hash_block(Block),
-%%     ok = add_block(Block, Chain),
-%%     Map = #{
-%%         GenHash => GenBlock,
-%%         Hash => Block
-%%     },
-%%     ?assertMatch(Map, blocks(Chain)).
-%% 
-%% get_block_test() ->
-%%     GenBlock = blockchain_block:new_genesis_block([]),
-%%     GenHash = blockchain_block:hash_block(GenBlock),
-%%     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
-%%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
-%%     Hash = blockchain_block:hash_block(Block),
-%%     ok = add_block(Block, Chain),
-%%     ?assertMatch({ok, Block}, get_block(Hash, Chain)).
+% blocks_test() ->
+%     GenBlock = blockchain_block:new_genesis_block([]),
+%     GenHash = blockchain_block:hash_block(GenBlock),
+%     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
+%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+%     Hash = blockchain_block:hash_block(Block),
+%     ok = add_block(Block, Chain),
+%     Map = #{
+%         GenHash => GenBlock,
+%         Hash => Block
+%     },
+%     ?assertMatch(Map, blocks(Chain)).
+
+% get_block_test() ->
+%     GenBlock = blockchain_block:new_genesis_block([]),
+%     GenHash = blockchain_block:hash_block(GenBlock),
+%     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
+%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+%     Hash = blockchain_block:hash_block(Block),
+%     ok = add_block(Block, Chain),
+%     ?assertMatch({ok, Block}, get_block(Hash, Chain)).
 
 % load_test() ->
 %     BaseDir = test_utils:tmp_dir("save_load_test"),
