@@ -148,7 +148,7 @@ increment_height(Block, #ledger_v1{default=DefaultCF}=Ledger) ->
         {error, _} ->
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>);
         {ok, Height0} ->
-            Height1 = erlang:max(BlockHeight, Height0 + 1),
+            Height1 = erlang:max(BlockHeight, Height0),
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
 

@@ -424,33 +424,67 @@ new_test() ->
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
 %% XXX: fix these
-% blocks_test() ->
-%     GenBlock = blockchain_block:new_genesis_block([]),
-%     GenHash = blockchain_block:hash_block(GenBlock),
-%     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
-%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
-%     Hash = blockchain_block:hash_block(Block),
-%     ok = add_block(Block, Chain),
-%     Map = #{
-%         GenHash => GenBlock,
-%         Hash => Block
-%     },
-%     ?assertMatch(Map, blocks(Chain)).
+blocks_test() ->
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+        {ok, lists:seq(1, 7)}
+    end),
+    meck:new(blockchain_block, [passthrough]),
+    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+        {true, undefined}
+    end),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, notify, fun(_) ->
+        ok
+    end),
 
-% get_block_test() ->
-%     GenBlock = blockchain_block:new_genesis_block([]),
-%     GenHash = blockchain_block:hash_block(GenBlock),
-%     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
-%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
-%     Hash = blockchain_block:hash_block(Block),
-%     ok = add_block(Block, Chain),
-%     ?assertMatch({ok, Block}, get_block(Hash, Chain)).
+    GenBlock = blockchain_block:new_genesis_block([]),
+    GenHash = blockchain_block:hash_block(GenBlock),
+    {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
+    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Hash = blockchain_block:hash_block(Block),
+    ok = add_block(Block, Chain),
+    Map = #{
+        GenHash => GenBlock,
+        Hash => Block
+    },
+    ?assertMatch(Map, blocks(Chain)),
 
-% load_test() ->
-%     BaseDir = test_utils:tmp_dir("save_load_test"),
-%     GenBlock = blockchain_block:new_genesis_block([]),
-%     Chain = new(GenBlock, BaseDir),
-%     ?assertEqual(Chain, load(BaseDir, undefined)).
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_block)),
+    meck:unload(blockchain_block),
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker).
+
+get_block_test() ->
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+        {ok, lists:seq(1, 7)}
+    end),
+    meck:new(blockchain_block, [passthrough]),
+    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+        {true, undefined}
+    end),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, notify, fun(_) ->
+        ok
+    end),
+
+    GenBlock = blockchain_block:new_genesis_block([]),
+    GenHash = blockchain_block:hash_block(GenBlock),
+    {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
+    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Hash = blockchain_block:hash_block(Block),
+    ok = add_block(Block, Chain),
+    ?assertMatch({ok, Block}, get_block(Hash, Chain)),
+
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_block)),
+    meck:unload(blockchain_block),
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker).
 
 
 -endif.
