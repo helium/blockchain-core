@@ -126,13 +126,13 @@ commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_height(ledger()) -> {ok, pos_integer()} | {error, any()}.
+-spec current_height(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 current_height(#ledger_v1{default=DefaultCF}=Ledger) ->
     case cache_get(Ledger, DefaultCF, ?CURRENT_HEIGHT, []) of
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
-            {ok, 1};
+            {ok, 0};
         Error ->
             Error
     end.

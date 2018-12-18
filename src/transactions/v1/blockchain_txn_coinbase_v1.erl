@@ -66,7 +66,7 @@ is(Txn) ->
 absorb(Txn, Ledger) ->
     %% NOTE: This transaction is only allowed in the genesis block
     case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 1} ->
+        {ok, 0} ->
             Payee = ?MODULE:payee(Txn),
             Amount = ?MODULE:amount(Txn),
             case Amount > 0 of
