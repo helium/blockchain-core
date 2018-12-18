@@ -46,10 +46,9 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
 
 add_block(Swarm, Block, Chain, N, Sender) ->
     lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
-    F = ((N-1) div 3),
-    case blockchain:add_block(Block, Chain, N, F) of
+    case blockchain:add_block(Block, Chain) of
         ok -> ok;
-        {ok, sync} ->
+        {error, disjoint_chain} ->
             lager:warning("gossipped block doesn't fit with our chain"),
             P2PAddress = libp2p_crypto:address_to_p2p(Sender),
             lager:info("syncing with the sender ~p", [P2PAddress]),

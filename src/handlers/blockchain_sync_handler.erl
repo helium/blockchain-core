@@ -49,11 +49,10 @@ init(server, _Conn, [_Path, _, N, Blockchain]) ->
     lager:info("started sync_handler server"),
     {ok, #state{n=N, blockchain=Blockchain}}.
 
-handle_data(client, Data, #state{blockchain=Chain, n=N}=State) ->
+handle_data(client, Data, #state{blockchain=Chain}=State) ->
     lager:info("client got data: ~p", [Data]),
     Blocks = erlang:binary_to_term(Data),
-    F = ((N-1) div 3),
-    lists:foreach(fun(Block) -> blockchain:add_block(Block, Chain, N, F) end, Blocks),
+    lists:foreach(fun(Block) -> blockchain:add_block(Block, Chain) end, Blocks),
     blockchain_worker:synced_blocks(),
     {stop, normal, State};
 handle_data(server, Data, #state{blockchain=Blockchain}=State) ->

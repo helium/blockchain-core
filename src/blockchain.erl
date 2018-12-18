@@ -12,7 +12,7 @@
     height/1,
     ledger/1,
     dir/1,
-    blocks/1, add_block/4, get_block/2,
+    blocks/1, add_block/2, get_block/2,
     build/3,
     close/1
 ]).
@@ -211,8 +211,8 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain(), pos_integer(), non_neg_integer()) -> ok | {error, any()} | {ok, sync}.
-add_block(Block, Blockchain, N, F) ->
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()} | {error, disjoint_chain}.
+add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     case blockchain:head_hash(Blockchain) of
         {error, Reason}=Error ->
@@ -222,7 +222,7 @@ add_block(Block, Blockchain, N, F) ->
             case blockchain_block:prev_hash(Block) == HeadHash of
                 false ->
                     lager:warning("gossipped block doesn't fit with our chain"),
-                    {ok, sync};
+                    {error, disjoint_chain};
                 true when HeadHash =:= Hash ->
                     lager:info("Already have this block"),
                     ok;
@@ -234,6 +234,8 @@ add_block(Block, Blockchain, N, F) ->
                             lager:error("could not get consensus_members ~p", [_Reason]),
                             Error;
                         {ok, ConsensusAddrs} ->
+                            N = length(ConsensusAddrs),
+                            F = (N-1) div 3,
                             case blockchain_block:verify_signature(Block,
                                                                    ConsensusAddrs,
                                                                    blockchain_block:signature(Block),
@@ -422,27 +424,27 @@ new_test() ->
 %     Chain = new(Block, test_utils:tmp_dir("ledger_test")),
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
-%% XXX: Commenting these out for now
+%% XXX: fix these
 %% blocks_test() ->
 %%     GenBlock = blockchain_block:new_genesis_block([]),
 %%     GenHash = blockchain_block:hash_block(GenBlock),
 %%     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
 %%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
 %%     Hash = blockchain_block:hash_block(Block),
-%%     ok = add_block(Block, Chain, 0, 0),
+%%     ok = add_block(Block, Chain),
 %%     Map = #{
 %%         GenHash => GenBlock,
 %%         Hash => Block
 %%     },
 %%     ?assertMatch(Map, blocks(Chain)).
-
+%% 
 %% get_block_test() ->
 %%     GenBlock = blockchain_block:new_genesis_block([]),
 %%     GenHash = blockchain_block:hash_block(GenBlock),
 %%     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
 %%     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
 %%     Hash = blockchain_block:hash_block(Block),
-%%     ok = add_block(Block, Chain, 0, 0),
+%%     ok = add_block(Block, Chain),
 %%     ?assertMatch({ok, Block}, get_block(Hash, Chain)).
 
 % load_test() ->

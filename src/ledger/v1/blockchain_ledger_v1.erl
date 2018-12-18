@@ -563,14 +563,14 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
     DefaultCFs = ["default", "active_gateways", "entries", "htlcs"],
-    ExistingCFs = 
+    ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
                 CFs0;
             {error, _} ->
                 ["default"]
         end,
-        
+
     {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
 
     L1 = lists:zip(ExistingCFs, OpenedCFs),
