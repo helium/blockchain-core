@@ -222,12 +222,14 @@ add_block(Block, Blockchain) ->
             case blockchain_block:prev_hash(Block) =:= HeadHash andalso
                  blockchain_block:height(Block) == blockchain_block:height(HeadBlock) + 1
             of
-                false ->
-                    lager:warning("gossipped block doesn't fit with our chain"),
-                    {error, disjoint_chain};
-                true when HeadHash =:= Hash ->
+                false when HeadHash =:= Hash ->
                     lager:info("Already have this block"),
                     ok;
+                false ->
+                    lager:warning("gossipped block doesn't fit with our chain,
+                                  block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                             blockchain_block:height(HeadBlock)]),
+                    {error, disjoint_chain};
                 true ->
                     lager:info("prev hash matches the gossiped block"),
                     Ledger = blockchain:ledger(Blockchain),

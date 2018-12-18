@@ -115,7 +115,8 @@ is(Txn) ->
 absorb(Txn, Ledger) ->
     %% NOTE: This transaction should only be absorbed when it's in the genesis block
     case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 1} ->
+        %% Ledger height is 0 till the genesis block is absorbed
+        {ok, 0} ->
             GatewayAddress = ?MODULE:gateway_address(Txn),
             OwnerAddress = ?MODULE:owner_address(Txn),
             Location = ?MODULE:location(Txn),

@@ -448,6 +448,9 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+terminate(_Reason, #state{blockchain={no_genesis, Chain}}) ->
+    ok = blockchain:close(Chain),
+    ok;
 terminate(_Reason, #state{blockchain=Chain}) ->
     ok = blockchain:close(Chain),
     ok.
