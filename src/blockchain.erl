@@ -440,7 +440,6 @@ new_test() ->
 %     Chain = new(Block, test_utils:tmp_dir("ledger_test")),
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
-%% XXX: fix these
 blocks_test() ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
