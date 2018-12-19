@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_coinbase_v1).
 
+-behavior(blockchain_txn).
+
 -export([
     new/2,
+    hash/1,
     payee/1,
     amount/1,
     is/1,
@@ -32,6 +35,14 @@
 -spec new(libp2p_crypto:address(), integer()) -> txn_coinbase().
 new(Payee, Amount) ->
     #txn_coinbase_v1{payee=Payee, amount=Amount}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_coinbase()) -> blockchain_txn:hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(Txn)).
 
 %%--------------------------------------------------------------------
 %% @doc
