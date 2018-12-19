@@ -213,7 +213,7 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 -spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
-    {ok, GenesisHash} = blockchain:genesis_hash(Block),
+    {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
         true when Hash =:= GenesisHash ->
             ok;
