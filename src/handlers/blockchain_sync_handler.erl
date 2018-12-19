@@ -66,16 +66,20 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     lager:info("server got data: ~p", [Data]),
     {hash, Hash} = erlang:binary_to_term(Data),
     lager:info("syncing blocks with peer hash ~p", [Hash]),
-    StartingBlock =
-        case blockchain:get_block(Hash, Blockchain) of
-            {ok, Block} ->
-                Block;
-            {error, _Reason} ->
-                {ok, B} = blockchain:genesis_block(Blockchain),
-                B
-        end,
-    Blocks = blockchain:build(StartingBlock, Blockchain, 200),
-    {stop, normal, State, erlang:term_to_binary(Blocks)}.
+    case blockchain:get_block(Hash, Blockchain) of
+        {ok, Block} ->
+            case blockchain_block:is_genesis(Block) of
+                true ->
+                    lager:warning("Will not send the genesis block"),
+                    {stop, normal, State};
+                false ->
+                    Blocks = blockchain:build(Block, Blockchain, 200),
+                    {stop, normal, State, erlang:term_to_binary(Blocks)}
+            end;
+        {error, _Reason}=Error ->
+            lager:error("Unable to get_block, error: ~p, hash: ~p", [Error, Hash]),
+            {stop, normal, State}
+    end.
 
 handle_info(client, {hash, Hash}, State) ->
     {noreply, State, erlang:term_to_binary({hash, Hash})};

@@ -405,6 +405,8 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(maybe_sync, #state{blockchain={no_genesis, _Chain}}=State) ->
+    {noreply, State};
 handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     erlang:cancel_timer(State#state.sync_timer),
     case blockchain:head_block(Chain) of
