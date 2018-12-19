@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_gen_consensus_group_v1).
 
+-behavior(blockchain_txn).
+
 -export([
     new/1,
+    hash/1,
     members/1,
     is/1,
     absorb/2
@@ -30,6 +33,14 @@
 -spec new([libp2p_crypto:address()]) -> txn_genesis_consensus_group().
 new(Members) ->
     #txn_genesis_consensus_group_v1{members=Members}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_genesis_consensus_group()) -> blockchain_txn:hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(Txn)).
 
 %%--------------------------------------------------------------------
 %% @doc

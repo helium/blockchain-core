@@ -5,8 +5,11 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_gen_gateway_v1).
 
+-behavior(blockchain_txn).
+
 -export([
     new/6,
+    hash/1,
     gateway_address/1,
     owner_address/1,
     location/1,
@@ -50,6 +53,14 @@ new(GatewayAddress, OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
                             last_poc_challenge=LastPocChallenge,
                             nonce=Nonce,
                             score=Score}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_genesis_gateway()) -> blockchain_txn:hash().
+hash(Txn) ->
+    crypto:hash(sha256, erlang:term_to_binary(Txn)).
 
 %%--------------------------------------------------------------------
 %% @doc
