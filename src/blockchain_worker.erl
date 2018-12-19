@@ -311,7 +311,6 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, State#state.n, Blockchain),
-            self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain}}
     end;
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
