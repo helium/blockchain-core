@@ -12,7 +12,7 @@
     height/1,
     ledger/1,
     dir/1,
-    blocks/1, add_block/2, get_block/2,
+    blocks/1, add_block/2, get_block/2, add_blocks/2,
     build/3,
     close/1
 ]).
@@ -90,8 +90,7 @@ integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain
     GenHash = blockchain_block:hash_block(GenesisBlock),
 
     Ledger = ?MODULE:ledger(Blockchain),
-    Transactions = blockchain_block:transactions(GenesisBlock),
-    ok = blockchain_transactions:absorb(Transactions, Ledger),
+    ok = blockchain_transactions:absorb(GenesisBlock, Ledger),
 
     ok = save_block(GenesisBlock, Blockchain),
 
@@ -211,16 +210,54 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()} | {error, disjoint_chain}.
 add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
-    Ledger = ?MODULE:ledger(Blockchain),
-    case blockchain_transactions:absorb(blockchain_block:transactions(Block), Ledger) of
-        ok ->
-            save_block(Block, Blockchain);
+    case blockchain:head_block(Blockchain) of
         {error, Reason}=Error ->
-            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [Hash, Reason]),
-            Error
+            lager:error("could not get head hash ~p", [Reason]),
+            Error;
+        {ok, HeadBlock} ->
+            HeadHash = blockchain_block:hash_block(HeadBlock),
+            case blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                 blockchain_block:height(Block) == blockchain_block:height(HeadBlock) + 1
+            of
+                false when HeadHash =:= Hash ->
+                    lager:info("Already have this block"),
+                    ok;
+                false ->
+                    lager:warning("gossipped block doesn't fit with our chain,
+                                  block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                             blockchain_block:height(HeadBlock)]),
+                    {error, disjoint_chain};
+                true ->
+                    lager:info("prev hash matches the gossiped block"),
+                    Ledger = blockchain:ledger(Blockchain),
+                    case blockchain_ledger_v1:consensus_members(Ledger) of
+                        {error, _Reason}=Error ->
+                            lager:error("could not get consensus_members ~p", [_Reason]),
+                            Error;
+                        {ok, ConsensusAddrs} ->
+                            N = length(ConsensusAddrs),
+                            F = (N-1) div 3,
+                            case blockchain_block:verify_signature(Block,
+                                                                   ConsensusAddrs,
+                                                                   blockchain_block:signature(Block),
+                                                                   N-F)
+                            of
+                                false ->
+                                    {error, failed_verify_signature};
+                                {true, _} ->
+                                    case blockchain_transactions:absorb(Block, Ledger) of
+                                        ok ->
+                                            save_block(Block, Blockchain);
+                                        {error, Reason}=Error ->
+                                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                                            Error
+                                    end
+                            end
+                    end
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -251,11 +288,24 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
+add_blocks([], _Chain) -> ok;
+add_blocks([Head | Tail], Chain) ->
+    case ?MODULE:add_block(Head, Chain) of
+        ok -> add_blocks(Tail, Chain);
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec build(blockchain_block:block(), blockchain(), non_neg_integer()) -> [blockchain_block:block()].
 build(StartingBlock, Blockchain, Limit) ->
     build(StartingBlock, Blockchain, Limit, []).
 
--spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockhain_block:block()].
+-spec build(blockchain_block:block(), blockchain(), non_neg_integer(), [blockchain_block:block()]) -> [blockchain_block:block()].
 build(_StartingBlock, _Blockchain, 0, Acc) ->
     lists:reverse(Acc);
 build(StartingBlock, Blockchain, N, Acc) ->
@@ -391,6 +441,19 @@ new_test() ->
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
 blocks_test() ->
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+        {ok, lists:seq(1, 7)}
+    end),
+    meck:new(blockchain_block, [passthrough]),
+    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+        {true, undefined}
+    end),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, notify, fun(_) ->
+        ok
+    end),
+
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
@@ -401,22 +464,43 @@ blocks_test() ->
         GenHash => GenBlock,
         Hash => Block
     },
-    ?assertMatch(Map, blocks(Chain)).
+    ?assertMatch(Map, blocks(Chain)),
+
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_block)),
+    meck:unload(blockchain_block),
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker).
 
 get_block_test() ->
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+        {ok, lists:seq(1, 7)}
+    end),
+    meck:new(blockchain_block, [passthrough]),
+    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+        {true, undefined}
+    end),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, notify, fun(_) ->
+        ok
+    end),
+
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
     Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
-    ?assertMatch({ok, Block}, get_block(Hash, Chain)).
+    ?assertMatch({ok, Block}, get_block(Hash, Chain)),
 
-% load_test() ->
-%     BaseDir = test_utils:tmp_dir("save_load_test"),
-%     GenBlock = blockchain_block:new_genesis_block([]),
-%     Chain = new(GenBlock, BaseDir),
-%     ?assertEqual(Chain, load(BaseDir, undefined)).
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_block)),
+    meck:unload(blockchain_block),
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker).
 
 
 -endif.

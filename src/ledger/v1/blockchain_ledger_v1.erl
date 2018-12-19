@@ -11,7 +11,7 @@
 
     new_context/1, delete_context/1, commit_context/1,
 
-    current_height/1, increment_height/1,
+    current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
     active_gateways/1,
@@ -88,6 +88,11 @@ new(Dir) ->
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_context(ledger()) -> ledger().
 new_context(Ledger=#ledger_v1{context=undefined}) ->
     %% accumulate DB operations in a rocksdb batch
     {ok, Batch} = rocksdb:batch(),
@@ -95,6 +100,11 @@ new_context(Ledger=#ledger_v1{context=undefined}) ->
     Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
     Ledger#ledger_v1{context=Batch, cache=Cache}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_context(ledger()) -> ledger().
 delete_context(Ledger=#ledger_v1{context=Context, cache=Cache}) ->
     %% we can just let the batch GC, but let's clear it just in case
     rocksdb:batch_clear(Context),
@@ -102,6 +112,11 @@ delete_context(Ledger=#ledger_v1{context=Context, cache=Cache}) ->
     ets:delete(Cache),
     Ledger#ledger_v1{context=undefined, cache=undefined}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec commit_context(ledger()) -> ok.
 commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     delete_context(Ledger),
@@ -111,13 +126,13 @@ commit_context(Ledger=#ledger_v1{db=DB, context=Context}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec current_height(ledger()) -> {ok, pos_integer()} | {error, any()}.
+-spec current_height(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 current_height(#ledger_v1{default=DefaultCF}=Ledger) ->
     case cache_get(Ledger, DefaultCF, ?CURRENT_HEIGHT, []) of
         {ok, <<Height:64/integer-unsigned-big>>} ->
             {ok, Height};
         not_found ->
-            {ok, 1};
+            {ok, 0};
         Error ->
             Error
     end.
@@ -126,13 +141,14 @@ current_height(#ledger_v1{default=DefaultCF}=Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec increment_height(ledger()) -> ok | {error, any()}.
-increment_height(#ledger_v1{default=DefaultCF}=Ledger) ->
+-spec increment_height(blockchain_block:block(), ledger()) -> ok | {error, any()}.
+increment_height(Block, #ledger_v1{default=DefaultCF}=Ledger) ->
+    BlockHeight = blockchain_block:height(Block),
     case current_height(Ledger) of
         {error, _} ->
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<1:64/integer-unsigned-big>>);
         {ok, Height0} ->
-            Height1 = Height0 + 1,
+            Height1 = erlang:max(BlockHeight, Height0),
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
 
@@ -384,7 +400,7 @@ find_entry(Address, #ledger_v1{entries=EntriesCF}=Ledger) ->
 -spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, #ledger_v1{entries=EntriesCF}=Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
-        {error, _} ->
+        {error, not_found} ->
             Entry = blockchain_ledger_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_entry_v1:serialize(Entry),
             cache_put(Ledger, EntriesCF, Address, Bin);
@@ -394,7 +410,9 @@ credit_account(Address, Amount, #ledger_v1{entries=EntriesCF}=Ledger) ->
                 blockchain_ledger_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-            cache_put(Ledger, EntriesCF, Address, Bin)
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {error, _}=Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -519,6 +537,11 @@ close(#ledger_v1{db=DB}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(#ledger_v1{context=Context, cache=Cache}, CF, Key, Value) ->
     CFCache = case ets:lookup(Cache, CF) of
                   [] ->
@@ -529,6 +552,11 @@ cache_put(#ledger_v1{context=Context, cache=Cache}, CF, Key, Value) ->
     ets:insert(Cache, {CF, maps:put(Key, Value, CFCache)}),
     rocksdb:batch_put(Context, CF, Key, Value).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(#ledger_v1{cache=undefined, db=DB}, CF, Key, Options) ->
     rocksdb:get(DB, CF, Key, Options);
 cache_get(#ledger_v1{cache=Cache}=Ledger, CF, Key, Options) ->
@@ -544,6 +572,11 @@ cache_get(#ledger_v1{cache=Cache}=Ledger, CF, Key, Options) ->
             end
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec cache_delete(ledger(), rocksdb:cf_handle(), any()) -> ok.
 cache_delete(#ledger_v1{context=Context, cache=Cache}, CF, Key) ->
     case ets:lookup(Cache, CF) of
         [] ->
@@ -563,14 +596,14 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
     DefaultCFs = ["default", "active_gateways", "entries", "htlcs"],
-    ExistingCFs = 
+    ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
                 CFs0;
             {error, _} ->
                 ["default"]
         end,
-        
+
     {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
 
     L1 = lists:zip(ExistingCFs, OpenedCFs),

@@ -66,20 +66,22 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(transactions() | [], blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Transactions, Ledger0) ->
-   Ledger = blockchain_ledger_v1:new_context(Ledger0),
-   case absorb_(Transactions, Ledger) of
+-spec absorb(blockchain_block:block(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Block, Ledger0) ->
+   Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+   Transactions = blockchain_block:transactions(Block),
+   case absorb_(Transactions, Ledger1) of
        ok ->
            %% these should be all done atomically in the same context
-           ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
-           ok = blockchain_ledger_v1:increment_height(Ledger),
-           ok = blockchain_ledger_v1:commit_context(Ledger);
+           ok = blockchain_ledger_v1:update_transaction_fee(Ledger1),
+           ok = blockchain_ledger_v1:increment_height(Block, Ledger1),
+           ok = blockchain_ledger_v1:commit_context(Ledger1);
        Error ->
-           blockchain_ledger_v1:delete_context(Ledger),
+           blockchain_ledger_v1:delete_context(Ledger1),
            Error
    end.
 
+-spec absorb_([blockchain_transactions:transactions()], blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb_([], _Ledger) ->
     ok;
 absorb_([Txn|Txns], Ledger) ->
