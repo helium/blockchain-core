@@ -250,8 +250,7 @@ add_block(Block, Blockchain) ->
                                 {true, _} ->
                                     case blockchain_transactions:absorb(Block, Ledger) of
                                         ok ->
-                                            save_block(Block, Blockchain),
-                                            ok = blockchain_worker:notify({add_block, HeadHash, false});
+                                            save_block(Block, Blockchain);
                                         {error, Reason}=Error ->
                                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                                             Error

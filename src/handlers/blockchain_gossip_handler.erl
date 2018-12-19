@@ -47,7 +47,9 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
 add_block(Swarm, Block, Chain, N, Sender) ->
     lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
     case blockchain:add_block(Block, Chain) of
-        ok -> ok;
+        ok ->
+            ok = blockchain_worker:notify({add_block, blockchain_block:hash_block(Block), true}),
+            ok;
         {error, disjoint_chain} ->
             lager:warning("gossipped block doesn't fit with our chain"),
             P2PAddress = libp2p_crypto:address_to_p2p(Sender),
@@ -64,7 +66,7 @@ add_block(Swarm, Block, Chain, N, Sender) ->
                 _Error ->
                     lager:warning("Failed to dial sync service on: ~p ~p", [P2PAddress, _Error])
             end;
-        _ ->
+        Error ->
             %% Uhm what is this?
-            ok
+            lager:error("Something bad happened: ~p", [Error])
     end.
