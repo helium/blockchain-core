@@ -333,7 +333,7 @@ format_peers(Peers) ->
              {listen_addrs, io_lib:format("~p", [length(ListenAddrs)])},
              {connections, io_lib:format("~p", [length(ConnectedTo)])},
              {nat, io_lib:format("~s", [NatType])},
-             {last_udpated, io_lib:format("~ps", [erlang:system_time(seconds) - Timestamp])}
+             {last_udpated, io_lib:format("~ps", [(erlang:system_time(millisecond) - Timestamp) / 1000])}
             ]
     end,
 
