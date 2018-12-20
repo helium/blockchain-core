@@ -66,7 +66,7 @@ start_link(Args) ->
 %%--------------------------------------------------------------------
 -spec blockchain() -> blockchain:blockchain()  | undefined.
 blockchain() ->
-    gen_server:call(?SERVER, blockchain).
+    gen_server:call(?SERVER, blockchain, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -74,7 +74,7 @@ blockchain() ->
 %%--------------------------------------------------------------------
 -spec num_consensus_members() -> integer().
 num_consensus_members() ->
-    gen_server:call(?SERVER, num_consensus_members).
+    gen_server:call(?SERVER, num_consensus_members, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -82,7 +82,7 @@ num_consensus_members() ->
 %%--------------------------------------------------------------------
 -spec consensus_addrs() -> {ok, [libp2p_crypto:address()]} | {error, any()}.
 consensus_addrs() ->
-    gen_server:call(?SERVER, consensus_addrs).
+    gen_server:call(?SERVER, consensus_addrs, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -147,7 +147,7 @@ submit_txn(Type, Txn) ->
 -spec add_gateway_request(Owner::libp2p_crypto:address(), AuthAddress::string(), AuthToken::string())
                          -> ok | {error, any()}.
 add_gateway_request(OwnerAddress, AuthAddress, AuthToken) ->
-    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}).
+    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -163,7 +163,7 @@ add_gateway_txn(AddGatewayRequest) ->
 %%--------------------------------------------------------------------
 -spec assert_location_request(libp2p_crypto:address(), integer()) -> ok | {error, any()}.
 assert_location_request(OwnerAddress, Location) ->
-    gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}).
+    gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
