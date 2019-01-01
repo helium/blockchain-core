@@ -45,14 +45,14 @@ validate(Transactions, Ledger) ->
 
 validate([], Valid,  Invalid, _Ledger) ->
     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
-    {Valid, Invalid};
+    {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Ledger) ->
     %% sort the new transaction in with the accumulated list
-    SortedPaymentTxns = Valid ++ [Txn],
+    Type = type(Txn),
     %% check that these transactions are valid to apply in this order
-    case absorb_(SortedPaymentTxns, Ledger) of
+    case Type:absorb(Txn, Ledger) of
         ok ->
-            validate(Tail, SortedPaymentTxns, Invalid, Ledger);
+            validate(Tail, [Txn|Valid], Invalid, Ledger);
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
