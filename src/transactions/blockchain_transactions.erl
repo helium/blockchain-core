@@ -47,9 +47,7 @@ validate([], Valid,  Invalid, _Ledger) ->
     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Ledger) ->
-    %% sort the new transaction in with the accumulated list
     Type = type(Txn),
-    %% check that these transactions are valid to apply in this order
     case Type:absorb(Txn, Ledger) of
         ok ->
             validate(Tail, [Txn|Valid], Invalid, Ledger);
