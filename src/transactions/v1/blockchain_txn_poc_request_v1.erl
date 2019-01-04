@@ -109,7 +109,8 @@ absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         true ->
             GatewayAddress = ?MODULE:gateway_address(Txn),
-            blockchain_ledger_v1:request_poc(GatewayAddress, Ledger);
+            Hash = ?MODULE:hash(Txn),
+            blockchain_ledger_v1:request_poc(GatewayAddress, Hash, Ledger);
         false ->
             {error, bad_signature}
     end.

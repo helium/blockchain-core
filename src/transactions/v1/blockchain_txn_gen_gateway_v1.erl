@@ -14,6 +14,7 @@
     owner_address/1,
     location/1,
     last_poc_challenge/1,
+    last_poc_hash/1,
     nonce/1,
     score/1,
     is/1,
@@ -29,6 +30,7 @@
     owner_address :: libp2p_crypto:address(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
+    last_poc_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     score = 0.0 :: float()
 }).
@@ -98,6 +100,14 @@ last_poc_challenge(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec last_poc_hash(txn_genesis_gateway()) -> undefined | binary().
+last_poc_hash(Txn) ->
+    Txn#txn_genesis_gateway_v1.last_poc_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec nonce(txn_genesis_gateway()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#txn_genesis_gateway_v1.nonce.
@@ -132,12 +142,14 @@ absorb(Txn, Ledger) ->
             OwnerAddress = ?MODULE:owner_address(Txn),
             Location = ?MODULE:location(Txn),
             LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
+            LastPocHash = ?MODULE:last_poc_hash(Txn),
             Nonce = ?MODULE:nonce(Txn),
             Score = ?MODULE:score(Txn),
             blockchain_ledger_v1:add_gateway(OwnerAddress,
                                              GatewayAddress,
                                              Location,
                                              LastPocChallenge,
+                                             LastPocHash,
                                              Nonce,
                                              Score,
                                              Ledger);

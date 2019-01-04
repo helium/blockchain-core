@@ -6,10 +6,11 @@
 -module(blockchain_ledger_gateway_v1).
 
 -export([
-    new/2, new/5,
+    new/2, new/6,
     owner_address/1, owner_address/2,
     location/1, location/2,
     last_poc_challenge/1, last_poc_challenge/2,
+    last_poc_hash/1, last_poc_hash/2,
     nonce/1, nonce/2,
     score/1, score/2,
     print/1,
@@ -26,6 +27,7 @@
     owner_address :: libp2p_crypto:address(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
+    last_poc_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     score = 0.0 :: float()
 }).
@@ -44,14 +46,20 @@ new(OwnerAddress, Location) ->
         location=Location
     }.
 
--spec new(libp2p_crypto:address(), pos_integer() | undefined, non_neg_integer() | undefined, non_neg_integer(), float()) -> gateway().
-new(OwnerAddress, Location, LastPocChallenge, Nonce, Score) ->
+-spec new(OwnerAddress :: libp2p_crypto:address(),
+          Location :: pos_integer() | undefined,
+          LastPocChallenge :: non_neg_integer() | undefined,
+          LastPocHash :: binary() | undefined,
+          Nonce :: non_neg_integer(),
+          Score :: float()) -> gateway().
+new(OwnerAddress, Location, LastPocChallenge, LastPocHash, Nonce, Score) ->
     #gateway_v1{
-        owner_address=OwnerAddress
-        ,location=Location
-        ,last_poc_challenge=LastPocChallenge
-        ,nonce=Nonce
-        ,score=Score
+        owner_address=OwnerAddress,
+        location=Location,
+        last_poc_challenge=LastPocChallenge,
+        last_poc_hash=LastPocHash,
+        nonce=Nonce,
+        score=Score
     }.
 
 %%--------------------------------------------------------------------
@@ -106,7 +114,23 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(gateway()) -> non_neg_integer().
+-spec last_poc_hash(Gateway :: gateway()) ->  undefined | binary().
+last_poc_hash(Gateway) ->
+    Gateway#gateway_v1.last_poc_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_poc_hash(LastPocHash :: binary(), Gateway :: gateway()) -> gateway().
+last_poc_hash(LastPocHash, Gateway) ->
+    Gateway#gateway_v1{last_poc_hash=LastPocHash}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
     Gateway#gateway_v1.nonce.
 
@@ -149,6 +173,7 @@ print(Gateway) ->
         {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
+        {last_poc_hash, UndefinedHandleFunc(last_poc_hash(Gateway))},
         {nonce, nonce(Gateway)},
         {score, score(Gateway)}
     ].

@@ -543,11 +543,12 @@ export_test(Config) ->
     [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
-              {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
-              {location,123456},
-              {last_poc_challenge,undefined},
-              {nonce,1},
-              {score,0.0}]], Gateways),
+                   {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
+                   {location,123456},
+                   {last_poc_challenge,undefined},
+                   {last_poc_hash, undefined},
+                   {nonce,1},
+                   {score,0.0}]], Gateways),
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
                                                    AccontAddress = proplists:get_value(address, Account),
