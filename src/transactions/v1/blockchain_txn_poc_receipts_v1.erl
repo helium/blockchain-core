@@ -108,7 +108,7 @@ is(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Ledger) ->
+absorb(Txn, Ledger) ->
     case blockchain_txn_poc_receipts_v1:is_valid(Txn) of
         false ->
             {error, invalid_transaction};
@@ -118,6 +118,41 @@ absorb(Txn, _Ledger) ->
                 % 2. Validate poc request hash from secret
                 % 3. Re-create entropy target and path from secret and block hash
             % TODO: Update score and last_poc_challenge
+            case blockchain_ledger_v1:find_gateway_info(?MODULE:challenger(Txn), Ledger) of
+                {ok, ChallengerInfo} ->
+                    case blockchain_ledger_gateway_v1:last_poc_challenge(ChallengerInfo) of
+                        undefined ->
+                            lager:error("Challenger: ~p, Error: last_poc_challenge_undefined", [ChallengerInfo]),
+                            _ = {error, last_poc_challenge_undefined};
+                        Height ->
+                            case blockchain_ledger_gateway_v1:last_poc_hash(ChallengerInfo) of
+                                undefined ->
+                                    lager:error("Challenger: ~p, Error: last_poc_undefined_undefined", [ChallengerInfo]),
+                                    _ = {error, last_poc_hash_undefined};
+                                Hash ->
+                                    Secret = ?MODULE:secret(Txn),
+                                    SecretHash = crypto:hash(sha256, Secret),
+                                    case Hash == SecretHash of
+                                        true ->
+                                            lager:info("Txn: ~p", [Txn]),
+                                            lager:info("Challenger: ~p, last_poc_challenge at height: ~p, last_poc_hash: ~p", [ChallengerInfo, Height, Hash]),
+                                            lager:info("Hash: ~p, SecretHash: ~p", [Hash, crypto:hash(sha256, ?MODULE:secret(Txn))]),
+                                            lager:info("POC Receipt secret matches Challenger POC Request Hash!"),
+                                            <<_:8/binary, POCRequestHash/binary>> = Secret,
+                                            lager:info("POCRequestHash: ~p", [POCRequestHash]),
+                                            %% XXX: This needs to be fixed and we need to have ledger snapshots or
+                                            %% rocksdb column families so we can build the path at the time the request
+                                            %% was mined.
+                                            {Target, _ActiveGateways} = blockchain_poc_path:target(POCRequestHash, Ledger),
+                                            lager:info("Target: ~p", [Target]);
+                                        false ->
+                                            lager:error("POC Receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
+                                            _ = {error, incorrect_secret_hash}
+                                    end
+                            end
+                    end;
+                {error, _}=Error -> Error
+            end,
             ok
     end.
 
