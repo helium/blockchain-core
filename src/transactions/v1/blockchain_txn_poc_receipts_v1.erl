@@ -143,8 +143,19 @@ absorb(Txn, Ledger) ->
                                             %% XXX: This needs to be fixed and we need to have ledger snapshots or
                                             %% rocksdb column families so we can build the path at the time the request
                                             %% was mined.
-                                            {Target, _ActiveGateways} = blockchain_poc_path:target(POCRequestHash, Ledger),
-                                            lager:info("Target: ~p", [Target]);
+                                            {Target, ActiveGateways} = blockchain_poc_path:target(POCRequestHash, Ledger),
+                                            lager:info("Target: ~p", [Target]),
+                                            {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
+                                            lager:info("Path: ~p", [Path]),
+                                            ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
+                                            case ReceiptAddrs == lists:sort(Path) andalso
+                                                 lists:member(Target, ReceiptAddrs) of
+                                                true ->
+                                                    lager:info("Got receipts from all the members in the path!");
+                                                false ->
+                                                    lager:error("Missing receipts!, ReconstructedPath: ~p, ReceivedReceipts: ~p", [Path, ReceiptAddrs]),
+                                                    _ = {error, missing_receipts}
+                                            end;
                                         false ->
                                             lager:error("POC Receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
                                             _ = {error, incorrect_secret_hash}
