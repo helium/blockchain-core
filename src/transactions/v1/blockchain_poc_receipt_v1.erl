@@ -36,7 +36,9 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), non_neg_integer(), binary()) -> poc_receipt().
+-spec new(Address :: libp2p_crypto:address(),
+          Timestamp :: non_neg_integer(),
+          Hash :: binary()) -> poc_receipt().
 new(Address, Timestamp, Hash) ->
     #poc_receipt_v1{
         address=Address,
@@ -48,7 +50,7 @@ new(Address, Timestamp, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(poc_receipt()) -> libp2p_crypto:address().
+-spec address(Receipt :: poc_receipt()) -> libp2p_crypto:address().
 address(Receipt) ->
     Receipt#poc_receipt_v1.address.
 
@@ -56,7 +58,7 @@ address(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec timestamp(poc_receipt()) -> libp2p_crypto:address().
+-spec timestamp(Receipt :: poc_receipt()) -> libp2p_crypto:address().
 timestamp(Receipt) ->
     Receipt#poc_receipt_v1.timestamp.
 
@@ -64,7 +66,7 @@ timestamp(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(poc_receipt()) -> binary().
+-spec hash(Receipt :: poc_receipt()) -> binary().
 hash(Receipt) ->
     Receipt#poc_receipt_v1.hash.
 
@@ -72,7 +74,7 @@ hash(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec signature(poc_receipt()) -> binary().
+-spec signature(Receipt :: poc_receipt()) -> binary().
 signature(Receipt) ->
     Receipt#poc_receipt_v1.signature.
 
@@ -80,7 +82,7 @@ signature(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(poc_receipt(), libp2p_crypto:sig_fun()) -> poc_receipt().
+-spec sign(Receipt :: poc_receipt(), SigFun :: libp2p_crypto:sig_fun()) -> poc_receipt().
 sign(Receipt, SigFun) ->
     BinReceipt = erlang:term_to_binary(Receipt#poc_receipt_v1{signature = <<>>}),
     Receipt#poc_receipt_v1{signature=SigFun(BinReceipt)}.
@@ -89,7 +91,7 @@ sign(Receipt, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(poc_receipt()) -> boolean().
+-spec is_valid(Receipt :: poc_receipt()) -> boolean().
 is_valid(Receipt=#poc_receipt_v1{address=Address, signature=Signature}) ->
     PubKey = libp2p_crypto:address_to_pubkey(Address),
     BinReceipt = erlang:term_to_binary(Receipt#poc_receipt_v1{signature = <<>>}),
@@ -99,7 +101,7 @@ is_valid(Receipt=#poc_receipt_v1{address=Address, signature=Signature}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec encode(poc_receipt()) -> binary().
+-spec encode(Receipt :: poc_receipt()) -> binary().
 encode(Receipt) ->
     erlang:term_to_binary(Receipt).
 
@@ -107,7 +109,7 @@ encode(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec decode(binary()) -> poc_receipt().
+-spec decode(Binary :: binary()) -> poc_receipt().
 decode(Binary) ->
     erlang:binary_to_term(Binary).
 

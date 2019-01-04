@@ -39,7 +39,8 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), pos_integer() | undefined) -> gateway().
+-spec new(OwnerAddress :: libp2p_crypto:address(),
+          Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
     #gateway_v1{
         owner_address=OwnerAddress,
@@ -66,7 +67,7 @@ new(OwnerAddress, Location, LastPocChallenge, LastPocHash, Nonce, Score) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(gateway()) -> libp2p_crypto:address().
+-spec owner_address(Gateway :: gateway()) -> libp2p_crypto:address().
 owner_address(Gateway) ->
     Gateway#gateway_v1.owner_address.
 
@@ -74,7 +75,8 @@ owner_address(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(libp2p_crypto:address(), gateway()) -> gateway().
+-spec owner_address(OwnerAddress :: libp2p_crypto:address(),
+                    Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
     Gateway#gateway_v1{owner_address=OwnerAddress}.
 
@@ -82,7 +84,7 @@ owner_address(OwnerAddress, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(gateway()) ->  undefined | pos_integer().
+-spec location(Gateway :: gateway()) ->  undefined | pos_integer().
 location(Gateway) ->
     Gateway#gateway_v1.location.
 
@@ -90,7 +92,7 @@ location(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(pos_integer(), gateway()) -> gateway().
+-spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
     Gateway#gateway_v1{location=Location}.
 
@@ -98,7 +100,7 @@ location(Location, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(gateway()) ->  undefined | non_neg_integer().
+-spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
     Gateway#gateway_v1.last_poc_challenge.
 
@@ -106,7 +108,7 @@ last_poc_challenge(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_challenge(non_neg_integer(), gateway()) -> gateway().
+-spec last_poc_challenge(LastPocChallenge :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
     Gateway#gateway_v1{last_poc_challenge=LastPocChallenge}.
 
@@ -138,7 +140,7 @@ nonce(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(non_neg_integer(), gateway()) -> gateway().
+-spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
     Gateway#gateway_v1{nonce=Nonce}.
 
@@ -146,7 +148,7 @@ nonce(Nonce, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(gateway()) -> float().
+-spec score(Gateway :: gateway()) -> float().
 score(Gateway) ->
     Gateway#gateway_v1.score.
 
@@ -154,7 +156,7 @@ score(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(float(), gateway()) -> gateway().
+-spec score(Score :: float(), Gateway :: gateway()) -> gateway().
 score(Score, Gateway) ->
     Gateway#gateway_v1{score=Score}.
 
@@ -162,7 +164,7 @@ score(Score, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec print(gateway()) -> list().
+-spec print(Gateway :: gateway()) -> list().
 print(Gateway) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
     UndefinedHandleFunc =
@@ -183,7 +185,7 @@ print(Gateway) ->
 %% Version 1
 %% @end
 %%--------------------------------------------------------------------
--spec serialize(gateway()) -> binary().
+-spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
     BinGw = erlang:term_to_binary(Gw),
     <<1, BinGw/binary>>.
