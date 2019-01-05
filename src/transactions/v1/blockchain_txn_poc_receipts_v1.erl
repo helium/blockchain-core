@@ -138,12 +138,10 @@ absorb(Txn, Ledger) ->
                                             lager:info("Challenger: ~p, last_poc_challenge at height: ~p, last_poc_hash: ~p", [ChallengerInfo, Height, Hash]),
                                             lager:info("Hash: ~p, SecretHash: ~p", [Hash, crypto:hash(sha256, ?MODULE:secret(Txn))]),
                                             lager:info("POC Receipt secret matches Challenger POC Request Hash!"),
-                                            <<_:8/binary, POCRequestHash/binary>> = Secret,
-                                            lager:info("POCRequestHash: ~p", [POCRequestHash]),
                                             %% XXX: This needs to be fixed and we need to have ledger snapshots or
                                             %% rocksdb column families so we can build the path at the time the request
                                             %% was mined.
-                                            {Target, ActiveGateways} = blockchain_poc_path:target(POCRequestHash, Ledger),
+                                            {Target, ActiveGateways} = blockchain_poc_path:target(Hash, Ledger),
                                             lager:info("Target: ~p", [Target]),
                                             {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
                                             lager:info("Path: ~p", [Path]),
