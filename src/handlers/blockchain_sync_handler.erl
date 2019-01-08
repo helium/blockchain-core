@@ -26,9 +26,9 @@
 ]).
 
 -record(state, {
-          n :: pos_integer(),
-          blockchain :: blockchain:blochain()
-         }).
+    n :: pos_integer(),
+    blockchain :: blockchain:blochain()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
