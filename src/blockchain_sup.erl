@@ -80,12 +80,10 @@ init(Args) ->
         {update_dir, proplists:get_value(update_dir, Args, undefined)},
         {trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
     ],
-
     BEventOpts = [],
-
     ChildSpecs = [
-        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
+        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
