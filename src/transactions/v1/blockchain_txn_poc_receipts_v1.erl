@@ -123,12 +123,12 @@ absorb(Txn, Ledger) ->
                     case blockchain_ledger_gateway_v1:last_poc_challenge(ChallengerInfo) of
                         undefined ->
                             lager:error("Challenger: ~p, Error: last_poc_challenge_undefined", [ChallengerInfo]),
-                            _ = {error, last_poc_challenge_undefined};
+                            {error, last_poc_challenge_undefined};
                         Height ->
                             case blockchain_ledger_gateway_v1:last_poc_hash(ChallengerInfo) of
                                 undefined ->
                                     lager:error("Challenger: ~p, Error: last_poc_undefined_undefined", [ChallengerInfo]),
-                                    _ = {error, last_poc_hash_undefined};
+                                    {error, last_poc_hash_undefined};
                                 Hash ->
                                     Secret = ?MODULE:secret(Txn),
                                     SecretHash = crypto:hash(sha256, Secret),
@@ -152,17 +152,16 @@ absorb(Txn, Ledger) ->
                                                     lager:info("Got receipts from all the members in the path!");
                                                 false ->
                                                     lager:error("Missing receipts!, ReconstructedPath: ~p, ReceivedReceipts: ~p", [Path, ReceiptAddrs]),
-                                                    _ = {error, missing_receipts}
+                                                    {error, missing_receipts}
                                             end;
                                         false ->
                                             lager:error("POC Receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
-                                            _ = {error, incorrect_secret_hash}
+                                            {error, incorrect_secret_hash}
                                     end
                             end
                     end;
                 {error, _}=Error -> Error
-            end,
-            ok
+            end
     end.
 
 %% ------------------------------------------------------------------
