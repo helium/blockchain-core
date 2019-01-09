@@ -14,10 +14,10 @@
 %% ------------------------------------------------------------------
 
 -export([
-         init_gossip_data/1,
-         handle_gossip_data/2,
-         add_block/5
-        ]).
+    init_gossip_data/1,
+    handle_gossip_data/2,
+    add_block/5
+]).
 
 init_gossip_data([Swarm, _N, Blockchain]) ->
     lager:info("gossiping init"),
@@ -58,9 +58,10 @@ add_block(Swarm, Block, Chain, N, Sender) ->
                                                  P2PAddress,
                                                  ?SYNC_PROTOCOL,
                                                  blockchain_sync_handler,
-                                                 [N, Chain]) of
+                                                 [N, Chain])
+            of
                 {ok, Stream} ->
-                    unlink(Stream),
+                    erlang:unlink(Stream),
                     {ok, HeadHash} = blockchain:head_hash(Chain),
                     Stream ! {hash, HeadHash};
                 _Error ->

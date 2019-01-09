@@ -77,15 +77,12 @@ init(Args) ->
         {port, proplists:get_value(port, Args, 0)},
         {num_consensus_members, proplists:get_value(num_consensus_members, Args, 0)},
         {base_dir, proplists:get_value(base_dir, Args, "data")},
-        {update_dir, proplists:get_value(update_dir, Args, undefined)},
-        {trim_blocks, proplists:get_value(trim_blocks, Args, {50, 60*60*1000})}
+        {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
-
     BEventOpts = [],
-
     ChildSpecs = [
-        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
+        ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.

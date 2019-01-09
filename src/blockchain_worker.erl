@@ -48,10 +48,10 @@
 -define(SYNC_TIME, 60000).
 
 -record(state, {
-    blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain()
-    ,swarm :: undefined | pid()
-    ,n :: integer()
-    ,sync_timer = make_ref() :: reference()
+    blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
+    swarm :: undefined | pid(),
+    n :: integer(),
+    sync_timer = make_ref() :: reference()
 }).
 
 %% ------------------------------------------------------------------
@@ -263,30 +263,34 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
                         Peers ->
                             %% do this in a sub process because dialing can be slow
                             spawn(fun() ->
-                                          SendResults = lists:map(fun(Peer) ->
-                                                            PeerAddress = libp2p_peer:address(Peer),
-                                                            P2PAddress = libp2p_crypto:address_to_p2p(PeerAddress),
-                                                            lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:address_to_b58(Address)]),
-                                                            case libp2p_swarm:dial_framed_stream(Swarm,
-                                                                                                 P2PAddress,
-                                                                                                 ?LOC_ASSERTION_PROTOCOL,
-                                                                                                 blockchain_loc_assertion_handler,
-                                                                                                 [SignedAssertLocRequestTxn]) of
-                                                                {ok, StreamPid} ->
-                                                                    erlang:unlink(StreamPid),
-                                                                    ok;
-                                                                {error, Error} ->
-                                                                    {error, Error}
-                                                            end
-                                                    end, Peers),
-                                          case lists:member(ok, SendResults) of
-                                              true ->
-                                                  %% at least someone accepted the message
-                                                  gen_server:reply(From, ok);
-                                              false ->
-                                                  gen_server:reply(From, error)
-                                          end
-                                  end),
+                                SendResults = lists:map(
+                                    fun(Peer) ->
+                                        PeerAddress = libp2p_peer:address(Peer),
+                                        P2PAddress = libp2p_crypto:address_to_p2p(PeerAddress),
+                                        lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:address_to_b58(Address)]),
+                                        case libp2p_swarm:dial_framed_stream(Swarm,
+                                                                             P2PAddress,
+                                                                             ?LOC_ASSERTION_PROTOCOL,
+                                                                             blockchain_loc_assertion_handler,
+                                                                             [SignedAssertLocRequestTxn])
+                                        of
+                                            {ok, StreamPid} ->
+                                                erlang:unlink(StreamPid),
+                                                ok;
+                                            {error, Error} ->
+                                                {error, Error}
+                                        end
+                                    end,
+                                    Peers
+                                ),
+                                case lists:member(ok, SendResults) of
+                                    true ->
+                                        %% at least someone accepted the message
+                                        gen_server:reply(From, ok);
+                                    false ->
+                                        gen_server:reply(From, error)
+                                end
+                            end),
                             {noreply, State}
                     end;
                 false ->
@@ -537,7 +541,8 @@ sync(Swarm, N, Chain, Peer) ->
                                              Peer,
                                              ?SYNC_PROTOCOL,
                                              blockchain_sync_handler,
-                                             [N, Chain]) of
+                                             [N, Chain])
+        of
             {ok, Stream} ->
                 {ok, HeadHash} = blockchain:head_hash(Chain),
                 Stream ! {hash, HeadHash},
