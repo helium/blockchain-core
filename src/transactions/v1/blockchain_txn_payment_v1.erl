@@ -151,7 +151,7 @@ absorb(Txn, Ledger) ->
         {ok, MinerFee} ->
             case (Amount >= 0) andalso (Fee >= MinerFee) of
                 false ->
-                    lager:error("amount < 0 for PaymentTxn: ~p", [Txn]),
+                    lager:error("Error, incorrect_amount or incorrect_fee for PaymentTxn: ~p, Amount: ~p, Fee: ~p, MinerFee: ~p", [Txn, Amount, Fee, MinerFee]),
                     {error, invalid_transaction};
                 true ->
                     case ?MODULE:is_valid(Txn) of

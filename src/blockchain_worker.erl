@@ -513,19 +513,20 @@ send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
 %%--------------------------------------------------------------------
 do_send(_Swarm, [], _DataToSend, _Protocol, _Module, _Args, _Retry) ->
     ok;
-do_send(Swarm, [Address|Tail]=Addresses, DataToSend, Protocol, Module, Args, Retry) ->
-    P2PAddress = libp2p_crypto:address_to_p2p(Address),
+do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry) ->
+    RandomConsensusAddress = lists:nth(rand:uniform(length(Addresses)), Addresses),
+    P2PAddress = libp2p_crypto:address_to_p2p(RandomConsensusAddress),
     case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, Protocol, Module, Args) of
         {ok, Stream} ->
-            lager:info("dialed peer ~p via ~p~n", [Address, Protocol]),
+            lager:info("dialed peer ~p via ~p~n", [RandomConsensusAddress, Protocol]),
             libp2p_framed_stream:send(Stream, DataToSend),
             libp2p_framed_stream:close(Stream),
             ok;
         Other when Retry == false ->
-            lager:notice("failed to dial ~p service on ~p : ~p", [Protocol, Address, Other]),
-            do_send(Swarm, Tail, DataToSend, Protocol, Module, Args, Retry);
+            lager:notice("failed to dial ~p service on ~p : ~p", [Protocol, RandomConsensusAddress, Other]),
+            do_send(Swarm, Addresses -- [RandomConsensusAddress], DataToSend, Protocol, Module, Args, Retry);
         Other ->
-            lager:notice("Failed to dial ~p service on ~p : ~p", [Protocol, Address, Other]),
+            lager:notice("Failed to dial ~p service on ~p : ~p", [Protocol, RandomConsensusAddress, Other]),
             do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry)
     end.
 
