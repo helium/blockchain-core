@@ -83,7 +83,8 @@ init(Args) ->
     ChildSpecs = [
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
-        ?WORKER(blockchain_worker, [BWorkerOpts])
+        ?WORKER(blockchain_worker, [BWorkerOpts]),
+        ?WORKER(blockchain_txn_submitter, [ok])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
