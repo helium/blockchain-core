@@ -139,7 +139,7 @@ absorb_(Block, Ledger0) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_delayed(blockchain_block:block(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+-spec absorb_delayed(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_delayed(Block0, Blockchain) ->
     Ledger0 = blockchain:ledger(Blockchain),
     case blockchain_ledger_v1:current_height(Ledger0) of
