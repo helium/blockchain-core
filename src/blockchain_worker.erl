@@ -338,9 +338,10 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-            ok = blockchain_txn_submitter:submit(SignedPaymentTxn,
+            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
                                                  ConsensusMembers,
                                                  blockchain_txn_handler,
+                                                 0,
                                                  (fun() -> ok end))
     end,
     {noreply, State};
@@ -355,9 +356,10 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-            ok = blockchain_txn_submitter:submit(SignedPaymentTxn,
+            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
                                                  ConsensusMembers,
                                                  blockchain_txn_handler,
+                                                 0,
                                                  (fun() -> ok end))
     end,
     {noreply, State};
@@ -367,9 +369,10 @@ handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, 
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_submitter:submit(SignedCreateTxn,
+    ok = blockchain_txn_manager:submit(SignedCreateTxn,
                                          ConsensusMembers,
                                          blockchain_txn_handler,
+                                         0,
                                          (fun() -> ok end)),
     {noreply, State};
 handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
@@ -378,34 +381,38 @@ handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm, block
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_submitter:submit(SignedRedeemTxn,
+    ok = blockchain_txn_manager:submit(SignedRedeemTxn,
                                          ConsensusMembers,
                                          blockchain_txn_handler,
+                                         0,
                                          (fun() -> ok end)),
     {noreply, State};
 handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_submitter:submit(Txn,
+    ok = blockchain_txn_manager:submit(Txn,
                                          ConsensusMembers,
                                          blockchain_txn_handler,
+                                         0,
                                          (fun() -> ok end)),
     {noreply, State};
 handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_submitter:submit(SignedAddGwTxn,
+    ok = blockchain_txn_manager:submit(SignedAddGwTxn,
                                          ConsensusMembers,
                                          blockchain_txn_handler,
+                                         0,
                                          (fun() -> ok end)),
     {noreply, State};
 handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_submitter:submit(SignedAssertLocTxn,
+    ok = blockchain_txn_manager:submit(SignedAssertLocTxn,
                                          ConsensusMembers,
                                          blockchain_txn_handler,
+                                         0,
                                          (fun() -> ok end)),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->

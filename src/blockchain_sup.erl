@@ -84,7 +84,7 @@ init(Args) ->
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
-        ?WORKER(blockchain_txn_submitter, [ok])
+        ?WORKER(blockchain_txn_manager, [ok])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
