@@ -14,7 +14,8 @@
     poc_request_test/1,
     bogus_coinbase_test/1,
     bogus_coinbase_with_good_payment_test/1,
-    export_test/1
+    export_test/1,
+    ledger_mode_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -28,15 +29,18 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic_test,
-     reload_test,
-     restart_test,
-     htlc_payee_redeem_test,
-     htlc_payer_redeem_test,
-     poc_request_test,
-     bogus_coinbase_test,
-     bogus_coinbase_with_good_payment_test,
-     export_test].
+    [
+        basic_test,
+        reload_test,
+        restart_test,
+        htlc_payee_redeem_test,
+        htlc_payer_redeem_test,
+        poc_request_test,
+        bogus_coinbase_test,
+        bogus_coinbase_with_good_payment_test,
+        export_test,
+        ledger_mode_test
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -559,4 +563,36 @@ export_test(Config) ->
                       (Balance - Amount - Fee) == proplists:get_value(balance, Account)
               end, FilteredExportedAccounts),
 
+    ok.
+
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+ledger_mode_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    Ledger = blockchain:ledger(Chain),
+    ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(Ledger)),
+
+    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+    ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(DelayedLedger)),
+
+    lists:foreach(
+        fun(_) ->
+            B = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self())
+        end,
+        lists:seq(1, 100)
+    ),
+
+    ?assertEqual({ok, 101}, blockchain_ledger_v1:current_height(Ledger)),
+    ?assertEqual({ok, 51}, blockchain_ledger_v1:current_height(DelayedLedger)),
     ok.

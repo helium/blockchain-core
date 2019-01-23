@@ -88,12 +88,8 @@ new(Dir, GenBlock) ->
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
-
-    Ledger = ?MODULE:ledger(Blockchain),
-    ok = blockchain_transactions:absorb(GenesisBlock, Ledger),
-
+    ok = blockchain_transactions:absorb(GenesisBlock, Blockchain),
     ok = save_block(GenesisBlock, Blockchain),
-
     GenBin = blockchain_block:serialize(GenesisBlock),
     {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
@@ -255,7 +251,7 @@ add_block(Block, Blockchain) ->
                                         false ->
                                             {error, failed_verify_signature};
                                         {true, _} ->
-                                            case blockchain_transactions:absorb(Block, Ledger) of
+                                            case blockchain_transactions:absorb(Block, Blockchain) of
                                                 ok ->
                                                     save_block(Block, Blockchain);
                                                 {error, Reason}=Error ->
