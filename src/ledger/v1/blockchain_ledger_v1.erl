@@ -746,6 +746,18 @@ find_gateway_info_test() ->
     Ledger = new(BaseDir),
     ?assertEqual({error, not_found}, find_gateway_info(<<"address">>, Ledger)).
 
+mode_test() ->
+    BaseDir = test_utils:tmp_dir("mode_test"),
+    Ledger = new(BaseDir),
+    ?assertEqual({error, not_found}, consensus_members(Ledger)),
+    Ledger1 = new_context(Ledger),
+    ok = consensus_members([1, 2, 3], Ledger1),
+    commit_context(Ledger1),
+    ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)),
+    Ledger2 = mode(delayed, Ledger1),
+    Ledger3 = new_context(Ledger2),
+    ?assertEqual({error, not_found}, consensus_members(Ledger3)).
+
 consensus_members_1_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_1_test"),
     Ledger = new(BaseDir),
