@@ -40,7 +40,7 @@
 start_link(Args) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
 
--spec submit(blockchain_transactions:transaction(), atom(), [libp2p_crypto:address()], fun()) -> ok.
+-spec submit(blockchain_transactions:transaction(), [libp2p_crypto:address()], atom(), fun()) -> ok.
 submit(Transaction, Receivers, Handler, CallbackFun) ->
     gen_server:cast(?MODULE, {submit, Transaction, Receivers, Handler, CallbackFun}).
 
@@ -69,14 +69,16 @@ handle_cast({submit, Transaction, Receivers, Handler, _CallbackFun}, State=#stat
                   lager:notice("Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, RandomConsensusAddress, Other]),
                   {error, Transaction}
           end,
-    {ok, State#state{enqueued=[Res | Enqueued]}}.
+    {noreply, State#state{enqueued=[Res | Enqueued]}};
+handle_cast(_, State) ->
+    {noreply, State}.
 
 handle_call({status, Transaction}, _From, State=#state{enqueued=Enqueued}) ->
     Res = lists:keyfind(Transaction, 2, Enqueued),
     {reply, Res, State}.
 
 handle_info(_Msg, State) ->
-    {ok, State}.
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
