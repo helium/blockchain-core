@@ -51,7 +51,7 @@ submit(Transaction, Receivers, Handler, Retries, CallbackFun) ->
 init(_Args) ->
     {ok, #state{}}.
 
-handle_cast({submit, Transaction, Receivers, Handler, Retries, CallbackFun}, State) when Retries > 0 ->
+handle_cast({submit, Transaction, Receivers, Handler, Retries, CallbackFun}, State) ->
     DataToSend = erlang:term_to_binary({blockchain_transactions:type(Transaction), Transaction}),
     RandomConsensusAddress = lists:nth(rand:uniform(length(Receivers)), Receivers),
     P2PAddress = libp2p_crypto:address_to_p2p(RandomConsensusAddress),
@@ -73,7 +73,8 @@ handle_cast({submit, Transaction, Receivers, Handler, Retries, CallbackFun}, Sta
             end
     end,
     {noreply, State};
-handle_cast(_, State) ->
+handle_cast(_Msg, State) ->
+    lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
 
 handle_call(_, _, State) ->
