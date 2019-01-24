@@ -7,7 +7,7 @@
 
 -export([
     validate/2,
-    absorb/2, absorb/3,
+    absorb_and_commit/2, absorb/2,
     sort/2,
     type/1
 ]).
@@ -66,13 +66,16 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(Block, Blockchain) ->
-    Ledger = blockchain:ledger(Blockchain),
-    case ?MODULE:absorb(Block, Ledger, true) of
-       ok ->
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb_and_commit(Block, Blockchain) ->
+    Ledger0 = blockchain:ledger(Blockchain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+    case ?MODULE:absorb(Block, Ledger1) of
+        {ok, Ledger2} ->
+            ok = blockchain_ledger_v1:commit_context(Ledger2),
             absorb_delayed(Block, Blockchain);
-       Error ->
+        Error ->
+           blockchain_ledger_v1:delete_context(Ledger1),
            Error
    end.
 
@@ -80,39 +83,14 @@ absorb(Block, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb([blockchain_transactions:transactions()] | blockchain_block:block(),
-               blockchain_ledger_v1:ledger(), boolean()) -> blockchain_ledger_v1:ledger() | ok | {error, any()}.
-absorb([], _Ledger, _Commit) ->
-    ok;
-absorb([Txn|Txns], Ledger, _Commit) ->
-    Type = type(Txn),
-    try Type:absorb(Txn,  Ledger) of
-        {error, _Reason}=Error -> Error;
-        ok -> ?MODULE:absorb(Txns, Ledger, _Commit)
-    catch
-        What:Why:Stack ->
-            {error, {type(Txn), What, {Why, Stack}}}
-    end;
-absorb(Block, Ledger0, true) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+-spec absorb(blockchain_block:block(), blockchain_ledger_v1:ledger()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
+absorb(Block, Ledger) ->
     Transactions = blockchain_block:transactions(Block),
-    case ?MODULE:absorb(Transactions, Ledger1, true) of
+    case absorb_txns(Transactions, Ledger) of
         ok ->
-            %% these should be all done atomically in the same context
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger1),
-            ok = blockchain_ledger_v1:increment_height(Block, Ledger1),
-            ok = blockchain_ledger_v1:commit_context(Ledger1);
-        Error ->
-            blockchain_ledger_v1:delete_context(Ledger1),
-            Error
-    end;
-absorb(Block, Ledger0, false) ->
-    Transactions = blockchain_block:transactions(Block),
-    case ?MODULE:absorb(Transactions, Ledger0, false) of
-        ok ->
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger0),
-            ok = blockchain_ledger_v1:increment_height(Block, Ledger0),
-            Ledger0;
+            ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
+            ok = blockchain_ledger_v1:increment_height(Block, Ledger),
+            {ok, Ledger};
         Error ->
             Error
     end.
@@ -151,25 +129,52 @@ type(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec absorb_txns(transactions(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb_txns([], _Ledger) ->
+    ok;
+absorb_txns([Txn|Txns], Ledger) ->
+    Type = type(Txn),
+    try Type:absorb(Txn,  Ledger) of
+        {error, _Reason}=Error -> Error;
+        ok -> absorb_txns(Txns, Ledger)
+    catch
+        What:Why:Stack ->
+            {error, {type(Txn), What, {Why, Stack}}}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec absorb_delayed(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb_delayed(Block0, Blockchain) ->
     Ledger0 = blockchain:ledger(Blockchain),
+    DelayedLedger0 = blockchain_ledger_v1:mode(delayed, Ledger0),
+    DelayedLedger1 = blockchain_ledger_v1:new_context(DelayedLedger0),
     case blockchain_ledger_v1:current_height(Ledger0) of
         % This is so it absosbs genesis
         {ok, H} when H < 2 ->
-            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger0),
-            ?MODULE:absorb(Block0, DelayedLedger, true);
+            absorb_delayed_(Block0, DelayedLedger1);
         {ok, CurrentHeight} ->
-            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger0),
-            {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger),
+            {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
             % Then we absorb if minimum limit is there
             case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
                 false -> ok;
                 true ->
                     {ok, Block1} = blockchain:get_block(DelayedHeight+1, Blockchain),
-                    ?MODULE:absorb(Block1, DelayedLedger, true)
+                    absorb_delayed_(Block1, DelayedLedger1)
             end;
-        _ -> ok
+        _Any ->
+            _Any
+    end.
+
+absorb_delayed_(Block, DelayedLedger0) ->
+    case ?MODULE:absorb(Block, DelayedLedger0) of
+        {ok, DelayedLedger1} ->
+            ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
+        Error ->
+            blockchain_ledger_v1:delete_context(DelayedLedger0),
+            Error
     end.
 
 %%--------------------------------------------------------------------

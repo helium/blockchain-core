@@ -88,7 +88,7 @@ new(Dir, GenBlock) ->
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
-    ok = blockchain_transactions:absorb(GenesisBlock, Blockchain),
+    ok = blockchain_transactions:absorb_and_commit(GenesisBlock, Blockchain),
     ok = save_block(GenesisBlock, Blockchain),
     GenBin = blockchain_block:serialize(GenesisBlock),
     {ok, Batch} = rocksdb:batch(),
@@ -198,7 +198,8 @@ ledger_at(Height, Blockchain) ->
                     DelayedLedger1 = lists:foldl(
                         fun(H, Acc) ->
                             {ok, Block} = ?MODULE:get_block(H, Blockchain),
-                            blockchain_transactions:absorb(Block, Acc, false)
+                            {ok, L} = blockchain_transactions:absorb(Block, Acc),
+                            L
                         end,
                         blockchain_ledger_v1:new_context(DelayedLedger),
                         lists:seq(DelayedHeight+1, Height)
@@ -287,7 +288,7 @@ add_block(Block, Blockchain) ->
                                         false ->
                                             {error, failed_verify_signature};
                                         {true, _} ->
-                                            case blockchain_transactions:absorb(Block, Blockchain) of
+                                            case blockchain_transactions:absorb_and_commit(Block, Blockchain) of
                                                 ok ->
                                                     save_block(Block, Blockchain);
                                                 {error, Reason}=Error ->
