@@ -18,7 +18,7 @@
     integrate_genesis_block/1,
     synced_blocks/0,
     spend/3,
-    payment_txn/5,
+    payment_txn/5, payment_txn/6,
     submit_txn/2,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
@@ -115,6 +115,15 @@ spend(Recipient, Amount, Fee) ->
 -spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
 payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
     gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount, Fee}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer(), non_neg_integer()) -> ok.
+payment_txn(PrivKey, Address, Recipient, Amount, Fee, Nonce) ->
+    %% Support user specified nonce
+    gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount, Fee, Nonce}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -360,6 +369,30 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+            {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
+                                               ConsensusMembers,
+                                               blockchain_txn_handler,
+                                               0,
+                                               (fun(Res) ->
+                                                        case Res of
+                                                            ok ->
+                                                                lager:info("txn_manager, succesful payment_txn ~p ~p ~p ~p", [Address, Recipient, Amount, Fee]);
+                                                            {error, Reason} ->
+                                                                lager:error("txn_manager error: ~p", [Reason])
+                                                        end
+                                                end))
+    end,
+    {noreply, State};
+handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(Address, Ledger) of
+        {error, _Reason} ->
+            lager:error("could not get entry ~p", [_Reason]);
+        {ok, _Entry} ->
+            PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
