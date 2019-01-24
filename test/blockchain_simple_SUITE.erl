@@ -15,7 +15,7 @@
     bogus_coinbase_test/1,
     bogus_coinbase_with_good_payment_test/1,
     export_test/1,
-    ledger_mode_test/1
+    delayed_ledger_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -39,7 +39,7 @@ all() ->
         bogus_coinbase_test,
         bogus_coinbase_with_good_payment_test,
         export_test,
-        ledger_mode_test
+        delayed_ledger_test
     ].
 
 %%--------------------------------------------------------------------
@@ -571,13 +571,14 @@ export_test(Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-ledger_mode_test(Config) ->
+delayed_ledger_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
+    Balance = proplists:get_value(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
     ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(Ledger)),
@@ -585,14 +586,69 @@ ledger_mode_test(Config) ->
     DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(DelayedLedger)),
 
+        % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Payee = blockchain_swarm:address(),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+
     lists:foreach(
-        fun(_) ->
-            B = test_utils:create_block(ConsensusMembers, []),
+        fun(X) ->
+            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 0, X),
+            SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+            B = test_utils:create_block(ConsensusMembers, [SignedTx]),
             _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self())
         end,
         lists:seq(1, 100)
     ),
 
+    % Check heights of Ledger and delayed ledger should be 50 block behind
     ?assertEqual({ok, 101}, blockchain_ledger_v1:current_height(Ledger)),
     ?assertEqual({ok, 51}, blockchain_ledger_v1:current_height(DelayedLedger)),
+
+    % Check balances of payer and payee in edger
+    {ok, Entry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 100, blockchain_ledger_entry_v1:balance(Entry1)),
+
+    {ok, Entry2} = blockchain_ledger_v1:find_entry(Payee, Ledger),
+    ?assertEqual(Balance + 100, blockchain_ledger_entry_v1:balance(Entry2)),
+
+    % Check balances of payer and payee in  delayed ledger
+    {ok, Entry3} = blockchain_ledger_v1:find_entry(Payer, DelayedLedger),
+    ?assertEqual(Balance - 50, blockchain_ledger_entry_v1:balance(Entry3)),
+
+    {ok, Entry4} = blockchain_ledger_v1:find_entry(Payee, DelayedLedger),
+    ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
+
+    % Same as above except receting context/cache
+    {ok, Entry1} = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:new_context(Ledger)),
+    ?assertEqual(Balance - 100, blockchain_ledger_entry_v1:balance(Entry1)),
+
+    {ok, Entry2} = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:new_context(Ledger)),
+    ?assertEqual(Balance + 100, blockchain_ledger_entry_v1:balance(Entry2)),
+
+    {ok, Entry3} = blockchain_ledger_v1:find_entry(Payer, blockchain_ledger_v1:new_context(DelayedLedger)),
+    ?assertEqual(Balance - 50, blockchain_ledger_entry_v1:balance(Entry3)),
+
+    {ok, Entry4} = blockchain_ledger_v1:find_entry(Payee, blockchain_ledger_v1:new_context(DelayedLedger)),
+    ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
+
+    % We should not allow to query prior delayed ledger and obviously neither in the futur
+    ?assertEqual({error, height_too_old}, blockchain:ledger_at(50, Chain)),
+    ?assertEqual({error, invalid_height}, blockchain:ledger_at(107, Chain)),
+
+    % Now lets go forward a block & check balances again
+    {ok, LedgerAt} = blockchain:ledger_at(100, Chain),
+
+    {ok, Entry5} = blockchain_ledger_v1:find_entry(Payer, LedgerAt),
+    ?assertEqual(Balance - 99, blockchain_ledger_entry_v1:balance(Entry5)),
+
+    {ok, Entry6} = blockchain_ledger_v1:find_entry(Payee, LedgerAt),
+    ?assertEqual(Balance + 99, blockchain_ledger_entry_v1:balance(Entry6)),
+
+     % Check balances of payer and payee in  delayed ledger again making sure context did not explode
+    {ok, Entry3} = blockchain_ledger_v1:find_entry(Payer, DelayedLedger),
+    ?assertEqual(Balance - 50, blockchain_ledger_entry_v1:balance(Entry3)),
+
+    {ok, Entry4} = blockchain_ledger_v1:find_entry(Payee, DelayedLedger),
+    ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
     ok.

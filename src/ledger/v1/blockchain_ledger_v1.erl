@@ -10,7 +10,7 @@
     mode/1, mode/2,
     dir/1,
 
-    new_context/1, delete_context/1, commit_context/1,
+    new_context/1, delete_context/1, commit_context/1, context_cache/1,
 
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
@@ -125,11 +125,12 @@ dir(Ledger) ->
 %%--------------------------------------------------------------------
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
+    Ledger1 = delete_context(Ledger),
     %% accumulate DB operations in a rocksdb batch
     {ok, Context} = rocksdb:batch(),
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
-    context_cache({Context, Cache}, Ledger).
+    context_cache({Context, Cache}, Ledger1).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -137,12 +138,21 @@ new_context(Ledger) ->
 %%--------------------------------------------------------------------
 -spec delete_context(ledger()) -> ledger().
 delete_context(Ledger) ->
-    {Context, Cache} = context_cache(Ledger),
-    %% we can just let the batch GC, but let's clear it just in case
-    rocksdb:batch_clear(Context),
-    %% wipe the ets cache
-    ets:delete(Cache),
-    context_cache({undefined, undefined}, Ledger).
+    case context_cache(Ledger) of
+        {undefined, undefined} ->
+            Ledger;
+        {undefined, Cache} ->
+            ets:delete(Cache),
+            context_cache({undefined, undefined}, Ledger);
+        {Context, undefined} ->
+            rocksdb:batch_clear(Context),
+            context_cache({undefined, undefined}, Ledger);
+        {Context, Cache} ->
+            rocksdb:batch_clear(Context),
+            ets:delete(Cache),
+            context_cache({undefined, undefined}, Ledger)
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end

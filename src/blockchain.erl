@@ -10,7 +10,7 @@
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
     height/1,
-    ledger/1,
+    ledger/1, ledger_at/2,
     dir/1,
     blocks/1, add_block/2, get_block/2, add_blocks/2,
     build/3,
@@ -176,6 +176,42 @@ height(Blockchain) ->
 -spec ledger(blockchain()) -> blockchain_ledger_v1:ledger().
 ledger(#blockchain{ledger=Ledger}) ->
     Ledger.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+% -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
+ledger_at(Height, Blockchain) ->
+    Ledger = ?MODULE:ledger(Blockchain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, Height} ->
+            {ok, Ledger};
+        {ok, CurrentHeight} when Height > CurrentHeight->
+            {error, invalid_height};
+        {ok, CurrentHeight} ->
+            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+            case blockchain_ledger_v1:current_height(DelayedLedger) of
+                {ok, Height} ->
+                    {ok, DelayedLedger};
+                {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
+                    DelayedLedger1 = lists:foldl(
+                        fun(H, Acc) ->
+                            {ok, Block} = ?MODULE:get_block(H, Blockchain),
+                            blockchain_transactions:absorb(Block, Acc, false)
+                        end,
+                        blockchain_ledger_v1:new_context(DelayedLedger),
+                        lists:seq(DelayedHeight+1, Height)
+                    ),
+                    {ok, DelayedLedger1};
+                {ok, DelayedHeight} when Height < DelayedHeight ->
+                    {error, height_too_old};
+                {error, _}=Error ->
+                    Error
+            end;
+        {error, _}=Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
