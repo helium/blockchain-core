@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         submit/5
+         submit/3
         ]).
 
 %% ------------------------------------------------------------------
@@ -29,7 +29,7 @@
          code_change/3
         ]).
 
--record(state, { }).
+-record(state, {}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -37,13 +37,11 @@
 start_link(Args) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
 
--spec submit(Transaction :: blockchain_transactions:transaction(),
-             Receivers :: [libp2p_crypto:address()],
-             Handler :: atom(),
-             Retries :: non_neg_integer(),
-             CallbackFun :: fun()) -> ok.
-submit(Transaction, Receivers, Handler, Retries, CallbackFun) ->
-    gen_server:cast(?MODULE, {submit, Transaction, Receivers, Handler, Retries, CallbackFun}).
+-spec submit(Txn :: blockchain_transactions:transaction(),
+             ConsensusAddrs :: [libp2p_crypto:address()],
+             Callback :: fun()) -> ok.
+submit(Txn, ConsensusAddrs, Callback) ->
+    gen_server:cast(?MODULE, {submit, Txn, ConsensusAddrs, Callback}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -51,28 +49,22 @@ submit(Transaction, Receivers, Handler, Retries, CallbackFun) ->
 init(_Args) ->
     {ok, #state{}}.
 
-handle_cast({submit, Transaction, Receivers, Handler, Retries, CallbackFun}, State) ->
-    DataToSend = erlang:term_to_binary({blockchain_transactions:type(Transaction), Transaction}),
-    RandomConsensusAddress = lists:nth(rand:uniform(length(Receivers)), Receivers),
-    P2PAddress = libp2p_crypto:address_to_p2p(RandomConsensusAddress),
-    Swarm = blockchain_swarm:swarm(),
-    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, Handler, [self()]) of
-        {ok, Stream} ->
-            lager:info("dialed peer ~p via ~p~n", [RandomConsensusAddress, ?TX_PROTOCOL]),
-            libp2p_framed_stream:send(Stream, DataToSend),
-            libp2p_framed_stream:close(Stream),
-            CallbackFun(ok);
-        Other ->
-            lager:notice("Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, RandomConsensusAddress, Other]),
-            case Retries > 0 of
-                true ->
-                    erlang:send_after(1000, self(), {submit, Transaction, Receivers, Handler, Retries - 1, CallbackFun}),
-                    CallbackFun({retry, Retries - 1});
-                false ->
-                    CallbackFun({error, no_retries_and_failed})
-            end
+handle_cast({submit, Transaction, ConsensusAddrs, Callback}, State) ->
+    self() ! {send, [], Transaction, ConsensusAddrs, Callback},
+    {noreply, State};
+
+handle_cast({send, SentBefore, Txn, ConsensusAddrs, Callback}, State) ->
+    F = (length(ConsensusAddrs) - 1) div 3,
+    Res = [{dial(Addr, Txn), Addr} || Addr <- random_n(F+1, ConsensusAddrs), not lists:member(Addr, SentBefore)],
+    SuccessSent = [Addr || {ok, Addr} <- Res],
+    case length(SuccessSent) + length(SentBefore) > F of
+        true ->
+            Callback(ok);
+        false ->
+            self() ! {send, SentBefore ++ SuccessSent, Txn}
     end,
     {noreply, State};
+
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
@@ -88,3 +80,24 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+dial(Addr, Txn) ->
+    DataToSend = erlang:term_to_binary({blockchain_transactions:type(Txn), Txn}),
+    P2PAddress = libp2p_crypto:address_to_p2p(Addr),
+    Swarm = blockchain_swarm:swarm(),
+    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
+        {ok, Stream} ->
+            lager:info("dialed peer ~p via ~p~n", [Addr, ?TX_PROTOCOL]),
+            libp2p_framed_stream:send(Stream, DataToSend),
+            libp2p_framed_stream:close(Stream),
+            ok;
+        Other ->
+            lager:notice("Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, Addr, Other]),
+            Other
+    end.
+
+random_n(N, List) ->
+    lists:sublist(shuffle(List), N).
+
+shuffle(List) ->
+    [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].

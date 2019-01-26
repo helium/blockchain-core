@@ -349,8 +349,6 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
             ok = blockchain_txn_manager:submit(SignedPaymentTxn,
                                                ConsensusMembers,
-                                               blockchain_txn_handler,
-                                               0,
                                                (fun(Res) ->
                                                         case Res of
                                                             ok ->
@@ -374,8 +372,6 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
             ok = blockchain_txn_manager:submit(SignedPaymentTxn,
                                                ConsensusMembers,
-                                               blockchain_txn_handler,
-                                               0,
                                                (fun(Res) ->
                                                         case Res of
                                                             ok ->
@@ -398,8 +394,6 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee, Nonce}, #sta
             {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
             ok = blockchain_txn_manager:submit(SignedPaymentTxn,
                                                ConsensusMembers,
-                                               blockchain_txn_handler,
-                                               0,
                                                (fun(Res) ->
                                                         case Res of
                                                             ok ->
@@ -418,8 +412,6 @@ handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, 
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     ok = blockchain_txn_manager:submit(SignedCreateTxn,
                                        ConsensusMembers,
-                                       blockchain_txn_handler,
-                                       0,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
@@ -437,8 +429,6 @@ handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm, block
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     ok = blockchain_txn_manager:submit(SignedRedeemTxn,
                                        ConsensusMembers,
-                                       blockchain_txn_handler,
-                                       0,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
@@ -452,8 +442,6 @@ handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     ok = blockchain_txn_manager:submit(Txn,
                                        ConsensusMembers,
-                                       blockchain_txn_handler,
-                                       0,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
@@ -469,8 +457,6 @@ handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=S
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     ok = blockchain_txn_manager:submit(SignedAddGwTxn,
                                        ConsensusMembers,
-                                       blockchain_txn_handler,
-                                       0,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
@@ -486,8 +472,6 @@ handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     ok = blockchain_txn_manager:submit(SignedAssertLocTxn,
                                        ConsensusMembers,
-                                       blockchain_txn_handler,
-                                       0,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
