@@ -52,8 +52,14 @@ init(_Args) ->
 handle_cast({submit, Transaction, ConsensusAddrs, Callback}, State) ->
     self() ! {send, [], Transaction, ConsensusAddrs, Callback},
     {noreply, State};
+handle_cast(_Msg, State) ->
+    lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
+    {noreply, State}.
 
-handle_cast({send, SentBefore, Txn, ConsensusAddrs, Callback}, State) ->
+handle_call(_, _, State) ->
+    {reply, ok, State}.
+
+handle_info({send, SentBefore, Txn, ConsensusAddrs, Callback}, State) ->
     F = (length(ConsensusAddrs) - 1) div 3,
     Res = [{dial(Addr, Txn), Addr} || Addr <- random_n(F+1, ConsensusAddrs), not lists:member(Addr, SentBefore)],
     SuccessSent = [Addr || {ok, Addr} <- Res],
@@ -64,14 +70,6 @@ handle_cast({send, SentBefore, Txn, ConsensusAddrs, Callback}, State) ->
             self() ! {send, SentBefore ++ SuccessSent, Txn}
     end,
     {noreply, State};
-
-handle_cast(_Msg, State) ->
-    lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
-    {noreply, State}.
-
-handle_call(_, _, State) ->
-    {reply, ok, State}.
-
 handle_info(_Msg, State) ->
     {noreply, State}.
 
