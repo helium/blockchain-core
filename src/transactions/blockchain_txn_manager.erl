@@ -14,7 +14,8 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         submit/3
+         submit/3,
+         get_state/0
         ]).
 
 %% ------------------------------------------------------------------
@@ -29,7 +30,11 @@
          code_change/3
         ]).
 
--record(state, {}).
+-record(state, {
+          txn_map = #{} :: txn_map()
+         }).
+
+-type txn_map() :: #{blockchain_transactions:transaction() => {fun(), erlang:queue()}}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -43,33 +48,32 @@ start_link(Args) ->
 submit(Txn, ConsensusAddrs, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, ConsensusAddrs, Callback}).
 
+-spec get_state() -> txn_map().
+get_state() ->
+    gen_server:call(?MODULE, get_state, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
+    %% ok = blockchain_event:add_handler(self()),
     {ok, #state{}}.
 
 handle_cast({submit, Transaction, ConsensusAddrs, Callback}, State) ->
-    self() ! {send, [], Transaction, ConsensusAddrs, Callback},
-    {noreply, State};
+    F = (length(ConsensusAddrs) - 1) div 3,
+    RandomAddrs = random_n(F+1, ConsensusAddrs),
+    TxnMap = maps:put(Transaction, {Callback, queue:from_list(RandomAddrs)}, State#state.txn_map),
+    %% self() ! process,
+    {noreply, State#state{txn_map=TxnMap}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
 
+handle_call(get_state, _from, State) ->
+    {reply, State#state.txn_map, State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info({send, SentBefore, Txn, ConsensusAddrs, Callback}, State) ->
-    F = (length(ConsensusAddrs) - 1) div 3,
-    Res = [{dial(Addr, Txn), Addr} || Addr <- random_n(F+1, ConsensusAddrs), not lists:member(Addr, SentBefore)],
-    SuccessSent = [Addr || {ok, Addr} <- Res],
-    case length(SuccessSent) + length(SentBefore) > F of
-        true ->
-            Callback(ok);
-        false ->
-            self() ! {send, SentBefore ++ SuccessSent, Txn}
-    end,
-    {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -79,21 +83,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-dial(Addr, Txn) ->
-    DataToSend = erlang:term_to_binary({blockchain_transactions:type(Txn), Txn}),
-    P2PAddress = libp2p_crypto:address_to_p2p(Addr),
-    Swarm = blockchain_swarm:swarm(),
-    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
-        {ok, Stream} ->
-            lager:info("dialed peer ~p via ~p~n", [Addr, ?TX_PROTOCOL]),
-            libp2p_framed_stream:send(Stream, DataToSend),
-            libp2p_framed_stream:close(Stream),
-            ok;
-        Other ->
-            lager:notice("Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, Addr, Other]),
-            Other
-    end.
-
+%% ------------------------------------------------------------------
+%% Helper functions
+%% ------------------------------------------------------------------
 random_n(N, List) ->
     lists:sublist(shuffle(List), N).
 
