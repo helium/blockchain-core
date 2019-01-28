@@ -59,12 +59,14 @@ init(_Args) ->
     %% ok = blockchain_event:add_handler(self()),
     {ok, #state{}}.
 
-handle_cast({submit, Transaction, ConsensusAddrs, Callback}, State) ->
+handle_cast({submit, Transaction, ConsensusAddrs, Callback}, State=#state{txn_map=TxnMap}) ->
     F = (length(ConsensusAddrs) - 1) div 3,
     RandomAddrs = random_n(F+1, ConsensusAddrs),
-    TxnMap = maps:put(Transaction, {Callback, queue:from_list(RandomAddrs)}, State#state.txn_map),
+    lager:info("blockchain_txn_manager, F: ~p, RandomAddrs: ~p", [F, RandomAddrs]),
+    NewTxnMap = maps:put(Transaction, {Callback, queue:from_list(RandomAddrs)}, TxnMap),
+    lager:info("blockchain_txn_manager, NewTxnMap: ~p", [NewTxnMap]),
     %% self() ! process,
-    {noreply, State#state{txn_map=TxnMap}};
+    {noreply, State#state{txn_map=NewTxnMap}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
