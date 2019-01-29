@@ -56,8 +56,10 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
+            lager:warning("Keeping transaction: ~p in mempool", [Txn]),
             validate(Tail, Valid, Invalid, Ledger);
-        _ ->
+        Other ->
+            lager:error("Dropping transaction: ~p, Reason", [Txn, Other]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Ledger)
     end.
