@@ -105,7 +105,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=TxnQueue}) ->
                                                                  [{Txn, Callback, Queue} | Acc]
                                                          end
                                                  end, [], TxnQueue),
-
+                       libp2p_framed_stream:close(Stream),
                        case length(NewTxnQueue) > 0 of
                            true ->
                                self() ! {process, ConsensusAddrs};

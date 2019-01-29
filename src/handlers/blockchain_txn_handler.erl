@@ -53,4 +53,4 @@ handle_data(server, Data, State=#state{group=Group}) ->
         _ ->
             lager:notice("transaction_handler got unknown data")
     end,
-    {stop, normal, State}.
+    {noreply, State}.
