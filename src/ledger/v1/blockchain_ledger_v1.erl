@@ -409,8 +409,10 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec request_poc(libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, Ledger) ->
+-spec request_poc(GatewayAddress :: libp2p_crypto:address(),
+                  Hash :: binary(),
+                  Ledger :: ledger()) -> ok | {error, any()}.
+request_poc(GatewayAddress, Hash, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
