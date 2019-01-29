@@ -94,11 +94,11 @@ handle_info({process, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=Txn
                                    ok ->
                                        lager:info("blockchain_txn_manager, Succesful dial to: ~p, txn: ~p, enqueuing", [RandomAddr, Txn]),
                                        NewTxnQueue = lists:keyreplace(Txn, 1, TxnQueue, {Txn, queue:in(RandomAddr, Queue)}),
-                                       erlang:send_after(100, self(), {process, Txn, ConsensusAddrs, Callback}),
+                                       self() ! {process, Txn, ConsensusAddrs, Callback},
                                        State#state{txn_queue=NewTxnQueue};
                                    Other ->
                                        lager:error("blockchain_txn_manager, Failed dial to: ~p, txn: ~p, ignoring, Error: ~p", [RandomAddr, Txn, Other]),
-                                       erlang:send_after(100, self(), {process, Txn, ConsensusAddrs, Callback}),
+                                       self() ! {process, Txn, ConsensusAddrs, Callback},
                                        State
                                end
                        end
