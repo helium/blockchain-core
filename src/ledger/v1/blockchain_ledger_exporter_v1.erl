@@ -50,6 +50,7 @@ export_gateways(Ledger) ->
               {owner_address, libp2p_crypto:address_to_b58(blockchain_ledger_gateway_v1:owner_address(Gateway))},
               {location, blockchain_ledger_gateway_v1:location(Gateway)},
               {last_poc_challenge, blockchain_ledger_gateway_v1:last_poc_challenge(Gateway)},
+              {last_poc_hash, blockchain_ledger_gateway_v1:last_poc_hash(Gateway)},
               {nonce, blockchain_ledger_gateway_v1:nonce(Gateway)},
               {score, blockchain_ledger_gateway_v1:score(Gateway)}] | Acc]
         end,

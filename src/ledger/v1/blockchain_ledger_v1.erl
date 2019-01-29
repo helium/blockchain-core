@@ -20,9 +20,9 @@
     htlcs/1,
 
     find_gateway_info/2,
-    add_gateway/3, add_gateway/7,
+    add_gateway/3, add_gateway/8,
     add_gateway_location/4,
-    request_poc/2,
+    request_poc/3,
 
     find_entry/2,
     credit_account/3,
@@ -354,6 +354,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   GatewayAddress :: libp2p_crypto:address(),
                   Location :: undefined | pos_integer(),
                   LastPocChallenge :: undefined | non_neg_integer(),
+                  LastPocHash :: undefined | binary(),
                   Nonce :: non_neg_integer(),
                   Score :: float(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
@@ -361,6 +362,7 @@ add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             LastPocChallenge,
+            LastPocHash,
             Nonce,
             Score,
             Ledger) ->
@@ -371,6 +373,7 @@ add_gateway(OwnerAddr,
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
                                                        Location,
                                                        LastPocChallenge,
+                                                       LastPocHash,
                                                        Nonce,
                                                        Score),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
@@ -406,8 +409,10 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec request_poc(libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, Ledger) ->
+-spec request_poc(GatewayAddress :: libp2p_crypto:address(),
+                  Hash :: binary(),
+                  Ledger :: ledger()) -> ok | {error, any()}.
+request_poc(GatewayAddress, Hash, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -424,7 +429,8 @@ request_poc(GatewayAddress, Ledger) ->
                                 false ->
                                     {error, too_many_challenges};
                                 true ->
-                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
+                                    Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
+                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_hash(Hash, Gw0),
                                     Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
                                     AGwsCF = active_gateways_cf(Ledger),
                                     cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
