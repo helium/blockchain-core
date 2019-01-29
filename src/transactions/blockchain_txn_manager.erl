@@ -31,7 +31,7 @@
         ]).
 
 -record(state, {
-          txn_queue :: txn_queue()
+          txn_queue = [] :: txn_queue()
          }).
 
 -type txn_queue() :: [{blockchain_transactions:transaction(), erlang:queue()}].
