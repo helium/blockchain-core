@@ -59,7 +59,7 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
             lager:warning("Keeping transaction: ~p in mempool", [Txn]),
             validate(Tail, Valid, Invalid, Ledger);
         Other ->
-            lager:error("Dropping transaction: ~p, Reason", [Txn, Other]),
+            lager:error("Dropping transaction: ~p, Reason: ~p", [Txn, Other]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Ledger)
     end.
