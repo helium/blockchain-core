@@ -61,8 +61,8 @@ init(_Args) ->
 
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     lager:info("blockchain_txn_manager, got Txn: ~p", [Txn]),
-    self() ! {process, Txn, ConsensusAddrs, Callback},
-    {noreply, State#state{txn_queue=[ {Txn, queue:new()} | TxnQueue]}};
+    self() ! {process, ConsensusAddrs},
+    {noreply, State#state{txn_queue=lists:sort(fun blockchain_transactions:sort/2, [{Txn, Callback, queue:new()} | TxnQueue])}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
@@ -72,36 +72,51 @@ handle_call(get_state, _from, State) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info({process, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
-    lager:info("blockchain_txn_manager, process txn: ~p, TxnQueue: ~p", [Txn, TxnQueue]),
+handle_info({process, ConsensusAddrs}, State=#state{txn_queue=TxnQueue}) ->
+    lager:info("blockchain_txn_manager, process TxnQueue: ~p", [TxnQueue]),
+    F = (length(ConsensusAddrs) - 1) div 3,
+    Swarm = blockchain_swarm:swarm(),
+    RandomAddr = lists:nth(rand:uniform(length(ConsensusAddrs)), ConsensusAddrs),
+    P2PAddress = libp2p_crypto:address_to_p2p(RandomAddr),
+    NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
+                   {ok, Stream} ->
+                       lager:info("blockchain_txn_manager, dialed peer ~p via ~p~n", [RandomAddr, ?TX_PROTOCOL]),
+                       NewTxnQueue = lists:foldl(fun({Txn, Callback, Queue}, Acc) ->
+                                                         case queue:member(RandomAddr, Queue) of
+                                                             false ->
+                                                                 DataToSend = erlang:term_to_binary({blockchain_transactions:type(Txn), Txn}),
+                                                                 case libp2p_framed_stream:send(Stream, DataToSend) of
+                                                                     {error, Reason} ->
+                                                                         lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p", [Reason]),
+                                                                         [{Txn, Callback, Queue} | Acc];
+                                                                     _ ->
+                                                                         lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p", [Txn, Stream]),
+                                                                         case queue:len(Queue) > F of
+                                                                             true ->
+                                                                                 lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member", [Txn]),
+                                                                                 Callback(ok),
+                                                                                 Acc;
+                                                                             false ->
+                                                                                 [{Txn, Callback, queue:in(RandomAddr, Queue)} | Acc]
+                                                                         end
+                                                                 end;
+                                                             true ->
+                                                                 lager:info("blockchain_txn_manager, ignoring addr: ~p for txn: ~p", [RandomAddr, Txn]),
+                                                                 [{Txn, Callback, Queue} | Acc]
+                                                         end
+                                                 end, [], TxnQueue),
 
-    NewState = case lists:keyfind(Txn, 1, TxnQueue) of
-                   false ->
-                       Callback({error, "Txn not found in state: ~p", [Txn]}),
-                       State;
-                   {Txn0, Queue} ->
-                       F = (length(ConsensusAddrs) - 1) div 3,
-                       case queue:len(Queue) == F + 1 of
+                       case length(NewTxnQueue) > 0 of
                            true ->
-                               lager:info("blockchain_txn_manager, success dialing F+1 members, txn: ~p", [Txn]),
-                               Callback(ok),
-                               State#state{txn_queue=lists:keydelete(Txn, 1, TxnQueue)};
+                               self() ! {process, ConsensusAddrs};
                            false ->
-                               SuccesfulDialAddrs = queue:to_list(Queue),
-                               AddrsToSearch = ConsensusAddrs -- SuccesfulDialAddrs,
-                               RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
-                               case dial(RandomAddr, Txn0) of
-                                   ok ->
-                                       lager:info("blockchain_txn_manager, Succesful dial to: ~p, txn: ~p, enqueuing", [RandomAddr, Txn]),
-                                       NewTxnQueue = lists:keyreplace(Txn, 1, TxnQueue, {Txn, queue:in(RandomAddr, Queue)}),
-                                       self() ! {process, Txn, ConsensusAddrs, Callback},
-                                       State#state{txn_queue=NewTxnQueue};
-                                   Other ->
-                                       lager:error("blockchain_txn_manager, Failed dial to: ~p, txn: ~p, ignoring, Error: ~p", [RandomAddr, Txn, Other]),
-                                       self() ! {process, Txn, ConsensusAddrs, Callback},
-                                       State
-                               end
-                       end
+                               ok
+                       end,
+                       State#state{txn_queue=lists:reverse(NewTxnQueue)};
+                   Other ->
+                       lager:notice("blockchain_txn_manager, Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, RandomAddr, Other]),
+                       self() ! {process, ConsensusAddrs},
+                       State
                end,
     {noreply, NewState};
 handle_info(_Msg, State) ->
@@ -112,21 +127,3 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-%% ------------------------------------------------------------------
-%% Helper functions
-%% ------------------------------------------------------------------
-dial(Addr, Txn) ->
-    DataToSend = erlang:term_to_binary({blockchain_transactions:type(Txn), Txn}),
-    P2PAddress = libp2p_crypto:address_to_p2p(Addr),
-    Swarm = blockchain_swarm:swarm(),
-    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
-        {ok, Stream} ->
-            lager:info("blockchain_txn_manager, dialed peer ~p via ~p~n", [Addr, ?TX_PROTOCOL]),
-            libp2p_framed_stream:send(Stream, DataToSend),
-            libp2p_framed_stream:close(Stream),
-            ok;
-        Other ->
-            lager:notice("blockchain_txn_manager, Failed to dial ~p service on ~p : ~p", [?TX_PROTOCOL, Addr, Other]),
-            Other
-    end.
