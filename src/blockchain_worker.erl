@@ -221,13 +221,13 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, State=#state{swarm=Swarm}) ->
-    Address = libp2p_swarm:pubkey_bin(Swarm),
-    AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),
+handle_call({add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, _From, State=#state{swarm=Swarm}) ->
+    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, PubkeyBin),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
     case libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
-                                         AuthAddress,
+                                         AuthPubkeyBin,
                                          ?GW_REGISTRATION_PROTOCOL,
                                          blockchain_gw_registration_handler,
                                          [SignedAddGwTxn, AuthToken]) of
@@ -238,9 +238,9 @@ handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, 
             {reply, {error, Error}, State}
     end;
 handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
-    Address = libp2p_swarm:pubkey_bin(Swarm),
+    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(PubkeyBin, Ledger) of
         {error, _}=Error ->
             lager:info("gateway not found in ledger."),
             {reply, Error, State};
@@ -249,12 +249,12 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
             %% check that the correct owner has been specified
             case Owner =:= blockchain_ledger_gateway_v1:owner_address(GwInfo) of
                 true ->
-                    AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(Address, Owner, Location, Nonce+1),
+                    AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(PubkeyBin, Owner, Location, Nonce+1),
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
                     SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
                     lager:info(
                         "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
-                        [Address, Location, Nonce, SignedAssertLocRequestTxn]
+                        [PubkeyBin, Location, Nonce, SignedAssertLocRequestTxn]
                     ),
                     PeerBook = libp2p_swarm:peerbook(Swarm),
                     case libp2p_peerbook:lookup_association(PeerBook, "wallet_account", Owner) of
@@ -265,11 +265,11 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
                             spawn(fun() ->
                                 SendResults = lists:map(
                                     fun(Peer) ->
-                                        PeerAddress = libp2p_peer:pubkey_bin(Peer),
-                                        P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(PeerAddress),
-                                        lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:bin_to_b58(Address)]),
+                                        PeerPubkeyBin = libp2p_peer:pubkey_bin(Peer),
+                                        P2PPubkeyBin = libp2p_crypto:pubkey_bin_to_p2p(PeerPubkeyBin),
+                                        lager:info("Found ~p as owner for ~p", [P2PPubkeyBin, libp2p_crypto:bin_to_b58(PubkeyBin)]),
                                         case libp2p_swarm:dial_framed_stream(Swarm,
-                                                                             P2PAddress,
+                                                                             P2PPubkeyBin,
                                                                              ?LOC_ASSERTION_PROTOCOL,
                                                                              blockchain_loc_assertion_handler,
                                                                              [SignedAssertLocRequestTxn])
@@ -328,41 +328,41 @@ handle_cast(synced_blocks, State) ->
     {noreply, State#state{sync_timer=Ref}};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    Address = libp2p_swarm:pubkey_bin(Swarm),
-    case blockchain_ledger_v1:find_entry(Address, Ledger) of
+    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
         {error, _Reason} ->
             lager:error("could not get entry ~p", [_Reason]);
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
-            PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
+            PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             ok = send_txn(payment_txn, SignedPaymentTxn, State)
     end,
     {noreply, State};
-handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
+handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_entry(Address, Ledger) of
+    case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
         {error, _Reason} ->
             lager:error("could not get entry ~p", [_Reason]);
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
-            PaymentTxn = blockchain_txn_payment_v1:new(Address, Recipient, Amount, Fee, Nonce + 1),
+            PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             ok = send_txn(payment_txn, SignedPaymentTxn, State)
     end,
     {noreply, State};
-handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
+handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
-    CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
+    CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
-handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm}=State) ->
+handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:pubkey_bin(Swarm),
-    RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, Address, Preimage, Fee),
+    RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, PubkeyBin, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     ok = send_txn(redeem_htlc_txn, SignedRedeemTxn, State),
