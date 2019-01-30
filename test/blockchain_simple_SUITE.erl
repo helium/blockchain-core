@@ -261,9 +261,7 @@ htlc_payee_redeem_test(Config) ->
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     % Create a Payee
-    Keys = libp2p_crypto:generate_keys(ed25519),
-    PayeePrivKey = maps:get(secret, Keys),
-    PayeePubKey = maps:get(public, Keys),
+    #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ed25519),
     Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(32),
@@ -392,9 +390,7 @@ poc_request_test(Config) ->
     N = proplists:get_value(n, Config),
 
     % Create a Gateway
-    Keys = libp2p_crypto:generate_keys(ed25519),
-    GatewayPrivKey = maps:get(secret, Keys),
-    GatewayPubKey = maps:get(public, Keys),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -520,9 +516,7 @@ export_test(Config) ->
 
     % Create a Gateway
     Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
-    Keys = libp2p_crypto:generate_keys(ed25519),
-    GatewayPrivKey = maps:get(secret, Keys),
-    GatewayPubKey = maps:get(public, Keys),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),

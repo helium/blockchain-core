@@ -357,9 +357,7 @@ serialize_deserialize_test() ->
 generate_keys(N) ->
     lists:foldl(
         fun(_, Acc) ->
-            Keys = libp2p_crypto:generate_keys(ed25519),
-            PrivKey = maps:get(secret, Keys),
-            PubKey = maps:get(public, Keys),
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end,

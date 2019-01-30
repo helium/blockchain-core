@@ -187,9 +187,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    Keys = libp2p_crypto:generate_keys(ed25519),
-    PrivKey = maps:get(secret, Keys),
-    PubKey = maps:get(public, Keys),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new([], Challenger, <<"secret">>),
