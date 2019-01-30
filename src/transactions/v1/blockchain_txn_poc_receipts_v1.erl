@@ -120,11 +120,11 @@ absorb(Txn, Ledger) ->
                             lager:error("challenger: ~p, error: last_poc_challenge_undefined", [ChallengerInfo]),
                             {error, last_poc_challenge_undefined};
                         _Height ->
-                            case blockchain_ledger_gateway_v1:last_poc_hash(ChallengerInfo) of
+                            case blockchain_ledger_gateway_v1:last_poc_info(ChallengerInfo) of
                                 undefined ->
                                     lager:error("challenger: ~p, error: last_poc_undefined_undefined", [ChallengerInfo]),
-                                    {error, last_poc_hash_undefined};
-                                Hash ->
+                                    {error, last_poc_info_undefined};
+                                {Hash, _Onion} ->
                                     Secret = ?MODULE:secret(Txn),
                                     SecretHash = crypto:hash(sha256, Secret),
                                     case Hash =:= SecretHash of

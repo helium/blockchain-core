@@ -427,7 +427,8 @@ poc_request_test(Config) ->
 
     % Create the PoC challenge request txn
     Secret = crypto:strong_rand_bytes(8),
-    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret)),
+    {ok, _PvtOnionKey, OnionCompactKey} = ecc_compact:generate_key(),
+    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret), OnionCompactKey),
     SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
@@ -546,7 +547,7 @@ export_test(Config) ->
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,123456},
                    {last_poc_challenge,undefined},
-                   {last_poc_hash, undefined},
+                   {last_poc_info, undefined},
                    {nonce,1},
                    {score,0.0}]], Gateways),
 
