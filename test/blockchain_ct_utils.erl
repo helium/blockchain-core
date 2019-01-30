@@ -180,7 +180,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
-                                {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+                                #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)},
                                 BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
@@ -220,14 +220,14 @@ init_per_testcase(TestCase, Config) ->
     %% test that each node setup libp2p properly
     lists:foreach(fun(Node) ->
                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
-                          Addr = ct_rpc:call(Node, blockchain_swarm, address, []),
+                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                           Sessions = ct_rpc:call(Node, libp2p_swarm, sessions, [Swarm]),
                           GossipGroup = ct_rpc:call(Node, libp2p_swarm, gossip_group, [Swarm]),
                           ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip, connected_addrs, [GossipGroup, all]),
                           ?assertNotEqual(0, length(ConnectedAddrs)),
                           ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup: ~p~nConnectedAddrs: ~p", [Node,
                                                                                                                          Addr,
-                                                                                                                         libp2p_crypto:address_to_p2p(Addr),
+                                                                                                                         libp2p_crypto:pubkey_bin_to_p2p(Addr),
                                                                                                                          Sessions,
                                                                                                                          GossipGroup,
                                                                                                                          ConnectedAddrs

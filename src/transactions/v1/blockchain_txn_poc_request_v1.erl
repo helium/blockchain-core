@@ -22,7 +22,7 @@
 -endif.
 
 -record(txn_poc_request_v1, {
-    gateway_address :: libp2p_crypto:address(),
+    gateway_address :: libp2p_crypto:pubkey_bin(),
     hash :: binary(),
     signature :: binary(),
     fee = 0 :: non_neg_integer()
@@ -35,7 +35,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), binary()) -> txn_poc_request().
+-spec new(libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_request().
 new(Address, Hash) ->
     #txn_poc_request_v1{
         gateway_address=Address,
@@ -47,7 +47,7 @@ new(Address, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_poc_request()) -> libp2p_crypto:address().
+-spec gateway_address(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
 gateway_address(Txn) ->
     Txn#txn_poc_request_v1.gateway_address.
 
@@ -89,7 +89,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_request()) -> boolean().
 is_valid(Txn=#txn_poc_request_v1{gateway_address=GatewayAddress, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(GatewayAddress),
+    PubKey = libp2p_crypto:bin_to_pubkey(GatewayAddress),
     libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_poc_request_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -141,7 +141,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Tx0 = new(<<"gateway_address">>, <<"hash">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),

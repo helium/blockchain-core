@@ -66,9 +66,9 @@
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
--type entries() :: #{libp2p_crypto:address() => blockchain_ledger_entry_v1:entry()}.
--type active_gateways() :: #{libp2p_crypto:address() => blockchain_ledger_gateway_v1:gateway()}.
--type htlcs() :: #{libp2p_crypto:address() => blockchain_ledger_htlc_v1:htlc()}.
+-type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
+-type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
+-type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 
 -export_type([ledger/0]).
 
@@ -234,7 +234,7 @@ update_transaction_fee(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members(ledger()) -> {ok, [libp2p_crypto:address()]} | {error, any()}.
+-spec consensus_members(ledger()) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 consensus_members(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, []) of
@@ -250,7 +250,7 @@ consensus_members(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members([libp2p_crypto:address()], ledger()) ->  ok | {error, any()}.
+-spec consensus_members([libp2p_crypto:pubkey_bin()], ledger()) ->  ok | {error, any()}.
 consensus_members(Members, Ledger) ->
     Bin = erlang:term_to_binary(Members),
     DefaultCF = default_cf(Ledger),
@@ -314,7 +314,7 @@ htlcs(#ledger_v1{db=DB}=Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_gateway_info(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
+-spec find_gateway_info(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
                                                               | {error, any()}.
 find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
@@ -331,7 +331,7 @@ find_gateway_info(Address, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, gateway_already_active}.
+-spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
@@ -350,8 +350,8 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
 %% NOTE: This should only be allowed when adding a gateway which was
 %% added in an old blockchain and is being added via a special
 %% genesis block transaction to a new chain.
--spec add_gateway(OwnerAddress :: libp2p_crypto:address(),
-                  GatewayAddress :: libp2p_crypto:address(),
+-spec add_gateway(OwnerAddress :: libp2p_crypto:pubkey_bin(),
+                  GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
                   LastPocChallenge :: undefined | non_neg_integer(),
                   LastPocHash :: undefined | binary(),
@@ -385,7 +385,7 @@ add_gateway(OwnerAddr,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
+-spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
 add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
@@ -409,7 +409,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec request_poc(GatewayAddress :: libp2p_crypto:address(),
+-spec request_poc(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Hash :: binary(),
                   Ledger :: ledger()) -> ok | {error, any()}.
 request_poc(GatewayAddress, Hash, Ledger) ->
@@ -443,7 +443,7 @@ request_poc(GatewayAddress, Hash, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_entry(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
+-spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
                                                        | {error, any()}.
 find_entry(Address, Ledger) ->
     EntriesCF = entries_cf(Ledger),
@@ -460,7 +460,7 @@ find_entry(Address, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec credit_account(libp2p_crypto:address(), integer(), ledger()) -> ok | {error, any()}.
+-spec credit_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_account(Address, Amount, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     case ?MODULE:find_entry(Address, Ledger) of
@@ -483,7 +483,7 @@ credit_account(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_account(libp2p_crypto:address(), integer(), integer(), ledger()) -> ok | {error, any()}.
+-spec debit_account(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
 debit_account(Address, Amount, Nonce, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -513,7 +513,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:address(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(Address, Fee, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -538,7 +538,7 @@ debit_fee(Address, Fee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_htlc(libp2p_crypto:address(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
+-spec find_htlc(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
                                                       | {error, any()}.
 find_htlc(Address, Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
@@ -555,7 +555,7 @@ find_htlc(Address, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_htlc(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(),
+-spec add_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
                non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
 add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
@@ -572,7 +572,7 @@ add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec redeem_htlc(libp2p_crypto:address(), libp2p_crypto:address(), ledger()) -> ok | {error, any()}.
+-spec redeem_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
 redeem_htlc(Address, Payee, Ledger) ->
     case ?MODULE:find_htlc(Address, Ledger) of
         {error, _}=Error ->

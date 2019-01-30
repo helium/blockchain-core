@@ -113,7 +113,7 @@ basic_test(Config) ->
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    Recipient = blockchain_swarm:address(),
+    Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
@@ -259,10 +259,10 @@ htlc_payee_redeem_test(Config) ->
     N = proplists:get_value(n, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     % Create a Payee
-    {PayeePrivKey, PayeePubKey} = libp2p_crypto:generate_keys(),
-    Payee = libp2p_crypto:pubkey_to_address(PayeePubKey),
+    #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
@@ -327,7 +327,7 @@ htlc_payer_redeem_test(Config) ->
     N = proplists:get_value(n, Config),
 
     % Create a Payer
-    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
@@ -384,14 +384,14 @@ poc_request_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
-    Owner = libp2p_crypto:pubkey_to_address(PubKey),
+    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
 
     % Create a Gateway
-    {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
-    Gateway = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
@@ -483,7 +483,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
 
     %% Create a good payment transaction as well
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    Recipient = blockchain_swarm:address(),
+    Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
@@ -510,14 +510,14 @@ export_test(Config) ->
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
-    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 1, blockchain_swarm:address()),
-    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:address()),
-    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:address()),
+    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
+    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
+    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
 
     % Create a Gateway
-    Owner = libp2p_crypto:pubkey_to_address(PayerPubKey1),
-    {GatewayPrivKey, GatewayPubKey} = libp2p_crypto:generate_keys(),
-    Gateway = libp2p_crypto:pubkey_to_address(GatewayPubKey),
+    Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
@@ -552,9 +552,9 @@ export_test(Config) ->
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
                                                    AccontAddress = proplists:get_value(address, Account),
-                                                   case libp2p_crypto:address_to_b58(Payer1) == AccontAddress orelse
-                                                        libp2p_crypto:address_to_b58(Payer2) == AccontAddress orelse
-                                                        libp2p_crypto:address_to_b58(Payer3) == AccontAddress
+                                                   case libp2p_crypto:bin_to_b58(Payer1) == AccontAddress orelse
+                                                        libp2p_crypto:bin_to_b58(Payer2) == AccontAddress orelse
+                                                        libp2p_crypto:bin_to_b58(Payer3) == AccontAddress
                                                    of
                                                        true -> [Account | Acc];
                                                        false -> Acc
@@ -589,7 +589,7 @@ delayed_ledger_test(Config) ->
 
         % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
-    Payee = blockchain_swarm:address(),
+    Payee = blockchain_swarm:pubkey_bin(),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
     lists:foreach(

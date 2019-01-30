@@ -166,8 +166,8 @@ hash_block(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec verify_signature(binary() | block(), [libp2p_crypto:address()], binary(), pos_integer()) ->
-    false | {true, [{libp2p_crypto:address(), binary()}]}.
+-spec verify_signature(binary() | block(), [libp2p_crypto:pubkey_bin()], binary(), pos_integer()) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 verify_signature(#block{}=Block, ConsensusMembers, BinSigs, Threshold) ->
     BinBlock = erlang:term_to_binary(?MODULE:remove_signature(Block)),
     verify_signature(BinBlock, ConsensusMembers, BinSigs, Threshold);
@@ -177,7 +177,7 @@ verify_signature(Artifact, ConsensusMembers, BinSigs, Threshold) ->
             case
                 lists:member(Addr, ConsensusMembers)
                 andalso (not lists:keymember(Addr, 1, Acc))
-                andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:address_to_pubkey(Addr))
+                andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
             of
                 true -> [{Addr, Sig} | Acc];
                 false -> Acc
@@ -357,9 +357,9 @@ serialize_deserialize_test() ->
 generate_keys(N) ->
     lists:foldl(
         fun(_, Acc) ->
-            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_address(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end,
         [],
         lists:seq(1, N)

@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    address/0,
+    pubkey_bin/0,
     swarm/0,
     keys/0,
     gossip_peers/0
@@ -46,9 +46,9 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address() -> libp2p_crypto:address().
-address() ->
-    gen_server:call(?MODULE, address).
+-spec pubkey_bin() -> libp2p_crypto:pubkey_bin().
+pubkey_bin() ->
+    gen_server:call(?MODULE, pubkey_bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,8 +84,8 @@ init(Args) ->
     true = erlang:link(Pid),
     {ok, #state{swarm=Pid}}.
 
-handle_call(address, _From, #state{swarm=Swarm}=State) ->
-    {reply, libp2p_swarm:address(Swarm), State};
+handle_call(pubkey_bin, _From, #state{swarm=Swarm}=State) ->
+    {reply, libp2p_swarm:pubkey_bin(Swarm), State};
 handle_call(swarm, _From, #state{swarm=Swarm}=State) ->
     {reply, Swarm, State};
 handle_call(key, _From, #state{swarm=Swarm}=State)  ->

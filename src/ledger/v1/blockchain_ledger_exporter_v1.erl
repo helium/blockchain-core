@@ -31,7 +31,7 @@ export(Ledger) ->
 export_accounts(Ledger) ->
     lists:foldl(
         fun({Address, Entry}, Acc) ->
-            [[{address, libp2p_crypto:address_to_b58(Address)},
+            [[{address, libp2p_crypto:bin_to_b58(Address)},
               {balance, blockchain_ledger_entry_v1:balance(Entry)}] | Acc]
         end,
         [],
@@ -46,8 +46,8 @@ export_accounts(Ledger) ->
 export_gateways(Ledger) ->
     lists:foldl(
         fun({GatewayAddress, Gateway}, Acc) ->
-            [[{gateway_address, libp2p_crypto:address_to_b58(GatewayAddress)},
-              {owner_address, libp2p_crypto:address_to_b58(blockchain_ledger_gateway_v1:owner_address(Gateway))},
+            [[{gateway_address, libp2p_crypto:bin_to_b58(GatewayAddress)},
+              {owner_address, libp2p_crypto:bin_to_b58(blockchain_ledger_gateway_v1:owner_address(Gateway))},
               {location, blockchain_ledger_gateway_v1:location(Gateway)},
               {last_poc_challenge, blockchain_ledger_gateway_v1:last_poc_challenge(Gateway)},
               {last_poc_hash, blockchain_ledger_gateway_v1:last_poc_hash(Gateway)},

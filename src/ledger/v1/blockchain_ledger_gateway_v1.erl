@@ -24,7 +24,7 @@
 -endif.
 
 -record(gateway_v1, {
-    owner_address :: libp2p_crypto:address(),
+    owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_hash :: undefined | binary(),
@@ -39,7 +39,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(OwnerAddress :: libp2p_crypto:address(),
+-spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
     #gateway_v1{
@@ -47,7 +47,7 @@ new(OwnerAddress, Location) ->
         location=Location
     }.
 
--spec new(OwnerAddress :: libp2p_crypto:address(),
+-spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined,
           LastPocChallenge :: non_neg_integer() | undefined,
           LastPocHash :: binary() | undefined,
@@ -67,7 +67,7 @@ new(OwnerAddress, Location, LastPocChallenge, LastPocHash, Nonce, Score) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(Gateway :: gateway()) -> libp2p_crypto:address().
+-spec owner_address(Gateway :: gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Gateway) ->
     Gateway#gateway_v1.owner_address.
 
@@ -75,7 +75,7 @@ owner_address(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(OwnerAddress :: libp2p_crypto:address(),
+-spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                     Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
     Gateway#gateway_v1{owner_address=OwnerAddress}.
@@ -172,7 +172,7 @@ print(Gateway) ->
            (I) -> I
         end,
     [
-        {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
+        {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {last_poc_hash, UndefinedHandleFunc(last_poc_hash(Gateway))},

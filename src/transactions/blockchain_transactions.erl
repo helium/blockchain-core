@@ -196,7 +196,7 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec actor(transaction()) -> libp2p_crypto:address() | <<>>.
+-spec actor(transaction()) -> libp2p_crypto:pubkey_bin() | <<>>.
 actor(Txn) ->
     case ?MODULE:type(Txn) of
         blockchain_txn_assert_location_v1 ->

@@ -22,7 +22,7 @@
 
 -record(txn_poc_receipts_v1, {
     receipts :: blockchain_poc_receipt_v1:poc_receipts(),
-    challenger :: libp2p_crypto:address(),
+    challenger :: libp2p_crypto:pubkey_bin(),
     secret :: binary(),
     signature :: binary()
 }).
@@ -35,7 +35,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:address(), binary()) -> txn_poc_receipts().
+-spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_receipts().
 new(Receipts, Challenger, Secret) ->
     #txn_poc_receipts_v1{
         receipts=Receipts,
@@ -56,7 +56,7 @@ receipts(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec challenger(txn_poc_receipts()) -> libp2p_crypto:address().
+-spec challenger(txn_poc_receipts()) -> libp2p_crypto:pubkey_bin().
 challenger(Txn) ->
     Txn#txn_poc_receipts_v1.challenger.
 
@@ -91,7 +91,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts()) -> boolean().
 is_valid(Txn=#txn_poc_receipts_v1{challenger=Challenger, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Challenger),
+    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
     libp2p_crypto:verify(BinTxn, Signature, PubKey).
 
@@ -187,8 +187,8 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Challenger = libp2p_crypto:pubkey_to_address(PubKey),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new([], Challenger, <<"secret">>),
     Tx1 = sign(Tx0, SigFun),

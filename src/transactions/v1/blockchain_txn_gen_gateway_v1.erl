@@ -26,8 +26,8 @@
 -endif.
 
 -record(txn_genesis_gateway_v1, {
-    gateway_address :: libp2p_crypto:address(),
-    owner_address :: libp2p_crypto:address(),
+    gateway_address :: libp2p_crypto:pubkey_bin(),
+    owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_hash :: undefined | binary(),
@@ -42,8 +42,8 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(GatewayAddress :: libp2p_crypto:address(),
-          OwnerAddress :: libp2p_crypto:address(),
+-spec new(GatewayAddress :: libp2p_crypto:pubkey_bin(),
+          OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: undefined | pos_integer(),
           LastPocChallenge :: undefined | non_neg_integer(),
           Nonce :: non_neg_integer(),
@@ -68,7 +68,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_genesis_gateway()) -> libp2p_crypto:address().
+-spec gateway_address(txn_genesis_gateway()) -> libp2p_crypto:pubkey_bin().
 gateway_address(Txn) ->
     Txn#txn_genesis_gateway_v1.gateway_address.
 
@@ -76,7 +76,7 @@ gateway_address(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(txn_genesis_gateway()) -> libp2p_crypto:address().
+-spec owner_address(txn_genesis_gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Txn) ->
     Txn#txn_genesis_gateway_v1.owner_address.
 

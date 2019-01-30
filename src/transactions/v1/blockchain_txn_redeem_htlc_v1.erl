@@ -26,8 +26,8 @@
 -endif.
 
 -record(txn_redeem_htlc_v1, {
-    payee :: libp2p_crypto:address(),
-    address :: libp2p_crypto:address(),
+    payee :: libp2p_crypto:pubkey_bin(),
+    address :: libp2p_crypto:pubkey_bin(),
     preimage :: undefined | binary(),
     fee :: non_neg_integer(),
     signature :: binary()
@@ -40,7 +40,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), binary(), non_neg_integer()) -> txn_redeem_htlc().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage, Fee) ->
     #txn_redeem_htlc_v1{
         payee=Payee,
@@ -63,7 +63,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_redeem_htlc()) -> libp2p_crypto:address().
+-spec payee(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_redeem_htlc_v1.payee.
 
@@ -71,7 +71,7 @@ payee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(txn_redeem_htlc()) -> libp2p_crypto:address().
+-spec address(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#txn_redeem_htlc_v1.address.
 
@@ -116,7 +116,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_redeem_htlc()) -> boolean().
 is_valid(Txn=#txn_redeem_htlc_v1{payee=Payee, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Payee),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payee),
     libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_redeem_htlc_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -233,14 +233,15 @@ fee_test() ->
     ?assertEqual(1, fee(Tx)).
 
 is_valid_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Payee = libp2p_crypto:pubkey_to_address(PubKey),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Payee = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(Payee, <<"address">>, <<"yolo">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
-    {_, PubKey2} = libp2p_crypto:generate_keys(),
-    Payee2 = libp2p_crypto:pubkey_to_address(PubKey2),
+    Keys2 = libp2p_crypto:generate_keys(ed25519),
+    PubKey2 = maps:get(public, Keys2),
+    Payee2 = libp2p_crypto:pubkey_to_bin(PubKey2),
     Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).

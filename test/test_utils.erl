@@ -15,7 +15,7 @@
 ]).
 
 init(BaseDir) ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Opts = [
         {key, {PubKey, SigFun}}
@@ -31,7 +31,7 @@ init(BaseDir) ->
 init_chain(Balance, {PrivKey, PubKey}) ->
     % Generate fake blockchains (just the keys)
     RandomKeys = test_utils:generate_keys(10),
-    Address = blockchain_swarm:address(),
+    Address = blockchain_swarm:pubkey_bin(),
     ConsensusMembers = [
         {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
     ] ++ RandomKeys,
@@ -56,9 +56,9 @@ init_chain(Balance, {PrivKey, PubKey}) ->
 generate_keys(N) ->
     lists:foldl(
         fun(_, Acc) ->
-            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_address(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end
         ,[]
         ,lists:seq(1, N)

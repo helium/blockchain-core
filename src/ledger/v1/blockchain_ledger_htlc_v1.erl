@@ -22,8 +22,8 @@
 
 -record(htlc_v1, {
     nonce = 0 :: non_neg_integer(),
-    payer :: undefined | libp2p_crypto:address(),
-    payee :: undefined | libp2p_crypto:address(),
+    payer :: undefined | libp2p_crypto:pubkey_bin(),
+    payee :: undefined | libp2p_crypto:pubkey_bin(),
     balance = 0 :: non_neg_integer(),
     hashlock :: undefined | binary(),
     timelock :: undefined | non_neg_integer()
@@ -41,7 +41,7 @@
 new() ->
     #htlc_v1{}.
 
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), non_neg_integer(),
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), non_neg_integer(),
           binary(), non_neg_integer()) -> htlc().
 new(Payer, Payee, Balance, Hashlock, Timelock) when Balance /= undefined ->
     #htlc_v1{
@@ -72,7 +72,7 @@ nonce(Nonce, HTLC) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(htlc()) -> undefined | libp2p_crypto:address().
+-spec payer(htlc()) -> undefined | libp2p_crypto:pubkey_bin().
 payer(#htlc_v1{payer=Payer}) ->
     Payer.
 
@@ -80,7 +80,7 @@ payer(#htlc_v1{payer=Payer}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(libp2p_crypto:address(), htlc()) -> htlc().
+-spec payer(libp2p_crypto:pubkey_bin(), htlc()) -> htlc().
 payer(Payer, HTLC) ->
     HTLC#htlc_v1{payer=Payer}.
 
@@ -88,7 +88,7 @@ payer(Payer, HTLC) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(htlc()) -> undefined | libp2p_crypto:address().
+-spec payee(htlc()) -> undefined | libp2p_crypto:pubkey_bin().
 payee(#htlc_v1{payee=Payee}) ->
     Payee.
 
@@ -96,7 +96,7 @@ payee(#htlc_v1{payee=Payee}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(libp2p_crypto:address(), htlc()) -> htlc().
+-spec payee(libp2p_crypto:pubkey_bin(), htlc()) -> htlc().
 payee(Payee, HTLC) ->
     HTLC#htlc_v1{payee=Payee}.
 

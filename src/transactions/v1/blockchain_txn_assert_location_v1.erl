@@ -28,8 +28,8 @@
 -endif.
 
 -record(txn_assert_location_v1, {
-    gateway_address :: libp2p_crypto:address(),
-    owner_address :: libp2p_crypto:address(),
+    gateway_address :: libp2p_crypto:pubkey_bin(),
+    owner_address :: libp2p_crypto:pubkey_bin(),
     gateway_signature :: binary(),
     owner_signature :: binary(),
     location :: location(),
@@ -47,8 +47,8 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(GatewayAddress :: libp2p_crypto:address(),
-          OwnerAddress :: libp2p_crypto:address(),
+-spec new(GatewayAddress :: libp2p_crypto:pubkey_bin(),
+          OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
           Nonce :: non_neg_integer()) -> txn_assert_location().
 new(GatewayAddress, OwnerAddress, Location, Nonce) ->
@@ -74,7 +74,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_assert_location()) -> libp2p_crypto:address().
+-spec gateway_address(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
 gateway_address(Txn) ->
     Txn#txn_assert_location_v1.gateway_address.
 
@@ -82,7 +82,7 @@ gateway_address(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(txn_assert_location()) -> libp2p_crypto:address().
+-spec owner_address(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
 owner_address(Txn) ->
     Txn#txn_assert_location_v1.owner_address.
 
@@ -186,7 +186,7 @@ absorb(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_gateway_location(libp2p_crypto:address(), non_neg_integer(), non_neg_integer(),
+-spec assert_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(),
                               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 assert_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
@@ -252,7 +252,7 @@ gateway_signature_test() ->
     ?assertEqual(<<>>, gateway_signature(Tx)).
 
 sign_request_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Tx0 = new(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
@@ -260,7 +260,7 @@ sign_request_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Tx0 = new(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),

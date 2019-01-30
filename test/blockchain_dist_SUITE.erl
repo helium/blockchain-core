@@ -43,7 +43,7 @@ gossip_test(Config) ->
 
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
-                                Addr = ct_rpc:call(Node, blockchain_swarm, address, []),
+                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                                 [Addr | Acc]
                         end, [], Nodes),
 
@@ -81,7 +81,7 @@ gossip_test(Config) ->
 
     %% FIXME: move this elsewhere
     ConsensusMembers = lists:keysort(1, lists:foldl(fun(Node, Acc) ->
-                                                            Addr = ct_rpc:call(Node, blockchain_swarm, address, []),
+                                                            Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                                                             case lists:member(Addr, ConsensusAddrs) of
                                                                 false -> Acc;
                                                                 true ->
@@ -94,9 +94,9 @@ gossip_test(Config) ->
     [FirstNode, SecondNode | _Rest] = Nodes,
 
     %% First node creates a payment transaction for the second node
-    Payer = ct_rpc:call(FirstNode, blockchain_swarm, address, []),
+    Payer = ct_rpc:call(FirstNode, blockchain_swarm, pubkey_bin, []),
     {ok, _Pubkey, SigFun} = ct_rpc:call(FirstNode, blockchain_swarm, keys, []),
-    Recipient = ct_rpc:call(SecondNode, blockchain_swarm, address, []),
+    Recipient = ct_rpc:call(SecondNode, blockchain_swarm, pubkey_bin, []),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = ct_rpc:call(FirstNode, test_utils, create_block, [ConsensusMembers, [SignedTx]]),

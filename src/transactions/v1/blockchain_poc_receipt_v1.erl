@@ -21,7 +21,7 @@
 -endif.
 
 -record(poc_receipt_v1, {
-    address :: libp2p_crypto:address(),
+    address :: libp2p_crypto:pubkey_bin(),
     timestamp :: non_neg_integer(),
     hash :: binary(),
     signature :: binary()
@@ -36,7 +36,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(Address :: libp2p_crypto:address(),
+-spec new(Address :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
           Hash :: binary()) -> poc_receipt().
 new(Address, Timestamp, Hash) ->
@@ -50,7 +50,7 @@ new(Address, Timestamp, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(Receipt :: poc_receipt()) -> libp2p_crypto:address().
+-spec address(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
 address(Receipt) ->
     Receipt#poc_receipt_v1.address.
 
@@ -58,7 +58,7 @@ address(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec timestamp(Receipt :: poc_receipt()) -> libp2p_crypto:address().
+-spec timestamp(Receipt :: poc_receipt()) -> non_neg_integer().
 timestamp(Receipt) ->
     Receipt#poc_receipt_v1.timestamp.
 
@@ -93,7 +93,7 @@ sign(Receipt, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(Receipt :: poc_receipt()) -> boolean().
 is_valid(Receipt=#poc_receipt_v1{address=Address, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Address),
+    PubKey = libp2p_crypto:bin_to_pubkey(Address),
     BinReceipt = erlang:term_to_binary(Receipt#poc_receipt_v1{signature = <<>>}),
     libp2p_crypto:verify(BinReceipt, Signature, PubKey).
 
@@ -144,8 +144,8 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Receipt)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Address = libp2p_crypto:pubkey_to_address(PubKey),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Address = libp2p_crypto:pubkey_to_bin(PubKey),
     Receipt0 = new(Address, 1, <<"hash">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),

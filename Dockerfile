@@ -4,6 +4,8 @@ FROM erlang:21.0
 WORKDIR /tmp
 RUN apt-get update
 RUN apt-get install -y flex bison libgmp-dev cmake
+RUN git clone -b stable https://github.com/jedisct1/libsodium.git
+RUN cd libsodium && ./configure && make check && make install && cd ..
 
 WORKDIR /opt/blockchain-core
 

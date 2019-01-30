@@ -32,9 +32,9 @@
 -endif.
 
 -record(txn_create_htlc_v1, {
-    payer :: libp2p_crypto:address(),
-    payee :: libp2p_crypto:address(),
-    address :: libp2p_crypto:address(),
+    payer :: libp2p_crypto:pubkey_bin(),
+    payee :: libp2p_crypto:pubkey_bin(),
+    address :: libp2p_crypto:pubkey_bin(),
     hashlock :: binary(),
     timelock :: integer(),
     amount :: integer(),
@@ -49,7 +49,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
 new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
     #txn_create_htlc_v1{
         payer=Payer,
@@ -75,7 +75,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(txn_create_htlc()) -> libp2p_crypto:address().
+-spec payer(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#txn_create_htlc_v1.payer.
 
@@ -83,7 +83,7 @@ payer(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_create_htlc()) -> libp2p_crypto:address().
+-spec payee(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_create_htlc_v1.payee.
 
@@ -91,7 +91,7 @@ payee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(txn_create_htlc()) -> libp2p_crypto:address().
+-spec address(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#txn_create_htlc_v1.address.
 
@@ -152,7 +152,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_create_htlc()) -> boolean().
 is_valid(Txn=#txn_create_htlc_v1{payer=Payer, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Payer),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_create_htlc_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -261,7 +261,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Tx0 = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
@@ -269,14 +269,15 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_create_htlc_v1{signature = <<>>}), Sig1, PubKey)).
 
  is_valid_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Payer = libp2p_crypto:pubkey_to_address(PubKey),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(Payer, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
-    {_, PubKey2} = libp2p_crypto:generate_keys(),
-    Payer2 = libp2p_crypto:pubkey_to_address(PubKey2),
+    Keys2 = libp2p_crypto:generate_keys(ed25519),
+    PubKey2 = maps:get(public, Keys2),
+    Payer2 = libp2p_crypto:pubkey_to_bin(PubKey2),
     Tx2 = new(Payer2, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).

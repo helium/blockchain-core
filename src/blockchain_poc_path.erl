@@ -177,7 +177,7 @@ edge_weight(Gw1, Gw2) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec target(Hash :: binary(),
-             Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:address(), map()}.
+             Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:pubkey_bin(), map()}.
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
     Probs = create_probs(ActiveGateways),
@@ -216,9 +216,9 @@ entropy(Entropy, Probs) ->
 active_gateways(Ledger) ->
     ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
     maps:filter(
-        fun(Address, Gateway) ->
+        fun(PubkeyBin, Gateway) ->
             % TODO: Maybe do some find of score check here
-            Address =/= blockchain_swarm:address()
+            PubkeyBin =/= blockchain_swarm:pubkey_bin()
             andalso blockchain_ledger_gateway_v1:location(Gateway) =/= undefined
         end
         ,ActiveGateways
