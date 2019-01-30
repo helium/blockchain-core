@@ -54,7 +54,7 @@ basic(_Config) ->
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(blockchain_swarm:swarm(), Block, Chain0, length(ConsensusMembers), blockchain_swarm:address()),
+            _ = blockchain_gossip_handler:add_block(blockchain_swarm:swarm(), Block, Chain0, length(ConsensusMembers), blockchain_swarm:pubkey_bin()),
             [Block|Acc]
         end,
         [],

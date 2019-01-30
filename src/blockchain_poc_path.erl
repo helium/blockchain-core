@@ -216,9 +216,9 @@ entropy(Entropy, Probs) ->
 active_gateways(Ledger) ->
     ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
     maps:filter(
-        fun(Address, Gateway) ->
+        fun(PubkeyBin, Gateway) ->
             % TODO: Maybe do some find of score check here
-            Address =/= blockchain_swarm:address()
+            PubkeyBin =/= blockchain_swarm:pubkey_bin()
             andalso blockchain_ledger_gateway_v1:location(Gateway) =/= undefined
         end
         ,ActiveGateways

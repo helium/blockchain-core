@@ -31,7 +31,7 @@ init(BaseDir) ->
 init_chain(Balance, {PrivKey, PubKey}) ->
     % Generate fake blockchains (just the keys)
     RandomKeys = test_utils:generate_keys(10),
-    Address = blockchain_swarm:address(),
+    Address = blockchain_swarm:pubkey_bin(),
     ConsensusMembers = [
         {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
     ] ++ RandomKeys,

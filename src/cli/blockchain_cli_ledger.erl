@@ -282,9 +282,9 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
-    Addr = blockchain_swarm:address(),
+    PubkeyBin = blockchain_swarm:pubkey_bin(),
     Ledger = get_ledger(),
-    R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, Ledger)})],
+    R = [format_ledger_balance({PubkeyBin, blockchain_ledger_v1:find_entry(PubkeyBin, Ledger)})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
     Balances = maps:filter(fun(K, _V) ->

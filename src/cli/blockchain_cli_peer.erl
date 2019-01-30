@@ -152,7 +152,7 @@ peer_addr_usage() ->
     ].
 
 peer_addr(_CmdBase, [], []) ->
-    Text = clique_status:text(libp2p_crypto:pubkey_bin_to_p2p(blockchain_swarm:address())),
+    Text = clique_status:text(libp2p_crypto:pubkey_bin_to_p2p(blockchain_swarm:pubkey_bin())),
     [Text].
 
 
@@ -283,7 +283,7 @@ peer_book(["peer", "book", Addr], [], []) ->
 peer_book(_CmdBase, [], [{self, _}]) ->
     Swarm = blockchain_swarm:swarm(),
     PeerBook = libp2p_swarm:peerbook(Swarm),
-    {ok, Peer} = libp2p_peerbook:get(PeerBook, blockchain_swarm:address()),
+    {ok, Peer} = libp2p_peerbook:get(PeerBook, blockchain_swarm:pubkey_bin()),
     [format_peers([Peer]),
      format_listen_addrs(Swarm, libp2p_peer:listen_addrs(Peer)),
      format_peer_sessions(Swarm)];

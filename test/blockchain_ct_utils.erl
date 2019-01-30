@@ -220,7 +220,7 @@ init_per_testcase(TestCase, Config) ->
     %% test that each node setup libp2p properly
     lists:foreach(fun(Node) ->
                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
-                          Addr = ct_rpc:call(Node, blockchain_swarm, address, []),
+                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                           Sessions = ct_rpc:call(Node, libp2p_swarm, sessions, [Swarm]),
                           GossipGroup = ct_rpc:call(Node, libp2p_swarm, gossip_group, [Swarm]),
                           ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip, connected_addrs, [GossipGroup, all]),

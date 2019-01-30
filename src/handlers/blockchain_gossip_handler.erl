@@ -45,7 +45,7 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     ok.
 
 add_block(Swarm, Block, Chain, N, Sender) ->
-    lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:address()]),
+    lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
             ok = blockchain_worker:notify({add_block, blockchain_block:hash_block(Block), true}),
