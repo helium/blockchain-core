@@ -80,7 +80,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
     SuccesfulDialAddrs = queue:to_list(Queue0),
     AddrsToSearch = ConsensusAddrs -- SuccesfulDialAddrs,
     RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
-    P2PAddress = libp2p_crypto:address_to_p2p(RandomAddr),
+    P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomAddr),
     NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
                    {ok, Stream} ->
                        lager:info("blockchain_txn_manager, dialed peer ~p via ~p~n", [RandomAddr, ?TX_PROTOCOL]),

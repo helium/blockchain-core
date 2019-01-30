@@ -375,7 +375,7 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
                                                (fun(Res) ->
                                                         case Res of
                                                             ok ->
-                                                                lager:info("txn_manager, succesful payment_txn ~p ~p ~p ~p", [Address, Recipient, Amount, Fee]);
+                                                                lager:info("txn_manager, succesful payment_txn ~p ~p ~p", [Recipient, Amount, Fee]);
                                                             {error, Reason} ->
                                                                 lager:error("txn_manager error: ~p", [Reason])
                                                         end
@@ -405,7 +405,7 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee, Nonce}, #sta
     end,
     {noreply, State};
 handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    Payer = libp2p_swarm:address(Swarm),
+    Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
@@ -422,7 +422,7 @@ handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, 
                                         end)),
     {noreply, State};
 handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    Payee = libp2p_swarm:address(Swarm),
+    Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, Address, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
