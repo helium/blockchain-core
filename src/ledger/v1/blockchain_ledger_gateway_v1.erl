@@ -172,7 +172,7 @@ print(Gateway) ->
            (I) -> I
         end,
     [
-        {owner_address, libp2p_crypto:address_to_p2p(owner_address(Gateway))},
+        {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {last_poc_hash, UndefinedHandleFunc(last_poc_hash(Gateway))},

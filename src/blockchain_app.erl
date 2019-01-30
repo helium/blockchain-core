@@ -18,7 +18,9 @@ start(_StartType, _StartArgs) ->
     Key =
         case application:get_env(blockchain, key) of
             undefined ->
-                {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+                Keys = libp2p_crypto:generate_keys(ed25519),
+                PrivKey = maps:get(secret, Keys),
+                PubKey = maps:get(public, Keys),
                 {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
             {ok, K} ->
                 K

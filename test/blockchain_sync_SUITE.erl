@@ -73,7 +73,7 @@ basic(_Config) ->
     ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
 
     % Simulate add block from other chain
-    _ = blockchain_gossip_handler:add_block(SimSwarm, LastBlock, Chain0, length(ConsensusMembers), libp2p_swarm:address(SimSwarm)),
+    _ = blockchain_gossip_handler:add_block(SimSwarm, LastBlock, Chain0, length(ConsensusMembers), libp2p_swarm:pubkey_bin(SimSwarm)),
 
     ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain0) end),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),

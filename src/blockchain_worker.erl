@@ -222,7 +222,7 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
 handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, State=#state{swarm=Swarm}) ->
-    Address = libp2p_swarm:address(Swarm),
+    Address = libp2p_swarm:pubkey_bin(Swarm),
     AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerAddress, Address),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
@@ -238,7 +238,7 @@ handle_call({add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, _From, 
             {reply, {error, Error}, State}
     end;
 handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
-    Address = libp2p_swarm:address(Swarm),
+    Address = libp2p_swarm:pubkey_bin(Swarm),
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
         {error, _}=Error ->
@@ -265,9 +265,9 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
                             spawn(fun() ->
                                 SendResults = lists:map(
                                     fun(Peer) ->
-                                        PeerAddress = libp2p_peer:address(Peer),
-                                        P2PAddress = libp2p_crypto:address_to_p2p(PeerAddress),
-                                        lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:address_to_b58(Address)]),
+                                        PeerAddress = libp2p_peer:pubkey_bin(Peer),
+                                        P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(PeerAddress),
+                                        lager:info("Found ~p as owner for ~p", [P2PAddress, libp2p_crypto:bin_to_b58(Address)]),
                                         case libp2p_swarm:dial_framed_stream(Swarm,
                                                                              P2PAddress,
                                                                              ?LOC_ASSERTION_PROTOCOL,
@@ -328,7 +328,7 @@ handle_cast(synced_blocks, State) ->
     {noreply, State#state{sync_timer=Ref}};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
-    Address = libp2p_swarm:address(Swarm),
+    Address = libp2p_swarm:pubkey_bin(Swarm),
     case blockchain_ledger_v1:find_entry(Address, Ledger) of
         {error, _Reason} ->
             lager:error("could not get entry ~p", [_Reason]);
@@ -354,14 +354,14 @@ handle_cast({payment_txn, PrivKey, Address, Recipient, Amount, Fee}, #state{bloc
     end,
     {noreply, State};
 handle_cast({create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
-    Payer = libp2p_swarm:address(Swarm),
+    Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
     {noreply, State};
 handle_cast({redeem_htlc_txn, Address, Preimage, Fee}, #state{swarm=Swarm}=State) ->
-    Payee = libp2p_swarm:address(Swarm),
+    Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, Address, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
@@ -394,7 +394,7 @@ handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, s
                     ok;
                 true ->
                     case libp2p_swarm:dial_framed_stream(Swarm,
-                                                         libp2p_crypto:address_to_p2p(Sender),
+                                                         libp2p_crypto:pubkey_bin_to_p2p(Sender),
                                                          ?SYNC_PROTOCOL,
                                                          blockchain_sync_handler,
                                                          [N, Chain]) of
@@ -515,7 +515,7 @@ do_send(_Swarm, [], _DataToSend, _Protocol, _Module, _Args, _Retry) ->
     ok;
 do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry) ->
     RandomConsensusAddress = lists:nth(rand:uniform(length(Addresses)), Addresses),
-    P2PAddress = libp2p_crypto:address_to_p2p(RandomConsensusAddress),
+    P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomConsensusAddress),
     case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, Protocol, Module, Args) of
         {ok, Stream} ->
             lager:info("dialed peer ~p via ~p~n", [RandomConsensusAddress, Protocol]),

@@ -152,7 +152,7 @@ peer_addr_usage() ->
     ].
 
 peer_addr(_CmdBase, [], []) ->
-    Text = clique_status:text(libp2p_crypto:address_to_p2p(blockchain_swarm:address())),
+    Text = clique_status:text(libp2p_crypto:pubkey_bin_to_p2p(blockchain_swarm:address())),
     [Text].
 
 
@@ -276,7 +276,7 @@ peer_book_usage() ->
 peer_book(["peer", "book", Addr], [], []) ->
     Swarm = blockchain_swarm:swarm(),
     PeerBook = libp2p_swarm:peerbook(Swarm),
-    {ok, Peer} = libp2p_peerbook:get(PeerBook, libp2p_crypto:p2p_to_address(Addr)),
+    {ok, Peer} = libp2p_peerbook:get(PeerBook, libp2p_crypto:p2p_to_pubkey_bin(Addr)),
     [format_peers([Peer]),
      format_listen_addrs(Swarm, libp2p_peer:listen_addrs(Peer)),
      format_peer_connections(Peer)];
@@ -329,7 +329,7 @@ format_peers(Peers) ->
             NatType = libp2p_peer:nat_type(Peer),
             Timestamp = libp2p_peer:timestamp(Peer),
 
-            [{address, libp2p_crypto:address_to_p2p(libp2p_peer:address(Peer))},
+            [{address, libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))},
              {listen_addrs, io_lib:format("~p", [length(ListenAddrs)])},
              {connections, io_lib:format("~p", [length(ConnectedTo)])},
              {nat, io_lib:format("~s", [NatType])},
@@ -340,6 +340,6 @@ format_peers(Peers) ->
     clique_status:table(lists:map(FormatPeer, Peers)).
 
 format_peer_connections(Peer) ->
-    Connections = [[{connections, libp2p_crypto:address_to_p2p(P)}]
+    Connections = [[{connections, libp2p_crypto:pubkey_bin_to_p2p(P)}]
                    || P <- libp2p_peer:connected_peers(Peer)],
     clique_status:table(Connections).

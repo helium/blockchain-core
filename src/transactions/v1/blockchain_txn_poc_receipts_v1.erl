@@ -91,7 +91,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts()) -> boolean().
 is_valid(Txn=#txn_poc_receipts_v1{challenger=Challenger, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Challenger),
+    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
     libp2p_crypto:verify(BinTxn, Signature, PubKey).
 
@@ -187,8 +187,10 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Challenger = libp2p_crypto:pubkey_to_address(PubKey),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
+    Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new([], Challenger, <<"secret">>),
     Tx1 = sign(Tx0, SigFun),

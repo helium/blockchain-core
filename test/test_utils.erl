@@ -15,7 +15,9 @@
 ]).
 
 init(BaseDir) ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Opts = [
         {key, {PubKey, SigFun}}
@@ -56,9 +58,11 @@ init_chain(Balance, {PrivKey, PubKey}) ->
 generate_keys(N) ->
     lists:foldl(
         fun(_, Acc) ->
-            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            Keys = libp2p_crypto:generate_keys(ed25519),
+            PrivKey = maps:get(secret, Keys),
+            PubKey = maps:get(public, Keys),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_address(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end
         ,[]
         ,lists:seq(1, N)

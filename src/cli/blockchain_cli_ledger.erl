@@ -89,7 +89,7 @@ ledger_pay_usage() ->
     ].
 
 ledger_pay(["ledger", "pay", Addr, Amount, F], [], []) ->
-    case (catch {libp2p_crypto:b58_to_address(Addr),
+    case (catch {libp2p_crypto:b58_to_bin(Addr),
                  list_to_integer(Amount), list_to_integer(F)}) of
         {'EXIT', _} ->
             usage;
@@ -142,13 +142,13 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
         {'EXIT', _Reason} ->
             usage;
         ok ->
-            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:address_to_b58(?B58_HTLC_VER, Address)]),
+            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:bin_to_b58(?B58_HTLC_VER, Address)]),
             [clique_status:text(Text)];
         _ -> usage
     end.
 
 ledger_create_htlc_helper(Flags, Address) ->
-    Payee = libp2p_crypto:b58_to_address(clean(proplists:get_value(payee, Flags))),
+    Payee = libp2p_crypto:b58_to_bin(clean(proplists:get_value(payee, Flags))),
     Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
     Hashlock = blockchain_util:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
@@ -192,7 +192,7 @@ ledger_redeem_htlc(_CmdBase, _Keys, Flags) ->
     end.
 
 ledger_redeem_htlc_helper(Flags) ->
-    Address = libp2p_crypto:b58_to_address(clean(proplists:get_value(address, Flags))),
+    Address = libp2p_crypto:b58_to_bin(clean(proplists:get_value(address, Flags))),
     Preimage = list_to_binary(clean(proplists:get_value(preimage, Flags))),
     Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
     blockchain_worker:redeem_htlc_txn(Address, Preimage, Fee).
@@ -241,7 +241,7 @@ ledger_add_gateway(_CmdBase, _, Flags) ->
     end.
 
 ledger_add_gateway_helper(Flags) ->
-    OwnerAddress = libp2p_crypto:b58_to_address(clean(proplists:get_value(owner, Flags))),
+    OwnerAddress = libp2p_crypto:b58_to_bin(clean(proplists:get_value(owner, Flags))),
     AuthAddress = clean(proplists:get_value(address, Flags)),
     AuthToken = clean(proplists:get_value(token, Flags)),
     blockchain_worker:add_gateway_request(OwnerAddress, AuthAddress, AuthToken).
@@ -275,7 +275,7 @@ ledger_balance_usage() ->
 
 ledger_balance(["ledger", "balance", Str], [], []) ->
     Ledger = get_ledger(),
-    case (catch libp2p_crypto:b58_to_address(Str)) of
+    case (catch libp2p_crypto:b58_to_bin(Str)) of
         {'EXIT', _} -> usage;
         Addr ->
             R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, Ledger)})],
@@ -301,17 +301,17 @@ ledger_balance(_CmdBase, [], [{all, _}]) ->
 
 -spec format_ledger_balance({libp2p_crypto:address(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
 format_ledger_balance({Addr, {ok, Entry}}) ->
-    [{p2p, libp2p_crypto:address_to_p2p(Addr)},
+    [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},
      {balance, integer_to_list(blockchain_ledger_entry_v1:balance(Entry))}
     ];
 format_ledger_balance({Addr, _}) ->
-    [{p2p, libp2p_crypto:address_to_p2p(Addr)}].
+    [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)}].
 
 format_htlc_balance({Addr, HTLC}) ->
-    [{address, libp2p_crypto:address_to_b58(?B58_HTLC_VER, Addr)},
-     {payer, libp2p_crypto:address_to_p2p(blockchain_ledger_htlc_v1:payer(HTLC))},
-     {payee, libp2p_crypto:address_to_p2p(blockchain_ledger_htlc_v1:payee(HTLC))},
+    [{address, libp2p_crypto:bin_to_b58(?B58_HTLC_VER, Addr)},
+     {payer, libp2p_crypto:pubkey_bin_to_p2p(blockchain_ledger_htlc_v1:payer(HTLC))},
+     {payee, libp2p_crypto:pubkey_bin_to_p2p(blockchain_ledger_htlc_v1:payee(HTLC))},
      {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_htlc_v1:hashlock(HTLC))},
      {timelock, integer_to_list(blockchain_ledger_htlc_v1:timelock(HTLC))},
      {amount, integer_to_list(blockchain_ledger_htlc_v1:balance(HTLC))}
@@ -374,7 +374,7 @@ ledger_gateways(_CmdBase, [], []) ->
     [clique_status:table(R)].
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
-    [{gateway_address, libp2p_crypto:address_to_p2p(GatewayAddr)} |
+    [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)} |
      blockchain_ledger_gateway_v1:print(Gateway)].
 
 %%--------------------------------------------------------------------
@@ -393,7 +393,7 @@ ledger_assert_loc_request_usage() ->
     ].
 
 ledger_assert_loc_request(["ledger", "assert_loc_request", Addr, Location], [], []) ->
-    case (catch libp2p_crypto:b58_to_address(Addr)) of
+    case (catch libp2p_crypto:b58_to_bin(Addr)) of
         {'EXIT', _Reason} ->
             usage;
         Owner when is_binary(Owner) ->

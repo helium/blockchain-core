@@ -252,7 +252,9 @@ gateway_signature_test() ->
     ?assertEqual(<<>>, gateway_signature(Tx)).
 
 sign_request_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     Tx0 = new(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
@@ -260,7 +262,9 @@ sign_request_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     Tx0 = new(),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),

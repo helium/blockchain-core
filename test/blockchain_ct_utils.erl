@@ -180,7 +180,9 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
-                                {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+                                Keys = libp2p_crypto:generate_keys(ed25519),
+                                PrivKey = maps:get(secret, Keys),
+                                PubKey = maps:get(public, Keys),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)},
                                 BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
@@ -227,7 +229,7 @@ init_per_testcase(TestCase, Config) ->
                           ?assertNotEqual(0, length(ConnectedAddrs)),
                           ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup: ~p~nConnectedAddrs: ~p", [Node,
                                                                                                                          Addr,
-                                                                                                                         libp2p_crypto:address_to_p2p(Addr),
+                                                                                                                         libp2p_crypto:pubkey_bin_to_p2p(Addr),
                                                                                                                          Sessions,
                                                                                                                          GossipGroup,
                                                                                                                          ConnectedAddrs

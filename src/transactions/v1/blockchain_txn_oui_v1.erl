@@ -101,7 +101,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_oui()) -> boolean().
 is_valid(Txn=#txn_oui_v1{owner=Owner, signature=Signature}) ->
-    PubKey = libp2p_crypto:address_to_pubkey(Owner),
+    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
     libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_oui_v1{signature = <<>>}), Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -167,7 +167,9 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     Tx0 = new(<<"0">>, 1, <<"owner">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
@@ -175,14 +177,17 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_oui_v1{signature = <<>>}), Sig1, PubKey)).
 
 is_valid_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
-    Owner1 = libp2p_crypto:pubkey_to_address(PubKey),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
+    Owner1 = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(<<"0">>, 1, Owner1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
-    {_, PubKey2} = libp2p_crypto:generate_keys(),
-    Owner2 = libp2p_crypto:pubkey_to_address(PubKey2),
+    Keys2 = libp2p_crypto:generate_keys(ed25519),
+    PubKey2 = maps:get(public, Keys2),
+    Owner2 = libp2p_crypto:pubkey_to_bin(PubKey2),
     Tx2 = new(<<"0">>, 1, Owner2),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).

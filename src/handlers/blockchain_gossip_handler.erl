@@ -23,7 +23,7 @@ init_gossip_data([Swarm, _N, Blockchain]) ->
     lager:info("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:info("gossiping block to peers on init"),
-    Address = libp2p_swarm:address(Swarm),
+    Address = libp2p_swarm:pubkey_bin(Swarm),
     {send, term_to_binary({block, Address, Block})};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
@@ -52,7 +52,7 @@ add_block(Swarm, Block, Chain, N, Sender) ->
             ok;
         {error, disjoint_chain} ->
             lager:warning("gossipped block doesn't fit with our chain"),
-            P2PAddress = libp2p_crypto:address_to_p2p(Sender),
+            P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Sender),
             lager:info("syncing with the sender ~p", [P2PAddress]),
             case libp2p_swarm:dial_framed_stream(Swarm,
                                                  P2PAddress,

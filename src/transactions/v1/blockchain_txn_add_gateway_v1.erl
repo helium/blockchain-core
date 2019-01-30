@@ -118,7 +118,7 @@ is_valid_gateway(#txn_add_gateway_v1{gateway_address=Address,
                                      gateway_signature=Signature}=Txn) ->
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
                                                           gateway_signature= <<>>}),
-    PubKey = libp2p_crypto:address_to_pubkey(Address),
+    PubKey = libp2p_crypto:bin_to_pubkey(Address),
     libp2p_crypto:verify(BinTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -130,7 +130,7 @@ is_valid_owner(#txn_add_gateway_v1{owner_address=Address,
                                    owner_signature=Signature}=Txn) ->
     BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
                                                           gateway_signature= <<>>}),
-    PubKey = libp2p_crypto:address_to_pubkey(Address),
+    PubKey = libp2p_crypto:bin_to_pubkey(Address),
     libp2p_crypto:verify(BinTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
@@ -203,7 +203,9 @@ gateway_signature_test() ->
     ?assertEqual(<<>>, gateway_signature(Tx)).
 
 sign_request_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
@@ -211,7 +213,9 @@ sign_request_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
 
 sign_test() ->
-    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+    Keys = libp2p_crypto:generate_keys(ed25519),
+    PrivKey = maps:get(secret, Keys),
+    PubKey = maps:get(public, Keys),
     Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
