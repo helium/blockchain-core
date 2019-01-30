@@ -74,7 +74,7 @@ handle_call(_, _, State) ->
 
 handle_info({process, ConsensusAddrs}, State=#state{txn_queue=TxnQueue}) ->
     lager:info("blockchain_txn_manager, process TxnQueue: ~p", [TxnQueue]),
-    F = (length(ConsensusAddrs) - 1) div 3,
+    %% F = (length(ConsensusAddrs) - 1) div 3,
     Swarm = blockchain_swarm:swarm(),
     RandomAddr = lists:nth(rand:uniform(length(ConsensusAddrs)), ConsensusAddrs),
     P2PAddress = libp2p_crypto:address_to_p2p(RandomAddr),
@@ -91,7 +91,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=TxnQueue}) ->
                                                                          [{Txn, Callback, Queue} | Acc];
                                                                      _ ->
                                                                          lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p", [Txn, Stream]),
-                                                                         case queue:len(Queue) > F of
+                                                                         case queue:len(Queue) == length(ConsensusAddrs) of
                                                                              true ->
                                                                                  lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member", [Txn]),
                                                                                  Callback(ok),
