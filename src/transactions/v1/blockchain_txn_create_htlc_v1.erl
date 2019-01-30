@@ -32,9 +32,9 @@
 -endif.
 
 -record(txn_create_htlc_v1, {
-    payer :: libp2p_crypto:address(),
-    payee :: libp2p_crypto:address(),
-    address :: libp2p_crypto:address(),
+    payer :: libp2p_crypto:pubkey_bin(),
+    payee :: libp2p_crypto:pubkey_bin(),
+    address :: libp2p_crypto:pubkey_bin(),
     hashlock :: binary(),
     timelock :: integer(),
     amount :: integer(),
@@ -49,7 +49,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), libp2p_crypto:address(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
 new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
     #txn_create_htlc_v1{
         payer=Payer,
@@ -75,7 +75,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(txn_create_htlc()) -> libp2p_crypto:address().
+-spec payer(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#txn_create_htlc_v1.payer.
 
@@ -83,7 +83,7 @@ payer(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_create_htlc()) -> libp2p_crypto:address().
+-spec payee(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_create_htlc_v1.payee.
 
@@ -91,7 +91,7 @@ payee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(txn_create_htlc()) -> libp2p_crypto:address().
+-spec address(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#txn_create_htlc_v1.address.
 

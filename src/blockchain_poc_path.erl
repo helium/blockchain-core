@@ -177,7 +177,7 @@ edge_weight(Gw1, Gw2) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec target(Hash :: binary(),
-             Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:address(), map()}.
+             Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:pubkey_bin(), map()}.
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
     Probs = create_probs(ActiveGateways),

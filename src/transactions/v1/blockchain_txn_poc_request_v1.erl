@@ -22,7 +22,7 @@
 -endif.
 
 -record(txn_poc_request_v1, {
-    gateway_address :: libp2p_crypto:address(),
+    gateway_address :: libp2p_crypto:pubkey_bin(),
     hash :: binary(),
     signature :: binary(),
     fee = 0 :: non_neg_integer()
@@ -35,7 +35,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), binary()) -> txn_poc_request().
+-spec new(libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_request().
 new(Address, Hash) ->
     #txn_poc_request_v1{
         gateway_address=Address,
@@ -47,7 +47,7 @@ new(Address, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_poc_request()) -> libp2p_crypto:address().
+-spec gateway_address(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
 gateway_address(Txn) ->
     Txn#txn_poc_request_v1.gateway_address.
 

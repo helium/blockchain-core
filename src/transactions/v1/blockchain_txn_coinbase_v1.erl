@@ -21,7 +21,7 @@
 -endif.
 
 -record(txn_coinbase_v1, {
-    payee :: libp2p_crypto:address(),
+    payee :: libp2p_crypto:pubkey_bin(),
     amount :: integer()
 }).
 
@@ -32,7 +32,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), integer()) -> txn_coinbase().
+-spec new(libp2p_crypto:pubkey_bin(), integer()) -> txn_coinbase().
 new(Payee, Amount) ->
     #txn_coinbase_v1{payee=Payee, amount=Amount}.
 
@@ -48,7 +48,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_coinbase()) -> libp2p_crypto:address().
+-spec payee(txn_coinbase()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_coinbase_v1.payee.
 %%--------------------------------------------------------------------

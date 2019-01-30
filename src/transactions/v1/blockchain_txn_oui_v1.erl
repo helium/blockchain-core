@@ -27,7 +27,7 @@
 -record(txn_oui_v1, {
     oui :: binary(),
     fee :: non_neg_integer(),
-    owner :: libp2p_crypto:address(),
+    owner :: libp2p_crypto:pubkey_bin(),
     signature :: binary()
 }).
 
@@ -38,7 +38,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(binary(), non_neg_integer(), libp2p_crypto:address()) -> txn_oui().
+-spec new(binary(), non_neg_integer(), libp2p_crypto:pubkey_bin()) -> txn_oui().
 new(OUI, Fee, Owner) ->
     #txn_oui_v1{
         oui=OUI,
@@ -74,7 +74,7 @@ fee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner(txn_oui()) -> libp2p_crypto:address().
+-spec owner(txn_oui()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#txn_oui_v1.owner.
 

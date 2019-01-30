@@ -27,8 +27,8 @@
 -endif.
 
 -record(txn_payment_v1, {
-    payer :: libp2p_crypto:address(),
-    payee :: libp2p_crypto:address(),
+    payer :: libp2p_crypto:pubkey_bin(),
+    payee :: libp2p_crypto:pubkey_bin(),
     amount :: integer(),
     fee :: integer(),
     nonce :: non_neg_integer(),
@@ -42,7 +42,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), pos_integer(),
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
           non_neg_integer(), non_neg_integer()) -> txn_payment().
 new(Payer, Recipient, Amount, Fee, Nonce) ->
     #txn_payment_v1{
@@ -67,14 +67,14 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(txn_payment()) -> libp2p_crypto:address().
+-spec payer(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#txn_payment_v1.payer.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_payment()) -> libp2p_crypto:address().
+-spec payee(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_payment_v1.payee.
 %%--------------------------------------------------------------------

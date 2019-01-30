@@ -22,7 +22,7 @@
 
 -record(txn_poc_receipts_v1, {
     receipts :: blockchain_poc_receipt_v1:poc_receipts(),
-    challenger :: libp2p_crypto:address(),
+    challenger :: libp2p_crypto:pubkey_bin(),
     secret :: binary(),
     signature :: binary()
 }).
@@ -35,7 +35,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:address(), binary()) -> txn_poc_receipts().
+-spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_receipts().
 new(Receipts, Challenger, Secret) ->
     #txn_poc_receipts_v1{
         receipts=Receipts,
@@ -56,7 +56,7 @@ receipts(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec challenger(txn_poc_receipts()) -> libp2p_crypto:address().
+-spec challenger(txn_poc_receipts()) -> libp2p_crypto:pubkey_bin().
 challenger(Txn) ->
     Txn#txn_poc_receipts_v1.challenger.
 

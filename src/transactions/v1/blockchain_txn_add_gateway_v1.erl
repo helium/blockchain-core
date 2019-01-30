@@ -27,8 +27,8 @@
 -endif.
 
 -record(txn_add_gateway_v1, {
-    owner_address :: libp2p_crypto:address(),
-    gateway_address :: libp2p_crypto:address(),
+    owner_address :: libp2p_crypto:pubkey_bin(),
+    gateway_address :: libp2p_crypto:pubkey_bin(),
     owner_signature = <<>> :: binary(),
     gateway_signature = <<>> :: binary()
 }).
@@ -40,7 +40,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address()) -> txn_add_gateway().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
 new(OwnerAddress, GatewayAddress) ->
     #txn_add_gateway_v1{
         owner_address=OwnerAddress,
@@ -62,14 +62,14 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(txn_add_gateway()) -> libp2p_crypto:address().
+-spec owner_address(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Txn) ->
     Txn#txn_add_gateway_v1.owner_address.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_add_gateway()) -> libp2p_crypto:address().
+-spec gateway_address(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
 gateway_address(Txn) ->
     Txn#txn_add_gateway_v1.gateway_address.
 %%--------------------------------------------------------------------

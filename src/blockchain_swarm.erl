@@ -46,7 +46,7 @@ start_link(Args) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec pubkey_bin() -> libp2p_crypto:address().
+-spec pubkey_bin() -> libp2p_crypto:pubkey_bin().
 pubkey_bin() ->
     gen_server:call(?MODULE, pubkey_bin).
 

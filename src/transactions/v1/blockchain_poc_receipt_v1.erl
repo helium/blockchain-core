@@ -21,7 +21,7 @@
 -endif.
 
 -record(poc_receipt_v1, {
-    address :: libp2p_crypto:address(),
+    address :: libp2p_crypto:pubkey_bin(),
     timestamp :: non_neg_integer(),
     hash :: binary(),
     signature :: binary()
@@ -36,7 +36,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(Address :: libp2p_crypto:address(),
+-spec new(Address :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
           Hash :: binary()) -> poc_receipt().
 new(Address, Timestamp, Hash) ->
@@ -50,7 +50,7 @@ new(Address, Timestamp, Hash) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(Receipt :: poc_receipt()) -> libp2p_crypto:address().
+-spec address(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
 address(Receipt) ->
     Receipt#poc_receipt_v1.address.
 
@@ -58,7 +58,7 @@ address(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec timestamp(Receipt :: poc_receipt()) -> libp2p_crypto:address().
+-spec timestamp(Receipt :: poc_receipt()) -> non_neg_integer().
 timestamp(Receipt) ->
     Receipt#poc_receipt_v1.timestamp.
 

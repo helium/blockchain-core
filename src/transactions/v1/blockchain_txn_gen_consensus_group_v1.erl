@@ -20,7 +20,7 @@
 -endif.
 
 -record(txn_genesis_consensus_group_v1, {
-    members = [] :: [libp2p_crypto:address()]
+    members = [] :: [libp2p_crypto:pubkey_bin()]
 }).
 
 -type txn_genesis_consensus_group() :: #txn_genesis_consensus_group_v1{}.
@@ -30,7 +30,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new([libp2p_crypto:address()]) -> txn_genesis_consensus_group().
+-spec new([libp2p_crypto:pubkey_bin()]) -> txn_genesis_consensus_group().
 new(Members) ->
     #txn_genesis_consensus_group_v1{members=Members}.
 
@@ -46,7 +46,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec members(txn_genesis_consensus_group()) -> [libp2p_crypto:address()].
+-spec members(txn_genesis_consensus_group()) -> [libp2p_crypto:pubkey_bin()].
 members(Txn) ->
     Txn#txn_genesis_consensus_group_v1.members.
 

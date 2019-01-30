@@ -26,8 +26,8 @@
 -endif.
 
 -record(txn_redeem_htlc_v1, {
-    payee :: libp2p_crypto:address(),
-    address :: libp2p_crypto:address(),
+    payee :: libp2p_crypto:pubkey_bin(),
+    address :: libp2p_crypto:pubkey_bin(),
     preimage :: undefined | binary(),
     fee :: non_neg_integer(),
     signature :: binary()
@@ -40,7 +40,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:address(), libp2p_crypto:address(), binary(), non_neg_integer()) -> txn_redeem_htlc().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage, Fee) ->
     #txn_redeem_htlc_v1{
         payee=Payee,
@@ -63,7 +63,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_redeem_htlc()) -> libp2p_crypto:address().
+-spec payee(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#txn_redeem_htlc_v1.payee.
 
@@ -71,7 +71,7 @@ payee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(txn_redeem_htlc()) -> libp2p_crypto:address().
+-spec address(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#txn_redeem_htlc_v1.address.
 

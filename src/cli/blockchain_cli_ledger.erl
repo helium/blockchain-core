@@ -299,7 +299,7 @@ ledger_balance(_CmdBase, [], [{all, _}]) ->
     R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
     [clique_status:table(R)].
 
--spec format_ledger_balance({libp2p_crypto:address(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
+-spec format_ledger_balance({libp2p_crypto:pubkey_bin(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
 format_ledger_balance({Addr, {ok, Entry}}) ->
     [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},

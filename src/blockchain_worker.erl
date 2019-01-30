@@ -80,7 +80,7 @@ num_consensus_members() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_addrs() -> {ok, [libp2p_crypto:address()]} | {error, any()}.
+-spec consensus_addrs() -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs, infinity).
 
@@ -104,7 +104,7 @@ synced_blocks() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec spend(libp2p_crypto:address(), pos_integer(), non_neg_integer()) -> ok.
+-spec spend(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer()) -> ok.
 spend(Recipient, Amount, Fee) ->
     gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee}).
 
@@ -112,7 +112,7 @@ spend(Recipient, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer()) -> ok.
+-spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
 payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
     gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount, Fee}).
 
@@ -120,7 +120,7 @@ payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_htlc_txn(libp2p_crypto:address(), libp2p_crypto:address(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
+-spec create_htlc_txn(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
 create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) ->
     gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}).
 
@@ -128,7 +128,7 @@ create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec redeem_htlc_txn(libp2p_crypto:address(), binary(), non_neg_integer()) -> ok.
+-spec redeem_htlc_txn(libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> ok.
 redeem_htlc_txn(Address, Preimage, Fee) ->
     gen_server:cast(?SERVER, {redeem_htlc_txn, Address, Preimage, Fee}).
 
@@ -144,7 +144,7 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_request(Owner::libp2p_crypto:address(), AuthAddress::string(), AuthToken::string())
+-spec add_gateway_request(Owner::libp2p_crypto:pubkey_bin(), AuthAddress::string(), AuthToken::string())
                          -> ok | {error, any()}.
 add_gateway_request(OwnerAddress, AuthAddress, AuthToken) ->
     gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, infinity).
@@ -161,7 +161,7 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_location_request(libp2p_crypto:address(), integer()) -> ok | {error, any()}.
+-spec assert_location_request(libp2p_crypto:pubkey_bin(), integer()) -> ok | {error, any()}.
 assert_location_request(OwnerAddress, Location) ->
     gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}, infinity).
 
@@ -177,7 +177,7 @@ assert_location_txn(AssertLocRequest) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec peer_height(integer(), blockchain_block:hash(), libp2p_crypto:address()) -> ok.
+-spec peer_height(integer(), blockchain_block:hash(), libp2p_crypto:pubkey_bin()) -> ok.
 peer_height(Height, Head, Sender) ->
     gen_server:cast(?SERVER, {peer_height, Height, Head, Sender}).
 

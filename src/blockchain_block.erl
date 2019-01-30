@@ -166,8 +166,8 @@ hash_block(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec verify_signature(binary() | block(), [libp2p_crypto:address()], binary(), pos_integer()) ->
-    false | {true, [{libp2p_crypto:address(), binary()}]}.
+-spec verify_signature(binary() | block(), [libp2p_crypto:pubkey_bin()], binary(), pos_integer()) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 verify_signature(#block{}=Block, ConsensusMembers, BinSigs, Threshold) ->
     BinBlock = erlang:term_to_binary(?MODULE:remove_signature(Block)),
     verify_signature(BinBlock, ConsensusMembers, BinSigs, Threshold);
