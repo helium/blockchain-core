@@ -34,7 +34,7 @@
           txn_queue = [] :: txn_queue()
          }).
 
--type txn_queue() :: [{blockchain_transactions:transaction(), erlang:queue()}].
+-type txn_queue() :: [{blockchain_transactions:transaction(), fun(), erlang:queue()}].
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -72,11 +72,13 @@ handle_call(get_state, _from, State) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info({process, ConsensusAddrs}, State=#state{txn_queue=TxnQueue}) ->
+handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback, Queue0} | _Tail]=TxnQueue}) ->
     lager:info("blockchain_txn_manager, process TxnQueue: ~p", [TxnQueue]),
     %% F = (length(ConsensusAddrs) - 1) div 3,
     Swarm = blockchain_swarm:swarm(),
-    RandomAddr = lists:nth(rand:uniform(length(ConsensusAddrs)), ConsensusAddrs),
+    SuccesfulDialAddrs = queue:to_list(Queue0),
+    AddrsToSearch = ConsensusAddrs -- SuccesfulDialAddrs,
+    RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
     P2PAddress = libp2p_crypto:address_to_p2p(RandomAddr),
     NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
                    {ok, Stream} ->
