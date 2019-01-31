@@ -277,34 +277,58 @@ add_block(Block, Blockchain, Syncing) ->
                         true ->
                             lager:info("prev hash matches the gossiped block"),
                             Ledger = blockchain:ledger(Blockchain),
-                            case blockchain_ledger_v1:consensus_members(Ledger) of
-                                {error, _Reason}=Error ->
-                                    lager:error("could not get consensus_members ~p", [_Reason]),
-                                    Error;
-                                {ok, ConsensusAddrs} ->
-                                    N = length(ConsensusAddrs),
-                                    F = (N-1) div 3,
-                                    case blockchain_block:verify_signatures(Block,
-                                                                            ConsensusAddrs,
-                                                                            blockchain_block:signatures(Block),
-                                                                            N-F)
-                                    of
-                                        false ->
-                                            {error, failed_verify_signatures};
-                                        {true, _} ->
-                                            case blockchain_txn:absorb_and_commit(Block, Blockchain) of
-                                                ok ->
-                                                    ok = save_block(Block, Blockchain),
-                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing});
-                                                {error, Reason}=Error ->
-                                                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                                                    Error
-                                            end
-                                    end
+                            case verify_block_sig(Block, Ledger) of
+                                ok ->
+                                    case blockchain_txn:absorb_and_commit(Block, Blockchain) of
+                                        ok ->
+                                            ok = save_block(Block, Blockchain),
+                                            ok = blockchain_worker:notify({add_block, Hash, Syncing});
+                                        {error, Reason}=Error ->
+                                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                                            Error
+                                    end;
+                                VerifyError ->
+                                    VerifyError
                             end
                     end
             end
     end.
+
+verify_block_sig(Block, Ledger) ->
+    case blockchain_ledger_v1:consensus_members(Ledger) of
+        {error, _Reason}=Error ->
+            lager:error("could not get consensus_members ~p", [_Reason]),
+            Error;
+        {ok, ConsensusAddrs} ->
+            N = length(ConsensusAddrs),
+            F = (N - 1) div 3,
+            case blockchain_block:verify_signatures(Block,
+                                                   ConsensusAddrs,
+                                                   blockchain_block:signatures(Block),
+                                                   N - F)
+            of
+                {true, _} ->
+                    ok;
+                false ->
+                    %% one more try here, check whether we can validate with the new electors
+                    PrevHash = blockchain_block:prev_hash(Block),
+                    %% TODO: this needs to happen at a particular block height, rather than the
+                    %% current one.
+                    NewAddrs = blockchain_election:new_group(Ledger, PrevHash),
+                    case blockchain_block:verify_signatures(Block,
+                                                           lists:sublist(NewAddrs, N),
+                                                           blockchain_block:signatures(Block),
+                                                           N - F)
+                    of
+                        false ->
+                            {error, failed_verify_signature};
+                        {true, _} ->
+                            ok
+                    end
+            end
+    end.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
