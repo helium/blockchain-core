@@ -75,7 +75,7 @@ handle_call(_, _, State) ->
 
 handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback, Queue0} | _Tail]=TxnQueue}) ->
     lager:info("blockchain_txn_manager, process TxnQueue: ~p", [TxnQueue]),
-    %% F = (length(ConsensusAddrs) - 1) div 3,
+    F = (length(ConsensusAddrs) - 1) div 3,
     Swarm = blockchain_swarm:swarm(),
     SuccesfulDialAddrs = queue:to_list(Queue0),
     AddrsToSearch = ConsensusAddrs -- SuccesfulDialAddrs,
@@ -94,7 +94,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                                                                          [{Txn, Callback, Queue} | Acc];
                                                                      _ ->
                                                                          lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p", [Txn, Stream]),
-                                                                         case queue:len(Queue) + 1 == length(ConsensusAddrs) of
+                                                                         case queue:len(Queue) > F of
                                                                              true ->
                                                                                  lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member", [Txn]),
                                                                                  Callback(ok),
