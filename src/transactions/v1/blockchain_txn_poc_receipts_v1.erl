@@ -13,7 +13,8 @@
     sign/2,
     is_valid/1,
     is/1,
-    absorb/2
+    absorb/2,
+    create_secret_hash/2
 ]).
 
 -ifdef(TEST).
@@ -132,6 +133,7 @@ absorb(Txn, Ledger) ->
                                             ok;
                                             % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
                                             % ledger at time X. For now do nothing.
+                                            % Use create_secret_hash to verify receipts
 
                                             % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
                                             % lager:info("target: ~p", [Target]),
@@ -155,6 +157,25 @@ absorb(Txn, Ledger) ->
                 {error, _}=Error -> Error
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec create_secret_hash(binary(), non_neg_integer()) -> [binary()].
+create_secret_hash(Secret, X) when X > 0 ->
+    create_secret_hash(Secret, X, []).
+
+-spec create_secret_hash(binary(), non_neg_integer(), [binary()]) -> [binary()].
+create_secret_hash(_Secret, 0, Acc) ->
+    Acc;
+create_secret_hash(Secret, X, []) ->
+    Bin = crypto:hash(sha256, Secret),
+    <<Hash:4/binary, _/binary>> = Bin,
+    create_secret_hash(Bin, X-1, [Hash]);
+create_secret_hash(Secret, X, Acc) ->
+    <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
+    create_secret_hash(Secret, X-1, [Hash|Acc]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -198,5 +219,21 @@ sign_test() ->
 is_test() ->
     Tx = new([], <<"challenger">>, <<"secret">>),
     ?assert(is(Tx)).
+
+create_secret_hash_test() ->
+    Secret = crypto:strong_rand_bytes(8),
+    Members = create_secret_hash(Secret, 10),
+    ?assertEqual(10, erlang:length(Members)),
+
+    Members2 = create_secret_hash(Secret, 10),
+    ?assertEqual(10, erlang:length(Members2)),
+
+    lists:foreach(
+        fun(M) ->
+            ?assert(lists:member(M, Members2))
+        end,
+        Members
+    ),
+    ok.
 
 -endif.
