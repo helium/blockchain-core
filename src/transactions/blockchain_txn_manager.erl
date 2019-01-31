@@ -62,7 +62,7 @@ init(_Args) ->
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     self() ! {process, ConsensusAddrs},
     SortedTxnQueue = lists:sort(fun({TxnA, _, _}, {TxnB, _, _}) -> blockchain_transactions:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, queue:new()}]),
-    lager:info("blockchain_txn_manager, got Txn: ~p, SortedTxnQueue: ~", [Txn, SortedTxnQueue]),
+    lager:info("blockchain_txn_manager, got Txn: ~p, SortedTxnQueue: ~p", [Txn, SortedTxnQueue]),
     {noreply, State#state{txn_queue=SortedTxnQueue}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
