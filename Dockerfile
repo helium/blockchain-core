@@ -2,6 +2,7 @@ FROM erlang:21.0
 
 # Install deps
 WORKDIR /tmp
+ENV LD_LIBRARY_PATH /usr/local/lib
 RUN apt-get update
 RUN apt-get install -y flex bison libgmp-dev cmake
 RUN git clone -b stable https://github.com/jedisct1/libsodium.git
