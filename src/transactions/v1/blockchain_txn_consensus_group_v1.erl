@@ -10,10 +10,12 @@
 -include("pb/blockchain_txn_consensus_group_v1_pb.hrl").
 
 -export([
-    new/1,
+    new/4,
     hash/1,
     sign/2,
     members/1,
+    height/1,
+    tries/1,
     fee/1,
     is_valid/2,
     absorb/2
@@ -30,9 +32,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new([libp2p_crypto:pubkey_bin()]) -> txn_consensus_group().
-new(Members) ->
-    #blockchain_txn_consensus_group_v1_pb{members=Members}.
+-spec new([libp2p_crypto:pubkey_bin()], binary(), pos_integer(), non_neg_integer()) -> txn_consensus_group().
+new(_Members, _Proof, 0, _Tries) ->
+    error(blowupyay);
+new(Members, Proof, Height, Tries) ->
+    #blockchain_txn_consensus_group_v1_pb{members = Members,
+                                          proof = Proof,
+                                          height = Height,
+                                          tries = Tries}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -60,6 +67,12 @@ sign(Txn, _SigFun) ->
 members(Txn) ->
     Txn#blockchain_txn_consensus_group_v1_pb.members.
 
+height(Txn) ->
+    Txn#blockchain_txn_consensus_group_v1_pb.height.
+
+tries(Txn) ->
+    Txn#blockchain_txn_consensus_group_v1_pb.tries.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -72,19 +85,22 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+
 -spec is_valid(txn_consensus_group(), blockchain:blockchain()) -> ok.
 is_valid(Txn, Chain) ->
-    %% for now, we only allow this in the genesis block
-    %% until elections land
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
-            case ?MODULE:members(Txn) of
-                [] -> {error, no_members};
-                _ -> ok
-            end;
+    case ?MODULE:members(Txn) of
+        [] -> {error, no_members};
         _ ->
-            {error, not_in_genesis_block}
+            case blockchain_ledger_v1:election_height(Ledger) of
+                {error, not_found} ->
+                    ok;
+                {ok, Height} ->
+                    case ?MODULE:height(Txn) > Height of
+                        true -> ok;
+                        _ -> {error, {duplicate_group, ?MODULE:height(Txn), Height}}
+                    end
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -95,7 +111,9 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
-    blockchain_ledger_v1:consensus_members(Members, Ledger).
+    Height = ?MODULE:height(Txn),
+    blockchain_ledger_v1:consensus_members(Members, Ledger),
+    blockchain_ledger_v1:election_height(Height, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -103,11 +121,14 @@ absorb(Txn, Chain) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_consensus_group_v1_pb{members=[<<"1">>]},
-    ?assertEqual(Tx, new([<<"1">>])).
+    Tx = #blockchain_txn_consensus_group_v1_pb{members = [<<"1">>],
+                                               proof = <<"proof">>,
+                                               height = 1,
+                                               tries = 0},
+    ?assertEqual(Tx, new([<<"1">>], <<"proof">>, 1, 0)).
 
 members_test() ->
-    Tx = new([<<"1">>]),
+    Tx = new([<<"1">>], <<"proof">>, 1, 0),
     ?assertEqual([<<"1">>], members(Tx)).
 
 -endif.

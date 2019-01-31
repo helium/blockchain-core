@@ -278,11 +278,12 @@ add_block_(Block, Blockchain, Syncing) ->
                     Error;
                 {ok, HeadBlock} ->
                     HeadHash = blockchain_block:hash_block(HeadBlock),
+                    Height = blockchain_block:height(Block),
                     case blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         blockchain_block:height(Block) == blockchain_block:height(HeadBlock) + 1
+                         Height == blockchain_block:height(HeadBlock) + 1
                     of
                         false when HeadHash =:= Hash ->
-                            lager:info("Already have this block"),
+                            lager:debug("Already have this block"),
                             ok;
                         false ->
                             lager:warning("gossipped block doesn't fit with our chain,
@@ -290,7 +291,6 @@ add_block_(Block, Blockchain, Syncing) ->
                                                                                      blockchain_block:height(HeadBlock)]),
                             {error, disjoint_chain};
                         true ->
-                            lager:info("prev hash matches the gossiped block"),
                             Ledger = blockchain:ledger(Blockchain),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
@@ -309,6 +309,7 @@ add_block_(Block, Blockchain, Syncing) ->
                                         {true, _} ->
                                             case blockchain_txn:absorb_and_commit(Block, Blockchain) of
                                                 ok ->
+                                                    lager:info("adding block ~p", [Height]),
                                                     ok = save_block(Block, Blockchain),
                                                     ok = blockchain_worker:notify({add_block, Hash, Syncing});
                                                 {error, Reason}=Error ->
@@ -562,7 +563,10 @@ blocks_test() ->
                                       transactions => [],
                                       signatures => [],
                                       time => 1,
-                                      hbbft_round => 1}),
+                                      hbbft_round => 1,
+                                      election_epoch => 1,
+                                      epoch_start => 0
+                                     }),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
     Map = #{
@@ -604,7 +608,10 @@ get_block_test() ->
                                       transactions => [],
                                       signatures => [],
                                       time => 1,
-                                      hbbft_round => 1}),
+                                      hbbft_round => 1,
+                                      election_epoch => 1,
+                                      epoch_start => 0
+                                     }),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
     ?assertMatch({ok, Block}, get_block(Hash, Chain)),

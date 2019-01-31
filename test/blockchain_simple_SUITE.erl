@@ -169,7 +169,7 @@ reload_test(Config) ->
     % Create new genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
     GenDir = "data/test_SUITE/reload2",

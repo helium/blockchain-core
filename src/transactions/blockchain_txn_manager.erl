@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         submit/3,
+         submit/2, submit/3,
          txn_queue/0
         ]).
 
@@ -55,6 +55,10 @@
 start_link(Args) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
 
+-spec submit(Txn :: blockchain_txn:txn(), ConsensusAddrs :: pubkeys()) -> ok.
+submit(Txn, ConsensusAddrs) ->
+    submit(Txn, ConsensusAddrs, fun(_) -> ok end).
+
 -spec submit(Txn :: blockchain_txn:txn(), ConsensusAddrs :: pubkeys(), Callback :: fun()) -> ok.
 submit(Txn, ConsensusAddrs, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, ConsensusAddrs, Callback}).
@@ -69,6 +73,7 @@ txn_queue() ->
 init(_Args) ->
     ok = blockchain_event:add_handler(self()),
     Chain = blockchain_worker:blockchain(),
+    erlang:send_after(?TIMEOUT, self(), timeout),
     {ok, #state{chain=Chain}}.
 
 handle_cast({submit, Txn, _ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue, counter=Counter}) ->
@@ -83,18 +88,28 @@ handle_cast({submit, Txn, _ConsensusAddrs, Callback}, State=#state{txn_queue=Txn
         false ->
             ok
     end,
-    {noreply, State#state{txn_queue=SortedTxnQueue, counter=Counter+1}, ?TIMEOUT};
+    {noreply, State#state{txn_queue=SortedTxnQueue, counter=Counter+1}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
-    {noreply, State, ?TIMEOUT}.
+    {noreply, State}.
 
 handle_call(txn_queue, _From, State=#state{txn_queue=TxnQueue}) ->
-    {reply, TxnQueue, State, ?TIMEOUT};
+    {reply, TxnQueue, State};
 handle_call(_, _, State) ->
-    {reply, ok, State, ?TIMEOUT}.
+    {reply, ok, State}.
 
 %% handle_info(timeout, State=#state{txn_queue=[{_Txn, _Callback, _CallbackInfo, AcceptQueue0, _RejectQueue0} | _Tail]=TxnQueue, chain=Chain}) when Chain /= undefined ->
-handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain}) when Chain /= undefined ->
+handle_info(timeout, #state{chain = undefined} = State) ->
+    erlang:send_after(?TIMEOUT, self(), timeout),
+    lager:debug("timeout fired nochain"),
+    {noreply, State};
+handle_info(timeout, #state{txn_queue = []} = State) ->
+    erlang:send_after(?TIMEOUT, self(), timeout),
+    lager:debug("timeout fired notxns"),
+    {noreply, State};
+handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain}) ->
+    erlang:send_after(?TIMEOUT, self(), timeout),
+    lager:debug("timeout fired"),
     Ledger = blockchain:ledger(Chain),
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
     F = (length(ConsensusAddrs) - 1) div 3,
@@ -149,10 +164,9 @@ handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain
                        State#state{txn_queue=lists:reverse(NewTxnQueue)};
                    _Other ->
                        %% try to dial someone else ASAR
-                       erlang:send_after(?TIMEOUT, self(), timeout),
                        State
                end,
-    {noreply, NewState, ?TIMEOUT};
+    {noreply, NewState};
 handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0, txn_queue=TxnQueue}) ->
     Chain = case Chain0 of
                 undefined ->
@@ -184,13 +198,13 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
                                               end
                                       end, [], TxnQueue),
 
-            {noreply, State#state{txn_queue=lists:reverse(NewTxnQueue), chain=Chain}, ?TIMEOUT};
+            {noreply, State#state{txn_queue=lists:reverse(NewTxnQueue), chain=Chain}};
         _ ->
             %% this should not happen
             error(missing_block)
     end;
 handle_info(_Msg, State) ->
-    {noreply, State, ?TIMEOUT}.
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.

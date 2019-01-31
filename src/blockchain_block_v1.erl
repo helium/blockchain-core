@@ -14,6 +14,7 @@
     transactions/1,
     signatures/1,
     time/1,
+    election_info/1,
     hbbft_round/1,
     set_signatures/2,
     new_genesis_block/1,
@@ -35,7 +36,9 @@
                        time => non_neg_integer(),
                        hbbft_round => non_neg_integer(),
                        transactions => blockchain_txn:txns(),
-                       signatures => [blockchain_block:signature()]
+                       signatures => [blockchain_block:signature()],
+                       election_epoch => non_neg_integer(),
+                       epoch_start => non_neg_integer()
                       }.
 
 -export_type([block/0, block_map/0]).
@@ -50,14 +53,18 @@ new(#{prev_hash := PrevHash,
       time := Time,
       hbbft_round := HBBFTRound,
       transactions := Transactions,
-      signatures := Signatures}) ->
+      signatures := Signatures,
+      election_epoch := ElectionEpoch,
+      epoch_start := EpochStart}) ->
     #blockchain_block_v1_pb{
-       prev_hash=PrevHash,
-       height=Height,
-       transactions=[blockchain_txn:wrap_txn(T) || T <- Transactions],
-       signatures=[wrap_signature(S) || S <- Signatures],
-       time=Time,
-       hbbft_round=HBBFTRound
+       prev_hash = PrevHash,
+       height = Height,
+       transactions = [blockchain_txn:wrap_txn(T) || T <- Transactions],
+       signatures = [wrap_signature(S) || S <- Signatures],
+       time = Time,
+       hbbft_round=HBBFTRound,
+       election_epoch = ElectionEpoch,
+       epoch_start = EpochStart
     }.
 
 
@@ -84,6 +91,11 @@ height(Block) ->
 -spec time(block()) -> non_neg_integer().
 time(Block) ->
     Block#blockchain_block_v1_pb.time.
+
+-spec election_info(block()) -> {non_neg_integer(), non_neg_integer()}.
+election_info(Block) ->
+    {Block#blockchain_block_v1_pb.election_epoch,
+     Block#blockchain_block_v1_pb.epoch_start}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -129,7 +141,9 @@ new_genesis_block(Transactions) ->
                   time => 0,
                   transactions => Transactions,
                   signatures => [],
-                  hbbft_round => 0}).
+                  hbbft_round => 0,
+                  election_epoch => 1,
+                  epoch_start => 0}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -209,7 +223,9 @@ new_merge(Overrides) ->
              transactions => [],
              signatures => [],
              hbbft_round => 0,
-             time => 0
+             time => 0,
+             election_epoch => 0,
+             epoch_start => 0
            },
           Overrides)).
 

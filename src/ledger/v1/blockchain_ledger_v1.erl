@@ -15,6 +15,7 @@
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
+    election_height/1, election_height/2,
     active_gateways/1,
     entries/1,
     htlcs/1,
@@ -70,6 +71,7 @@
 -define(CURRENT_HEIGHT, <<"current_height">>).
 -define(TRANSACTION_FEE, <<"transaction_fee">>).
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
+-define(ELECTION_HEIGHT, <<"election_height">>).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -86,7 +88,7 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, 
+    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF,
      DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF] = CFs,
     #ledger_v1{
         dir=Dir,
@@ -263,6 +265,22 @@ consensus_members(Members, Ledger) ->
     Bin = erlang:term_to_binary(Members),
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
+
+election_height(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?ELECTION_HEIGHT, []) of
+        {ok, Bin} ->
+            {ok, erlang:binary_to_term(Bin)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+election_height(Height, Ledger) ->
+    Bin = erlang:term_to_binary(Height),
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?ELECTION_HEIGHT, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -994,7 +1012,7 @@ poc_test() ->
     Location = 123456789,
     Nonce = 1,
     Score = 0.1,
-   
+
     SecretHash = <<"secret_hash">>,
 
     ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),
