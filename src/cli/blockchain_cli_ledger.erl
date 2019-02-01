@@ -278,7 +278,8 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
     case (catch libp2p_crypto:b58_to_bin(Str)) of
         {'EXIT', _} -> usage;
         Addr ->
-            R = [format_ledger_balance({Addr, blockchain_ledger_v1:find_entry(Addr, Ledger)})],
+            {ok, Entry} = blockchain_ledger_v1:find_entry(Addr, Ledger),
+            R = [format_ledger_balance({Addr, Entry})],
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
@@ -300,7 +301,7 @@ ledger_balance(_CmdBase, [], [{all, _}]) ->
     R = [format_ledger_balance({A, E}) || {A, E} <- maps:to_list(Entries)],
     [clique_status:table(R)].
 
--spec format_ledger_balance({libp2p_crypto:pubkey_bin(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
+-spec format_ledger_balance({libp2p_crypto:pubkey_bin(), blockchain_ledger_entry_v1:entry() | {error, any()}}) -> list().
 format_ledger_balance({Addr, Entry}) ->
     [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},

@@ -55,7 +55,7 @@ handle_data(server, Data, State=#state{group=Group}) ->
     case binary_to_term(Data) of
         {TxnType, Txn} ->
             lager:info("Got ~p type transaction: ~p", [TxnType, Txn]),
-            case libp2p_group_relcast:handle_input(Group, Txn) of
+            case libp2p_group_relcast:handle_command(Group, Txn) of
                 ok ->
                     {noreply, State, <<"ok">>};
                 _ ->
