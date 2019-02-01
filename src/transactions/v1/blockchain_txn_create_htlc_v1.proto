@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+message txn_create_htlc_v1 {
+    bytes payer = 1;
+    bytes payee = 2;
+    bytes address = 3;
+    bytes hashlock = 4;
+    uint64 timelock = 5;
+    uint64 amount = 6;
+    uint64 fee = 7;
+    bytes signature = 8;
+}

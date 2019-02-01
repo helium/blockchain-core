@@ -20,21 +20,21 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_coinbase_v1, {
+-record(blockchain_txn_coinbase_v1_pb, {
     payee :: libp2p_crypto:pubkey_bin(),
     amount :: integer()
 }).
 
--type txn_coinbase() :: #txn_coinbase_v1{}.
+-type txn_coinbase() :: #blockchain_txn_coinbase_v1_pb{}.
 -export_type([txn_coinbase/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), integer()) -> txn_coinbase().
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_coinbase().
 new(Payee, Amount) ->
-    #txn_coinbase_v1{payee=Payee, amount=Amount}.
+    #blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -42,7 +42,8 @@ new(Payee, Amount) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_coinbase()) -> blockchain_txn:hash().
 hash(Txn) ->
-    crypto:hash(sha256, erlang:term_to_binary(Txn)).
+    EncodedTxn = blocchain_txn_coinbase_v1_pb:encode_msg(Txn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -50,14 +51,14 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec payee(txn_coinbase()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
-    Txn#txn_coinbase_v1.payee.
+    Txn#blockchain_txn_coinbase_v1_pb.payee.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_coinbase()) -> integer().
+-spec amount(txn_coinbase()) -> non_neg_integer().
 amount(Txn) ->
-    Txn#txn_coinbase_v1.amount.
+    Txn#blockchain_txn_coinbase_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -65,7 +66,7 @@ amount(Txn) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_coinbase_v1).
+    erlang:is_record(Txn, blockchain_txn_coinbase_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -97,7 +98,7 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_coinbase_v1{payee= <<"payee">>, amount=666},
+    Tx = #blockchain_txn_coinbase_v1_pb{payee= <<"payee">>, amount=666},
     ?assertEqual(Tx, new(<<"payee">>, 666)).
 
 payee_test() ->

@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+message txn_payment_v1 {
+    bytes payer = 1;
+    bytes payee = 2;
+    uint64 amount = 3;
+    uint64 fee = 4;
+    uint64 nonce = 5;
+    bytes signature = 6;
+}

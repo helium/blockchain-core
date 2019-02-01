@@ -22,8 +22,6 @@
     submit_txn/2,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
-    add_gateway_request/3,
-    add_gateway_txn/1,
     assert_location_request/2,
     assert_location_txn/1,
     peer_height/3,
@@ -158,23 +156,6 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_request(Owner::libp2p_crypto:pubkey_bin(), AuthPubkeyBin::string(), AuthToken::string())
-                         -> ok | {error, any()}.
-add_gateway_request(OwnerPubkeyBin, AuthPubkeyBin, AuthToken) ->
-    gen_server:call(?SERVER, {add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, infinity).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_gateway_txn(blockchain_txn_add_gateway:txn_add_gateway()) -> ok.
-add_gateway_txn(AddGatewayRequest) ->
-    gen_server:cast(?SERVER, {add_gateway_txn, AddGatewayRequest}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec assert_location_request(libp2p_crypto:pubkey_bin(), integer()) -> ok | {error, any()}.
 assert_location_request(OwnerPubkeyBin, Location) ->
     gen_server:call(?SERVER, {assert_location_request, OwnerPubkeyBin, Location}, infinity).
@@ -235,22 +216,6 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, _From, State=#state{swarm=Swarm}) ->
-    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, PubkeyBin),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
-    case libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
-                                         AuthPubkeyBin,
-                                         ?GW_REGISTRATION_PROTOCOL,
-                                         blockchain_gw_registration_handler,
-                                         [SignedAddGwTxn, AuthToken]) of
-        {ok, StreamPid} ->
-            erlang:unlink(StreamPid),
-            {reply, ok, State};
-        {error, Error} ->
-            {reply, {error, Error}, State}
-    end;
 handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
     PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
     Ledger = blockchain:ledger(Chain),
@@ -401,12 +366,7 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
 handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
     {noreply, State};
-handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
-    ok = send_txn(SignedAddGwTxn, Chain),
-    {noreply, State};
-handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
     ok = send_txn(SignedAssertLocTxn, Chain),

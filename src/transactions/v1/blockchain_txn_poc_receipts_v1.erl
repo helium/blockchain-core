@@ -4,6 +4,10 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_poc_receipts_v1).
 
+-behavior(blockchain_txn).
+
+-include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+
 -export([
     new/3,
     receipts/1,
@@ -11,6 +15,7 @@
     challenger/1,
     secret/1,
     sign/2,
+    hash/1,
     is_valid/1,
     is/1,
     absorb/2,
@@ -21,14 +26,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_poc_receipts_v1, {
-    receipts :: blockchain_poc_receipt_v1:poc_receipts(),
-    challenger :: libp2p_crypto:pubkey_bin(),
-    secret :: binary(),
-    signature :: binary()
-}).
-
--type txn_poc_receipts() :: #txn_poc_receipts_v1{}.
+-type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
 
 -export_type([txn_poc_receipts/0]).
 
@@ -38,7 +36,7 @@
 %%--------------------------------------------------------------------
 -spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_receipts().
 new(Receipts, Challenger, Secret) ->
-    #txn_poc_receipts_v1{
+    #blockchain_txn_poc_receipts_v1_pb{
         receipts=Receipts,
         challenger=Challenger,
         secret=Secret,
@@ -51,7 +49,7 @@ new(Receipts, Challenger, Secret) ->
 %%--------------------------------------------------------------------
 -spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt_v1:poc_receipts().
 receipts(Txn) ->
-    Txn#txn_poc_receipts_v1.receipts.
+    Txn#blockchain_txn_poc_receipts_v1_pb.receipts.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -59,7 +57,7 @@ receipts(Txn) ->
 %%--------------------------------------------------------------------
 -spec challenger(txn_poc_receipts()) -> libp2p_crypto:pubkey_bin().
 challenger(Txn) ->
-    Txn#txn_poc_receipts_v1.challenger.
+    Txn#blockchain_txn_poc_receipts_v1_pb.challenger.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -67,7 +65,7 @@ challenger(Txn) ->
 %%--------------------------------------------------------------------
 -spec secret(txn_poc_receipts()) -> binary().
 secret(Txn) ->
-    Txn#txn_poc_receipts_v1.secret.
+    Txn#blockchain_txn_poc_receipts_v1_pb.secret.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -75,7 +73,7 @@ secret(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_poc_receipts()) -> binary().
 signature(Txn) ->
-    Txn#txn_poc_receipts_v1.signature.
+    Txn#blockchain_txn_poc_receipts_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -83,18 +81,30 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_poc_receipts(), libp2p_crypto:sig_fun()) -> txn_poc_receipts().
 sign(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
-    Txn#txn_poc_receipts_v1{signature=SigFun(BinTxn)}.
+    BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_poc_receipts_v1_pb{signature=SigFun(EncodedTxn)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(txn_poc_receipts()) -> txn_poc_receipts().
+hash(Txn) ->
+    BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts()) -> boolean().
-is_valid(Txn=#txn_poc_receipts_v1{challenger=Challenger, signature=Signature}) ->
+is_valid(Txn=#blockchain_txn_poc_receipts_v1_pb{challenger=Challenger, signature=Signature}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
-    BinTxn = erlang:term_to_binary(Txn#txn_poc_receipts_v1{signature = <<>>}),
-    libp2p_crypto:verify(BinTxn, Signature, PubKey).
+    BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -102,7 +112,7 @@ is_valid(Txn=#txn_poc_receipts_v1{challenger=Challenger, signature=Signature}) -
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_poc_receipts_v1).
+    erlang:is_record(Txn, blockchain_txn_poc_receipts_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -110,7 +120,7 @@ is(Txn) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    case blockchain_txn_poc_receipts_v1:is_valid(Txn) of
+    case blockchain_blockchain_txn_poc_receipts_v1_pb:is_valid(Txn) of
         false ->
             {error, invalid_transaction};
         true ->
@@ -183,7 +193,7 @@ create_secret_hash(Secret, X, Acc) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_poc_receipts_v1{
+    Tx = #blockchain_txn_poc_receipts_v1_pb{
         receipts=[],
         challenger = <<"challenger">>,
         secret = <<"secret">>,
@@ -214,7 +224,8 @@ sign_test() ->
     Tx0 = new([], Challenger, <<"secret">>),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_poc_receipts_v1{signature = <<>>}), Sig, PubKey)).
+    EncodedTx1 = blockchain_txn_poc_receipts_v1_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v1_pb{signature = <<>>}),
+    ?assert(libp2p_crypto:verify(EncodedTx1, Sig, PubKey)).
 
 is_test() ->
     Tx = new([], <<"challenger">>, <<"secret">>),

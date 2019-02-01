@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+message txn_redeem_htlc_v1 {
+    bytes payee = 1;
+    bytes address = 2;
+    bytes preimage = 3;
+    uint64 fee = 4;
+    bytes signature = 5;
+}

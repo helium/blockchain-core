@@ -7,6 +7,8 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_gen_consensus_group_v1_pb.hrl").
+
 -export([
     new/1,
     hash/1,
@@ -19,11 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_genesis_consensus_group_v1, {
-    members = [] :: [libp2p_crypto:pubkey_bin()]
-}).
-
--type txn_genesis_consensus_group() :: #txn_genesis_consensus_group_v1{}.
+-type txn_genesis_consensus_group() :: #blockchain_txn_gen_consensus_group_v1_pb{}.
 -export_type([txn_genesis_consensus_group/0]).
 
 %%--------------------------------------------------------------------
@@ -32,7 +30,7 @@
 %%--------------------------------------------------------------------
 -spec new([libp2p_crypto:pubkey_bin()]) -> txn_genesis_consensus_group().
 new(Members) ->
-    #txn_genesis_consensus_group_v1{members=Members}.
+    #blockchain_txn_gen_consensus_group_v1_pb{members=Members}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -40,7 +38,8 @@ new(Members) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_genesis_consensus_group()) -> blockchain_txn:hash().
 hash(Txn) ->
-    crypto:hash(sha256, erlang:term_to_binary(Txn)).
+    EncodedTxn = blockchain_txn_gen_consensus_group_v1_pb:encode_msg(Txn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -48,7 +47,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec members(txn_genesis_consensus_group()) -> [libp2p_crypto:pubkey_bin()].
 members(Txn) ->
-    Txn#txn_genesis_consensus_group_v1.members.
+    Txn#blockchain_txn_gen_consensus_group_v1_pb.members.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,7 +55,7 @@ members(Txn) ->
 %%--------------------------------------------------------------------
 -spec is(blockchain_transactions:transaction()) -> boolean().
 is(Txn) ->
-    erlang:is_record(Txn, txn_genesis_consensus_group_v1).
+    erlang:is_record(Txn, blockchain_txn_gen_consensus_group_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -74,7 +73,7 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_genesis_consensus_group_v1{members=[<<"1">>]},
+    Tx = #blockchain_txn_gen_consensus_group_v1_pb{members=[<<"1">>]},
     ?assertEqual(Tx, new([<<"1">>])).
 
 members_test() ->

@@ -211,7 +211,7 @@ actor(Txn) ->
         blockchain_txn_poc_request_v1 ->
             blockchain_txn_poc_request_v1:gateway_address(Txn);
         blockchain_txn_add_gateway_v1 ->
-            blockchain_txn_add_gateway_v1:owner_address(Txn);
+            blockchain_txn_add_gateway_v1:owner(Txn);
         blockchain_txn_coinbase_v1 ->
             blockchain_txn_coinbase_v1:payee(Txn);
         blockchain_txn_poc_receipts_v1 ->
