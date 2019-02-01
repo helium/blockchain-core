@@ -257,7 +257,7 @@ ledger_balance_cmd() ->
               {longname, "htlc"}]},
         {all, [{shortname, "a"},
               {longname, "all"}]}
-      ], fun ledger_balance/3]   
+      ], fun ledger_balance/3]
     ].
 
 ledger_balance_usage() ->
@@ -287,16 +287,16 @@ ledger_balance(_CmdBase, [], []) ->
     R = [format_ledger_balance({PubkeyBin, blockchain_ledger_v1:find_entry(PubkeyBin, Ledger)})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
-    Balances = maps:filter(fun(K, _V) ->
+    HTLCs = maps:filter(fun(K, _V) ->
                                    is_binary(K)
                            end, blockchain_ledger_v1:htlcs(get_ledger())),
-    R = [format_htlc_balance(E) || E <- maps:to_list(Balances)],
+    R = [format_htlc_balance({A, H}) || {A, H} <- maps:to_list(HTLCs)],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{all, _}]) ->
-    Balances = maps:filter(fun(K, _V) ->
+    Entries = maps:filter(fun(K, _V) ->
                                    is_binary(K)
                            end, blockchain_ledger_v1:entries(get_ledger())),
-    R = [format_ledger_balance(E) || E <- maps:to_list(Balances)],
+    R = [format_ledger_balance({A, E}) || {A, E} <- maps:to_list(Entries)],
     [clique_status:table(R)].
 
 -spec format_ledger_balance({libp2p_crypto:pubkey_bin(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
@@ -304,9 +304,7 @@ format_ledger_balance({Addr, {ok, Entry}}) ->
     [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},
      {balance, integer_to_list(blockchain_ledger_entry_v1:balance(Entry))}
-    ];
-format_ledger_balance({Addr, _}) ->
-    [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)}].
+    ].
 
 format_htlc_balance({Addr, HTLC}) ->
     [{address, libp2p_crypto:bin_to_b58(?B58_HTLC_VER, Addr)},
