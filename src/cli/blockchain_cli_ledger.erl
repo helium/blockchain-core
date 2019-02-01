@@ -284,7 +284,8 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
 ledger_balance(_CmdBase, [], []) ->
     PubkeyBin = blockchain_swarm:pubkey_bin(),
     Ledger = get_ledger(),
-    R = [format_ledger_balance({PubkeyBin, blockchain_ledger_v1:find_entry(PubkeyBin, Ledger)})],
+    {ok, Entry} = blockchain_ledger_v1:find_entry(PubkeyBin, Ledger),
+    R = [format_ledger_balance({PubkeyBin, Entry})],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
     HTLCs = maps:filter(fun(K, _V) ->
@@ -300,7 +301,7 @@ ledger_balance(_CmdBase, [], [{all, _}]) ->
     [clique_status:table(R)].
 
 -spec format_ledger_balance({libp2p_crypto:pubkey_bin(), {ok, blockchain_ledger_entry_v1:entry()} | {error, any()}}) -> list().
-format_ledger_balance({Addr, {ok, Entry}}) ->
+format_ledger_balance({Addr, Entry}) ->
     [{p2p, libp2p_crypto:pubkey_bin_to_p2p(Addr)},
      {nonce, integer_to_list(blockchain_ledger_entry_v1:nonce(Entry))},
      {balance, integer_to_list(blockchain_ledger_entry_v1:balance(Entry))}
