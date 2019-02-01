@@ -61,7 +61,7 @@ init(_Args) ->
 
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     self() ! {process, ConsensusAddrs},
-    SortedTxnQueue = lists:sort(fun({TxnA, _, _}, {TxnB, _, _}) -> blockchain_transactions:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, queue:new()}]),
+    SortedTxnQueue = lists:sort(fun({TxnA, _, _}, {TxnB, _, _}) -> blockchain_transactions:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, [], []}]),
     lager:info("blockchain_txn_manager, got Txn: ~p, SortedTxnQueue: ~p, TxnQueueLen: ~p", [Txn, SortedTxnQueue, length(SortedTxnQueue)]),
     {noreply, State#state{txn_queue=SortedTxnQueue}};
 handle_cast(_Msg, State) ->
