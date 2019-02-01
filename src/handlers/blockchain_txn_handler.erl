@@ -57,11 +57,11 @@ handle_data(server, Data, State=#state{group=Group}) ->
             lager:info("Got ~p type transaction: ~p", [TxnType, Txn]),
             case libp2p_group_relcast:handle_input(Group, Txn) of
                 ok ->
-                    {reply, State, <<"ok">>};
+                    {noreply, State, <<"ok">>};
                 _ ->
-                    {reply, State, <<"error">>}
+                    {noreply, State, <<"error">>}
             end;
         _ ->
             lager:notice("transaction_handler got unknown data"),
-            {reply, State, <<"error">>}
+            {noreply, State, <<"error">>}
     end.
