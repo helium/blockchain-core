@@ -208,7 +208,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new([], Challenger, <<"secret">>),
