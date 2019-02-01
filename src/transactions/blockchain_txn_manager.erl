@@ -81,7 +81,8 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
     AddrsToSearch = ConsensusAddrs -- SuccesfulDialAddrs,
     RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomAddr),
-    NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self()]) of
+    Ref = make_ref(),
+    NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), Ref]) of
                    {ok, Stream} ->
                        lager:info("blockchain_txn_manager, dialed peer ~p via ~p~n", [RandomAddr, ?TX_PROTOCOL]),
                        NewTxnQueue = lists:foldl(fun({Txn, Callback, Queue}, Acc) ->
@@ -93,14 +94,24 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                                                                          lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p", [Reason]),
                                                                          [{Txn, Callback, Queue} | Acc];
                                                                      _ ->
-                                                                         lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p", [Txn, Stream]),
-                                                                         case queue:len(Queue) > F of
-                                                                             true ->
-                                                                                 lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member", [Txn]),
-                                                                                 Callback(ok),
-                                                                                 Acc;
-                                                                             false ->
-                                                                                 [{Txn, Callback, queue:in(RandomAddr, Queue)} | Acc]
+                                                                         receive
+                                                                             {Ref, ok} ->
+                                                                                 lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p", [Txn, Stream]),
+                                                                                 case queue:len(Queue) > F of
+                                                                                     true ->
+                                                                                         lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member", [Txn]),
+                                                                                         Callback(ok),
+                                                                                         Acc;
+                                                                                     false ->
+                                                                                         [{Txn, Callback, queue:in(RandomAddr, Queue)} | Acc]
+                                                                                 end;
+                                                                             {Ref, error} ->
+                                                                                 lager:error("blockchain_txn_manager, txn: ~p reject by ~p", [Txn, Stream]),
+                                                                                 [{Txn, Callback, Queue} | Acc]
+                                                                         after
+                                                                             30000 ->
+                                                                                 lager:warning("blockchain_txn_manager, txn: ~p TIMEOUT", [Txn]),
+                                                                                 [{Txn, Callback, Queue} | Acc]
                                                                          end
                                                                  end;
                                                              true ->
