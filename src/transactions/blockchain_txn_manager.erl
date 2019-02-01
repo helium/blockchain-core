@@ -62,7 +62,7 @@ init(_Args) ->
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     self() ! {process, ConsensusAddrs},
     SortedTxnQueue = lists:sort(fun({TxnA, _, _}, {TxnB, _, _}) -> blockchain_transactions:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, queue:new()}]),
-    lager:info("blockchain_txn_manager, got Txn: ~p, SortedTxnQueue: ~p", [Txn, SortedTxnQueue]),
+    lager:info("blockchain_txn_manager, got Txn: ~p, SortedTxnQueue: ~p, TxnQueueLen: ~p", [Txn, SortedTxnQueue, length(SortedTxnQueue)]),
     {noreply, State#state{txn_queue=SortedTxnQueue}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
@@ -99,7 +99,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                                                                                  lager:info("blockchain_txn_manager, successfully sent Txn: ~p to Stream: ~p, TxnQueueLen: ~p", [Txn, Stream, length(TxnQueue)]),
                                                                                  case queue:len(Queue) > F of
                                                                                      true ->
-                                                                                         lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 member, TxnQueueLen: ~p", [Txn, length(TxnQueue)]),
+                                                                                         lager:info("blockchain_txn_manager, successfuly sent Txn: ~p to F+1 members, TxnQueueLen: ~p", [Txn, length(TxnQueue)]),
                                                                                          Callback(ok),
                                                                                          Acc;
                                                                                      false ->
