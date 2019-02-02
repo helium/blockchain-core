@@ -104,7 +104,7 @@ ledger_pay(["ledger", "pay", Addr, Amount, F], [], Flags) ->
             [clique_status:text("ok")];
         _ -> usage
     end;
-ledger_pay(A, B, C) ->
+ledger_pay(_, _, _) ->
     usage.
 
 %%--------------------------------------------------------------------

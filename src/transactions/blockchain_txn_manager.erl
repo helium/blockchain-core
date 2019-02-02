@@ -158,7 +158,10 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             Txns = blockchain_block:transactions(Block),
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
             lager:info("removed ~p commited transactions from queue", [length(State#state.txn_queue -- NewTxnQueue)]),
-            {noreply, State#state{txn_queue=NewTxnQueue}};
+            {_ValidTransactions, InvalidTransactions} = blockchain_transactions:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
+            NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
+            lager:info("removed ~p invalid transactions from queue", [length(NewTxnQueue -- NewerTxnQueue)]),
+            {noreply, State#state{txn_queue=NewerTxnQueue}};
         _ ->
             %% this should not happen
             error(missing_block)
