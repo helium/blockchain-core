@@ -78,27 +78,33 @@ ledger_cmd() ->
 %%--------------------------------------------------------------------
 ledger_pay_cmd() ->
     [
-     [["ledger", "pay", '*', '*', '*'], [], [], fun ledger_pay/3]
+     [["ledger", "pay", '*', '*', '*'], [],
+      [{nonce, [{shortname, "n"}, {longname, "nonce"}]}], fun ledger_pay/3]
     ].
 
 ledger_pay_usage() ->
     [["ledger", "pay"],
-     ["ledger pay <address> <amount> <fee>\n\n",
+     ["ledger pay <address> <amount> <fee> [-n nonce]\n\n",
       "  Transfer given <amount> to the target <address> with a <fee> for the miners.\n"
      ]
     ].
 
-ledger_pay(["ledger", "pay", Addr, Amount, F], [], []) ->
+ledger_pay(["ledger", "pay", Addr, Amount, F], [], Flags) ->
     case (catch {libp2p_crypto:b58_to_bin(Addr),
                  list_to_integer(Amount), list_to_integer(F)}) of
         {'EXIT', _} ->
             usage;
         {Recipient, Value, Fee} when Value > 0 ->
-            blockchain_worker:spend(Recipient, Value, Fee),
+            case proplists:get_value(nonce, Flags) of
+                undefined ->
+                    blockchain_worker:spend(Recipient, Value, Fee);
+                NonceStr ->
+                    blockchain_worker:spend(Recipient, Value, Fee, list_to_integer(NonceStr))
+            end,
             [clique_status:text("ok")];
         _ -> usage
     end;
-ledger_pay(_, _, _) ->
+ledger_pay(A, B, C) ->
     usage.
 
 %%--------------------------------------------------------------------

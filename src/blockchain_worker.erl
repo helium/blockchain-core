@@ -17,7 +17,7 @@
     consensus_addrs/0,
     integrate_genesis_block/1,
     synced_blocks/0,
-    spend/3,
+    spend/3, spend/4,
     payment_txn/5, payment_txn/6,
     submit_txn/2,
     create_htlc_txn/6,
@@ -107,6 +107,11 @@ synced_blocks() ->
 -spec spend(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer()) -> ok.
 spend(Recipient, Amount, Fee) ->
     gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee}).
+
+-spec spend(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), pos_integer()) -> ok.
+spend(Recipient, Amount, Fee, Nonce) ->
+    gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee, Nonce}).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -358,6 +363,23 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
                                                         end
                                                 end))
     end,
+    {noreply, State};
+handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+    ok = blockchain_txn_manager:submit(SignedPaymentTxn,
+                                       ConsensusMembers,
+                                       (fun(Res) ->
+                                                case Res of
+                                                    ok ->
+                                                        lager:info("txn_manager, successful spend ~p ~p ~p", [Recipient, Amount, Fee]);
+                                                    {error, Reason} ->
+                                                        lager:error("txn_manager error: ~p", [Reason])
+                                                end
+                                        end)),
     {noreply, State};
 handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
