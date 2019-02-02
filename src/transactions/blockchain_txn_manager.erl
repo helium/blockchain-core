@@ -31,7 +31,8 @@
         ]).
 
 -record(state, {
-          txn_queue = [] :: txn_queue()
+          txn_queue = [] :: txn_queue(),
+          chain
          }).
 
 -type txn_queue() :: [{blockchain_transactions:transaction(), fun(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}].
@@ -56,8 +57,9 @@ get_state() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
-    %% ok = blockchain_event:add_handler(self()),
-    {ok, #state{}}.
+    ok = blockchain_event:add_handler(self()),
+    Chain = blockchain_worker:blockchain(),
+    {ok, #state{chain=Chain}}.
 
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     self() ! {process, ConsensusAddrs},
@@ -138,6 +140,29 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                        State
                end,
     {noreply, NewState};
+handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0}) ->
+    Chain = case Chain0 of
+                undefined ->
+                    case blockchain_worker:blockchain() of
+                undefined ->
+                            %% uncaught throws count as a return value in gen_servers
+                            throw({noreply, State});
+                        C ->
+                            C
+                    end;
+                C ->
+                    C
+            end,
+    case blockchain:get_block(Hash, Chain) of
+        {ok, Block} ->
+            Txns = blockchain_block:transactions(Block),
+            NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
+            lager:info("removed ~p commited transactions from queue", [length(State#state.txn_queue -- NewTxnQueue)]),
+            {noreply, State#state{txn_queue=NewTxnQueue}};
+        _ ->
+            %% this should not happen
+            error(missing_block)
+    end;
 handle_info(_Msg, State) ->
     {noreply, State}.
 
