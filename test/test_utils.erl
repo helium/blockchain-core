@@ -5,7 +5,7 @@
 
 -export([
     init/1, init_chain/2,
-    generate_keys/1,
+    generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
@@ -18,11 +18,11 @@ init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Opts = [
-        {key, {PubKey, SigFun}}
-        ,{seed_nodes, []}
-        ,{port, 0}
-        ,{num_consensus_members, 7}
-        ,{base_dir, BaseDir}
+        {key, {PubKey, SigFun}},
+        {seed_nodes, []},
+        {port, 0},
+        {num_consensus_members, 7},
+        {base_dir, BaseDir}
     ],
     {ok, Sup} = blockchain_sup:start_link(Opts),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
@@ -54,9 +54,12 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     {ok, ConsensusMembers}.
 
 generate_keys(N) ->
+    generate_keys(N, ecc_compact).
+
+generate_keys(N, Type) ->
     lists:foldl(
         fun(_, Acc) ->
-            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
         end
