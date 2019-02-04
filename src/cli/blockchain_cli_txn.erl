@@ -74,7 +74,7 @@ txn_queue([], [], []) ->
     usage.
 
 format_txn_queue(TxnQueue) ->
-    lists:map(fun(Txn, _Callback, AcceptQ, RejectQ) ->
+    lists:map(fun({Txn, _Callback, AcceptQ, RejectQ}) ->
                       TxnMod = blockchain_transactions:type(Txn),
                       TxnHash = TxnMod:hash(Txn),
                       [
