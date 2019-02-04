@@ -117,18 +117,18 @@ spend(Recipient, Amount, Fee, Nonce) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
-payment_txn(PrivKey, PubkeyBin, Recipient, Amount, Fee) ->
-    gen_server:cast(?SERVER, {payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}).
+-spec payment_txn(libp2p_crypto:sig_fun(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
+payment_txn(SigFun, PubkeyBin, Recipient, Amount, Fee) ->
+    gen_server:cast(?SERVER, {payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer(), non_neg_integer()) -> ok.
-payment_txn(PrivKey, PubkeyBin, Recipient, Amount, Fee, Nonce) ->
+-spec payment_txn(libp2p_crypto:sig_fun(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer(), non_neg_integer()) -> ok.
+payment_txn(SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce) ->
     %% Support user specified nonce
-    gen_server:cast(?SERVER, {payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee, Nonce}).
+    gen_server:cast(?SERVER, {payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -361,7 +361,7 @@ handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockcha
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
     ok = send_txn(SignedPaymentTxn, Chain),
     {noreply, State};
-handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
+handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
         {error, _Reason} ->
@@ -369,19 +369,17 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
-handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
+handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
         {error, _Reason} ->
             lager:error("could not get entry ~p", [_Reason]);
         {ok, _Entry} ->
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             ok = send_txn(SignedPaymentTxn, Chain)
     end,
