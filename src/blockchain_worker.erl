@@ -351,17 +351,7 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
-                                               ConsensusMembers,
-                                               (fun(Res) ->
-                                                        case Res of
-                                                            ok ->
-                                                                lager:info("txn_manager, successful spend ~p ~p ~p", [Recipient, Amount, Fee]);
-                                                            {error, Reason} ->
-                                                                lager:error("txn_manager error: ~p", [Reason])
-                                                        end
-                                                end))
+            ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
 handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockchain=Chain}=State) ->
@@ -369,17 +359,7 @@ handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockcha
     PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(SignedPaymentTxn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful spend ~p ~p ~p", [Recipient, Amount, Fee]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    ok = send_txn(SignedPaymentTxn, Chain),
     {noreply, State};
 handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
@@ -391,17 +371,7 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
-                                               ConsensusMembers,
-                                               (fun(Res) ->
-                                                        case Res of
-                                                            ok ->
-                                                                lager:info("txn_manager, succesful payment_txn ~p ~p ~p", [Recipient, Amount, Fee]);
-                                                            {error, Reason} ->
-                                                                lager:error("txn_manager error: ~p", [Reason])
-                                                        end
-                                                end))
+            ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
 handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
@@ -413,95 +383,35 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee, Nonce}, #s
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-            ok = blockchain_txn_manager:submit(SignedPaymentTxn,
-                                               ConsensusMembers,
-                                               (fun(Res) ->
-                                                        case Res of
-                                                            ok ->
-                                                                lager:info("txn_manager, succesful payment_txn ~p ~p ~p ~p", [PubkeyBin, Recipient, Amount, Fee]);
-                                                            {error, Reason} ->
-                                                                lager:error("txn_manager error: ~p", [Reason])
-                                                        end
-                                                end))
+            ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
 handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(SignedCreateTxn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful create_htlc_txn ~p ~p ~p ~p ~p ~p", [PubkeyBin, Payee, Hashlock, Timelock, Amount, Fee]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    SignedCreateHTLCTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
+    ok = send_txn(SignedCreateHTLCTxn, Chain),
     {noreply, State};
 handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, PubkeyBin, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(SignedRedeemTxn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful redeem_htlc_txn ~p ~p ~p", [PubkeyBin, Preimage, Fee]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
+    ok = send_txn(SignedRedeemHTLCTxn, Chain),
     {noreply, State};
 handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(Txn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful submit_txn ~p", [Txn]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    ok = send_txn(Txn, Chain),
     {noreply, State};
 handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(SignedAddGwTxn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful add_gateway_txn ~p", [AddGwTxn]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    ok = send_txn(SignedAddGwTxn, Chain),
     {noreply, State};
 handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(SignedAssertLocTxn,
-                                       ConsensusMembers,
-                                       (fun(Res) ->
-                                                case Res of
-                                                    ok ->
-                                                        lager:info("txn_manager, successful assert_location_txn ~p", [AssertLocTxn]);
-                                                    {error, Reason} ->
-                                                        lager:error("txn_manager error: ~p", [Reason])
-                                                end
-                                        end)),
+    ok = send_txn(SignedAssertLocTxn, Chain),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
@@ -637,3 +547,16 @@ sync(Swarm, N, Chain, Peer) ->
                 Parent ! {update_timer, Ref2}
         end
     end).
+
+send_txn(Txn, Chain) ->
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+    ok = blockchain_txn_manager:submit(Txn,
+                                       ConsensusMembers,
+                                       (fun(Res) ->
+                                                case Res of
+                                                    ok ->
+                                                        lager:info("successfully submit txn: ~p", [Txn]);
+                                                    {error, Reason} ->
+                                                        lager:error("failed to submit txn: ~p error: ~p", [Txn, Reason])
+                                                end
+                                        end)).
