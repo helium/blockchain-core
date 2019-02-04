@@ -51,7 +51,7 @@ submit(Txn, ConsensusAddrs, Callback) ->
 
 -spec txn_queue() -> txn_queue().
 txn_queue() ->
-    gen_server:call(?MODULE, txn_queue, infinity).
+    gen_server:call(?MODULE, txn_queue, 60000).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

@@ -63,7 +63,9 @@ txn_queue_usage() ->
     ].
 
 txn_queue(["txn", "queue"], [], []) ->
-    case blockchain_txn_manager:txn_queue() of
+    case (catch blockchain_txn_manager:txn_queue()) of
+        {'EXIT', _} ->
+            [clique_status:text("timeout")];
         [] ->
             [clique_status:text("empty")];
         TxnQueue ->
