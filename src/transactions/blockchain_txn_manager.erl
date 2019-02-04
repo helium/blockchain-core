@@ -15,7 +15,7 @@
 -export([
          start_link/1,
          submit/3,
-         get_state/0
+         txn_queue/0
         ]).
 
 %% ------------------------------------------------------------------
@@ -49,9 +49,9 @@ start_link(Args) ->
 submit(Txn, ConsensusAddrs, Callback) ->
     gen_server:cast(?MODULE, {submit, Txn, ConsensusAddrs, Callback}).
 
--spec get_state() -> txn_queue().
-get_state() ->
-    gen_server:call(?MODULE, get_state, infinity).
+-spec txn_queue() -> txn_queue().
+txn_queue() ->
+    gen_server:call(?MODULE, txn_queue, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -69,8 +69,8 @@ handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call(get_state, _from, State) ->
-    {reply, State#state.txn_queue, State};
+handle_call(txn_queue, _From, State=#state{txn_queue=TxnQueue}) ->
+    {reply, TxnQueue, State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
@@ -128,7 +128,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                                ok
                        end,
                        State#state{txn_queue=lists:reverse(NewTxnQueue)};
-                   Other ->
+                   _Other ->
                        self() ! {process, ConsensusAddrs},
                        State
                end,
