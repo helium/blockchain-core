@@ -17,8 +17,8 @@
     consensus_addrs/0,
     integrate_genesis_block/1,
     synced_blocks/0,
-    spend/3,
-    payment_txn/5,
+    spend/3, spend/4,
+    payment_txn/5, payment_txn/6,
     submit_txn/2,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
@@ -108,29 +108,43 @@ synced_blocks() ->
 spend(Recipient, Amount, Fee) ->
     gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee}).
 
+-spec spend(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), pos_integer()) -> ok.
+spend(Recipient, Amount, Fee, Nonce) ->
+    gen_server:cast(?SERVER, {spend, Recipient, Amount, Fee, Nonce}).
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payment_txn(libp2p_crypto:private_key(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
-payment_txn(PrivKey, Address, Recipient, Amount, Fee) ->
-    gen_server:cast(?SERVER, {payment_txn, PrivKey, Address, Recipient, Amount, Fee}).
+-spec payment_txn(libp2p_crypto:sig_fun(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), non_neg_integer()) -> ok.
+payment_txn(SigFun, PubkeyBin, Recipient, Amount, Fee) ->
+    gen_server:cast(?SERVER, {payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec payment_txn(libp2p_crypto:sig_fun(), libp2p_crypto:address(), libp2p_crypto:address(), integer(), non_neg_integer(), non_neg_integer()) -> ok.
+payment_txn(SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce) ->
+    %% Support user specified nonce
+    gen_server:cast(?SERVER, {payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec create_htlc_txn(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
-create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee) ->
-    gen_server:cast(?SERVER, {create_htlc_txn, Payee, Address, Hashlock, Timelock, Amount, Fee}).
+create_htlc_txn(Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee) ->
+    gen_server:cast(?SERVER, {create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec redeem_htlc_txn(libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> ok.
-redeem_htlc_txn(Address, Preimage, Fee) ->
-    gen_server:cast(?SERVER, {redeem_htlc_txn, Address, Preimage, Fee}).
+redeem_htlc_txn(PubkeyBin, Preimage, Fee) ->
+    gen_server:cast(?SERVER, {redeem_htlc_txn, PubkeyBin, Preimage, Fee}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -144,10 +158,10 @@ submit_txn(Type, Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_gateway_request(Owner::libp2p_crypto:pubkey_bin(), AuthAddress::string(), AuthToken::string())
+-spec add_gateway_request(Owner::libp2p_crypto:pubkey_bin(), AuthPubkeyBin::string(), AuthToken::string())
                          -> ok | {error, any()}.
-add_gateway_request(OwnerAddress, AuthAddress, AuthToken) ->
-    gen_server:call(?SERVER, {add_gateway_request, OwnerAddress, AuthAddress, AuthToken}, infinity).
+add_gateway_request(OwnerPubkeyBin, AuthPubkeyBin, AuthToken) ->
+    gen_server:call(?SERVER, {add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,8 +176,8 @@ add_gateway_txn(AddGatewayRequest) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec assert_location_request(libp2p_crypto:pubkey_bin(), integer()) -> ok | {error, any()}.
-assert_location_request(OwnerAddress, Location) ->
-    gen_server:call(?SERVER, {assert_location_request, OwnerAddress, Location}, infinity).
+assert_location_request(OwnerPubkeyBin, Location) ->
+    gen_server:call(?SERVER, {assert_location_request, OwnerPubkeyBin, Location}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -253,7 +267,7 @@ handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm
                     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
                     SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
                     lager:info(
-                        "assert_location_request, Address: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
+                        "assert_location_request, PubkeyBin: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
                         [PubkeyBin, Location, Nonce, SignedAssertLocRequestTxn]
                     ),
                     PeerBook = libp2p_swarm:peerbook(Swarm),
@@ -337,10 +351,17 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            ok = send_txn(payment_txn, SignedPaymentTxn, State)
+            ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
-handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
+handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
+    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+    ok = send_txn(SignedPaymentTxn, Chain),
+    {noreply, State};
+handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
         {error, _Reason} ->
@@ -348,37 +369,47 @@ handle_cast({payment_txn, PrivKey, PubkeyBin, Recipient, Amount, Fee}, #state{bl
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            ok = send_txn(payment_txn, SignedPaymentTxn, State)
+            ok = send_txn(SignedPaymentTxn, Chain)
     end,
     {noreply, State};
-handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
+handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_entry(PubkeyBin, Ledger) of
+        {error, _Reason} ->
+            lager:error("could not get entry ~p", [_Reason]);
+        {ok, _Entry} ->
+            PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
+            SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
+            ok = send_txn(SignedPaymentTxn, Chain)
+    end,
+    {noreply, State};
+handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedCreateTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
-    ok = send_txn(create_htlc_txn, SignedCreateTxn, State),
+    SignedCreateHTLCTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
+    ok = send_txn(SignedCreateHTLCTxn, Chain),
     {noreply, State};
-handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm}=State) ->
+handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, PubkeyBin, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedRedeemTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
-    ok = send_txn(redeem_htlc_txn, SignedRedeemTxn, State),
+    SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
+    ok = send_txn(SignedRedeemHTLCTxn, Chain),
     {noreply, State};
-handle_cast({submit_txn, Type, Txn}, State) ->
-    ok = send_txn(Type, Txn, State),
+handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
+    ok = send_txn(Txn, Chain),
     {noreply, State};
-handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm}=State) ->
+handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
-    ok = send_txn(add_gateway_txn, SignedAddGwTxn, State),
+    ok = send_txn(SignedAddGwTxn, Chain),
     {noreply, State};
-handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
+handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
-    ok = send_txn(assert_location_txn, SignedAssertLocTxn, State),
+    ok = send_txn(SignedAssertLocTxn, Chain),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
@@ -491,49 +522,6 @@ add_handlers(Swarm, N, Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-send_txn(Type, Txn, #state{swarm=Swarm, blockchain=Chain}) ->
-    case blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)) of
-        {error, _Reason} ->
-            lager:error("could not get consensus_members ~p", [_Reason]);
-        {ok, ConsensusAddrs} ->
-            do_send(
-                Swarm,
-                ConsensusAddrs,
-                erlang:term_to_binary({Type, Txn}),
-                ?TX_PROTOCOL,
-                blockchain_txn_handler,
-                [self()],
-                false
-            )
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-do_send(_Swarm, [], _DataToSend, _Protocol, _Module, _Args, _Retry) ->
-    ok;
-do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry) ->
-    RandomConsensusAddress = lists:nth(rand:uniform(length(Addresses)), Addresses),
-    P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomConsensusAddress),
-    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, Protocol, Module, Args) of
-        {ok, Stream} ->
-            lager:info("dialed peer ~p via ~p~n", [RandomConsensusAddress, Protocol]),
-            libp2p_framed_stream:send(Stream, DataToSend),
-            libp2p_framed_stream:close(Stream),
-            ok;
-        Other when Retry == false ->
-            lager:notice("failed to dial ~p service on ~p : ~p", [Protocol, RandomConsensusAddress, Other]),
-            do_send(Swarm, Addresses -- [RandomConsensusAddress], DataToSend, Protocol, Module, Args, Retry);
-        Other ->
-            lager:notice("Failed to dial ~p service on ~p : ~p", [Protocol, RandomConsensusAddress, Other]),
-            do_send(Swarm, Addresses, DataToSend, Protocol, Module, Args, Retry)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 sync(Swarm, N, Chain, Peer) ->
     Parent = self(),
     spawn(fun() ->
@@ -557,3 +545,16 @@ sync(Swarm, N, Chain, Peer) ->
                 Parent ! {update_timer, Ref2}
         end
     end).
+
+send_txn(Txn, Chain) ->
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+    ok = blockchain_txn_manager:submit(Txn,
+                                       ConsensusMembers,
+                                       (fun(Res) ->
+                                                case Res of
+                                                    ok ->
+                                                        lager:info("successfully submit txn: ~p", [Txn]);
+                                                    {error, Reason} ->
+                                                        lager:error("failed to submit txn: ~p error: ~p", [Txn, Reason])
+                                                end
+                                        end)).

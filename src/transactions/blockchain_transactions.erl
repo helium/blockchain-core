@@ -57,7 +57,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
             validate(Tail, Valid, Invalid, Ledger);
-        _ ->
+        Other ->
+            lager:error("Dropping transaction: ~p, Reason: ~p", [Txn, Other]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Ledger)
     end.

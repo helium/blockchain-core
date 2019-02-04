@@ -80,10 +80,12 @@ init(Args) ->
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
     BEventOpts = [],
+    BTxnManagerOpts = [],
     ChildSpecs = [
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
-        ?WORKER(blockchain_worker, [BWorkerOpts])
+        ?WORKER(blockchain_worker, [BWorkerOpts]),
+        ?WORKER(blockchain_txn_manager, [BTxnManagerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 

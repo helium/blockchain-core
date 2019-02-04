@@ -505,7 +505,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                             {error, {insufficient_balance, Amount, Balance}}
                     end;
                 false ->
-                    {error, {bad_nonce, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}
+                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
             end
     end.
 
@@ -831,8 +831,8 @@ debit_account_test() ->
     Ledger1 = new_context(Ledger),
     ok = credit_account(<<"address">>, 1000, Ledger1),
     commit_context(Ledger1),
-    ?assertEqual({error, {bad_nonce, 0, 0}}, debit_account(<<"address">>, 1000, 0, Ledger)),
-    ?assertEqual({error, {bad_nonce, 12, 0}}, debit_account(<<"address">>, 1000, 12, Ledger)),
+    ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_account(<<"address">>, 1000, 0, Ledger)),
+    ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_account(<<"address">>, 1000, 12, Ledger)),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 1, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_account(<<"address">>, 500, 1, Ledger2),
