@@ -79,8 +79,8 @@ format_txn_queue(TxnQueue) ->
                       TxnHash = TxnMod:hash(Txn),
                       [
                        {txn_type, atom_to_list(TxnMod)},
-                       {txn_hash, io_lib:format("~p", [TxnHash])},
-                       {accept_queue, AcceptQ},
-                       {reject_queue, RejectQ}
+                       {txn_hash, io_lib:format("~p", [libp2p_crypto:bin_to_b58(TxnHash)])},
+                       {accepted_by, integer_to_list(length(AcceptQ))},
+                       {rejected_by, integer_to_list(length(RejectQ))}
                       ]
               end, TxnQueue).
