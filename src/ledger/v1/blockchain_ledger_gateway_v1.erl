@@ -50,15 +50,15 @@ new(OwnerAddress, Location) ->
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined,
           LastPocChallenge :: non_neg_integer() | undefined,
-          LastPocHash :: undefined | {binary(), binary()},
+          LastPocInfo :: undefined | {binary(), binary()},
           Nonce :: non_neg_integer(),
           Score :: float()) -> gateway().
-new(OwnerAddress, Location, LastPocChallenge, LastPocHash, Nonce, Score) ->
+new(OwnerAddress, Location, LastPocChallenge, LastPocInfo, Nonce, Score) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location,
         last_poc_challenge=LastPocChallenge,
-        last_poc_info=LastPocHash,
+        last_poc_info=LastPocInfo,
         nonce=Nonce,
         score=Score
     }.
@@ -124,9 +124,9 @@ last_poc_info(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_info(LastPocHash :: {binary(), binary()}, Gateway :: gateway()) -> gateway().
-last_poc_info(LastPocHash, Gateway) ->
-    Gateway#gateway_v1{last_poc_info=LastPocHash}.
+-spec last_poc_info(LastPocInfo :: {binary(), binary()}, Gateway :: gateway()) -> gateway().
+last_poc_info(LastPocInfo, Gateway) ->
+    Gateway#gateway_v1{last_poc_info=LastPocInfo}.
 
 %%--------------------------------------------------------------------
 %% @doc
