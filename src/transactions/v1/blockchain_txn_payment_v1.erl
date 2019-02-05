@@ -213,7 +213,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Tx0 = new(<<"payer">>, <<"payee">>, 666, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
@@ -221,13 +221,13 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_payment_v1{signature = <<>>}), Sig1, PubKey)).
 
 is_valid_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(Payer, <<"payee">>, 666, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
-    #{public := PubKey2} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
     Payer2 = libp2p_crypto:pubkey_to_bin(PubKey2),
     Tx2 = new(Payer2, <<"payee">>, 666, 10, 1),
     Tx3 = sign(Tx2, SigFun),

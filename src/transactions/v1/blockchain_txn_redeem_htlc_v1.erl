@@ -233,13 +233,13 @@ fee_test() ->
     ?assertEqual(1, fee(Tx)).
 
 is_valid_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Payee = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(Payee, <<"address">>, <<"yolo">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     ?assert(is_valid(Tx1)),
-    Keys2 = libp2p_crypto:generate_keys(ed25519),
+    Keys2 = libp2p_crypto:generate_keys(ecc_compact),
     PubKey2 = maps:get(public, Keys2),
     Payee2 = libp2p_crypto:pubkey_to_bin(PubKey2),
     Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),

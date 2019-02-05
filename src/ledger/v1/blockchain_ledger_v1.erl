@@ -410,9 +410,9 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec request_poc(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                  Hash :: binary(),
+                  HashOnion :: {binary(), binary()},
                   Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, Hash, Ledger) ->
+request_poc(GatewayAddress, {Hash, Onion}, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
@@ -430,7 +430,7 @@ request_poc(GatewayAddress, Hash, Ledger) ->
                                     {error, too_many_challenges};
                                 true ->
                                     Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
-                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_hash(Hash, Gw0),
+                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_info({Hash, Onion}, Gw0),
                                     Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
                                     AGwsCF = active_gateways_cf(Ledger),
                                     cache_put(Ledger, AGwsCF, GatewayAddress, Bin)

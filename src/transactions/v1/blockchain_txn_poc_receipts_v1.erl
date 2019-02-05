@@ -13,7 +13,8 @@
     sign/2,
     is_valid/1,
     is/1,
-    absorb/2
+    absorb/2,
+    create_secret_hash/2
 ]).
 
 -ifdef(TEST).
@@ -120,11 +121,11 @@ absorb(Txn, Ledger) ->
                             lager:error("challenger: ~p, error: last_poc_challenge_undefined", [ChallengerInfo]),
                             {error, last_poc_challenge_undefined};
                         _Height ->
-                            case blockchain_ledger_gateway_v1:last_poc_hash(ChallengerInfo) of
+                            case blockchain_ledger_gateway_v1:last_poc_info(ChallengerInfo) of
                                 undefined ->
                                     lager:error("challenger: ~p, error: last_poc_undefined_undefined", [ChallengerInfo]),
-                                    {error, last_poc_hash_undefined};
-                                Hash ->
+                                    {error, last_poc_info_undefined};
+                                {Hash, _Onion} ->
                                     Secret = ?MODULE:secret(Txn),
                                     SecretHash = crypto:hash(sha256, Secret),
                                     case Hash =:= SecretHash of
@@ -132,6 +133,7 @@ absorb(Txn, Ledger) ->
                                             ok;
                                             % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
                                             % ledger at time X. For now do nothing.
+                                            % Use create_secret_hash to verify receipts
 
                                             % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
                                             % lager:info("target: ~p", [Target]),
@@ -155,6 +157,25 @@ absorb(Txn, Ledger) ->
                 {error, _}=Error -> Error
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec create_secret_hash(binary(), non_neg_integer()) -> [binary()].
+create_secret_hash(Secret, X) when X > 0 ->
+    create_secret_hash(Secret, X, []).
+
+-spec create_secret_hash(binary(), non_neg_integer(), [binary()]) -> [binary()].
+create_secret_hash(_Secret, 0, Acc) ->
+    Acc;
+create_secret_hash(Secret, X, []) ->
+    Bin = crypto:hash(sha256, Secret),
+    <<Hash:4/binary, _/binary>> = Bin,
+    create_secret_hash(Bin, X-1, [Hash]);
+create_secret_hash(Secret, X, Acc) ->
+    <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
+    create_secret_hash(Secret, X-1, [Hash|Acc]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -187,7 +208,7 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx0 = new([], Challenger, <<"secret">>),
@@ -198,5 +219,21 @@ sign_test() ->
 is_test() ->
     Tx = new([], <<"challenger">>, <<"secret">>),
     ?assert(is(Tx)).
+
+create_secret_hash_test() ->
+    Secret = crypto:strong_rand_bytes(8),
+    Members = create_secret_hash(Secret, 10),
+    ?assertEqual(10, erlang:length(Members)),
+
+    Members2 = create_secret_hash(Secret, 10),
+    ?assertEqual(10, erlang:length(Members2)),
+
+    lists:foreach(
+        fun(M) ->
+            ?assert(lists:member(M, Members2))
+        end,
+        Members
+    ),
+    ok.
 
 -endif.

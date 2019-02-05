@@ -261,7 +261,7 @@ htlc_payee_redeem_test(Config) ->
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     % Create a Payee
-    #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
     % Generate a random address
     HTLCAddress = crypto:strong_rand_bytes(32),
@@ -390,7 +390,7 @@ poc_request_test(Config) ->
     N = proplists:get_value(n, Config),
 
     % Create a Gateway
-    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -427,7 +427,8 @@ poc_request_test(Config) ->
 
     % Create the PoC challenge request txn
     Secret = crypto:strong_rand_bytes(8),
-    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret)),
+    {ok, _PvtOnionKey, OnionCompactKey} = ecc_compact:generate_key(),
+    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret), OnionCompactKey),
     SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
@@ -516,7 +517,7 @@ export_test(Config) ->
 
     % Create a Gateway
     Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
-    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ed25519),
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
@@ -546,7 +547,7 @@ export_test(Config) ->
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,123456},
                    {last_poc_challenge,undefined},
-                   {last_poc_hash, undefined},
+                   {last_poc_info, undefined},
                    {nonce,1},
                    {score,0.0}]], Gateways),
 

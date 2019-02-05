@@ -180,7 +180,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
-                                #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ed25519),
+                                #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)},
                                 BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
