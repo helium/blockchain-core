@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+import "transactions/blockchain_txn.proto";
+
+message signature_v1 {
+    bytes signer = 1;
+    bytes signature = 2;
+}
+
+message block_v1 {
+    bytes prev_hash = 1;
+    uint64 height = 2;
+    uint64 time = 3;
+    uint64 hbbft_round = 4;
+    repeated txn_v1 transactions = 5;
+    repeated signature_v1 signatures = 6;
+}

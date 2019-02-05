@@ -280,13 +280,13 @@ add_block(Block, Blockchain) ->
                                 {ok, ConsensusAddrs} ->
                                     N = length(ConsensusAddrs),
                                     F = (N-1) div 3,
-                                    case blockchain_block:verify_signature(Block,
-                                                                           ConsensusAddrs,
-                                                                           blockchain_block:signature(Block),
-                                                                           N-F)
+                                    case blockchain_block:verify_signatures(Block,
+                                                                            ConsensusAddrs,
+                                                                            blockchain_block:signatures(Block),
+                                                                            N-F)
                                     of
                                         false ->
-                                            {error, failed_verify_signature};
+                                            {error, failed_verify_signatures};
                                         {true, _} ->
                                             case blockchain_transactions:absorb_and_commit(Block, Blockchain) of
                                                 ok ->
@@ -487,7 +487,7 @@ blocks_test() ->
         {ok, lists:seq(1, 7)}
     end),
     meck:new(blockchain_block, [passthrough]),
-    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
         {true, undefined}
     end),
     meck:new(blockchain_worker, [passthrough]),
@@ -498,7 +498,12 @@ blocks_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
-    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Block = blockchain_block_v1:new(#{prev_hash => GenHash,
+                                      height => 2,
+                                      transactions => [],
+                                      signatures => [],
+                                      time => 1,
+                                      hbbft_round => 1}),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
     Map = #{
@@ -520,7 +525,7 @@ get_block_test() ->
         {ok, lists:seq(1, 7)}
     end),
     meck:new(blockchain_block, [passthrough]),
-    meck:expect(blockchain_block, verify_signature, fun(_, _, _, _) ->
+    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
         {true, undefined}
     end),
     meck:new(blockchain_worker, [passthrough]),
@@ -531,7 +536,12 @@ get_block_test() ->
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
-    Block = blockchain_block:new(GenHash, 2, [], <<>>, #{}),
+    Block = blockchain_block_v1:new(#{prev_hash => GenHash,
+                                      height => 2,
+                                      transactions => [],
+                                      signatures => [],
+                                      time => 1,
+                                      hbbft_round => 1}),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
     ?assertMatch({ok, Block}, get_block(Hash, Chain)),

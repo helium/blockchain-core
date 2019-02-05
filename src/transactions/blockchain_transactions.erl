@@ -21,7 +21,7 @@
 -type transaction() :: blockchain_txn_add_gateway_v1:txn_add_gateway()
                        | blockchain_txn_assert_location_v1:txn_assert_location()
                        | blockchain_txn_coinbase_v1:txn_coinbase()
-                       | blockchain_txn_gen_consensus_group_v1:txn_genesis_consensus_group()
+                       | blockchain_txn_consensus_group_v1:txn_consensus_group()
                        | blockchain_txn_gen_gateway_v1:txn_genesis_gateway()
                        | blockchain_txn_payment_v1:txn_payment()
                        | blockchain_txn_create_htlc_v1:txn_create_htlc()
@@ -38,7 +38,7 @@
 %% NOTE: Called in the miner
 -spec validate(blockchain_transaction:transactions(),
                blockchain_ledger_v1:ledger()) -> {blockchain_transaction:transactions(),
-                                               blockchain_transaction:transactions()}.
+                                                  blockchain_transaction:transactions()}.
 %% TODO we should separate validation from absorbing transactions and validate transactions
 %% before absorbing them.
 validate(Transactions, Ledger) ->
@@ -111,12 +111,12 @@ sort(TxnA, TxnB) ->
 -spec type(transaction()) -> atom().
 type(Txn) ->
     Types = [
-        blockchain_txn_assert_location_v1, blockchain_txn_payment_v1
-        ,blockchain_txn_create_htlc_v1, blockchain_txn_redeem_htlc_v1
-        ,blockchain_txn_add_gateway_v1, blockchain_txn_coinbase_v1
-        ,blockchain_txn_gen_consensus_group_v1 ,blockchain_txn_poc_request_v1
-        ,blockchain_txn_poc_receipts_v1, blockchain_txn_gen_gateway_v1
-    ],
+             blockchain_txn_assert_location_v1, blockchain_txn_payment_v1,
+             blockchain_txn_create_htlc_v1, blockchain_txn_redeem_htlc_v1,
+             blockchain_txn_add_gateway_v1, blockchain_txn_coinbase_v1,
+             blockchain_txn_consensus_group_v1 ,blockchain_txn_poc_request_v1,
+             blockchain_txn_poc_receipts_v1, blockchain_txn_gen_gateway_v1
+            ],
     case lists:filter(fun(M) -> M:is(Txn) end, Types) of
         [Type] -> Type;
         _ -> undefined
@@ -201,7 +201,7 @@ nonce(Txn) ->
 actor(Txn) ->
     case ?MODULE:type(Txn) of
         blockchain_txn_assert_location_v1 ->
-            blockchain_txn_assert_location_v1:gateway_address(Txn);
+            blockchain_txn_assert_location_v1:gateway(Txn);
         blockchain_txn_payment_v1 ->
             blockchain_txn_payment_v1:payer(Txn);
         blockchain_txn_create_htlc_v1 ->
@@ -209,7 +209,7 @@ actor(Txn) ->
         blockchain_txn_redeem_htlc_v1 ->
             blockchain_txn_redeem_htlc_v1:payee(Txn);
         blockchain_txn_poc_request_v1 ->
-            blockchain_txn_poc_request_v1:gateway_address(Txn);
+            blockchain_txn_poc_request_v1:gateway(Txn);
         blockchain_txn_add_gateway_v1 ->
             blockchain_txn_add_gateway_v1:owner(Txn);
         blockchain_txn_coinbase_v1 ->

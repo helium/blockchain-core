@@ -7,6 +7,8 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_coinbase_v1_pb.hrl").
+
 -export([
     new/2,
     hash/1,
@@ -19,11 +21,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
--record(blockchain_txn_coinbase_v1_pb, {
-    payee :: libp2p_crypto:pubkey_bin(),
-    amount :: integer()
-}).
 
 -type txn_coinbase() :: #blockchain_txn_coinbase_v1_pb{}.
 -export_type([txn_coinbase/0]).
@@ -42,7 +39,7 @@ new(Payee, Amount) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_coinbase()) -> blockchain_txn:hash().
 hash(Txn) ->
-    EncodedTxn = blocchain_txn_coinbase_v1_pb:encode_msg(Txn),
+    EncodedTxn = blockchain_txn_coinbase_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------

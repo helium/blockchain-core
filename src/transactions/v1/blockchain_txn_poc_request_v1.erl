@@ -54,7 +54,7 @@ gateway(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_poc_request()) -> binary().
+-spec hash(txn_poc_request()) -> blockchain_txn:hash().
 hash(Txn) ->
     Txn#blockchain_txn_poc_request_v1_pb.hash.
 

@@ -288,9 +288,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             {noreply, State};
         true ->
             ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
-            [ConsensusAddrs] = [blockchain_txn_gen_consensus_group_v1:members(T)
+            [ConsensusAddrs] = [blockchain_txn_consensus_group_v1:members(T)
                                 || T <- blockchain_block:transactions(GenesisBlock)
-                                ,blockchain_txn_gen_consensus_group_v1:is(T)],
+                                ,blockchain_txn_consensus_group_v1:is(T)],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, State#state.n, Blockchain),
@@ -409,8 +409,7 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
             {noreply, State#state{sync_timer=Ref}};
         {ok, Head} ->
-            Meta = blockchain_block:meta(Head),
-            BlockTime = maps:get(block_time, Meta, 0),
+            BlockTime = blockchain_block:time(Head),
             case erlang:system_time(seconds) - BlockTime of
                 X when X > 300 ->
                     %% figure out our gossip peers
@@ -461,7 +460,8 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %%--------------------------------------------------------------------
 -spec add_handlers(pid(), pos_integer(), blockchain:blockchain()) -> ok.
 add_handlers(Swarm, N, Blockchain) ->
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL,
+                                    {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,

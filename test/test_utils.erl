@@ -39,7 +39,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_gen_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
@@ -87,10 +87,17 @@ create_block(ConsensusMembers, Txs) ->
     {ok, PrevHash} = blockchain:head_hash(Blockchain),
     {ok, HeadBlock} = blockchain:head_block(Blockchain),
     Height = blockchain_block:height(HeadBlock) + 1,
-    Block0 = blockchain_block:new(PrevHash, Height, Txs, <<>>, #{}),
-    BinBlock = erlang:term_to_binary(blockchain_block:remove_signature(Block0)),
+    Time = blockchain_block:time(HeadBlock) + 1,
+    Block0 = blockchain_block_v1:new(#{prev_hash => PrevHash,
+                                     height => Height,
+                                     transactions => Txs,
+                                     signatures => [],
+                                     time => Time,
+                                     hbbft_round => 0
+                                     }),
+    BinBlock = blockchain_block:serialize(Block0),
     Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:sign_block(erlang:term_to_binary(Signatures), Block0),
+    Block1 = blockchain_block:set_signatures(Block0, Signatures),
     Block1.
 
 signatures(ConsensusMembers, BinBlock) ->

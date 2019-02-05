@@ -686,7 +686,7 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
         {_, undefined} ->
             rocksdb:get(DB, CF, Key, Options);
-        {Context, Cache} -> 
+        {Context, Cache} ->
             case ets:lookup(Cache, CF) of
                 [] ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);

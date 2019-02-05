@@ -89,7 +89,7 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_poc_receipts()) -> txn_poc_receipts().
+-spec hash(txn_poc_receipts()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
@@ -120,7 +120,7 @@ is(Txn) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    case blockchain_blockchain_txn_poc_receipts_v1_pb:is_valid(Txn) of
+    case ?MODULE:is_valid(Txn) of
         false ->
             {error, invalid_transaction};
         true ->

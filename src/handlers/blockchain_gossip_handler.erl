@@ -8,6 +8,7 @@
 -behavior(libp2p_group_gossip_handler).
 
 -include("blockchain.hrl").
+-include("pb/blockchain_gossip_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -23,24 +24,29 @@ init_gossip_data([Swarm, _N, Blockchain]) ->
     lager:info("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:info("gossiping block to peers on init"),
-    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    {send, term_to_binary({block, PubkeyBin, Block})};
+    PubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    BinBlock = blockchain_block:serialize(Block),
+    Gossip = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
+    {send, blockchain_gossip_handler_pb:encode_msg(Gossip)};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
 
 handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
-    case erlang:binary_to_term(Data) of
-        {block, From, Block} ->
-            case blockchain_block:is_block(Block) of
-                true ->
-                    lager:info("Got block: ~p from: ~p", [Block, From]),
-                    add_block(Swarm, Block, Blockchain, N, From);
-                _ ->
-                    lager:notice("gossip_handler received invalid data: ~p", [Block])
-            end;
-        Other ->
-            lager:notice("gossip handler got unknown data ~p", [Other])
+    try
+        #blockchain_gossip_block_pb{from=From, block=BinBlock} =
+            blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
+        Block = blockchain_block:deserialize(BinBlock),
+        case blockchain_block:type(Block) of
+            undefined ->
+                lager:notice("gossip_handler unknown block: ~p", [Block]);
+            _ ->
+                lager:info("Got block: ~p from: ~p", [Block, From]),
+                add_block(Swarm, Block, Blockchain, N, From)
+        end
+    catch
+        _What:Why ->
+            lager:notice("gossip handler got bad data: ~p", [Why])
     end,
     ok.
 
