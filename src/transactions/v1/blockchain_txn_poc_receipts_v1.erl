@@ -17,7 +17,6 @@
     sign/2,
     hash/1,
     is_valid/1,
-    is/1,
     absorb/2,
     create_secret_hash/2
 ]).
@@ -106,13 +105,6 @@ is_valid(Txn=#blockchain_txn_poc_receipts_v1_pb{challenger=Challenger, signature
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_poc_receipts_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -226,10 +218,6 @@ sign_test() ->
     Sig = signature(Tx1),
     EncodedTx1 = blockchain_txn_poc_receipts_v1_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig, PubKey)).
-
-is_test() ->
-    Tx = new([], <<"challenger">>, <<"secret">>),
-    ?assert(is(Tx)).
 
 create_secret_hash_test() ->
     Secret = crypto:strong_rand_bytes(8),

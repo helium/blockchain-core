@@ -13,7 +13,6 @@
     new/1,
     hash/1,
     members/1,
-    is/1,
     absorb/2
 ]).
 
@@ -53,14 +52,6 @@ members(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_consensus_group_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_consensus_group(),
              blockchain_ledger_v1:ledger()) -> ok| {error, any()}.
 absorb(Txn, Ledger) ->
@@ -79,9 +70,5 @@ new_test() ->
 members_test() ->
     Tx = new([<<"1">>]),
     ?assertEqual([<<"1">>], members(Tx)).
-
-is_test() ->
-    Tx0 = new([<<"1">>]),
-    ?assert(is(Tx0)).
 
 -endif.

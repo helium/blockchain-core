@@ -18,14 +18,8 @@
     set_signatures/2,
     new_genesis_block/1,
     is_genesis/1,
-    is/1,
     hash_block/1,
-    verify_signatures/4,
-    payment_transactions/1,
-    coinbase_transactions/1,
-    add_gateway_transactions/1,
-    assert_location_transactions/1,
-    poc_request_transactions/1
+    verify_signatures/4
 ]).
 
 -include("blockchain.hrl").
@@ -40,7 +34,7 @@
                        height => non_neg_integer(),
                        time => non_neg_integer(),
                        hbbft_round => non_neg_integer(),
-                       transactions => blockchain_transactions:transactions(),
+                       transactions => blockchain_txn:txns(),
                        signatures => [blockchain_block:signature()]
                       }.
 
@@ -60,43 +54,12 @@ new(#{prev_hash := PrevHash,
     #blockchain_block_v1_pb{
        prev_hash=PrevHash,
        height=Height,
-       transactions=[wrap_transaction(T) || T <- Transactions],
+       transactions=[blockchain_txn:wrap_txn(T) || T <- Transactions],
        signatures=[wrap_signature(S) || S <- Signatures],
        time=Time,
        hbbft_round=HBBFTRound
     }.
 
-%% Since the proto file for a block includes the definitions of the
-%% underlying protobufs for each transaction we break encapsulation
-%% here and do no tuse the txn modules themselves for now.
--spec wrap_transaction(blockchain_transaction:transaction()) -> #blockchain_txn_v1_pb{}.
-wrap_transaction(#blockchain_txn_assert_location_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={assert_location, Txn}};
-wrap_transaction(#blockchain_txn_payment_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={payment, Txn}};
-wrap_transaction(#blockchain_txn_create_htlc_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={create_htlc, Txn}};
-wrap_transaction(#blockchain_txn_redeem_htlc_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={redeem_htlc, Txn}};
-wrap_transaction(#blockchain_txn_add_gateway_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={add_gateway, Txn}};
-wrap_transaction(#blockchain_txn_coinbase_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={coinbase, Txn}};
-wrap_transaction(#blockchain_txn_consensus_group_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={consensus_group, Txn}};
-wrap_transaction(#blockchain_txn_poc_request_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={poc_request, Txn}};
-wrap_transaction(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={poc_receipts, Txn}};
-wrap_transaction(#blockchain_txn_gen_gateway_v1_pb{}=Txn) ->
-    #blockchain_txn_v1_pb{txn={gen_gateway, Txn}}.
-
-unwrap_transaction(#blockchain_txn_v1_pb{txn={_, Txn}}) ->
-    Txn.
-
--spec wrap_signature(blockchain_block:signature()) -> #blockchain_signature_v1_pb{}.
-wrap_signature({Signer, Signature}) ->
-    #blockchain_signature_v1_pb{signer=Signer, signature=Signature}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -126,9 +89,9 @@ time(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec transactions(block()) -> blockchain_transactions:transactions().
+-spec transactions(block()) -> blockchain_txn:txns().
 transactions(Block) ->
-    [unwrap_transaction(T) || T <- Block#blockchain_block_v1_pb.transactions].
+    [blockchain_txn:unwrap_txn(T) || T <- Block#blockchain_block_v1_pb.transactions].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -136,8 +99,7 @@ transactions(Block) ->
 %%--------------------------------------------------------------------
 -spec signatures(block()) -> [blockchain_block:signature()].
 signatures(Block) ->
-    [{Signer, Sig} || #blockchain_signature_v1_pb{signer=Signer, signature=Sig}
-                          <- Block#blockchain_block_v1_pb.signatures].
+    [unwrap_signature(S) || S <- Block#blockchain_block_v1_pb.signatures].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -151,7 +113,7 @@ hbbft_round(Block) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec set_signatures(block(), [bockchain_block:signature()]) -> block().
+-spec set_signatures(block(), [blockchain_block:signature()]) -> block().
 set_signatures(Block, Signatures) ->
     Block#blockchain_block_v1_pb{signatures=[wrap_signature(S) || S <- Signatures]}.
 
@@ -160,7 +122,7 @@ set_signatures(Block, Signatures) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new_genesis_block(blockchain_transactions:transactions()) -> block().
+-spec new_genesis_block(blockchain_txn:txns()) -> block().
 new_genesis_block(Transactions) ->
     ?MODULE:new(#{prev_hash => <<0:256>>,
                   height => 1,
@@ -179,14 +141,6 @@ is_genesis(Block) ->
         true -> true;
         _ -> false
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(block()) -> boolean().
-is(Block) ->
-    erlang:is_record(Block, blockchain_block_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -229,46 +183,19 @@ verify_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
             false
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec payment_transactions(block()) -> [blockchain_txn_payment_v1:txn_payment()].
-payment_transactions(Block) ->
-    lists:filter(fun(Txn) -> blockchain_txn_payment_v1:is(Txn) end,
-                 ?MODULE:transactions(Block)).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec coinbase_transactions(block()) -> [blockchain_txn_coinbase_v1:txn_coinbase()].
-coinbase_transactions(Block) ->
-    lists:filter(fun blockchain_txn_coinbase_v1:is/1, ?MODULE:transactions(Block)).
+%%
+%% Internal
+%%
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_gateway_transactions(block()) -> [blockchain_txn_add_gateway_v1:txn_add_gateway()].
-add_gateway_transactions(Block) ->
-    lists:filter(fun blockchain_txn_add_gateway_v1:is/1, ?MODULE:transactions(Block)).
+-spec wrap_signature(blockchain_block:signature()) -> #blockchain_signature_v1_pb{}.
+wrap_signature({Signer, Signature}) ->
+    #blockchain_signature_v1_pb{signer=Signer, signature=Signature}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec assert_location_transactions(block()) -> [blockchain_txn_assert_location_v1:txn_assert_location()].
-assert_location_transactions(Block) ->
-    lists:filter(fun blockchain_txn_assert_location_v1:is/1, ?MODULE:transactions(Block)).
+-spec unwrap_signature(#blockchain_signature_v1_pb{}) -> blockchain_block:signature().
+unwrap_signature(#blockchain_signature_v1_pb{signer=Signer, signature=Sig}) ->
+    {Signer, Sig}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec poc_request_transactions(block()) -> [blockchain_txn_poc_request_v1:txn_poc_request()].
-poc_request_transactions(Block) ->
-    lists:filter(fun blockchain_txn_poc_request_v1:is/1, ?MODULE:transactions(Block)).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -347,10 +274,6 @@ new_genesis_test() ->
 is_genesis_test() ->
     ?assertEqual(true, is_genesis(new_genesis_block([]))),
     ?assertEqual(false, is_genesis(new_merge(#{prev_hash => <<>>}))).
-
-is_test() ->
-    ?assertEqual(true, is(new_genesis_block([]))),
-    ?assertEqual(false, is(#{})).
 
 verify_signature_test() ->
     Keys = generate_keys(10),

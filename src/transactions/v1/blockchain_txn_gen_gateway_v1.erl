@@ -21,7 +21,6 @@
     last_poc_info/1,
     nonce/1,
     score/1,
-    is/1,
     absorb/2
 ]).
 
@@ -128,14 +127,6 @@ score(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_gen_gateway_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_genesis_gateway(),  blockchain_ledger_v1:ledger()) -> ok | {error, not_in_genesis_block}.
 absorb(Txn, Ledger) ->
     %% NOTE: This transaction should only be absorbed when it's in the genesis block
@@ -174,10 +165,6 @@ new_test() ->
                                            nonce=10,
                                            score=0.8},
     ?assertEqual(Tx, new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8)).
-
-is_test() ->
-    Tx0 = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
-    ?assert(is(Tx0)).
 
 gateway_test() ->
     Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),

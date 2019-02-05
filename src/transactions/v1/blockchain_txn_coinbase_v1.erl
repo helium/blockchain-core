@@ -14,7 +14,6 @@
     hash/1,
     payee/1,
     amount/1,
-    is/1,
     absorb/2
 ]).
 
@@ -61,14 +60,6 @@ amount(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_coinbase_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_coinbase(),  blockchain_ledger_v1:ledger()) -> ok
                                                                | {error, not_in_genesis_block}
                                                                | {error, zero_or_negative_amount}.
@@ -105,9 +96,5 @@ payee_test() ->
 amount_test() ->
     Tx = new(<<"payee">>, 666),
     ?assertEqual(666, amount(Tx)).
-
-is_test() ->
-    Tx0 = new(<<"payee">>, 666),
-    ?assert(is(Tx0)).
 
 -endif.

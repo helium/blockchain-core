@@ -12,7 +12,7 @@ import "v1/blockchain_txn_poc_receipts_v1.proto";
 import "v1/blockchain_txn_poc_request_v1.proto";
 import "v1/blockchain_txn_redeem_htlc_v1.proto";
 
-message txn_v1 {
+message txn {
     oneof txn {
         txn_add_gateway_v1 add_gateway = 1;
         txn_assert_location_v1 assert_location = 2;

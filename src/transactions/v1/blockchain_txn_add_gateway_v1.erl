@@ -20,7 +20,6 @@
     sign_request/2,
     is_valid_gateway/1,
     is_valid_owner/1,
-    is/1,
     absorb/2
 ]).
 
@@ -135,14 +134,6 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_add_gateway_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
     case {?MODULE:is_valid_owner(Txn),
@@ -218,9 +209,5 @@ sign_test() ->
     Sig2 = owner_signature(Tx2),
     BaseTx1 = Tx1#blockchain_txn_add_gateway_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
     ?assert(libp2p_crypto:verify(blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTx1), Sig2, PubKey)).
-
-is_test() ->
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
-    ?assert(is(Tx0)).
 
 -endif.

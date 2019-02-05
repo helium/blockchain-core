@@ -21,7 +21,6 @@
     fee/1,
     sign_request/2,
     sign/2,
-    is/1,
     absorb/2
 ]).
 
@@ -146,14 +145,6 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_assert_location_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
     Gateway = ?MODULE:gateway(Txn),
@@ -265,9 +256,5 @@ sign_test() ->
     Sig2 = owner_signature(Tx2),
     BaseTxn1 = Tx1#blockchain_txn_assert_location_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
     ?assert(libp2p_crypto:verify(blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn1), Sig2, PubKey)).
-
-is_test() ->
-    Tx0 = new(),
-    ?assert(is(Tx0)).
 
 -endif.

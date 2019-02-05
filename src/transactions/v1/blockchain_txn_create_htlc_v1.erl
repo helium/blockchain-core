@@ -25,7 +25,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -155,14 +154,6 @@ is_valid(Txn=#blockchain_txn_create_htlc_v1_pb{payer=Payer, signature=Signature}
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_create_htlc_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
 absorb(Txn, Ledger) ->
@@ -278,9 +269,5 @@ sign_test() ->
     Tx2 = new(Payer2, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
-    ?assert(is(Tx)).
 
 -endif.

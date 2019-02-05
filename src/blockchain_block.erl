@@ -4,19 +4,19 @@
 -type signature() :: {Signer::libp2p_crypto:pubkey_bin(), Signature::binary()}.
 -type hash() :: <<_:256>>. %% SHA256 digest
 
--export_type([block/0, hash/0]).
+-export_type([block/0, hash/0, signature/0]).
 
--callback new_genesis_block([blockchain_transactions:transactions()]) -> block().
+-callback new_genesis_block(blockchain_txn:txns()) -> block().
 -callback prev_hash(block()) -> hash().
 -callback hash_block(block()) -> hash().
 -callback height(block()) -> non_neg_integer().
 -callback time(block()) -> non_neg_integer().
 -callback is_genesis(block()) -> boolean().
 -callback signatures(block()) -> [signature()].
--callback set_signatures(block(), [binary()]) -> block().
+-callback set_signatures(block(), [signature()]) -> block().
 -callback verify_signatures(Block::binary() | block(),
                             ConsensueMembers::[libp2p_crypto:pubkey_bin()],
-                            Signatures::[binary()],
+                            Signatures::[signature()],
                             Threshold::pos_integer()) -> false |
                                                          {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 
@@ -93,14 +93,12 @@ set_signatures(Block, Signatures) ->
 verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
     (type(Block)):verify_signatures(Block, ConsensusMembers, Signatures, Threshold).
 
--spec transactions(block()) -> blockchain_transactions:transactions().
+-spec transactions(block()) -> blockchain_txn:txns().
 transactions(Block) ->
     (type(Block)):transactions(Block).
 
 -spec type(block()) -> atom().
-type(Block) ->
-    Mods = [blockchain_block_v1],
-    case lists:filter(fun(M) -> M:is(Block) end, Mods) of
-        [Module] -> Module;
-        _ -> undefined
-    end.
+type(#blockchain_block_v1_pb{}) ->
+    blockchain_block_v1;
+type(_) ->
+    undefined.

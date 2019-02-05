@@ -18,7 +18,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -107,17 +106,7 @@ is_valid(Txn=#blockchain_txn_oui_v1_pb{owner=Owner, signature=Signature}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_oui_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-
-
 absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         false ->
@@ -186,9 +175,5 @@ is_valid_test() ->
     Tx2 = new(<<"0">>, 1, Owner2),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx0 = new(<<"0">>, 1, <<"owner">>),
-    ?assert(is(Tx0)).
 
 -endif.

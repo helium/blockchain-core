@@ -19,7 +19,7 @@
     synced_blocks/0,
     spend/3, spend/4,
     payment_txn/5, payment_txn/6,
-    submit_txn/2,
+    submit_txn/1,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
     assert_location_request/2,
@@ -148,9 +148,9 @@ redeem_htlc_txn(PubkeyBin, Preimage, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec submit_txn(atom(), blockchain_transactions:transaction()) -> ok.
-submit_txn(Type, Txn) ->
-    gen_server:cast(?SERVER, {submit_txn, Type, Txn}).
+-spec submit_txn(blockchain_txn:txn()) -> ok.
+submit_txn(Txn) ->
+    gen_server:cast(?SERVER, {submit_txn, Txn}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -289,8 +289,8 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
         true ->
             ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
             [ConsensusAddrs] = [blockchain_txn_consensus_group_v1:members(T)
-                                || T <- blockchain_block:transactions(GenesisBlock)
-                                ,blockchain_txn_consensus_group_v1:is(T)],
+                                || T <- blockchain_block:transactions(GenesisBlock),
+                                   blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, State#state.n, Blockchain),

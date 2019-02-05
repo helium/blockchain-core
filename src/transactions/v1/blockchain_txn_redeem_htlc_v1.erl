@@ -19,7 +19,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -116,14 +115,6 @@ is_valid(Txn=#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, signature=Signature}
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_redeem_htlc_v1_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -243,9 +234,5 @@ is_valid_test() ->
     Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
-    ?assert(is(Tx)).
 
 -endif.

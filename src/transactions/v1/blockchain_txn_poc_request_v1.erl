@@ -18,7 +18,6 @@
     fee/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -106,14 +105,6 @@ is_valid(Txn=#blockchain_txn_poc_request_v1_pb{gateway=Gateway, signature=Signat
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, blockchain_txn_poc_request_v1_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
@@ -166,8 +157,5 @@ sign_test() ->
     EncodedTx1 = blockchain_txn_poc_request_v1_pb:encode_msg(Tx1#blockchain_txn_poc_request_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
-is_test() ->
-    Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assert(is(Tx)).
 
 -endif.
