@@ -15,19 +15,17 @@
 %% ------------------------------------------------------------------
 
 -export([
-    init_gossip_data/1,
-    handle_gossip_data/2,
-    add_block/5
-]).
+         init_gossip_data/1,
+         handle_gossip_data/2,
+         add_block/5,
+         gossip_data/2
+        ]).
 
 init_gossip_data([Swarm, _N, Blockchain]) ->
     lager:info("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:info("gossiping block to peers on init"),
-    PubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    BinBlock = blockchain_block:serialize(Block),
-    Gossip = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
-    {send, blockchain_gossip_handler_pb:encode_msg(Gossip)};
+    {send, gossip_data(Swarm, Block)};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
@@ -77,3 +75,10 @@ add_block(Swarm, Block, Chain, N, Sender) ->
             %% Uhm what is this?
             lager:error("Something bad happened: ~p", [Error])
     end.
+
+-spec gossip_data(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
+gossip_data(Swarm, Block) ->
+    PubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    BinBlock = blockchain_block:serialize(Block),
+    Msg= #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
+    blockchain_gossip_handler_pb:encode_msg(Msg).
