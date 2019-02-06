@@ -35,7 +35,7 @@
           chain
          }).
 
--type txn_queue() :: [{blockchain_transactions:transaction(), fun(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}].
+-type txn_queue() :: [{blockchain_txn:txn(), fun(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}].
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -43,7 +43,7 @@
 start_link(Args) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
 
--spec submit(Txn :: blockchain_transactions:transaction(),
+-spec submit(Txn :: blockchain_txn:txn(),
              ConsensusAddrs :: [libp2p_crypto:address()],
              Callback :: fun()) -> ok.
 submit(Txn, ConsensusAddrs, Callback) ->
@@ -63,7 +63,7 @@ init(_Args) ->
 
 handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
     self() ! {process, ConsensusAddrs},
-    SortedTxnQueue = lists:sort(fun({TxnA, _, _, _}, {TxnB, _, _, _}) -> blockchain_transactions:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, [], []}]),
+    SortedTxnQueue = lists:sort(fun({TxnA, _, _, _}, {TxnB, _, _, _}) -> blockchain_txn:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, [], []}]),
     {noreply, State#state{txn_queue=SortedTxnQueue}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
@@ -86,7 +86,7 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                        NewTxnQueue = lists:foldl(fun({Txn, Callback, AcceptQueue, RejectQueue}, Acc) ->
                                                          case lists:member(RandomAddr, AcceptQueue) of
                                                              false ->
-                                                                 DataToSend = erlang:term_to_binary({blockchain_transactions:type(Txn), Txn}),
+                                                                 DataToSend = blockchain_txn:serialize(Txn),
                                                                  case libp2p_framed_stream:send(Stream, DataToSend) of
                                                                      {error, Reason} ->
                                                                          lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p, TxnQueueLen: ~p", [Reason, length(TxnQueue)]),
@@ -150,7 +150,7 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
-            {_ValidTransactions, InvalidTransactions} = blockchain_transactions:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
+            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
             NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
             {noreply, State#state{txn_queue=NewerTxnQueue}};
         _ ->

@@ -77,8 +77,8 @@ txn_queue([], [], []) ->
 
 format_txn_queue(TxnQueue) ->
     lists:map(fun({Txn, _Callback, AcceptQ, RejectQ}) ->
-                      TxnMod = blockchain_transactions:type(Txn),
-                      TxnHash = TxnMod:hash(Txn),
+                      TxnMod = blockchain_txn:type(Txn),
+                      TxnHash = blockchain_txn:hash(Txn),
                       [
                        {txn_type, atom_to_list(TxnMod)},
                        {txn_hash, io_lib:format("~p", [libp2p_crypto:bin_to_b58(TxnHash)])},

@@ -29,6 +29,7 @@
 -callback absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
 -export([
+         hash/1,
          validate/2,
          absorb_and_commit/2,
          absorb_block/2,
@@ -45,6 +46,9 @@
 -endif.
 
 -define(BLOCK_DELAY, 50).
+
+hash(Txn) ->
+    (type(Txn)):hash(Txn).
 
 serialize(Txn) ->
     blockchain_txn_pb:encode_msg(wrap_txn(Txn)).

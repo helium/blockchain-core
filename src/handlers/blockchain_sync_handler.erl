@@ -7,6 +7,9 @@
 
 -behavior(libp2p_framed_stream).
 
+
+-include("pb/blockchain_sync_handler_pb.hrl").
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -51,7 +54,9 @@ init(server, _Conn, [_Path, _, N, Blockchain]) ->
 
 handle_data(client, Data, #state{blockchain=Chain}=State) ->
     lager:info("client got data: ~p", [Data]),
-    Blocks = erlang:binary_to_term(Data),
+    #blockchain_sync_blocks_pb{blocks=BinBlocks} =
+        blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
+    Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     case blockchain:add_blocks(Blocks, Chain) of
         ok ->
             {ok, HeadHash} = blockchain:head_hash(Chain),
@@ -64,7 +69,8 @@ handle_data(client, Data, #state{blockchain=Chain}=State) ->
     {stop, normal, State};
 handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     lager:info("server got data: ~p", [Data]),
-    {hash, Hash} = erlang:binary_to_term(Data),
+    #blockchain_sync_hash_pb{hash=Hash} =
+        blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
     lager:info("syncing blocks with peer hash ~p", [Hash]),
     StartingBlock =
         case blockchain:get_block(Hash, Blockchain) of
@@ -75,10 +81,13 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
                 B
         end,
     Blocks = blockchain:build(StartingBlock, Blockchain, 200),
-    {stop, normal, State, erlang:term_to_binary(Blocks)}.
+    Msg = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+    {stop, normal, State, blockchain_sync_handler_pb:encode_msg(Msg)
+}.
 
 handle_info(client, {hash, Hash}, State) ->
-    {noreply, State, erlang:term_to_binary({hash, Hash})};
+    Msg = #blockchain_sync_hash_pb{hash=Hash},
+    {noreply, State, blockchain_sync_handler_pb:encode_msg(Msg)};
 handle_info(_Type, _Msg, State) ->
     lager:info("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
     {noreply, State}.

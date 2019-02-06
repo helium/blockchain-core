@@ -33,7 +33,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), binary(),  binary()) -> txn_poc_request().
-new(Address, Hash, Onion) ->
+new(Gateway, Hash, Onion) ->
     #blockchain_txn_poc_request_v1_pb{
        gateway=Gateway,
        hash=Hash,
@@ -63,7 +63,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec onion(txn_poc_request()) -> binary().
 onion(Txn) ->
-    Txn#txn_poc_request_v1.onion.
+    Txn#blockchain_txn_poc_request_v1_pb.onion.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -112,7 +112,7 @@ absorb(Txn, Ledger) ->
             Gateway = ?MODULE:gateway(Txn),
             Hash = ?MODULE:hash(Txn),
             Onion = ?MODULE:onion(Txn),
-            blockchain_ledger_v1:request_poc(GatewayAddress, {Hash, Onion}, Ledger);
+            blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger);
         false ->
             {error, bad_signature}
     end.

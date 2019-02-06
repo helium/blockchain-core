@@ -62,8 +62,8 @@ keys_test(_Config) ->
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_gen_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
-    Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
+    ConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers]),
+    Txs = GenPaymentTxs ++ [ConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
@@ -93,7 +93,7 @@ keys_test(_Config) ->
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
-    
+
     case erlang:is_process_alive(Sup) of
         true ->
             true = erlang:exit(Sup, normal),

@@ -64,18 +64,27 @@ is_genesis(Block) ->
 
 -spec serialize(block()) -> binary().
 serialize(Block) ->
-    WrappedBlock =
-        case type(Block) of
-            blockchain_block_v1 -> #blockchain_block_pb{block={v1, Block}};
-            undefined -> erlang:error({unknown_block, Block})
-        end,
-    blockchain_block_pb:encode_msg(WrappedBlock).
+    blockchain_block_pb:encode_msg(wrap_block(Block)).
 
 -spec deserialize(binary()) -> block().
 deserialize(Bin) ->
-    case blockchain_block_pb:decode_msg(Bin, blockchain_block_pb) of
-        #blockchain_block_pb{block={v1, Block}} -> Block
+    unwrap_block(blockchain_block_pb:decode_msg(Bin, blockchain_block_pb)).
+
+%% @private wraps a block with it's version/type wrapper to ready it
+%% for serialization.
+-spec wrap_block(block()) -> #blockchain_block_pb{}.
+wrap_block(Block) ->
+    case type(Block) of
+        blockchain_block_v1 -> #blockchain_block_pb{block={v1, Block}};
+        undefined -> erlang:error({unknown_block, Block})
     end.
+
+%% @private unwrap a protobuf typed block and return the underlying
+%% block (which like all good things through the looking glass is also
+%% a protobuf based block)
+-spec unwrap_block(#blockchain_block_pb{}) -> block().
+unwrap_block(#blockchain_block_pb{block={_, Block}}) ->
+    Block.
 
 -spec signatures(block()) -> [signature()].
 signatures(Block) ->

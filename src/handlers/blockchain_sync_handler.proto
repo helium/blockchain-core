@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+message sync_hash {
+    bytes hash = 1;
+}
+
+message sync_blocks {
+    repeated bytes blocks= 1;
+}

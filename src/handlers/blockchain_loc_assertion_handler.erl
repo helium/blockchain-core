@@ -40,13 +40,13 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, [Txn]) ->
     lager:info("started loc_assertion_handler client, txn: ~p", [Txn]),
-    {stop, normal, term_to_binary([{txn, Txn}])};
+    {stop, normal, blockchain_txn:serialize(Txn)};
 init(server, _Conn, _Args) ->
     lager:info("started loc_assertion_handler server"),
     {ok, #state{}}.
 
 handle_data(server, Data, State) ->
-    [{txn, Txn}] = binary_to_term(Data),
+    Txn = blockchain_txn:deserialize(Data),
     lager:info("loc_assertion_handler server got txn: ~p", [Txn]),
     ok = blockchain_worker:notify({loc_assertion_request, Txn}),
     {stop, normal, State}.

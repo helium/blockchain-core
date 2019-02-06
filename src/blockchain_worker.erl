@@ -366,7 +366,7 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
 handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
     {noreply, State};
-handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm}=State) ->
+handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
     ok = send_txn(SignedAssertLocTxn, Chain),
