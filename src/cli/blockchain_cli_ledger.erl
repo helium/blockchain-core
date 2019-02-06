@@ -26,8 +26,6 @@ register_all_usage() ->
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
-                   ledger_assert_loc_request_usage(),
-                   ledger_assert_loc_txn_usage(),
                    ledger_usage()
                   ]).
 
@@ -42,8 +40,6 @@ register_all_cmds() ->
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
-                   ledger_assert_loc_request_cmd(),
-                   ledger_assert_loc_txn_cmd(),
                    ledger_cmd()
                   ]).
 
@@ -59,8 +55,6 @@ ledger_usage() ->
       "  ledger create_htlc         - Create or a hashed timelock address.\n"
       "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
-      "  ledger assert_loc_request  - Request the assertion of a gateway's location.\n"
-      "  ledger assert_loc_txn      - Countersign the assertion of a gateway's location and submit it.\n"
      ]
     ].
 
@@ -330,66 +324,6 @@ ledger_gateways(_CmdBase, [], []) ->
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)} |
      blockchain_ledger_gateway_v1:print(Gateway)].
-
-%%--------------------------------------------------------------------
-%% ledger assert_loc_request
-%%--------------------------------------------------------------------
-ledger_assert_loc_request_cmd() ->
-    [
-     [["ledger", "assert_loc_request", '*', '*'], [], [], fun ledger_assert_loc_request/3]
-    ].
-
-ledger_assert_loc_request_usage() ->
-    [["ledger", "assert_loc_request"],
-     ["ledger assert_loc_request <b58> <loc>\n\n",
-      "  Request to assert <loc> of the current node as a gateway owned by <b58>.\n"
-     ]
-    ].
-
-ledger_assert_loc_request(["ledger", "assert_loc_request", Addr, Location], [], []) ->
-    case (catch libp2p_crypto:b58_to_bin(Addr)) of
-        {'EXIT', _Reason} ->
-            usage;
-        Owner when is_binary(Owner) ->
-            case blockchain_worker:assert_location_request(Owner, Location) of
-                {error, Reason} ->
-                    [clique_status:text(io_lib:format("~p", [Reason]))];
-                Txn ->
-                    [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))]
-            end;
-        _ ->
-            usage
-    end;
-ledger_assert_loc_request(_, _, _) ->
-    usage.
-
-
-%%--------------------------------------------------------------------
-%% ledger assert_location_txn
-%%--------------------------------------------------------------------
-ledger_assert_loc_txn_cmd() ->
-    [
-     [["ledger", "assert_loc_txn", '*'], [], [], fun ledger_assert_loc_txn/3]
-    ].
-
-ledger_assert_loc_txn_usage() ->
-    [["ledger", "assert_loc_txn"],
-     ["ledger assert_loc_txn <txn>\n\n",
-      "  Countersign the assert_loc transaction <txn> and submit it.\n"
-     ]
-    ].
-
-ledger_assert_loc_txn(["ledger", "assert_loc_txn", AssertLocRequest], [], []) ->
-    case (catch binary_to_term(base58:base58_to_binary(AssertLocRequest))) of
-        {'EXIT', _} ->
-            usage;
-        Txn ->
-            blockchain_worker:assert_location_txn(Txn),
-            [clique_status:text("ok")]
-            %_ -> usage
-    end;
-ledger_assert_loc_txn(_, _, _) ->
-    usage.
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
 %% Presumably none of the flags would be _having_ a leading "=" intentionally!

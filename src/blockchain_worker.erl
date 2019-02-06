@@ -22,8 +22,6 @@
     submit_txn/1,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
-    assert_location_request/2,
-    assert_location_txn/1,
     peer_height/3,
     notify/1
 ]).
@@ -156,22 +154,6 @@ submit_txn(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec assert_location_request(libp2p_crypto:pubkey_bin(), integer()) -> ok | {error, any()}.
-assert_location_request(OwnerPubkeyBin, Location) ->
-    gen_server:call(?SERVER, {assert_location_request, OwnerPubkeyBin, Location}, infinity).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec assert_location_txn(blockchain_txn_assert_location:txn_assert_location()) -> ok.
-assert_location_txn(AssertLocRequest) ->
-    gen_server:cast(?SERVER, {assert_location_txn, AssertLocRequest}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec peer_height(integer(), blockchain_block:hash(), libp2p_crypto:pubkey_bin()) -> ok.
 peer_height(Height, Head, Sender) ->
     gen_server:cast(?SERVER, {peer_height, Height, Head, Sender}).
@@ -216,66 +198,6 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
-    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_gateway_info(PubkeyBin, Ledger) of
-        {error, _}=Error ->
-            lager:info("gateway not found in ledger."),
-            {reply, Error, State};
-        {ok, GwInfo} ->
-            Nonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-            %% check that the correct owner has been specified
-            case Owner =:= blockchain_ledger_gateway_v1:owner_address(GwInfo) of
-                true ->
-                    AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(PubkeyBin, Owner, Location, Nonce+1),
-                    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-                    SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
-                    lager:info(
-                        "assert_location_request, PubkeyBin: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
-                        [PubkeyBin, Location, Nonce, SignedAssertLocRequestTxn]
-                    ),
-                    PeerBook = libp2p_swarm:peerbook(Swarm),
-                    case libp2p_peerbook:lookup_association(PeerBook, "wallet_account", Owner) of
-                        [] ->
-                            {reply, {error, unknown_owner}, State};
-                        Peers ->
-                            %% do this in a sub process because dialing can be slow
-                            spawn(fun() ->
-                                SendResults = lists:map(
-                                    fun(Peer) ->
-                                        PeerPubkeyBin = libp2p_peer:pubkey_bin(Peer),
-                                        P2PPubkeyBin = libp2p_crypto:pubkey_bin_to_p2p(PeerPubkeyBin),
-                                        lager:info("Found ~p as owner for ~p", [P2PPubkeyBin, libp2p_crypto:bin_to_b58(PubkeyBin)]),
-                                        case libp2p_swarm:dial_framed_stream(Swarm,
-                                                                             P2PPubkeyBin,
-                                                                             ?LOC_ASSERTION_PROTOCOL,
-                                                                             blockchain_loc_assertion_handler,
-                                                                             [SignedAssertLocRequestTxn])
-                                        of
-                                            {ok, StreamPid} ->
-                                                erlang:unlink(StreamPid),
-                                                ok;
-                                            {error, Error} ->
-                                                {error, Error}
-                                        end
-                                    end,
-                                    Peers
-                                ),
-                                case lists:member(ok, SendResults) of
-                                    true ->
-                                        %% at least someone accepted the message
-                                        gen_server:reply(From, ok);
-                                    false ->
-                                        gen_server:reply(From, error)
-                                end
-                            end),
-                            {noreply, State}
-                    end;
-                false ->
-                    {reply, {error, invalid_owner}, State}
-            end
-    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -365,11 +287,6 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
     {noreply, State};
 handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
-    {noreply, State};
-handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
-    ok = send_txn(SignedAssertLocTxn, Chain),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
@@ -466,11 +383,6 @@ add_handlers(Swarm, N, Blockchain) ->
         Swarm,
         ?SYNC_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, N, Blockchain]}
-    ),
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm,
-        ?LOC_ASSERTION_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
     ).
 
 %%--------------------------------------------------------------------
