@@ -285,7 +285,7 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
     SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     ok = send_txn(SignedRedeemHTLCTxn, Chain),
     {noreply, State};
-handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
+handle_cast({submit_txn, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
