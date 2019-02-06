@@ -12,6 +12,7 @@
 -export([
     new/6,
     hash/1,
+    sign/2,
     gateway/1,
     owner/1,
     location/1,
@@ -57,6 +58,14 @@ new(Gateway, Owner, Location, LastPocChallenge, Nonce, Score) ->
 hash(Txn) ->
     EncodedTxn = blockchain_txn_gen_gateway_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec sign(txn_genesis_gateway(), libp2p_crypto:sig_fun()) -> txn_genesis_gateway().
+sign(Txn, _SigFun) ->
+    Txn.
 
 %%--------------------------------------------------------------------
 %% @doc

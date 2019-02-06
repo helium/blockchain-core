@@ -12,6 +12,7 @@
 -export([
     new/1,
     hash/1,
+    sign/2,
     members/1,
     absorb/2
 ]).
@@ -39,6 +40,15 @@ new(Members) ->
 hash(Txn) ->
     EncodedTxn = blockchain_txn_consensus_group_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec sign(txn_consensus_group(), libp2p_crypto:sig_fun()) -> txn_consensus_group().
+sign(Txn, _SigFun) ->
+    Txn.
 
 %%--------------------------------------------------------------------
 %% @doc

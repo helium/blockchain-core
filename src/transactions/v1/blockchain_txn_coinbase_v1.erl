@@ -14,7 +14,8 @@
     hash/1,
     payee/1,
     amount/1,
-    absorb/2
+    absorb/2,
+    sign/2
 ]).
 
 -ifdef(TEST).
@@ -40,6 +41,14 @@ new(Payee, Amount) ->
 hash(Txn) ->
     EncodedTxn = blockchain_txn_coinbase_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec sign(txn_coinbase(), libp2p_crypto:sig_fun()) -> txn_coinbase().
+sign(Txn, _SigFun) ->
+    Txn.
 
 %%--------------------------------------------------------------------
 %% @doc
