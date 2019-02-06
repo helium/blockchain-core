@@ -12,7 +12,7 @@
     height/1,
     ledger/1, ledger_at/2,
     dir/1,
-    blocks/1, add_block/2, get_block/2, add_blocks/2,
+    blocks/1, add_block/2, add_block/3, get_block/2, add_blocks/2,
     build/3,
     close/1
 ]).
@@ -245,6 +245,10 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %%--------------------------------------------------------------------
 -spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
 add_block(Block, Blockchain) ->
+    add_block(Block, Blockchain, false).
+
+-spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
+add_block(Block, Blockchain, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
@@ -290,7 +294,8 @@ add_block(Block, Blockchain) ->
                                         {true, _} ->
                                             case blockchain_transactions:absorb_and_commit(Block, Blockchain) of
                                                 ok ->
-                                                    save_block(Block, Blockchain);
+                                                    ok = save_block(Block, Blockchain),
+                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing});
                                                 {error, Reason}=Error ->
                                                     lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                                                     Error
@@ -332,7 +337,7 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
 add_blocks([], _Chain) -> ok;
 add_blocks([Head | Tail], Chain) ->
-    case ?MODULE:add_block(Head, Chain) of
+    case ?MODULE:add_block(Head, Chain, true) of
         ok -> add_blocks(Tail, Chain);
         Error ->
             Error
