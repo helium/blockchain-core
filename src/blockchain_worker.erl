@@ -469,11 +469,6 @@ add_handlers(Swarm, N, Blockchain) ->
     ),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
-        ?GW_REGISTRATION_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
-    ),
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm,
         ?LOC_ASSERTION_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
     ).
