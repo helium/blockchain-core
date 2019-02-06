@@ -31,6 +31,7 @@
 -export([
          hash/1,
          validate/2,
+         absorb/2,
          absorb_and_commit/2,
          absorb_block/2,
          sort/2,
@@ -148,6 +149,14 @@ absorb_block(Block, Ledger) ->
         Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
+    (type(Txn)):absorb(Txn, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

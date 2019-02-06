@@ -11,6 +11,7 @@
 -callback hash_block(block()) -> hash().
 -callback height(block()) -> non_neg_integer().
 -callback time(block()) -> non_neg_integer().
+-callback hbbft_round(block()) -> non_neg_integer().
 -callback is_genesis(block()) -> boolean().
 -callback signatures(block()) -> [signature()].
 -callback set_signatures(block(), [signature()]) -> block().
@@ -27,6 +28,7 @@
          hash_block/1,
          height/1,
          time/1,
+         hbbft_round/1,
          is_genesis/1,
          type/1,
          signatures/1, set_signatures/2,
@@ -57,6 +59,10 @@ height(Block) ->
 -spec time(block()) -> non_neg_integer().
 time(Block) ->
     (type(Block)):time(Block).
+
+-spec hbbft_round(block()) -> non_neg_integer().
+hbbft_round(Block) ->
+    (type(Block)):hbbft_round(Block).
 
 -spec is_genesis(block()) -> boolean().
 is_genesis(Block) ->
