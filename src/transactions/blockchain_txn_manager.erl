@@ -135,7 +135,7 @@ handle_info(timeout, State=#state{txn_queue=[{_Txn, _Callback, AcceptQueue0, _Re
                        State#state{txn_queue=lists:reverse(NewTxnQueue)};
                    _Other ->
                        %% try to dial someone else ASAR
-                       erlang:send_after(self(), ?TIMEOUT, timeout),
+                       erlang:send_after(?TIMEOUT, self(), timeout),
                        State
                end,
     {noreply, NewState, ?TIMEOUT};
