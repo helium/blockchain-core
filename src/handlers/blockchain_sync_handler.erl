@@ -59,8 +59,6 @@ handle_data(client, Data, #state{blockchain=Chain}=State) ->
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     case blockchain:add_blocks(Blocks, Chain) of
         ok ->
-            {ok, HeadHash} = blockchain:head_hash(Chain),
-            ok = blockchain_worker:notify({add_block, HeadHash, false}),
             blockchain_worker:synced_blocks();
         Error ->
             %% TODO: maybe dial for sync again?
