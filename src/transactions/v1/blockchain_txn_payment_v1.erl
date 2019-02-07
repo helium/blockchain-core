@@ -7,6 +7,8 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_payment_v1_pb.hrl").
+
 -export([
     new/5,
     hash/1,
@@ -18,7 +20,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -26,16 +27,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_payment_v1, {
-    payer :: libp2p_crypto:pubkey_bin(),
-    payee :: libp2p_crypto:pubkey_bin(),
-    amount :: integer(),
-    fee :: integer(),
-    nonce :: non_neg_integer(),
-    signature :: binary()
-}).
-
--type txn_payment() :: #txn_payment_v1{}.
+-type txn_payment() :: #blockchain_txn_payment_v1_pb{}.
 -export_type([txn_payment/0]).
 
 %%--------------------------------------------------------------------
@@ -45,7 +37,7 @@
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
           non_neg_integer(), non_neg_integer()) -> txn_payment().
 new(Payer, Recipient, Amount, Fee, Nonce) ->
-    #txn_payment_v1{
+    #blockchain_txn_payment_v1_pb{
         payer=Payer,
         payee=Recipient,
         amount=Amount,
@@ -60,8 +52,9 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_payment()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_payment_v1{signature = <<>>},
-    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
+    BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -69,21 +62,21 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec payer(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
-    Txn#txn_payment_v1.payer.
+    Txn#blockchain_txn_payment_v1_pb.payer.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec payee(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
-    Txn#txn_payment_v1.payee.
+    Txn#blockchain_txn_payment_v1_pb.payee.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec amount(txn_payment()) -> pos_integer().
 amount(Txn) ->
-    Txn#txn_payment_v1.amount.
+    Txn#blockchain_txn_payment_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -91,7 +84,7 @@ amount(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_payment()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_payment_v1.fee.
+    Txn#blockchain_txn_payment_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -99,7 +92,7 @@ fee(Txn) ->
 %%--------------------------------------------------------------------
 -spec nonce(txn_payment()) -> non_neg_integer().
 nonce(Txn) ->
-    Txn#txn_payment_v1.nonce.
+    Txn#blockchain_txn_payment_v1_pb.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -107,7 +100,7 @@ nonce(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_payment()) -> binary().
 signature(Txn) ->
-    Txn#txn_payment_v1.signature.
+    Txn#blockchain_txn_payment_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -118,24 +111,19 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_payment(), libp2p_crypto:sig_fun()) -> txn_payment().
 sign(Txn, SigFun) ->
-    Txn#txn_payment_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
+    EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_payment_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_payment()) -> boolean().
-is_valid(Txn=#txn_payment_v1{payer=Payer, signature=Signature}) ->
+is_valid(Txn=#blockchain_txn_payment_v1_pb{payer=Payer, signature=Signature}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_payment_v1{signature = <<>>}), Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_payment_v1).
+    BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -177,7 +165,7 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_payment_v1{
+    Tx = #blockchain_txn_payment_v1_pb{
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=666,
@@ -218,7 +206,8 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_payment_v1{signature = <<>>}), Sig1, PubKey)).
+    EncodedTx1 = blockchain_txn_payment_v1_pb:encode_msg(Tx1#blockchain_txn_payment_v1_pb{signature = <<>>}),
+    ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 is_valid_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -232,9 +221,5 @@ is_valid_test() ->
     Tx2 = new(Payer2, <<"payee">>, 666, 10, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx0 = new(<<"payer">>, <<"payee">>, 666, 10, 1),
-    ?assert(is(Tx0)).
 
 -endif.

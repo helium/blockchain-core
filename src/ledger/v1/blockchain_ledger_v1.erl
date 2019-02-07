@@ -354,7 +354,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
                   LastPocChallenge :: undefined | non_neg_integer(),
-                  LastPocHash :: undefined | binary(),
+                  LastPocInfo :: undefined | {binary(), binary()},
                   Nonce :: non_neg_integer(),
                   Score :: float(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
@@ -362,7 +362,7 @@ add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             LastPocChallenge,
-            LastPocHash,
+            LastPocInfo,
             Nonce,
             Score,
             Ledger) ->
@@ -373,7 +373,7 @@ add_gateway(OwnerAddr,
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
                                                        Location,
                                                        LastPocChallenge,
-                                                       LastPocHash,
+                                                       LastPocInfo,
                                                        Nonce,
                                                        Score),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
@@ -686,7 +686,7 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
         {_, undefined} ->
             rocksdb:get(DB, CF, Key, Options);
-        {Context, Cache} -> 
+        {Context, Cache} ->
             case ets:lookup(Cache, CF) of
                 [] ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);

@@ -19,13 +19,9 @@
     synced_blocks/0,
     spend/3, spend/4,
     payment_txn/5, payment_txn/6,
-    submit_txn/2,
+    submit_txn/1,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
-    add_gateway_request/3,
-    add_gateway_txn/1,
-    assert_location_request/2,
-    assert_location_txn/1,
     peer_height/3,
     notify/1
 ]).
@@ -150,42 +146,9 @@ redeem_htlc_txn(PubkeyBin, Preimage, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec submit_txn(atom(), blockchain_transactions:transaction()) -> ok.
-submit_txn(Type, Txn) ->
-    gen_server:cast(?SERVER, {submit_txn, Type, Txn}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_gateway_request(Owner::libp2p_crypto:pubkey_bin(), AuthPubkeyBin::string(), AuthToken::string())
-                         -> ok | {error, any()}.
-add_gateway_request(OwnerPubkeyBin, AuthPubkeyBin, AuthToken) ->
-    gen_server:call(?SERVER, {add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, infinity).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_gateway_txn(blockchain_txn_add_gateway:txn_add_gateway()) -> ok.
-add_gateway_txn(AddGatewayRequest) ->
-    gen_server:cast(?SERVER, {add_gateway_txn, AddGatewayRequest}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec assert_location_request(libp2p_crypto:pubkey_bin(), integer()) -> ok | {error, any()}.
-assert_location_request(OwnerPubkeyBin, Location) ->
-    gen_server:call(?SERVER, {assert_location_request, OwnerPubkeyBin, Location}, infinity).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec assert_location_txn(blockchain_txn_assert_location:txn_assert_location()) -> ok.
-assert_location_txn(AssertLocRequest) ->
-    gen_server:cast(?SERVER, {assert_location_txn, AssertLocRequest}).
+-spec submit_txn(blockchain_txn:txn()) -> ok.
+submit_txn(Txn) ->
+    gen_server:cast(?SERVER, {submit_txn, Txn}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -235,82 +198,6 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({add_gateway_request, OwnerPubkeyBin, AuthPubkeyBin, AuthToken}, _From, State=#state{swarm=Swarm}) ->
-    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    AddGwTxn = blockchain_txn_add_gateway_v1:new(OwnerPubkeyBin, PubkeyBin),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign_request(AddGwTxn, SigFun),
-    case libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
-                                         AuthPubkeyBin,
-                                         ?GW_REGISTRATION_PROTOCOL,
-                                         blockchain_gw_registration_handler,
-                                         [SignedAddGwTxn, AuthToken]) of
-        {ok, StreamPid} ->
-            erlang:unlink(StreamPid),
-            {reply, ok, State};
-        {error, Error} ->
-            {reply, {error, Error}, State}
-    end;
-handle_call({assert_location_request, Owner, Location}, From, State=#state{swarm=Swarm, blockchain=Chain}) ->
-    PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_gateway_info(PubkeyBin, Ledger) of
-        {error, _}=Error ->
-            lager:info("gateway not found in ledger."),
-            {reply, Error, State};
-        {ok, GwInfo} ->
-            Nonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-            %% check that the correct owner has been specified
-            case Owner =:= blockchain_ledger_gateway_v1:owner_address(GwInfo) of
-                true ->
-                    AssertLocationRequestTxn = blockchain_txn_assert_location_v1:new(PubkeyBin, Owner, Location, Nonce+1),
-                    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-                    SignedAssertLocRequestTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTxn, SigFun),
-                    lager:info(
-                        "assert_location_request, PubkeyBin: ~p, Location: ~p, LedgerNonce: ~p, Txn: ~p",
-                        [PubkeyBin, Location, Nonce, SignedAssertLocRequestTxn]
-                    ),
-                    PeerBook = libp2p_swarm:peerbook(Swarm),
-                    case libp2p_peerbook:lookup_association(PeerBook, "wallet_account", Owner) of
-                        [] ->
-                            {reply, {error, unknown_owner}, State};
-                        Peers ->
-                            %% do this in a sub process because dialing can be slow
-                            spawn(fun() ->
-                                SendResults = lists:map(
-                                    fun(Peer) ->
-                                        PeerPubkeyBin = libp2p_peer:pubkey_bin(Peer),
-                                        P2PPubkeyBin = libp2p_crypto:pubkey_bin_to_p2p(PeerPubkeyBin),
-                                        lager:info("Found ~p as owner for ~p", [P2PPubkeyBin, libp2p_crypto:bin_to_b58(PubkeyBin)]),
-                                        case libp2p_swarm:dial_framed_stream(Swarm,
-                                                                             P2PPubkeyBin,
-                                                                             ?LOC_ASSERTION_PROTOCOL,
-                                                                             blockchain_loc_assertion_handler,
-                                                                             [SignedAssertLocRequestTxn])
-                                        of
-                                            {ok, StreamPid} ->
-                                                erlang:unlink(StreamPid),
-                                                ok;
-                                            {error, Error} ->
-                                                {error, Error}
-                                        end
-                                    end,
-                                    Peers
-                                ),
-                                case lists:member(ok, SendResults) of
-                                    true ->
-                                        %% at least someone accepted the message
-                                        gen_server:reply(From, ok);
-                                    false ->
-                                        gen_server:reply(From, error)
-                                end
-                            end),
-                            {noreply, State}
-                    end;
-                false ->
-                    {reply, {error, invalid_owner}, State}
-            end
-    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -323,9 +210,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             {noreply, State};
         true ->
             ok = blockchain:integrate_genesis(GenesisBlock, Blockchain),
-            [ConsensusAddrs] = [blockchain_txn_gen_consensus_group_v1:members(T)
-                                || T <- blockchain_block:transactions(GenesisBlock)
-                                ,blockchain_txn_gen_consensus_group_v1:is(T)],
+            [ConsensusAddrs] = [blockchain_txn_consensus_group_v1:members(T)
+                                || T <- blockchain_block:transactions(GenesisBlock),
+                                   blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, State#state.n, Blockchain),
@@ -398,18 +285,8 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
     SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     ok = send_txn(SignedRedeemHTLCTxn, Chain),
     {noreply, State};
-handle_cast({submit_txn, _Type, Txn}, #state{blockchain=Chain}=State) ->
+handle_cast({submit_txn, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
-    {noreply, State};
-handle_cast({add_gateway_txn, AddGwTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAddGwTxn = blockchain_txn_add_gateway_v1:sign(AddGwTxn, SigFun),
-    ok = send_txn(SignedAddGwTxn, Chain),
-    {noreply, State};
-handle_cast({assert_location_txn, AssertLocTxn}, #state{swarm=Swarm, blockchain=Chain}=State) ->
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
-    SignedAssertLocTxn = blockchain_txn_assert_location_v1:sign(AssertLocTxn, SigFun),
-    ok = send_txn(SignedAssertLocTxn, Chain),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
@@ -449,8 +326,7 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
             {noreply, State#state{sync_timer=Ref}};
         {ok, Head} ->
-            Meta = blockchain_block:meta(Head),
-            BlockTime = maps:get(block_time, Meta, 0),
+            BlockTime = blockchain_block:time(Head),
             case erlang:system_time(seconds) - BlockTime of
                 X when X > 300 ->
                     %% figure out our gossip peers
@@ -501,21 +377,12 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %%--------------------------------------------------------------------
 -spec add_handlers(pid(), pos_integer(), blockchain:blockchain()) -> ok.
 add_handlers(Swarm, N, Blockchain) ->
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL, {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
+    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL,
+                                    {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, N, Blockchain]}
-    ),
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm,
-        ?GW_REGISTRATION_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_gw_registration_handler, ?SERVER]}
-    ),
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm,
-        ?LOC_ASSERTION_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_loc_assertion_handler, ?SERVER]}
     ).
 
 %%--------------------------------------------------------------------

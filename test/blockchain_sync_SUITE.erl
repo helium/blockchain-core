@@ -79,4 +79,3 @@ basic(_Config) ->
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     true = erlang:exit(Sup, normal),
     ok.
-

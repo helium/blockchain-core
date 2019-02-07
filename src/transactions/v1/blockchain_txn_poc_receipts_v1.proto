@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+message poc_receipt_v1 {
+    bytes address = 1;
+    uint64 timestamp = 2;
+    bytes hash = 3;
+    bytes signature = 4;
+}
+
+message txn_poc_receipts_v1 {
+    repeated poc_receipt_v1 receipts = 1;
+    bytes challenger = 2;
+    bytes secret = 3;
+    bytes signature = 4;
+}

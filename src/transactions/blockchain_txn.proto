@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+import "v1/blockchain_txn_add_gateway_v1.proto";
+import "v1/blockchain_txn_assert_location_v1.proto";
+import "v1/blockchain_txn_coinbase_v1.proto";
+import "v1/blockchain_txn_create_htlc_v1.proto";
+import "v1/blockchain_txn_consensus_group_v1.proto";
+import "v1/blockchain_txn_gen_gateway_v1.proto";
+import "v1/blockchain_txn_oui_v1.proto";
+import "v1/blockchain_txn_payment_v1.proto";
+import "v1/blockchain_txn_poc_receipts_v1.proto";
+import "v1/blockchain_txn_poc_request_v1.proto";
+import "v1/blockchain_txn_redeem_htlc_v1.proto";
+
+message txn {
+    oneof txn {
+        txn_add_gateway_v1 add_gateway = 1;
+        txn_assert_location_v1 assert_location = 2;
+        txn_coinbase_v1 coinbase = 3;
+        txn_create_htlc_v1 create_htlc = 4;
+        txn_gen_gateway_v1 gen_gateway = 5;
+        txn_consensus_group_v1 consensus_group = 6;
+        txn_oui_v1 oui = 7;
+        txn_payment_v1 payment = 8;
+        txn_poc_receipts_v1 poc_receipts = 9;
+        txn_poc_request_v1 poc_request = 10;
+        txn_redeem_htlc_v1 redeem_htlc = 11;
+    }
+}

@@ -7,18 +7,19 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_add_gateway_v1_pb.hrl").
+
 -export([
     new/2,
     hash/1,
-    owner_address/1,
-    gateway_address/1,
+    owner/1,
+    gateway/1,
     owner_signature/1,
     gateway_signature/1,
     sign/2,
     sign_request/2,
     is_valid_gateway/1,
     is_valid_owner/1,
-    is/1,
     absorb/2
 ]).
 
@@ -26,14 +27,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_add_gateway_v1, {
-    owner_address :: libp2p_crypto:pubkey_bin(),
-    gateway_address :: libp2p_crypto:pubkey_bin(),
-    owner_signature = <<>> :: binary(),
-    gateway_signature = <<>> :: binary()
-}).
-
--type txn_add_gateway() :: #txn_add_gateway_v1{}.
+-type txn_add_gateway() :: #blockchain_txn_add_gateway_v1_pb{}.
 -export_type([txn_add_gateway/0]).
 
 %%--------------------------------------------------------------------
@@ -42,11 +36,9 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
 new(OwnerAddress, GatewayAddress) ->
-    #txn_add_gateway_v1{
-        owner_address=OwnerAddress,
-        gateway_address=GatewayAddress,
-        owner_signature = <<>>,
-        gateway_signature = <<>>
+    #blockchain_txn_add_gateway_v1_pb{
+        owner=OwnerAddress,
+        gateway=GatewayAddress
     }.
 
 %%--------------------------------------------------------------------
@@ -55,30 +47,31 @@ new(OwnerAddress, GatewayAddress) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_add_gateway()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_add_gateway_v1{owner_signature = <<>>, gateway_signature = <<>>},
-    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature = <<>>, gateway_signature = <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
-owner_address(Txn) ->
-    Txn#txn_add_gateway_v1.owner_address.
+-spec owner(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
+owner(Txn) ->
+    Txn#blockchain_txn_add_gateway_v1_pb.owner.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
-gateway_address(Txn) ->
-    Txn#txn_add_gateway_v1.gateway_address.
+-spec gateway(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
+gateway(Txn) ->
+    Txn#blockchain_txn_add_gateway_v1_pb.gateway.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec owner_signature(txn_add_gateway()) -> binary().
 owner_signature(Txn) ->
-    Txn#txn_add_gateway_v1.owner_signature.
+    Txn#blockchain_txn_add_gateway_v1_pb.owner_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -86,7 +79,7 @@ owner_signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec gateway_signature(txn_add_gateway()) -> binary().
 gateway_signature(Txn) ->
-    Txn#txn_add_gateway_v1.gateway_signature.
+    Txn#blockchain_txn_add_gateway_v1_pb.gateway_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -94,9 +87,10 @@ gateway_signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_add_gateway(), libp2p_crypto:sig_fun()) -> txn_add_gateway().
 sign(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
-                                                          gateway_signature= <<>>}),
-    Txn#txn_add_gateway_v1{owner_signature=SigFun(BinTxn)}.
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
+                                                   gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_add_gateway_v1_pb{owner_signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -104,9 +98,10 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec sign_request(txn_add_gateway(), fun()) -> txn_add_gateway().
 sign_request(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
-                                                          gateway_signature= <<>>}),
-    Txn#txn_add_gateway_v1{gateway_signature=SigFun(BinTxn)}.
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
+                                                   gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_add_gateway_v1_pb{gateway_signature=SigFun(EncodedTxn)}.
 
 
 %%--------------------------------------------------------------------
@@ -114,32 +109,26 @@ sign_request(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid_gateway(txn_add_gateway()) -> boolean().
-is_valid_gateway(#txn_add_gateway_v1{gateway_address=Address,
-                                     gateway_signature=Signature}=Txn) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
-                                                          gateway_signature= <<>>}),
-    PubKey = libp2p_crypto:bin_to_pubkey(Address),
-    libp2p_crypto:verify(BinTxn, Signature, PubKey).
+is_valid_gateway(#blockchain_txn_add_gateway_v1_pb{gateway=PubKeyBin,
+                                                   gateway_signature=Signature}=Txn) ->
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
+                                                   gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid_owner(txn_add_gateway()) -> boolean().
-is_valid_owner(#txn_add_gateway_v1{owner_address=Address,
-                                   owner_signature=Signature}=Txn) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_add_gateway_v1{owner_signature= <<>>,
-                                                          gateway_signature= <<>>}),
-    PubKey = libp2p_crypto:bin_to_pubkey(Address),
-    libp2p_crypto:verify(BinTxn, Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_add_gateway_v1).
+is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
+                                                 owner_signature=Signature}=Txn) ->
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
+                                                   gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -154,8 +143,8 @@ absorb(Txn, Ledger) ->
         {_, false} ->
             {error, bad_gateway_signature};
         {true, true} ->
-            OwnerAddress = ?MODULE:owner_address(Txn),
-            GatewayAddress = ?MODULE:gateway_address(Txn),
+            Owner = ?MODULE:owner(Txn),
+            Gateway = ?MODULE:gateway(Txn),
             %% NOTE: This causes a chain fork, commenting out till we roll new rules new chain
             %% case blockchain_ledger_v1:transaction_fee(Ledger) of
             %%     {error, Error} ->
@@ -166,7 +155,7 @@ absorb(Txn, Ledger) ->
             %%             ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
             %%         end
             %% end
-            case blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger) of
+            case blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger) of
                 {error, _Reason}=Error -> Error;
                 ok -> ok
             end
@@ -178,9 +167,9 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_add_gateway_v1{
-        owner_address= <<"owner_address">>,
-        gateway_address= <<"gateway_address">>,
+    Tx = #blockchain_txn_add_gateway_v1_pb{
+        owner= <<"owner_address">>,
+        gateway= <<"gateway_address">>,
         owner_signature= <<>>,
         gateway_signature = <<>>
     },
@@ -188,11 +177,11 @@ new_test() ->
 
 owner_address_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>),
-    ?assertEqual(<<"owner_address">>, owner_address(Tx)).
+    ?assertEqual(<<"owner_address">>, owner(Tx)).
 
 gateway_address_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>),
-    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
+    ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
 owner_signature_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>),
@@ -208,7 +197,8 @@ sign_request_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Sig1 = gateway_signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
+    BaseTx1 = Tx1#blockchain_txn_add_gateway_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
+    ?assert(libp2p_crypto:verify(blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTx1), Sig1, PubKey)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -217,10 +207,7 @@ sign_test() ->
     Tx1 = sign_request(Tx0, SigFun),
     Tx2 = sign(Tx1, SigFun),
     Sig2 = owner_signature(Tx2),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_add_gateway_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig2, PubKey)).
-
-is_test() ->
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
-    ?assert(is(Tx0)).
+    BaseTx1 = Tx1#blockchain_txn_add_gateway_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
+    ?assert(libp2p_crypto:verify(blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTx1), Sig2, PubKey)).
 
 -endif.

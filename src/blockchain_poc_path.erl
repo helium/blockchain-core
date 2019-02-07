@@ -180,31 +180,33 @@ edge_weight(Gw1, Gw2) ->
              Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:pubkey_bin(), map()}.
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
-    Probs = create_probs(ActiveGateways),
-    Entropy = entropy(Hash, Probs),
-    Target = select_target(Probs, maps:keys(ActiveGateways), Entropy, 1),
+    ProbsAndGatewayAddrs = create_probs(ActiveGateways),
+    Entropy = entropy(Hash, ProbsAndGatewayAddrs),
+    Target = select_target(ProbsAndGatewayAddrs, Entropy),
     {Target, ActiveGateways}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_probs(Gateways :: map()) -> [float()].
+-spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
-    GwScores = [blockchain_ledger_gateway_v1:score(G) || G <- maps:values(Gateways)],
+    GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
+    Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
-    SumGwScores = lists:sum(GwScores),
-    [prob(Score, LenGwScores, SumGwScores) || Score <- GwScores].
+    SumGwScores = lists:sum(Scores),
+    [{prob(Score, LenGwScores, SumGwScores), GwAddr} || {GwAddr, Score} <- GwScores].
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec entropy(Entropy :: binary(), Probs :: [float()]) -> float().
-entropy(Entropy, Probs) ->
+-spec entropy(Entropy :: binary(), ProbsAndGatewayAddrs :: [{float(), libp2p_crypto:pubkey_bin()}]) -> float().
+entropy(Entropy, ProbsAndGatewayAddrs) ->
+    Probs = [P || {P, _} <- ProbsAndGatewayAddrs],
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
-    S = rand:seed_s(exrop, {A, B, C}),
+    S = rand:seed_s(exs1024s, {A, B, C}),
     {R, _} = rand:uniform_s(S),
     R * lists:sum(Probs).
 
@@ -228,10 +230,10 @@ active_gateways(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-select_target([W1 | _T], Adresses, Rnd, Index) when (Rnd - W1) < 0 ->
-    lists:nth(Index, Adresses);
-select_target([W1 | T], Adresses, Rnd, Index) ->
-    select_target(T, Adresses, Rnd - W1, Index + 1).
+select_target([{Prob1,  GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 < 0 ->
+   GwAddr1;
+select_target([{Prob1, _GwAddr1} | Tail], Rnd) ->
+   select_target(Tail, Rnd - Prob1).
 
 
 %%--------------------------------------------------------------------

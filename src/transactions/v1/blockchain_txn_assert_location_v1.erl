@@ -7,11 +7,13 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_assert_location_v1_pb.hrl").
+
 -export([
     new/4,
     hash/1,
-    gateway_address/1,
-    owner_address/1,
+    gateway/1,
+    owner/1,
     location/1,
     gateway_signature/1,
     owner_signature/1,
@@ -19,7 +21,6 @@
     fee/1,
     sign_request/2,
     sign/2,
-    is/1,
     absorb/2
 ]).
 
@@ -27,20 +28,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_assert_location_v1, {
-    gateway_address :: libp2p_crypto:pubkey_bin(),
-    owner_address :: libp2p_crypto:pubkey_bin(),
-    gateway_signature :: binary(),
-    owner_signature :: binary(),
-    location :: location(),
-    nonce = 0 :: non_neg_integer(),
-    %% TODO: fee needs to be calculated on the fly
-    %% using the gateways already present in the nearby geography
-    fee = 1 :: non_neg_integer()
-}).
-
 -type location() :: non_neg_integer(). %% h3 index
--type txn_assert_location() :: #txn_assert_location_v1{}.
+-type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
 -export_type([txn_assert_location/0]).
 
 %%--------------------------------------------------------------------
@@ -52,14 +41,15 @@
           Location :: location(),
           Nonce :: non_neg_integer()) -> txn_assert_location().
 new(GatewayAddress, OwnerAddress, Location, Nonce) ->
-    #txn_assert_location_v1{
-        gateway_address=GatewayAddress,
-        owner_address=OwnerAddress,
-        location=Location,
-        gateway_signature = <<>>,
-        owner_signature = <<>>,
-        nonce=Nonce
-    }.
+    #blockchain_txn_assert_location_v1_pb{
+       gateway=GatewayAddress,
+       owner=OwnerAddress,
+       location=Location,
+       gateway_signature = <<>>,
+       owner_signature = <<>>,
+       nonce=Nonce,
+       fee=1
+      }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -67,24 +57,25 @@ new(GatewayAddress, OwnerAddress, Location, Nonce) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_assert_location()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_assert_location_v1{owner_signature = <<>>, gateway_signature = <<>>},
-    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
+    BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature = <<>>, gateway_signature = <<>>},
+    EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
-gateway_address(Txn) ->
-    Txn#txn_assert_location_v1.gateway_address.
+-spec gateway(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
+gateway(Txn) ->
+    Txn#blockchain_txn_assert_location_v1_pb.gateway.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec owner_address(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
-owner_address(Txn) ->
-    Txn#txn_assert_location_v1.owner_address.
+-spec owner(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
+owner(Txn) ->
+    Txn#blockchain_txn_assert_location_v1_pb.owner.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -92,7 +83,7 @@ owner_address(Txn) ->
 %%--------------------------------------------------------------------
 -spec location(txn_assert_location()) -> location().
 location(Txn) ->
-    Txn#txn_assert_location_v1.location.
+    Txn#blockchain_txn_assert_location_v1_pb.location.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -100,7 +91,7 @@ location(Txn) ->
 %%--------------------------------------------------------------------
 -spec gateway_signature(txn_assert_location()) -> binary().
 gateway_signature(Txn) ->
-    Txn#txn_assert_location_v1.gateway_signature.
+    Txn#blockchain_txn_assert_location_v1_pb.gateway_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,7 +99,7 @@ gateway_signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec owner_signature(txn_assert_location()) -> binary().
 owner_signature(Txn) ->
-    Txn#txn_assert_location_v1.owner_signature.
+    Txn#blockchain_txn_assert_location_v1_pb.owner_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -116,7 +107,7 @@ owner_signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec nonce(txn_assert_location()) -> non_neg_integer().
 nonce(Txn) ->
-    Txn#txn_assert_location_v1.nonce.
+    Txn#blockchain_txn_assert_location_v1_pb.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -124,7 +115,7 @@ nonce(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_assert_location()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_assert_location_v1.fee.
+    Txn#blockchain_txn_assert_location_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -133,9 +124,10 @@ fee(Txn) ->
 -spec sign_request(Txn :: txn_assert_location(),
                    SigFun :: libp2p_crypto:sig_fun()) -> txn_assert_location().
 sign_request(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_assert_location_v1{owner_signature= <<>>,
-                                                              gateway_signature= <<>>}),
-    Txn#txn_assert_location_v1{gateway_signature=SigFun(BinTxn)}.
+    BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature= <<>>,
+                                                       gateway_signature= <<>>},
+    BinTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_assert_location_v1_pb{gateway_signature=SigFun(BinTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -144,17 +136,10 @@ sign_request(Txn, SigFun) ->
 -spec sign(Txn :: txn_assert_location(),
            SigFun :: libp2p_crypto:sig_fun()) -> txn_assert_location().
 sign(Txn, SigFun) ->
-    BinTxn = erlang:term_to_binary(Txn#txn_assert_location_v1{owner_signature= <<>>,
-                                                              gateway_signature= <<>>}),
-    Txn#txn_assert_location_v1{owner_signature=SigFun(BinTxn)}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_assert_location_v1).
+    BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature= <<>>,
+                                                       gateway_signature= <<>>},
+    BinTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
+    Txn#blockchain_txn_assert_location_v1_pb{owner_signature=SigFun(BinTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,19 +147,19 @@ is(Txn) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    GatewayAddress = ?MODULE:gateway_address(Txn),
-    OwnerAddress = ?MODULE:owner_address(Txn),
+    Gateway = ?MODULE:gateway(Txn),
+    Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:find_entry(OwnerAddress, Ledger) of
+    case blockchain_ledger_v1:find_entry(Owner, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, LastEntry} ->
             PaymentNonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
-            case blockchain_ledger_v1:debit_account(OwnerAddress, Fee, PaymentNonce, Ledger) of
+            case blockchain_ledger_v1:debit_account(Owner, Fee, PaymentNonce, Ledger) of
                 {error, _Reason}=Error -> Error;
-                ok -> assert_gateway_location(GatewayAddress, Location, Nonce, Ledger)
+                ok -> assert_gateway_location(Gateway, Location, Nonce, Ledger)
             end
     end.
 
@@ -188,17 +173,18 @@ absorb(Txn, Ledger) ->
 %%--------------------------------------------------------------------
 -spec assert_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(),
                               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-assert_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
-    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
+assert_gateway_location(Gateway, Location, Nonce, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
         {error, _} ->
-            {error, {unknown_gateway, GatewayAddress, Ledger}};
+            {error, {unknown_gateway, Gateway, Ledger}};
         {ok, GwInfo} ->
             lager:info("gw_info from ledger: ~p", [GwInfo]),
             LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-            lager:info("assert_gateway_location, gw_address: ~p, Nonce: ~p, LedgerNonce: ~p", [GatewayAddress, Nonce, LedgerNonce]),
+            lager:info("assert_gateway_location, gw_address: ~p, Nonce: ~p, LedgerNonce: ~p",
+                       [Gateway, Nonce, LedgerNonce]),
             case Nonce == LedgerNonce + 1 of
                 true ->
-                    blockchain_ledger_v1:add_gateway_location(GatewayAddress, Location, Nonce, Ledger);
+                    blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger);
                 false ->
                     {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}}
             end
@@ -210,13 +196,14 @@ assert_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 -ifdef(TEST).
 
 new() ->
-    #txn_assert_location_v1{
-       gateway_address= <<"gateway_address">>,
-       owner_address= <<"owner_address">>,
+    #blockchain_txn_assert_location_v1_pb{
+       gateway= <<"gateway_address">>,
+       owner= <<"owner_address">>,
        gateway_signature= <<>>,
        owner_signature= << >>,
        location= 1,
-       nonce = 1
+       nonce = 1,
+       fee = 1
       }.
 
 new_test() ->
@@ -235,13 +222,13 @@ fee_test() ->
     Tx = new(),
     ?assertEqual(1, fee(Tx)).
 
-owner_address_test() ->
+owner_test() ->
     Tx = new(),
-    ?assertEqual(<<"owner_address">>, owner_address(Tx)).
+    ?assertEqual(<<"owner_address">>, owner(Tx)).
 
-gateway_address_test() ->
+gateway_test() ->
     Tx = new(),
-    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
+    ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
 owner_signature_test() ->
     Tx = new(),
@@ -257,7 +244,8 @@ sign_request_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Sig1 = gateway_signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig1, PubKey)).
+    BaseTxn1 = Tx1#blockchain_txn_assert_location_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
+    ?assert(libp2p_crypto:verify(blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn1), Sig1, PubKey)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -266,10 +254,7 @@ sign_test() ->
     Tx1 = sign_request(Tx0, SigFun),
     Tx2 = sign(Tx1, SigFun),
     Sig2 = owner_signature(Tx2),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_assert_location_v1{gateway_signature = <<>>, owner_signature = << >>}), Sig2, PubKey)).
-
-is_test() ->
-    Tx0 = new(),
-    ?assert(is(Tx0)).
+    BaseTxn1 = Tx1#blockchain_txn_assert_location_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
+    ?assert(libp2p_crypto:verify(blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn1), Sig2, PubKey)).
 
 -endif.

@@ -5,16 +5,19 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_poc_request_v1).
 
+-behavior(blockchain_txn).
+
+-include("pb/blockchain_txn_poc_request_v1_pb.hrl").
+
 -export([
     new/3,
-    gateway_address/1,
+    gateway/1,
     hash/1,
     onion/1,
     signature/1,
     fee/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -22,15 +25,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_poc_request_v1, {
-    gateway_address :: libp2p_crypto:pubkey_bin(),
-    hash :: binary(),
-    onion :: binary(),
-    signature :: binary(),
-    fee = 0 :: non_neg_integer()
-}).
-
--type txn_poc_request() :: #txn_poc_request_v1{}.
+-type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
 
 %%--------------------------------------------------------------------
@@ -38,29 +33,29 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), binary(),  binary()) -> txn_poc_request().
-new(Address, Hash, Onion) ->
-    #txn_poc_request_v1{
-        gateway_address=Address,
-        hash=Hash,
-        onion=Onion,
-        signature = <<>>
-    }.
+new(Gateway, Hash, Onion) ->
+    #blockchain_txn_poc_request_v1_pb{
+       gateway=Gateway,
+       hash=Hash,
+       onion=Onion,
+       signature = <<>>
+      }.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
-gateway_address(Txn) ->
-    Txn#txn_poc_request_v1.gateway_address.
+-spec gateway(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
+gateway(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.gateway.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_poc_request()) -> binary().
+-spec hash(txn_poc_request()) -> blockchain_txn:hash().
 hash(Txn) ->
-    Txn#txn_poc_request_v1.hash.
+    Txn#blockchain_txn_poc_request_v1_pb.hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -68,7 +63,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec onion(txn_poc_request()) -> binary().
 onion(Txn) ->
-    Txn#txn_poc_request_v1.onion.
+    Txn#blockchain_txn_poc_request_v1_pb.onion.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -76,7 +71,7 @@ onion(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_poc_request()) -> binary().
 signature(Txn) ->
-    Txn#txn_poc_request_v1.signature.
+    Txn#blockchain_txn_poc_request_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,7 +79,7 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_poc_request()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_poc_request_v1.fee.
+    Txn#blockchain_txn_poc_request_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -92,24 +87,19 @@ fee(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_poc_request(), libp2p_crypto:sig_fun()) -> txn_poc_request().
 sign(Txn, SigFun) ->
-    Txn#txn_poc_request_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
+    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_poc_request_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_poc_request()) -> boolean().
-is_valid(Txn=#txn_poc_request_v1{gateway_address=GatewayAddress, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(GatewayAddress),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_poc_request_v1{signature = <<>>}), Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_poc_request_v1).
+is_valid(Txn=#blockchain_txn_poc_request_v1_pb{gateway=Gateway, signature=Signature}) ->
+    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -119,10 +109,10 @@ is(Txn) ->
 absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         true ->
-            GatewayAddress = ?MODULE:gateway_address(Txn),
+            Gateway = ?MODULE:gateway(Txn),
             Hash = ?MODULE:hash(Txn),
             Onion = ?MODULE:onion(Txn),
-            blockchain_ledger_v1:request_poc(GatewayAddress, {Hash, Onion}, Ledger);
+            blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger);
         false ->
             {error, bad_signature}
     end.
@@ -133,8 +123,8 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_poc_request_v1{
-        gateway_address= <<"gateway_address">>,
+    Tx = #blockchain_txn_poc_request_v1_pb{
+        gateway= <<"gateway_address">>,
         hash= <<"hash">>,
         onion = <<"onion">>,
         signature= <<>>
@@ -149,9 +139,9 @@ onion_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
     ?assertEqual(<<"onion">>, onion(Tx)).
 
-gateway_address_test() ->
+gateway_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
+    ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
 signature_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
@@ -163,10 +153,9 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_poc_request_v1{signature = <<>>}), Sig1, PubKey)).
 
-is_test() ->
-    Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assert(is(Tx)).
+    EncodedTx1 = blockchain_txn_poc_request_v1_pb:encode_msg(Tx1#blockchain_txn_poc_request_v1_pb{signature = <<>>}),
+    ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+
 
 -endif.

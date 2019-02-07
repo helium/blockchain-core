@@ -26,9 +26,6 @@ register_all_usage() ->
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
-                   ledger_add_gateway_usage(),
-                   ledger_assert_loc_request_usage(),
-                   ledger_assert_loc_txn_usage(),
                    ledger_usage()
                   ]).
 
@@ -43,9 +40,6 @@ register_all_cmds() ->
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
-                   ledger_add_gateway_cmd(),
-                   ledger_assert_loc_request_cmd(),
-                   ledger_assert_loc_txn_cmd(),
                    ledger_cmd()
                   ]).
 
@@ -61,9 +55,6 @@ ledger_usage() ->
       "  ledger create_htlc         - Create or a hashed timelock address.\n"
       "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
-      "  ledger add_gateway         - Register a gateway.\n"
-      "  ledger assert_loc_request  - Request the assertion of a gateway's location.\n"
-      "  ledger assert_loc_txn      - Countersign the assertion of a gateway's location and submit it.\n"
      ]
     ].
 
@@ -204,55 +195,6 @@ ledger_redeem_htlc_helper(Flags) ->
     blockchain_worker:redeem_htlc_txn(Address, Preimage, Fee).
 
 %%--------------------------------------------------------------------
-%% ledger add_gateway
-%%--------------------------------------------------------------------
-ledger_add_gateway_cmd() ->
-    [
-     [
-      ["ledger", "add_gateway"], '_', [
-                                       {address, [{shortname, "a"}, {longname, "address"}]},
-                                       {request, [{shortname, "r"}, {longname, "request"}]},
-                                       {token, [{shortname, "t"}, {longname, "token"}]}
-                                      ], fun ledger_add_gateway/3
-     ]
-    ].
-
-ledger_add_gateway_usage() ->
-    [["ledger", "add_gateway"],
-     ["ledger add_gateway\n\n",
-      "  Request the addition of the current node as a gateway owned by the given owner.\n"
-      "  The authorization is signed by the given authorization address and the given\n"
-      "  authorization token is passed through to with the authorization request.\n"
-      "  Use key=value args to set options.\n\n",
-      "Required:\n\n"
-      "  -a, --address [P2PAddress]\n",
-      "   The p2paddress of the node (usually a wallet) that will authorize this request\n",
-      "  -o, --owner [OwnerAddress]\n",
-      "   The crypto address of the owner of the gateway. Used as the payee for mined tokens\n"
-      "  -t, --token [Token]\n",
-      "   The token given by the running wallet to identify the authorization request\n"
-     ]
-    ].
-
-ledger_add_gateway(_CmdBase, _, Flags) ->
-    case (catch ledger_add_gateway_helper(Flags)) of
-        {'EXIT', _Reason} ->
-            usage;
-        ok ->
-            [clique_status:text("ok")];
-        {error, Reason} ->
-            ReasonText = clique_status:text(io_lib:format("~p", Reason)),
-            [clique_status:alert([ReasonText])];
-        _ -> usage
-    end.
-
-ledger_add_gateway_helper(Flags) ->
-    OwnerAddress = libp2p_crypto:b58_to_bin(clean(proplists:get_value(owner, Flags))),
-    AuthAddress = clean(proplists:get_value(address, Flags)),
-    AuthToken = clean(proplists:get_value(token, Flags)),
-    blockchain_worker:add_gateway_request(OwnerAddress, AuthAddress, AuthToken).
-
-%%--------------------------------------------------------------------
 %% ledger balance
 %%--------------------------------------------------------------------
 ledger_balance_cmd() ->
@@ -382,66 +324,6 @@ ledger_gateways(_CmdBase, [], []) ->
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)} |
      blockchain_ledger_gateway_v1:print(Gateway)].
-
-%%--------------------------------------------------------------------
-%% ledger assert_loc_request
-%%--------------------------------------------------------------------
-ledger_assert_loc_request_cmd() ->
-    [
-     [["ledger", "assert_loc_request", '*', '*'], [], [], fun ledger_assert_loc_request/3]
-    ].
-
-ledger_assert_loc_request_usage() ->
-    [["ledger", "assert_loc_request"],
-     ["ledger assert_loc_request <b58> <loc>\n\n",
-      "  Request to assert <loc> of the current node as a gateway owned by <b58>.\n"
-     ]
-    ].
-
-ledger_assert_loc_request(["ledger", "assert_loc_request", Addr, Location], [], []) ->
-    case (catch libp2p_crypto:b58_to_bin(Addr)) of
-        {'EXIT', _Reason} ->
-            usage;
-        Owner when is_binary(Owner) ->
-            case blockchain_worker:assert_location_request(Owner, Location) of
-                {error, Reason} ->
-                    [clique_status:text(io_lib:format("~p", [Reason]))];
-                Txn ->
-                    [clique_status:text(base58:binary_to_base58(term_to_binary(Txn)))]
-            end;
-        _ ->
-            usage
-    end;
-ledger_assert_loc_request(_, _, _) ->
-    usage.
-
-
-%%--------------------------------------------------------------------
-%% ledger assert_location_txn
-%%--------------------------------------------------------------------
-ledger_assert_loc_txn_cmd() ->
-    [
-     [["ledger", "assert_loc_txn", '*'], [], [], fun ledger_assert_loc_txn/3]
-    ].
-
-ledger_assert_loc_txn_usage() ->
-    [["ledger", "assert_loc_txn"],
-     ["ledger assert_loc_txn <txn>\n\n",
-      "  Countersign the assert_loc transaction <txn> and submit it.\n"
-     ]
-    ].
-
-ledger_assert_loc_txn(["ledger", "assert_loc_txn", AssertLocRequest], [], []) ->
-    case (catch binary_to_term(base58:base58_to_binary(AssertLocRequest))) of
-        {'EXIT', _} ->
-            usage;
-        Txn ->
-            blockchain_worker:assert_location_txn(Txn),
-            [clique_status:text("ok")]
-            %_ -> usage
-    end;
-ledger_assert_loc_txn(_, _, _) ->
-    usage.
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
 %% Presumably none of the flags would be _having_ a leading "=" intentionally!

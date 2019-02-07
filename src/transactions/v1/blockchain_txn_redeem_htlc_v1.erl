@@ -7,6 +7,8 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_redeem_htlc_v1_pb.hrl").
+
 -export([
     new/4,
     hash/1,
@@ -17,7 +19,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -25,15 +26,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_redeem_htlc_v1, {
-    payee :: libp2p_crypto:pubkey_bin(),
-    address :: libp2p_crypto:pubkey_bin(),
-    preimage :: undefined | binary(),
-    fee :: non_neg_integer(),
-    signature :: binary()
-}).
-
--type txn_redeem_htlc() :: #txn_redeem_htlc_v1{}.
+-type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
 
 %%--------------------------------------------------------------------
@@ -42,13 +35,13 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage, Fee) ->
-    #txn_redeem_htlc_v1{
-        payee=Payee,
-        address=Address,
-        preimage=PreImage,
-        fee=Fee,
-        signature= <<>>
-    }.
+    #blockchain_txn_redeem_htlc_v1_pb{
+       payee=Payee,
+       address=Address,
+       preimage=PreImage,
+       fee=Fee,
+       signature= <<>>
+      }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,8 +49,9 @@ new(Payee, Address, PreImage, Fee) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_redeem_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_redeem_htlc_v1{signature = <<>>},
-    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
+    BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -65,7 +59,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec payee(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
-    Txn#txn_redeem_htlc_v1.payee.
+    Txn#blockchain_txn_redeem_htlc_v1_pb.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -73,7 +67,7 @@ payee(Txn) ->
 %%--------------------------------------------------------------------
 -spec address(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
-    Txn#txn_redeem_htlc_v1.address.
+    Txn#blockchain_txn_redeem_htlc_v1_pb.address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -81,7 +75,7 @@ address(Txn) ->
 %%--------------------------------------------------------------------
 -spec preimage(txn_redeem_htlc()) -> binary().
 preimage(Txn) ->
-    Txn#txn_redeem_htlc_v1.preimage.
+    Txn#blockchain_txn_redeem_htlc_v1_pb.preimage.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -89,7 +83,7 @@ preimage(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_redeem_htlc()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_redeem_htlc_v1.fee.
+    Txn#blockchain_txn_redeem_htlc_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -97,7 +91,7 @@ fee(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_redeem_htlc()) -> binary().
 signature(Txn) ->
-    Txn#txn_redeem_htlc_v1.signature.
+    Txn#blockchain_txn_redeem_htlc_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,24 +102,19 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_redeem_htlc(), libp2p_crypto:sig_fun()) -> txn_redeem_htlc().
 sign(Txn, SigFun) ->
-    Txn#txn_redeem_htlc_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
+    EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_redeem_htlc_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_redeem_htlc()) -> boolean().
-is_valid(Txn=#txn_redeem_htlc_v1{payee=Payee, signature=Signature}) ->
+is_valid(Txn=#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, signature=Signature}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_redeem_htlc_v1{signature = <<>>}), Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_redeem_htlc_v1).
+    BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -207,7 +196,7 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_redeem_htlc_v1{
+    Tx = #blockchain_txn_redeem_htlc_v1_pb{
         payee= <<"payee">>,
         address= <<"address">>,
         preimage= <<"yolo">>,
@@ -245,9 +234,5 @@ is_valid_test() ->
     Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
-    ?assert(is(Tx)).
 
 -endif.

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+message txn_assert_location_v1 {
+    bytes gateway = 1;
+    bytes owner = 2;
+    bytes gateway_signature = 3;
+    bytes owner_signature = 4;
+    uint64 location = 5;
+    uint64 nonce = 6;
+    uint64 fee = 7;
+}

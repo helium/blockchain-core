@@ -10,6 +10,8 @@
 
 -behavior(blockchain_txn).
 
+-include("pb/blockchain_txn_create_htlc_v1_pb.hrl").
+
 -export([
     new/7,
     hash/1,
@@ -23,7 +25,6 @@
     signature/1,
     sign/2,
     is_valid/1,
-    is/1,
     absorb/2
 ]).
 
@@ -31,27 +32,17 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(txn_create_htlc_v1, {
-    payer :: libp2p_crypto:pubkey_bin(),
-    payee :: libp2p_crypto:pubkey_bin(),
-    address :: libp2p_crypto:pubkey_bin(),
-    hashlock :: binary(),
-    timelock :: integer(),
-    amount :: integer(),
-    fee :: non_neg_integer(),
-    signature :: binary()
-}).
-
--type txn_create_htlc() :: #txn_create_htlc_v1{}.
+-type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
 -export_type([txn_create_htlc/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), integer(), integer(), non_neg_integer()) -> txn_create_htlc().
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
+          non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
 new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
-    #txn_create_htlc_v1{
+    #blockchain_txn_create_htlc_v1_pb{
         payer=Payer,
         payee=Payee,
         address=Address,
@@ -68,8 +59,9 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_create_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#txn_create_htlc_v1{signature = <<>>},
-    crypto:hash(sha256, erlang:term_to_binary(BaseTxn)).
+    BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -77,7 +69,7 @@ hash(Txn) ->
 %%--------------------------------------------------------------------
 -spec payer(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
-    Txn#txn_create_htlc_v1.payer.
+    Txn#blockchain_txn_create_htlc_v1_pb.payer.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -85,7 +77,7 @@ payer(Txn) ->
 %%--------------------------------------------------------------------
 -spec payee(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
-    Txn#txn_create_htlc_v1.payee.
+    Txn#blockchain_txn_create_htlc_v1_pb.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -93,7 +85,7 @@ payee(Txn) ->
 %%--------------------------------------------------------------------
 -spec address(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
-    Txn#txn_create_htlc_v1.address.
+    Txn#blockchain_txn_create_htlc_v1_pb.address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -101,23 +93,23 @@ address(Txn) ->
 %%--------------------------------------------------------------------
 -spec hashlock(txn_create_htlc()) -> binary().
 hashlock(Txn) ->
-    Txn#txn_create_htlc_v1.hashlock.
+    Txn#blockchain_txn_create_htlc_v1_pb.hashlock.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec timelock(txn_create_htlc()) -> integer().
+-spec timelock(txn_create_htlc()) -> non_neg_integer().
 timelock(Txn) ->
-    Txn#txn_create_htlc_v1.timelock.
+    Txn#blockchain_txn_create_htlc_v1_pb.timelock.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_create_htlc()) -> integer().
+-spec amount(txn_create_htlc()) -> non_neg_integer().
 amount(Txn) ->
-    Txn#txn_create_htlc_v1.amount.
+    Txn#blockchain_txn_create_htlc_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -125,7 +117,7 @@ amount(Txn) ->
 %%--------------------------------------------------------------------
 -spec fee(txn_create_htlc()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#txn_create_htlc_v1.fee.
+    Txn#blockchain_txn_create_htlc_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -133,7 +125,7 @@ fee(Txn) ->
 %%--------------------------------------------------------------------
 -spec signature(txn_create_htlc()) -> binary().
 signature(Txn) ->
-    Txn#txn_create_htlc_v1.signature.
+    Txn#blockchain_txn_create_htlc_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -144,24 +136,19 @@ signature(Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_create_htlc(), libp2p_crypto:sig_fun()) -> txn_create_htlc().
 sign(Txn, SigFun) ->
-    Txn#txn_create_htlc_v1{signature=SigFun(erlang:term_to_binary(Txn))}.
+    EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_create_htlc_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_create_htlc()) -> boolean().
-is_valid(Txn=#txn_create_htlc_v1{payer=Payer, signature=Signature}) ->
+is_valid(Txn=#blockchain_txn_create_htlc_v1_pb{payer=Payer, signature=Signature}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
-    libp2p_crypto:verify(erlang:term_to_binary(Txn#txn_create_htlc_v1{signature = <<>>}), Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec is(blockchain_transactions:transaction()) -> boolean().
-is(Txn) ->
-    erlang:is_record(Txn, txn_create_htlc_v1).
+    BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -216,7 +203,7 @@ absorb(Txn, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #txn_create_htlc_v1{
+    Tx = #blockchain_txn_create_htlc_v1_pb{
         payer= <<"payer">>,
         payee= <<"payee">>,
         address= <<"address">>,
@@ -266,7 +253,8 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    ?assert(libp2p_crypto:verify(erlang:term_to_binary(Tx1#txn_create_htlc_v1{signature = <<>>}), Sig1, PubKey)).
+    EncodedTx1 = blockchain_txn_create_htlc_v1_pb:encode_msg(Tx1#blockchain_txn_create_htlc_v1_pb{signature = <<>>}),
+    ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
  is_valid_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -281,9 +269,5 @@ sign_test() ->
     Tx2 = new(Payer2, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
     Tx3 = sign(Tx2, SigFun),
     ?assertNot(is_valid(Tx3)).
-
-is_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
-    ?assert(is(Tx)).
 
 -endif.
