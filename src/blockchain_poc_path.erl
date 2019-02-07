@@ -189,7 +189,7 @@ target(Hash, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_probs(Gateways :: map()) -> [float()].
+-spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
     GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
     Scores = [S || {_A, S} <- GwScores],
