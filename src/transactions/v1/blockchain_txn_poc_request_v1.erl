@@ -110,9 +110,21 @@ absorb(Txn, Ledger) ->
     case ?MODULE:is_valid(Txn) of
         true ->
             Gateway = ?MODULE:gateway(Txn),
-            Hash = ?MODULE:hash(Txn),
-            Onion = ?MODULE:onion(Txn),
-            blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger);
+            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+                {ok, Info} ->
+                    Fee = ?MODULE:fee(Txn),
+                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                    case blockchain_ledger_v1:debit_fee(Owner, Fee,Ledger) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        ok ->
+                            Hash = ?MODULE:hash(Txn),
+                            Onion = ?MODULE:onion(Txn),
+                            blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger)
+                    end;
+                {error, _Reason}=Error ->
+                    Error
+            end;
         false ->
             {error, bad_signature}
     end.

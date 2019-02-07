@@ -135,18 +135,13 @@ absorb(Txn, Ledger) ->
                         true ->
                             Address = ?MODULE:address(Txn),
                             Redeemer = ?MODULE:payee(Txn),
-                            case {blockchain_ledger_v1:find_entry(Redeemer, Ledger),
-                                  blockchain_ledger_v1:find_htlc(Address, Ledger)}
-                            of
-                                {{error, _}=Error, _} ->
+                            case blockchain_ledger_v1:find_htlc(Address, Ledger) of
+                                {error, _}=Error ->
                                     Error;
-                                {_, {error, _}=Error} ->
-                                    Error;
-                                {{ok, Entry}, {ok, HTLC}} ->
+                                {ok, HTLC} ->
                                     Payer = blockchain_ledger_htlc_v1:payer(HTLC),
                                     Payee = blockchain_ledger_htlc_v1:payee(HTLC),
-                                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-                                    case blockchain_ledger_v1:debit_account(Redeemer, Fee, Nonce, Ledger) of
+                                    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger) of
                                         {error, _Reason}=Error ->
                                             Error;
                                         ok ->

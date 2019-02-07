@@ -28,6 +28,7 @@
     credit_account/3,
     debit_account/4,
     debit_fee/3,
+    debit_fee_and_account/5,
 
     find_htlc/2,
     add_htlc/7,
@@ -513,7 +514,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(Address, Fee, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -531,6 +532,31 @@ debit_fee(Address, Fee, Ledger) ->
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance, Fee, Balance}}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec debit_fee_and_account(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(),
+                            Fee :: integer(), Amount :: integer(), Nonce :: ledger()) -> ok | {error, any()}.
+debit_fee_and_account(Address, Fee, Amount, Nonce, Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - (Amount + Fee)) >= 0 of
+                false ->
+                    {error, {insufficient_balance, Fee, Balance}};
+                true ->
+                    case ?MODULE:debit_account(Address, Amount, Nonce, Ledger)  of
+                        {error, _}=Error ->
+                            Error;
+                        ok ->
+                            ?MODULE:debit_fee(Address, Fee, Ledger)
+                    end
             end
     end.
 

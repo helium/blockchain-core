@@ -152,15 +152,9 @@ absorb(Txn, Ledger) ->
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:find_entry(Owner, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, LastEntry} ->
-            PaymentNonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
-            case blockchain_ledger_v1:debit_account(Owner, Fee, PaymentNonce, Ledger) of
-                {error, _Reason}=Error -> Error;
-                ok -> assert_gateway_location(Gateway, Location, Nonce, Ledger)
-            end
+    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
+        {error, _Reason}=Error -> Error;
+        ok -> assert_gateway_location(Gateway, Location, Nonce, Ledger)
     end.
 
 %% ------------------------------------------------------------------
