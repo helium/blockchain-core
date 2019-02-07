@@ -195,9 +195,7 @@ type(#blockchain_txn_poc_request_v1_pb{}) ->
 type(#blockchain_txn_poc_receipts_v1_pb{}) ->
     blockchain_txn_poc_receipts_v1;
 type(#blockchain_txn_gen_gateway_v1_pb{}) ->
-    blockchain_txn_gen_gateway_v1;
-type(_) ->
-    undefined.
+    blockchain_txn_gen_gateway_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
