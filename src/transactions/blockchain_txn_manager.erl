@@ -32,8 +32,11 @@
 
 -record(state, {
           txn_queue = [] :: txn_queue(),
-          chain
+          chain,
+          counter = 0
          }).
+
+-define(TIMEOUT, 5000).
 
 -type txn_queue() :: [{blockchain_txn:txn(), fun(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}].
 
@@ -61,20 +64,28 @@ init(_Args) ->
     Chain = blockchain_worker:blockchain(),
     {ok, #state{chain=Chain}}.
 
-handle_cast({submit, Txn, ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue}) ->
-    self() ! {process, ConsensusAddrs},
+handle_cast({submit, Txn, _ConsensusAddrs, Callback}, State=#state{txn_queue=TxnQueue, counter=Counter}) ->
     SortedTxnQueue = lists:sort(fun({TxnA, _, _, _}, {TxnB, _, _, _}) -> blockchain_txn:sort(TxnA, TxnB) end, TxnQueue ++ [{Txn, Callback, [], []}]),
-    {noreply, State#state{txn_queue=SortedTxnQueue}};
+    case (Counter + 1) rem 50 == 0 of
+        true ->
+            %% force the txn queue to flush every 50 messages
+            self() ! timeout;
+        false ->
+            ok
+    end,
+    {noreply, State#state{txn_queue=SortedTxnQueue, counter=Counter+1}, ?TIMEOUT};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
-    {noreply, State}.
+    {noreply, State, ?TIMEOUT}.
 
 handle_call(txn_queue, _From, State=#state{txn_queue=TxnQueue}) ->
-    {reply, TxnQueue, State};
+    {reply, TxnQueue, State, ?TIMEOUT};
 handle_call(_, _, State) ->
-    {reply, ok, State}.
+    {reply, ok, State, ?TIMEOUT}.
 
-handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback, AcceptQueue0, _RejectQueue0} | _Tail]=TxnQueue}) ->
+handle_info(timeout, State=#state{txn_queue=[{_Txn, _Callback, AcceptQueue0, _RejectQueue0} | _Tail]=TxnQueue, chain=Chain}) when Chain /= undefined ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
     F = (length(ConsensusAddrs) - 1) div 3,
     Swarm = blockchain_swarm:swarm(),
     AddrsToSearch = ConsensusAddrs -- AcceptQueue0,
@@ -121,23 +132,18 @@ handle_info({process, ConsensusAddrs}, State=#state{txn_queue=[{_Txn, _Callback,
                                                          end
                                                  end, [], TxnQueue),
                        libp2p_framed_stream:close(Stream),
-                       case length(NewTxnQueue) > 0 of
-                           true ->
-                               self() ! {process, ConsensusAddrs};
-                           false ->
-                               ok
-                       end,
                        State#state{txn_queue=lists:reverse(NewTxnQueue)};
                    _Other ->
-                       self() ! {process, ConsensusAddrs},
+                       %% try to dial someone else ASAR
+                       erlang:send_after(?TIMEOUT, self(), timeout),
                        State
                end,
-    {noreply, NewState};
+    {noreply, NewState, ?TIMEOUT};
 handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0}) ->
     Chain = case Chain0 of
                 undefined ->
                     case blockchain_worker:blockchain() of
-                undefined ->
+                        undefined ->
                             %% uncaught throws count as a return value in gen_servers
                             throw({noreply, State});
                         C ->
@@ -152,13 +158,13 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
             {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
             NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
-            {noreply, State#state{txn_queue=NewerTxnQueue}};
+            {noreply, State#state{txn_queue=NewerTxnQueue}, ?TIMEOUT};
         _ ->
             %% this should not happen
             error(missing_block)
     end;
 handle_info(_Msg, State) ->
-    {noreply, State}.
+    {noreply, State, ?TIMEOUT}.
 
 terminate(_Reason, _State) ->
     ok.
