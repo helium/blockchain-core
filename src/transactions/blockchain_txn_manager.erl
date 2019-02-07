@@ -158,7 +158,7 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
             {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
             NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
-            {noreply, State#state{txn_queue=NewerTxnQueue}, ?TIMEOUT};
+            {noreply, State#state{txn_queue=NewerTxnQueue, chain=Chain}, ?TIMEOUT};
         _ ->
             %% this should not happen
             error(missing_block)
