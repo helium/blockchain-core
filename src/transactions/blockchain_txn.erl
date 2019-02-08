@@ -41,7 +41,8 @@
          serialize/1,
          deserialize/1,
          wrap_txn/1,
-         unwrap_txn/1
+         unwrap_txn/1,
+         is_valid/1
         ]).
 
 -ifdef(TEST).
@@ -90,6 +91,14 @@ wrap_txn(#blockchain_txn_gen_gateway_v1_pb{}=Txn) ->
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
     Txn.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn()) -> boolean().
+is_valid(Txn) ->
+    (type(Txn)):is_valid(Txn).
 
 %%--------------------------------------------------------------------
 %% @doc
