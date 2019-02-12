@@ -367,6 +367,8 @@ htlc_payer_redeem_test(Config) ->
     ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash2, Chain)),
     ?assertEqual({ok, 4}, blockchain:height(Chain)),
 
+    ?assertEqual({ok, 4}, blockchain_ledger_v1:current_height(blockchain:ledger(Chain))),
+
     % Try and redeem
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),

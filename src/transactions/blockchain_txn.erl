@@ -113,7 +113,8 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
             validate(Tail, Valid, Invalid, Ledger);
-        _ ->
+        Error ->
+            lager:error("invalid txn ~p / ~p", [Error, Txn]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Ledger)
     end.
@@ -128,6 +129,8 @@ absorb_and_commit(Block, Blockchain) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     case ?MODULE:absorb_block(Block, Ledger1) of
         {ok, Ledger2} ->
+            ok = blockchain_ledger_v1:update_transaction_fee(Ledger2),
+            ok = blockchain_ledger_v1:increment_height(Block, Ledger2),
             ok = blockchain_ledger_v1:commit_context(Ledger2),
             absorb_delayed(Block, Blockchain);
         Error ->
@@ -143,20 +146,25 @@ absorb_and_commit(Block, Blockchain) ->
                   -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 absorb_block(Block, Ledger) ->
     Transactions = blockchain_block:transactions(Block),
-    {ValidTxns, InvalidTxns} = ?MODULE:validate(Transactions, Ledger),
-    case InvalidTxns of
-        [] -> ok;
-        _ -> lager:error("found invalid transactions: ~p", [InvalidTxns])
-    end,
-    case absorb_txns(ValidTxns, Ledger) of
-        ok ->
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
-            ok = blockchain_ledger_v1:increment_height(Block, Ledger),
+    case ?MODULE:validate(Transactions, Ledger) of
+        {[], []} ->
+            lager:info("validated empty block"),
             {ok, Ledger};
-        Error ->
-            Error
+        {[], _InvalidTxns} ->
+            lager:error("found all transactions invalid: ~p", [Block]),
+            {error, invalid_txns};
+        {ValidTxns, []} ->
+            case absorb_txns(ValidTxns, Ledger) of
+                ok ->
+                    {ok, Ledger};
+                Error ->
+                    Error
+            end;
+        {_ValidTxns, InvalidTxns} ->
+            lager:error("found invalid transactions: ~p", [InvalidTxns]),
+            {error, invalid_txns}
     end.
-
+    
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
