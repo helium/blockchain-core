@@ -116,6 +116,7 @@ handle_info(timeout, State=#state{txn_queue=[{_Txn, _Callback, AcceptQueue0, _Re
                                                                                  case length(RejectQueue) > 2*F of
                                                                                      true ->
                                                                                          lager:error("blockchain_txn_manager, dropping txn: ~p rejected by 2F+1 members", [Txn]),
+                                                                                         Callback({error, "rejected"}),
                                                                                          Acc;
                                                                                      false ->
                                                                                          lager:error("blockchain_txn_manager, txn: ~p reject by ~p, TxnQueueLen: ~p", [Txn, Stream, length(TxnQueue)]),
@@ -157,6 +158,12 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             Txns = blockchain_block:transactions(Block),
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
             {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
+
+            %% invoke callback on invalid transactions
+            lists:foreach(fun({_, Callback, _, _}) ->
+                                  Callback({error, "invalid"}) end,
+                          [{Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, lists:member(Txn, InvalidTransactions)]),
+
             NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
             {noreply, State#state{txn_queue=NewerTxnQueue, chain=Chain}, ?TIMEOUT};
         _ ->
