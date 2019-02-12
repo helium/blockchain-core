@@ -154,7 +154,7 @@ absorb(Txn, Ledger) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_fee_and_account(Payer, Fee, Amount, Nonce, Ledger) of
+    case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
         {error, _Reason}=Error ->
             Error;
         ok ->

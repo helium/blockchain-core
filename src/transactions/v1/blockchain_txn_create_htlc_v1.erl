@@ -186,7 +186,7 @@ absorb(Txn, Ledger) ->
             Error;
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-            case blockchain_ledger_v1:debit_fee_and_account(Payer, Fee, Amount, Nonce, Ledger) of
+            case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
