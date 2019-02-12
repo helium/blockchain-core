@@ -20,6 +20,7 @@
     sign_request/2,
     is_valid_gateway/1,
     is_valid_owner/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -134,8 +135,8 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
+-spec is_valid(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Ledger) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn)} of
         {false, _} ->
@@ -143,8 +144,6 @@ absorb(Txn, Ledger) ->
         {_, false} ->
             {error, bad_gateway_signature};
         {true, true} ->
-            Owner = ?MODULE:owner(Txn),
-            Gateway = ?MODULE:gateway(Txn),
             %% NOTE: This causes a chain fork, commenting out till we roll new rules new chain
             %% case blockchain_ledger_v1:transaction_fee(Ledger) of
             %%     {error, Error} ->
@@ -155,10 +154,20 @@ absorb(Txn, Ledger) ->
             %%             ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
             %%         end
             %% end
-            case blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger) of
-                {error, _Reason}=Error -> Error;
-                ok -> ok
-            end
+            ok
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
+    Owner = ?MODULE:owner(Txn),
+    Gateway = ?MODULE:gateway(Txn),
+    case blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger) of
+        {error, _Reason}=Error -> Error;
+        ok -> ok
     end.
 
 %% ------------------------------------------------------------------

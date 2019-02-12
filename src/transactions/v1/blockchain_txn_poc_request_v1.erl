@@ -17,7 +17,7 @@
     signature/1,
     fee/1,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -94,12 +94,28 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_request()) -> boolean().
-is_valid(Txn=#blockchain_txn_poc_request_v1_pb{gateway=Gateway, signature=Signature}) ->
+-spec is_valid(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    Gateway = ?MODULE:gateway(Txn),
+    Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
-    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            Gateway = ?MODULE:gateway(Txn),
+            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, Info} ->
+                    Fee = ?MODULE:fee(Txn),
+                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -107,26 +123,21 @@ is_valid(Txn=#blockchain_txn_poc_request_v1_pb{gateway=Gateway, signature=Signat
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    case ?MODULE:is_valid(Txn) of
-        true ->
-            Gateway = ?MODULE:gateway(Txn),
-            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
-                {ok, Info} ->
-                    Fee = ?MODULE:fee(Txn),
-                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
-                    case blockchain_ledger_v1:debit_fee(Owner, Fee,Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        ok ->
-                            Hash = ?MODULE:hash(Txn),
-                            Onion = ?MODULE:onion(Txn),
-                            blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger)
-                    end;
+    Gateway = ?MODULE:gateway(Txn),
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, Info} ->
+            Fee = ?MODULE:fee(Txn),
+            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
                 {error, _Reason}=Error ->
-                    Error
+                    Error;
+                ok ->
+                    Hash = ?MODULE:hash(Txn),
+                    Onion = ?MODULE:onion(Txn),
+                    blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger)
             end;
-        false ->
-            {error, bad_signature}
+        {error, _Reason}=Error ->
+            Error
     end.
 
 %% ------------------------------------------------------------------

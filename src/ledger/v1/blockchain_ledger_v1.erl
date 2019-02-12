@@ -29,6 +29,7 @@
     debit_account/4,
     debit_fee/3,
     debit_fee_and_account/5,
+    check_balance/3,
 
     find_htlc/2,
     add_htlc/7,
@@ -557,6 +558,25 @@ debit_fee_and_account(Address, Fee, Amount, Nonce, Ledger) ->
                         ok ->
                             ?MODULE:debit_fee(Address, Fee, Ledger)
                     end
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_balance(Address, Amount, Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Amount) >= 0 of
+                false ->
+                    {error, {insufficient_balance, Amount, Balance}};
+                true ->
+                    ok
             end
     end.
 

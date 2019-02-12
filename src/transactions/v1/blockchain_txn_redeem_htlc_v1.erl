@@ -18,7 +18,7 @@
     fee/1,
     signature/1,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -109,29 +109,25 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc()) -> boolean().
-is_valid(Txn=#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, signature=Signature}) ->
+-spec is_valid(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    Payee = ?MODULE:payee(Txn),
+    Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
-    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec absorb(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
-    Fee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:transaction_fee(Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, MinerFee} ->
-            case (Fee >= MinerFee) of
-                false ->
-                    {error, insufficient_fee};
-                true ->
-                    case ?MODULE:is_valid(Txn) of
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            Fee = ?MODULE:fee(Txn),
+            case blockchain_ledger_v1:transaction_fee(Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, MinerFee} ->
+                    case (Fee >= MinerFee) of
+                        false ->
+                            {error, insufficient_fee};
                         true ->
                             Address = ?MODULE:address(Txn),
                             Redeemer = ?MODULE:payee(Txn),
@@ -139,12 +135,12 @@ absorb(Txn, Ledger) ->
                                 {error, _}=Error ->
                                     Error;
                                 {ok, HTLC} ->
-                                    Payer = blockchain_ledger_htlc_v1:payer(HTLC),
-                                    Payee = blockchain_ledger_htlc_v1:payee(HTLC),
-                                    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger) of
+                                    case  blockchain_ledger_v1:check_balance(Redeemer, Fee, Ledger) of
                                         {error, _Reason}=Error ->
                                             Error;
                                         ok ->
+                                                Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                                            Payee = blockchain_ledger_htlc_v1:payee(HTLC),
                                             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
                                             %% otherwise check that the timelock has expired which allows the Creator to redeem
                                             case Payer =:= Redeemer of
@@ -156,7 +152,7 @@ absorb(Txn, Ledger) ->
                                                             Preimage = ?MODULE:preimage(Txn),
                                                             case (crypto:hash(sha256, Preimage) =:= Hashlock) of
                                                                 true ->
-                                                                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger);
+                                                                    ok;
                                                                 false ->
                                                                     {error, invalid_preimage}
                                                             end;
@@ -173,15 +169,35 @@ absorb(Txn, Ledger) ->
                                                                 true ->
                                                                     {error, timelock_not_expired};
                                                                 false ->
-                                                                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
+                                                                    ok
                                                             end
                                                     end
                                             end
                                     end
-                            end;
-                        false ->
-                            {error, bad_signature}
-                end
+                            end
+                    end
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
+    Fee = ?MODULE:fee(Txn),
+    Redeemer = ?MODULE:payee(Txn),
+    case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger) of
+        {error, _Reason}=Error ->
+            Error;
+        ok ->
+            Address = ?MODULE:address(Txn),
+            case blockchain_ledger_v1:find_htlc(Address, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, HTLC} ->
+                    Payee = blockchain_ledger_htlc_v1:payee(HTLC),
+                    blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
             end
     end.
 
@@ -215,19 +231,5 @@ preimage_test() ->
 fee_test() ->
     Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
     ?assertEqual(1, fee(Tx)).
-
-is_valid_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payee = libp2p_crypto:pubkey_to_bin(PubKey),
-    Tx0 = new(Payee, <<"address">>, <<"yolo">>, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx1 = sign(Tx0, SigFun),
-    ?assert(is_valid(Tx1)),
-    Keys2 = libp2p_crypto:generate_keys(ecc_compact),
-    PubKey2 = maps:get(public, Keys2),
-    Payee2 = libp2p_crypto:pubkey_to_bin(PubKey2),
-    Tx2 = new(Payee2, <<"address">>, <<"yolo">>, 1),
-    Tx3 = sign(Tx2, SigFun),
-    ?assertNot(is_valid(Tx3)).
 
 -endif.

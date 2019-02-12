@@ -30,20 +30,19 @@
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 
 -export([
-         hash/1,
-         validate/2,
-         absorb/2,
-         sign/2,
-         absorb_and_commit/2,
-         absorb_block/2,
-         sort/2,
-         type/1,
-         serialize/1,
-         deserialize/1,
-         wrap_txn/1,
-         unwrap_txn/1,
-         is_valid/1
-        ]).
+    hash/1,
+    validate/2,
+    absorb/2,
+    sign/2,
+    absorb_and_commit/2,
+    absorb_block/2,
+    sort/2,
+    type/1,
+    serialize/1,
+    deserialize/1,
+    wrap_txn/1,
+    unwrap_txn/1
+]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -96,29 +95,18 @@ unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn()) -> boolean().
-is_valid(Txn) ->
-    (type(Txn)):is_valid(Txn).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 %% NOTE: Called in the miner
 -spec validate(blockchain_txn:txns(),
                blockchain_ledger_v1:ledger()) -> {blockchain_txn:txns(), blockchain_txn:txns()}.
-%% TODO we should separate validation from absorbing transactions and validate transactions
-%% before absorbing them.
 validate(Transactions, Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    validate(Transactions, [], [], Ledger1).
+    validate(Transactions, [], [], Ledger).
 
 validate([], Valid,  Invalid, _Ledger) ->
     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Ledger) ->
-    Type = type(Txn),
-    case Type:absorb(Txn, Ledger) of
+    Type = ?MODULE:type(Txn),
+    case Type:is_valid(Txn, Ledger) of
         ok ->
             validate(Tail, [Txn|Valid], Invalid, Ledger);
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -155,7 +143,12 @@ absorb_and_commit(Block, Blockchain) ->
                   -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 absorb_block(Block, Ledger) ->
     Transactions = blockchain_block:transactions(Block),
-    case absorb_txns(Transactions, Ledger) of
+    {ValidTxns, InvalidTxns} = ?MODULE:validate(Transactions, Ledger),
+    case InvalidTxns of
+        [] -> ok;
+        _ -> lager:error("found invalid transactions: ~p", [InvalidTxns])
+    end,
+    case absorb_txns(ValidTxns, Ledger) of
         ok ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),

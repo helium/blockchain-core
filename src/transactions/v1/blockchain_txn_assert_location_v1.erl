@@ -21,6 +21,9 @@
     fee/1,
     sign_request/2,
     sign/2,
+    is_valid_owner/1,
+    is_valid_gateway/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -145,6 +148,65 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec is_valid_gateway(txn_assert_location()) -> boolean().
+is_valid_gateway(#blockchain_txn_assert_location_v1_pb{gateway=PubKeyBin,
+                                                       gateway_signature=Signature}=Txn) ->
+    BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature= <<>>,
+                                                       gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid_owner(txn_assert_location()) -> boolean().
+is_valid_owner(#blockchain_txn_assert_location_v1_pb{owner=PubKeyBin,
+                                                     owner_signature=Signature}=Txn) ->
+    BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature= <<>>,
+                                                       gateway_signature= <<>>},
+    EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    case ?MODULE:is_valid_gateway(Txn) andalso ?MODULE:is_valid_owner(Txn) of
+        false ->
+            {error, bad_signature};
+        true ->
+            Owner = ?MODULE:owner(Txn),
+            Nonce = ?MODULE:nonce(Txn),
+            Fee = ?MODULE:fee(Txn),
+            case blockchain_ledger_v1:check_balance(Owner, Fee, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    Gateway = ?MODULE:gateway(Txn),
+                    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+                        {error, _} ->
+                            {error, {unknown_gateway, Gateway, Ledger}};
+                        {ok, GwInfo} ->
+                            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
+                            case Nonce =:= LedgerNonce + 1 of
+                                false ->
+                                    {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                true ->
+                                    ok
+                            end
+                    end
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
     Gateway = ?MODULE:gateway(Txn),
@@ -153,36 +215,15 @@ absorb(Txn, Ledger) ->
     Nonce = ?MODULE:nonce(Txn),
     Fee = ?MODULE:fee(Txn),
     case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
-        {error, _Reason}=Error -> Error;
-        ok -> assert_gateway_location(Gateway, Location, Nonce, Ledger)
+        {error, _Reason}=Error ->
+            Error;
+        ok ->
+            blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec assert_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(),
-                              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-assert_gateway_location(Gateway, Location, Nonce, Ledger) ->
-    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
-        {error, _} ->
-            {error, {unknown_gateway, Gateway, Ledger}};
-        {ok, GwInfo} ->
-            lager:info("gw_info from ledger: ~p", [GwInfo]),
-            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-            lager:info("assert_gateway_location, gw_address: ~p, Nonce: ~p, LedgerNonce: ~p",
-                       [Gateway, Nonce, LedgerNonce]),
-            case Nonce == LedgerNonce + 1 of
-                true ->
-                    blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger);
-                false ->
-                    {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}}
-            end
-    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
