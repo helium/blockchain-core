@@ -135,16 +135,24 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 absorb_and_commit(Block, Blockchain) ->
     Ledger0 = blockchain:ledger(Blockchain),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
-    case ?MODULE:absorb_block(Block, Ledger1) of
-        {ok, Ledger2} ->
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger2),
-            ok = blockchain_ledger_v1:increment_height(Block, Ledger2),
-            ok = blockchain_ledger_v1:commit_context(Ledger2),
-            absorb_delayed(Block, Blockchain);
-        Error ->
-           blockchain_ledger_v1:delete_context(Ledger1),
-           Error
-   end.
+    Transactions = blockchain_block:transactions(Block),
+    case ?MODULE:validate(Transactions, Ledger1) of
+        {_ValidTxns, []} ->
+            case ?MODULE:absorb_block(Block, Ledger1) of
+                {ok, Ledger2} ->
+                    ok = blockchain_ledger_v1:commit_context(Ledger2),
+                    absorb_delayed(Block, Blockchain);
+                Error ->
+                    blockchain_ledger_v1:delete_context(Ledger1),
+                    Error
+            end;
+        {[], _InvalidTxns} ->
+            lager:error("found all transactions invalid: ~p", [Block]),
+            {error, invalid_txns};
+        {_ValidTxns, InvalidTxns} ->
+            lager:error("found invalid transactions: ~p", [InvalidTxns]),
+            {error, invalid_txns}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -154,23 +162,13 @@ absorb_and_commit(Block, Blockchain) ->
                   -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 absorb_block(Block, Ledger) ->
     Transactions = blockchain_block:transactions(Block),
-    case ?MODULE:validate(Transactions, Ledger) of
-        {[], []} ->
-            lager:info("validated empty block"),
+   case absorb_txns(Transactions, Ledger) of
+        ok ->
+            ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
+            ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             {ok, Ledger};
-        {[], _InvalidTxns} ->
-            lager:error("found all transactions invalid: ~p", [Block]),
-            {error, invalid_txns};
-        {ValidTxns, []} ->
-            case absorb_txns(ValidTxns, Ledger) of
-                ok ->
-                    {ok, Ledger};
-                Error ->
-                    Error
-            end;
-        {_ValidTxns, InvalidTxns} ->
-            lager:error("found invalid transactions: ~p", [InvalidTxns]),
-            {error, invalid_txns}
+        Error ->
+            Error
     end.
     
 %%--------------------------------------------------------------------
@@ -255,7 +253,8 @@ absorb_delayed(Block0, Blockchain) ->
             {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
             % Then we absorb if minimum limit is there
             case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
-                false -> ok;
+                false ->
+                    ok;
                 true ->
                     {ok, Block1} = blockchain:get_block(DelayedHeight+1, Blockchain),
                     absorb_delayed_(Block1, DelayedLedger1)
@@ -267,8 +266,6 @@ absorb_delayed(Block0, Blockchain) ->
 absorb_delayed_(Block, DelayedLedger0) ->
     case ?MODULE:absorb_block(Block, DelayedLedger0) of
         {ok, DelayedLedger1} ->
-            ok = blockchain_ledger_v1:update_transaction_fee(DelayedLedger1),
-            ok = blockchain_ledger_v1:increment_height(Block, DelayedLedger1),
             ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
         Error ->
             blockchain_ledger_v1:delete_context(DelayedLedger0),
