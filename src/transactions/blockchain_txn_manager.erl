@@ -157,7 +157,12 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
             NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
-            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
+            {ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
+
+            %% invoke callback on valid transactions
+            lists:foreach(fun({_, Callback, _, _}) ->
+                                  Callback(ok) end,
+                          [{Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, lists:member(Txn, ValidTransactions)]),
 
             %% invoke callback on invalid transactions
             lists:foreach(fun({_, Callback, _, _}) ->
