@@ -267,6 +267,8 @@ absorb_delayed(Block0, Blockchain) ->
 absorb_delayed_(Block, DelayedLedger0) ->
     case ?MODULE:absorb_block(Block, DelayedLedger0) of
         {ok, DelayedLedger1} ->
+            ok = blockchain_ledger_v1:update_transaction_fee(DelayedLedger1),
+            ok = blockchain_ledger_v1:increment_height(Block, DelayedLedger1),
             ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
         Error ->
             blockchain_ledger_v1:delete_context(DelayedLedger0),
