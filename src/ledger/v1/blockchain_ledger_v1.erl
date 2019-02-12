@@ -127,12 +127,11 @@ dir(Ledger) ->
 %%--------------------------------------------------------------------
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
-    Ledger1 = delete_context(Ledger),
     %% accumulate DB operations in a rocksdb batch
     {ok, Context} = rocksdb:batch(),
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
-    context_cache({Context, Cache}, Ledger1).
+    context_cache({Context, Cache}, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
