@@ -64,8 +64,11 @@ members(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_consensus_group(), blockchain_ledger_v1:ledger()) -> ok.
-is_valid(_Txn, _Ledger) ->
-    ok.
+is_valid(Txn, _Ledger) ->
+    case ?MODULE:members(Txn) of
+        [] -> {error, no_members};
+        _ -> ok
+    end.cleanup
 
 %%--------------------------------------------------------------------
 %% @doc

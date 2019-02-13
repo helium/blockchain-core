@@ -163,7 +163,7 @@ absorb_and_commit(Block, Blockchain) ->
                   -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 absorb_block(Block, Ledger) ->
     Transactions = blockchain_block:transactions(Block),
-   case absorb_txns(Transactions, Ledger) of
+    case absorb_txns(Transactions, Ledger) of
         ok ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
