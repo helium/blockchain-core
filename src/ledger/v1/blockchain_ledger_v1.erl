@@ -513,7 +513,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(Address, Fee, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -538,7 +538,7 @@ debit_fee(Address, Fee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: integer(), Ledger :: ledger()) -> ok | {error, any()}.
+-spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 check_balance(Address, Amount, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->

@@ -28,6 +28,7 @@
 -callback hash(State::any()) -> hash().
 -callback absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+-callback is_valid(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
 -export([
     hash/1,
