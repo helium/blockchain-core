@@ -140,7 +140,7 @@ handle_info(timeout, State=#state{txn_queue=[{_Txn, _Callback, AcceptQueue0, _Re
                        State
                end,
     {noreply, NewState, ?TIMEOUT};
-handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0}) ->
+handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0, txn_queue=TxnQueue}) ->
     Chain = case Chain0 of
                 undefined ->
                     case blockchain_worker:blockchain() of
@@ -153,19 +153,27 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
                 C ->
                     C
             end,
+
     case blockchain:get_block(Hash, Chain) of
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
-            NewTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- State#state.txn_queue, not lists:member(Txn, Txns) ],
-            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- NewTxnQueue], blockchain:ledger(Chain)),
 
-            %% invoke callback on invalid transactions
-            lists:foreach(fun({_, Callback, _, _}) ->
-                                  Callback({error, "invalid"}) end,
-                          [{Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, lists:member(Txn, InvalidTransactions)]),
+            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ Txn || {Txn, _, _, _} <- TxnQueue], blockchain:ledger(Chain)),
 
-            NewerTxnQueue = [ {Txn, Callback, Accept, Reject} || {Txn, Callback, Accept, Reject} <- NewTxnQueue, not lists:member(Txn, InvalidTransactions) ],
-            {noreply, State#state{txn_queue=NewerTxnQueue, chain=Chain}, ?TIMEOUT};
+            NewTxnQueue = lists:foldl(fun({Txn, Callback, _Accept, _Reject}=T, Acc) ->
+                                              case {lists:member(Txn, Txns), lists:member(Txn, InvalidTransactions)} of
+                                                  {true, _} ->
+                                                      Callback(ok),
+                                                      Acc;
+                                                  {_, true} ->
+                                                      Callback({error, "invalid"}),
+                                                      Acc;
+                                                  _ ->
+                                                      [T | Acc]
+                                              end
+                                      end, [], TxnQueue),
+
+            {noreply, State#state{txn_queue=lists:reverse(NewTxnQueue), chain=Chain}, ?TIMEOUT};
         _ ->
             %% this should not happen
             error(missing_block)
