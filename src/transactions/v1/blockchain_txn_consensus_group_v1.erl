@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Transaction Genesis Consensur Group ==
+%% == Blockchain Transaction Genesis Consensus Group ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_consensus_group_v1).
@@ -68,7 +68,7 @@ is_valid(Txn, _Ledger) ->
     case ?MODULE:members(Txn) of
         [] -> {error, no_members};
         _ -> ok
-    end.cleanup
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
