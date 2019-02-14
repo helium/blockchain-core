@@ -105,7 +105,6 @@ handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain
     Ref = make_ref(),
     NewState = case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), Ref]) of
                    {ok, Stream} ->
-                       %% NewTxnQueue = lists:foldl(fun({Txn, Callback, CallbackInfo, AcceptQueue, RejectQueue}, Acc) ->
                        NewTxnQueue = lists:foldl(fun(#entry{txn=Txn, acceptors=Acceptors, rejectors=Rejectors, callback=Callback}=Entry, Acc) ->
                                                          case lists:member(RandomAddr, Acceptors) of
                                                              false ->
@@ -119,7 +118,7 @@ handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain
                                                                              {Ref, ok} ->
                                                                                  case length(Acceptors) > F of
                                                                                      true ->
-                                                                                         spawn(fun() -> Callback(ok) end),
+                                                                                         invoke_callback(Callback, ok),
                                                                                          Acc;
                                                                                      false ->
                                                                                          NewEntry = new_entry(Txn, Callback, [RandomAddr | Acceptors], Rejectors),
@@ -129,7 +128,7 @@ handle_info(timeout, State=#state{txn_queue=[Head | _Tail]=TxnQueue, chain=Chain
                                                                                  case length(Rejectors) > 2*F of
                                                                                      true ->
                                                                                          lager:error("blockchain_txn_manager, dropping txn: ~p rejected by 2F+1 members", [Txn]),
-                                                                                         spawn(fun() -> Callback({error, rejected}) end),
+                                                                                         invoke_callback(Callback, {error, rejected}),
                                                                                          Acc;
                                                                                      false ->
                                                                                          lager:error("blockchain_txn_manager, txn: ~p reject by ~p, TxnQueueLen: ~p", [Txn, Stream, length(TxnQueue)]),
@@ -175,10 +174,10 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             NewTxnQueue = lists:foldl(fun(#entry{txn=Txn, callback=Callback}=Entry, Acc) ->
                                               case {lists:member(txn(Entry), Txns), lists:member(Txn, InvalidTransactions)} of
                                                   {true, _} ->
-                                                      spawn(fun() -> Callback(ok) end),
+                                                      invoke_callback(Callback, ok),
                                                       Acc;
                                                   {_, true} ->
-                                                      spawn(fun() -> Callback({error, invalid}) end),
+                                                      invoke_callback(Callback, {error, invalid}),
                                                       Acc;
                                                   _ ->
                                                       [Entry | Acc]
@@ -212,3 +211,6 @@ acceptors(Entry) -> Entry#entry.acceptors.
 -spec new_entry(blockchain_txn:txn(), fun(), pubkeys(), pubkeys()) -> entry().
 new_entry(Txn, Callback, Acceptors, Rejectors) ->
     #entry{txn=Txn, callback=Callback, acceptors=Acceptors, rejectors=Rejectors}.
+
+invoke_callback(Callback, Msg) ->
+    spawn(fun() -> Callback(Msg) end).
