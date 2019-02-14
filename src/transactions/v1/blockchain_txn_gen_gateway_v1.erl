@@ -22,6 +22,7 @@
     last_poc_info/1,
     nonce/1,
     score/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -134,32 +135,39 @@ score(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% This transaction should only be absorbed when it's in the genesis block
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn_genesis_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(_Txn, Ledger) ->
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            ok;
+        _ ->
+            {error, not_in_genesis_block}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_genesis_gateway(),  blockchain_ledger_v1:ledger()) -> ok | {error, not_in_genesis_block}.
 absorb(Txn, Ledger) ->
-    %% NOTE: This transaction should only be absorbed when it's in the genesis block
-    case blockchain_ledger_v1:current_height(Ledger) of
-        %% Ledger height is 0 till the genesis block is absorbed
-        {ok, 0} ->
-            Gateway = ?MODULE:gateway(Txn),
-            Owner = ?MODULE:owner(Txn),
-            Location = ?MODULE:location(Txn),
-            LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
-            LastPocInfo = ?MODULE:last_poc_info(Txn),
-            Nonce = ?MODULE:nonce(Txn),
-            Score = ?MODULE:score(Txn),
-            blockchain_ledger_v1:add_gateway(Owner,
-                                             Gateway,
-                                             Location,
-                                             LastPocChallenge,
-                                             LastPocInfo,
-                                             Nonce,
-                                             Score,
-                                             Ledger);
-        _ ->
-            {error, not_in_genesis_block}
-    end.
+    Gateway = ?MODULE:gateway(Txn),
+    Owner = ?MODULE:owner(Txn),
+    Location = ?MODULE:location(Txn),
+    LastPocChallenge = ?MODULE:last_poc_challenge(Txn),
+    LastPocInfo = ?MODULE:last_poc_info(Txn),
+    Nonce = ?MODULE:nonce(Txn),
+    Score = ?MODULE:score(Txn),
+    blockchain_ledger_v1:add_gateway(Owner,
+                                     Gateway,
+                                     Location,
+                                     LastPocChallenge,
+                                     LastPocInfo,
+                                     Nonce,
+                                     Score,
+                                     Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

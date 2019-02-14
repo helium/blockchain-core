@@ -181,7 +181,7 @@ ledger(#blockchain{ledger=Ledger}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-% -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
+-spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Blockchain) ->
     Ledger = ?MODULE:ledger(Blockchain),
     case blockchain_ledger_v1:current_height(Ledger) of

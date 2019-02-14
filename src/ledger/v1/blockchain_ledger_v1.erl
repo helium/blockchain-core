@@ -28,6 +28,7 @@
     credit_account/3,
     debit_account/4,
     debit_fee/3,
+    check_balance/3,
 
     find_htlc/2,
     add_htlc/7,
@@ -125,12 +126,11 @@ dir(Ledger) ->
 %%--------------------------------------------------------------------
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
-    Ledger1 = delete_context(Ledger),
     %% accumulate DB operations in a rocksdb batch
     {ok, Context} = rocksdb:batch(),
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
-    context_cache({Context, Cache}, Ledger1).
+    context_cache({Context, Cache}, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -513,7 +513,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: integer(),  Ledger :: ledger()) -> ok | {error, any()}.
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(Address, Fee, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -531,6 +531,25 @@ debit_fee(Address, Fee, Ledger) ->
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance, Fee, Balance}}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_balance(Address, Amount, Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Amount) >= 0 of
+                false ->
+                    {error, {insufficient_balance, Amount, Balance}};
+                true ->
+                    ok
             end
     end.
 

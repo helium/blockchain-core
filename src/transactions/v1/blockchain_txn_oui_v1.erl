@@ -17,7 +17,7 @@
     owner/1,
     signature/1,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -95,12 +95,21 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_oui()) -> boolean().
-is_valid(Txn=#blockchain_txn_oui_v1_pb{owner=Owner, signature=Signature}) ->
+-spec is_valid(txn_oui(), blockchain_ledger_v1:ledger()) ->ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    Owner = ?MODULE:owner(Txn),
+    Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
     BaseTxn = Txn#blockchain_txn_oui_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
-    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            Fee = ?MODULE:fee(Txn),
+            Owner = ?MODULE:owner(Txn),
+            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -108,21 +117,9 @@ is_valid(Txn=#blockchain_txn_oui_v1_pb{owner=Owner, signature=Signature}) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_oui(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    case ?MODULE:is_valid(Txn) of
-        false ->
-            {error, invalid_transaction};
-        true ->
-            Fee = ?MODULE:fee(Txn),
-            Owner = ?MODULE:owner(Txn),
-            case blockchain_ledger_v1:find_entry(Owner, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, LastEntry} ->
-                    Nonce = blockchain_ledger_entry_v1:nonce(LastEntry) + 1,
-                    blockchain_ledger_v1:debit_account(Owner, Fee, Nonce, Ledger)
-            end
-    end.
-
+    Fee = ?MODULE:fee(Txn),
+    Owner = ?MODULE:owner(Txn),
+    blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -162,18 +159,5 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_oui_v1_pb:encode_msg(Tx1#blockchain_txn_oui_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
-
-is_valid_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Owner1 = libp2p_crypto:pubkey_to_bin(PubKey),
-    Tx0 = new(<<"0">>, 1, Owner1),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx1 = sign(Tx0, SigFun),
-    ?assert(is_valid(Tx1)),
-    #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    Owner2 = libp2p_crypto:pubkey_to_bin(PubKey2),
-    Tx2 = new(<<"0">>, 1, Owner2),
-    Tx3 = sign(Tx2, SigFun),
-    ?assertNot(is_valid(Tx3)).
 
 -endif.

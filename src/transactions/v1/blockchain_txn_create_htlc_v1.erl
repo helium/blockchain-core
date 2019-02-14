@@ -24,7 +24,7 @@
     fee/1,
     signature/1,
     sign/2,
-    is_valid/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -143,12 +143,32 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_create_htlc()) -> boolean().
-is_valid(Txn=#blockchain_txn_create_htlc_v1_pb{payer=Payer, signature=Signature}) ->
+-spec is_valid(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    Payer = ?MODULE:payer(Txn),
+    Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
-    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            case blockchain_ledger_v1:transaction_fee(Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, MinerFee} ->
+                    Amount = ?MODULE:amount(Txn),
+                    Fee = ?MODULE:fee(Txn),
+                    case (Amount >= 0) andalso (Fee >= MinerFee) of
+                        false ->
+                            lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
+                            {error, invalid_transaction};
+                        true ->
+                            blockchain_ledger_v1:check_balance(Payer, Fee + Amount, Ledger)
+                    end
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -159,41 +179,25 @@ is_valid(Txn=#blockchain_txn_create_htlc_v1_pb{payer=Payer, signature=Signature}
 absorb(Txn, Ledger) ->
     Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
-    case blockchain_ledger_v1:transaction_fee(Ledger) of
+    Payer = ?MODULE:payer(Txn),
+    Payee = ?MODULE:payee(Txn),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
         {error, _}=Error ->
             Error;
-        {ok, MinerFee} ->
-            case (Amount >= 0) andalso (Fee >= MinerFee) of
-                false ->
-                    lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
-                    {error, invalid_transaction};
-                true ->
-                    case ?MODULE:is_valid(Txn) of
-                        true ->
-                            Payer = ?MODULE:payer(Txn),
-                            Payee = ?MODULE:payee(Txn),
-                            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
-                                {error, _}=Error ->
-                                    Error;
-                                {ok, Entry} ->
-                                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-                                    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger) of
-                                        {error, _Reason}=Error ->
-                                            Error;
-                                        ok ->
-                                            Address = ?MODULE:address(Txn),
-                                            blockchain_ledger_v1:add_htlc(Address,
-                                                                        Payer,
-                                                                        Payee,
-                                                                        Amount,
-                                                                        ?MODULE:hashlock(Txn),
-                                                                        ?MODULE:timelock(Txn),
-                                                                        Ledger)
-                                    end
-                            end;
-                        false ->
-                            {error, bad_signature}
-                    end
+        {ok, Entry} ->
+            Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+            case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Address = ?MODULE:address(Txn),
+                    blockchain_ledger_v1:add_htlc(Address,
+                                                    Payer,
+                                                    Payee,
+                                                    Amount,
+                                                    ?MODULE:hashlock(Txn),
+                                                    ?MODULE:timelock(Txn),
+                                                    Ledger)
             end
     end.
 
@@ -255,19 +259,5 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_create_htlc_v1_pb:encode_msg(Tx1#blockchain_txn_create_htlc_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
-
- is_valid_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
-    Tx0 = new(Payer, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx1 = sign(Tx0, SigFun),
-    ?assert(is_valid(Tx1)),
-    Keys2 = libp2p_crypto:generate_keys(ecc_compact),
-    PubKey2 = maps:get(public, Keys2),
-    Payer2 = libp2p_crypto:pubkey_to_bin(PubKey2),
-    Tx2 = new(Payer2, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
-    Tx3 = sign(Tx2, SigFun),
-    ?assertNot(is_valid(Tx3)).
 
 -endif.

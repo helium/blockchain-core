@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Transaction Genesis Consensur Group ==
+%% == Blockchain Transaction Genesis Consensus Group ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_consensus_group_v1).
@@ -14,6 +14,7 @@
     hash/1,
     sign/2,
     members/1,
+    is_valid/2,
     absorb/2
 ]).
 
@@ -57,6 +58,17 @@ sign(Txn, _SigFun) ->
 -spec members(txn_consensus_group()) -> [libp2p_crypto:pubkey_bin()].
 members(Txn) ->
     Txn#blockchain_txn_consensus_group_v1_pb.members.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn_consensus_group(), blockchain_ledger_v1:ledger()) -> ok.
+is_valid(Txn, _Ledger) ->
+    case ?MODULE:members(Txn) of
+        [] -> {error, no_members};
+        _ -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

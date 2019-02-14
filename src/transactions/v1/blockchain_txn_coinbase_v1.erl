@@ -14,6 +14,7 @@
     hash/1,
     payee/1,
     amount/1,
+    is_valid/2,
     absorb/2,
     sign/2
 ]).
@@ -67,20 +68,17 @@ amount(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(),  blockchain_ledger_v1:ledger()) -> ok
-                                                               | {error, not_in_genesis_block}
-                                                               | {error, zero_or_negative_amount}.
-absorb(Txn, Ledger) ->
-    %% NOTE: This transaction is only allowed in the genesis block
+-spec is_valid(txn_coinbase(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Ledger) ->
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, 0} ->
-            Payee = ?MODULE:payee(Txn),
             Amount = ?MODULE:amount(Txn),
             case Amount > 0 of
                 true ->
-                    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger);
+                    ok;
                 false ->
                     {error, zero_or_negative_amount}
             end;
@@ -88,6 +86,15 @@ absorb(Txn, Ledger) ->
             {error, not_in_genesis_block}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_coinbase(),  blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Ledger) ->
+    Payee = ?MODULE:payee(Txn),
+    Amount = ?MODULE:amount(Txn),
+    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

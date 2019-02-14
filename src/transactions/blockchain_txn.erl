@@ -28,22 +28,22 @@
 -callback hash(State::any()) -> hash().
 -callback absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
+-callback is_valid(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
 -export([
-         hash/1,
-         validate/2,
-         absorb/2,
-         sign/2,
-         absorb_and_commit/2,
-         absorb_block/2,
-         sort/2,
-         type/1,
-         serialize/1,
-         deserialize/1,
-         wrap_txn/1,
-         unwrap_txn/1,
-         is_valid/1
-        ]).
+    hash/1,
+    validate/2,
+    absorb/2,
+    sign/2,
+    absorb_and_commit/2,
+    absorb_block/2,
+    sort/2,
+    type/1,
+    serialize/1,
+    deserialize/1,
+    wrap_txn/1,
+    unwrap_txn/1
+]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -94,38 +94,36 @@ unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Called in the miner
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn()) -> boolean().
-is_valid(Txn) ->
-    (type(Txn)):is_valid(Txn).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-%% NOTE: Called in the miner
 -spec validate(blockchain_txn:txns(),
                blockchain_ledger_v1:ledger()) -> {blockchain_txn:txns(), blockchain_txn:txns()}.
-%% TODO we should separate validation from absorbing transactions and validate transactions
-%% before absorbing them.
-validate(Transactions, Ledger) ->
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+validate(Transactions, Ledger0) ->
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     validate(Transactions, [], [], Ledger1).
 
-validate([], Valid,  Invalid, _Ledger) ->
+validate([], Valid,  Invalid, Ledger) ->
+    blockchain_ledger_v1:delete_context(Ledger),
     lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Ledger) ->
-    Type = type(Txn),
-    case Type:absorb(Txn, Ledger) of
+    Type = ?MODULE:type(Txn),
+    case Type:is_valid(Txn, Ledger) of
         ok ->
-            validate(Tail, [Txn|Valid], Invalid, Ledger);
+            case ?MODULE:absorb(Txn, Ledger) of
+                ok ->
+                    validate(Tail, [Txn|Valid], Invalid, Ledger);
+                {error, _Reason} ->
+                    lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
+                    validate(Tail, Valid, [Txn | Invalid], Ledger)
+            end;
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
             validate(Tail, Valid, Invalid, Ledger);
-        _ ->
+        Error ->
+            lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Ledger)
     end.
@@ -138,14 +136,21 @@ validate([Txn | Tail], Valid, Invalid, Ledger) ->
 absorb_and_commit(Block, Blockchain) ->
     Ledger0 = blockchain:ledger(Blockchain),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
-    case ?MODULE:absorb_block(Block, Ledger1) of
-        {ok, Ledger2} ->
-            ok = blockchain_ledger_v1:commit_context(Ledger2),
-            absorb_delayed(Block, Blockchain);
-        Error ->
-           blockchain_ledger_v1:delete_context(Ledger1),
-           Error
-   end.
+    Transactions = blockchain_block:transactions(Block),
+    case ?MODULE:validate(Transactions, Ledger1) of
+        {_ValidTxns, []} ->
+            case ?MODULE:absorb_block(Block, Ledger1) of
+                {ok, Ledger2} ->
+                    ok = blockchain_ledger_v1:commit_context(Ledger2),
+                    absorb_delayed(Block, Blockchain);
+                Error ->
+                    blockchain_ledger_v1:delete_context(Ledger1),
+                    Error
+            end;
+        {_ValidTxns, InvalidTxns} ->
+            lager:error("found invalid transactions: ~p", [InvalidTxns]),
+            {error, invalid_txns}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -170,8 +175,14 @@ absorb_block(Block, Ledger) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Ledger) ->
-    (type(Txn)):absorb(Txn, Ledger).
-
+    Type = ?MODULE:type(Txn),
+    try Type:absorb(Txn,  Ledger) of
+        {error, _Reason}=Error -> Error;
+        ok -> ok
+    catch
+        What:Why:Stack ->
+            {error, {Type, What, {Why, Stack}}}
+    end.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -218,13 +229,9 @@ type(#blockchain_txn_gen_gateway_v1_pb{}) ->
 absorb_txns([], _Ledger) ->
     ok;
 absorb_txns([Txn|Txns], Ledger) ->
-    Type = type(Txn),
-    try Type:absorb(Txn,  Ledger) of
+    case ?MODULE:absorb(Txn, Ledger) of
         {error, _Reason}=Error -> Error;
         ok -> absorb_txns(Txns, Ledger)
-    catch
-        What:Why:Stack ->
-            {error, {type(Txn), What, {Why, Stack}}}
     end.
 
 %%--------------------------------------------------------------------
@@ -244,7 +251,8 @@ absorb_delayed(Block0, Blockchain) ->
             {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
             % Then we absorb if minimum limit is there
             case CurrentHeight - DelayedHeight > ?BLOCK_DELAY of
-                false -> ok;
+                false ->
+                    ok;
                 true ->
                     {ok, Block1} = blockchain:get_block(DelayedHeight+1, Blockchain),
                     absorb_delayed_(Block1, DelayedLedger1)
