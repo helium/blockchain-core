@@ -19,7 +19,7 @@
     synced_blocks/0,
     spend/3, spend/4,
     payment_txn/5, payment_txn/6,
-    submit_txn/1,
+    submit_txn/1, submit_txn/2,
     create_htlc_txn/6,
     redeem_htlc_txn/3,
     peer_height/3,
@@ -149,6 +149,14 @@ redeem_htlc_txn(PubkeyBin, Preimage, Fee) ->
 -spec submit_txn(blockchain_txn:txn()) -> ok.
 submit_txn(Txn) ->
     gen_server:cast(?SERVER, {submit_txn, Txn}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec submit_txn(blockchain_txn:txn(), fun()) -> ok.
+submit_txn(Txn, Callback) ->
+    gen_server:cast(?SERVER, {submit_txn, Txn, Callback}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -288,6 +296,9 @@ handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blo
 handle_cast({submit_txn, Txn}, #state{blockchain=Chain}=State) ->
     ok = send_txn(Txn, Chain),
     {noreply, State};
+handle_cast({submit_txn, Txn, Callback}, #state{blockchain=Chain}=State) ->
+    ok = send_txn(Txn, Chain, Callback),
+    {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
     case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
@@ -425,3 +436,7 @@ send_txn(Txn, Chain) ->
                                                         lager:error("failed to submit txn: ~p error: ~p", [Txn, Reason])
                                                 end
                                         end)).
+
+send_txn(Txn, Chain, Callback) ->
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+    ok = blockchain_txn_manager:submit(Txn, ConsensusMembers, Callback).
