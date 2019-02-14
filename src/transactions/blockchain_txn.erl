@@ -147,9 +147,6 @@ absorb_and_commit(Block, Blockchain) ->
                     blockchain_ledger_v1:delete_context(Ledger1),
                     Error
             end;
-        {[], _InvalidTxns} ->
-            lager:error("found all transactions invalid: ~p", [Block]),
-            {error, invalid_txns};
         {_ValidTxns, InvalidTxns} ->
             lager:error("found invalid transactions: ~p", [InvalidTxns]),
             {error, invalid_txns}
