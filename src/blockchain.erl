@@ -372,7 +372,7 @@ fees_since(Height, CurrentHeight, Chain) when CurrentHeight > Height ->
         0,
         Txns
     ),
-    {ok, Fees};c
+    {ok, Fees};
 fees_since(_Height, _CurrentHeight, _Chain) ->
     {error, bad_height}.
 
