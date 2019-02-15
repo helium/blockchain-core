@@ -14,6 +14,7 @@
     hash/1,
     payee/1,
     amount/1,
+    fee/1,
     is_valid/2,
     absorb/2,
     sign/2
@@ -58,6 +59,7 @@ sign(Txn, _SigFun) ->
 -spec payee(txn_coinbase()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#blockchain_txn_coinbase_v1_pb.payee.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -65,6 +67,14 @@ payee(Txn) ->
 -spec amount(txn_coinbase()) -> non_neg_integer().
 amount(Txn) ->
     Txn#blockchain_txn_coinbase_v1_pb.amount.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_coinbase()) -> non_neg_integer().
+fee(_Txn) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% @doc

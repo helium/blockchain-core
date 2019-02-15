@@ -10,12 +10,13 @@
 -include("pb/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
-    new/2,
+    new/3,
     hash/1,
     owner/1,
     gateway/1,
     owner_signature/1,
     gateway_signature/1,
+    fee/1,
     sign/2,
     sign_request/2,
     is_valid_gateway/1,
@@ -35,11 +36,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_add_gateway().
+new(OwnerAddress, GatewayAddress, Fee) ->
     #blockchain_txn_add_gateway_v1_pb{
         owner=OwnerAddress,
-        gateway=GatewayAddress
+        gateway=GatewayAddress,
+        fee=Fee
     }.
 
 %%--------------------------------------------------------------------
@@ -59,6 +61,7 @@ hash(Txn) ->
 -spec owner(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.owner.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -66,6 +69,7 @@ owner(Txn) ->
 -spec gateway(txn_add_gateway()) -> libp2p_crypto:pubkey_bin().
 gateway(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.gateway.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -81,6 +85,14 @@ owner_signature(Txn) ->
 -spec gateway_signature(txn_add_gateway()) -> binary().
 gateway_signature(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.gateway_signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_add_gateway()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_add_gateway_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -179,30 +191,35 @@ new_test() ->
     Tx = #blockchain_txn_add_gateway_v1_pb{
         owner= <<"owner_address">>,
         gateway= <<"gateway_address">>,
+        fee = 1,
         owner_signature= <<>>,
         gateway_signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"owner_address">>, <<"gateway_address">>)).
+    ?assertEqual(Tx, new(<<"owner_address">>, <<"gateway_address">>, 1)).
 
 owner_address_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1),
     ?assertEqual(<<"owner_address">>, owner(Tx)).
 
 gateway_address_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1),
     ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
+fee_test() ->
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1),
+    ?assertEqual(1, fee(Tx)).
+
 owner_signature_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 gateway_signature_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1),
     ?assertEqual(<<>>, gateway_signature(Tx)).
 
 sign_request_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Sig1 = gateway_signature(Tx1),
@@ -211,7 +228,7 @@ sign_request_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
+    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Tx2 = sign(Tx1, SigFun),
