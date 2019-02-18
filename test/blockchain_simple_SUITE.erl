@@ -5,6 +5,8 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
+-define(TEST_LOCATION, 631210968840687103).
+
 -export([
     basic_test/1,
     reload_test/1,
@@ -414,7 +416,7 @@ poc_request_test(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, 123456, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
@@ -530,7 +532,7 @@ export_test(Config) ->
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, 123456, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
@@ -547,7 +549,7 @@ export_test(Config) ->
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
-                   {location,123456},
+                   {location,?TEST_LOCATION},
                    {last_poc_challenge,undefined},
                    {last_poc_info, undefined},
                    {nonce,1},
