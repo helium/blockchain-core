@@ -31,7 +31,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type location() :: non_neg_integer(). %% h3 index
+-type location() :: h3:h3index().
 -type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
 -export_type([txn_assert_location/0]).
 
@@ -47,7 +47,7 @@ new(GatewayAddress, OwnerAddress, Location, Nonce) ->
     #blockchain_txn_assert_location_v1_pb{
        gateway=GatewayAddress,
        owner=OwnerAddress,
-       location=Location,
+       location=h3:to_string(Location),
        gateway_signature = <<>>,
        owner_signature = <<>>,
        nonce=Nonce,
@@ -86,7 +86,7 @@ owner(Txn) ->
 %%--------------------------------------------------------------------
 -spec location(txn_assert_location()) -> location().
 location(Txn) ->
-    Txn#blockchain_txn_assert_location_v1_pb.location.
+    h3:from_string(Txn#blockchain_txn_assert_location_v1_pb.location).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -230,24 +230,26 @@ absorb(Txn, Ledger) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TEST_LOCATION, 631210968840687103).
+
 new() ->
     #blockchain_txn_assert_location_v1_pb{
        gateway= <<"gateway_address">>,
        owner= <<"owner_address">>,
        gateway_signature= <<>>,
        owner_signature= << >>,
-       location= 1,
+       location= h3:to_string(?TEST_LOCATION),
        nonce = 1,
        fee = 1
       }.
 
 new_test() ->
     Tx = new(),
-    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, 1, 1)).
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1)).
 
 location_test() ->
     Tx = new(),
-    ?assertEqual(1, location(Tx)).
+    ?assertEqual(?TEST_LOCATION, location(Tx)).
 
 nonce_test() ->
     Tx = new(),

@@ -3,7 +3,7 @@ syntax = "proto3";
 message txn_gen_gateway_v1 {
     bytes gateway = 1;
     bytes owner = 2;
-    uint64 location = 3;
+    string location = 3;
     uint64 last_poc_challenge = 4;
     bytes last_poc_hash = 5;
     uint64 nonce = 6;
