@@ -44,9 +44,13 @@
           Nonce :: non_neg_integer(),
           Score :: float()) -> txn_genesis_gateway().
 new(Gateway, Owner, Location, LastPocChallenge, Nonce, Score) ->
+    L = case Location of
+            undefined -> undefined;
+            _ -> h3:to_string(Location)
+        end,
     #blockchain_txn_gen_gateway_v1_pb{gateway=Gateway,
                                       owner=Owner,
-                                      location=h3:to_string(Location),
+                                      location=L,
                                       last_poc_challenge=LastPocChallenge,
                                       nonce=Nonce,
                                       score=Score}.
@@ -89,6 +93,8 @@ owner(Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec location(txn_genesis_gateway()) -> h3:h3index().
+location(#blockchain_txn_gen_gateway_v1_pb{location=[]}) ->
+    undefined;
 location(Txn) ->
     h3:from_string(Txn#blockchain_txn_gen_gateway_v1_pb.location).
 
