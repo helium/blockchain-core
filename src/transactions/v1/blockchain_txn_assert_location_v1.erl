@@ -10,7 +10,7 @@
 -include("pb/blockchain_txn_assert_location_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/5,
     hash/1,
     gateway/1,
     owner/1,
@@ -42,8 +42,9 @@
 -spec new(GatewayAddress :: libp2p_crypto:pubkey_bin(),
           OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer()) -> txn_assert_location().
-new(GatewayAddress, OwnerAddress, Location, Nonce) ->
+          Nonce :: non_neg_integer(),
+          Fee :: pos_integer()) -> txn_assert_location().
+new(GatewayAddress, OwnerAddress, Location, Nonce, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
        gateway=GatewayAddress,
        owner=OwnerAddress,
@@ -51,7 +52,7 @@ new(GatewayAddress, OwnerAddress, Location, Nonce) ->
        gateway_signature = <<>>,
        owner_signature = <<>>,
        nonce=Nonce,
-       fee=1
+       fee=Fee
       }.
 
 %%--------------------------------------------------------------------
@@ -245,7 +246,7 @@ new() ->
 
 new_test() ->
     Tx = new(),
-    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1)).
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1)).
 
 location_test() ->
     Tx = new(),
