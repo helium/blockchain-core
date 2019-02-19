@@ -39,14 +39,14 @@
 %%--------------------------------------------------------------------
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
-          Location :: undefined | pos_integer(),
+          Location :: h3:h3index(),
           LastPocChallenge :: undefined | non_neg_integer(),
           Nonce :: non_neg_integer(),
           Score :: float()) -> txn_genesis_gateway().
 new(Gateway, Owner, Location, LastPocChallenge, Nonce, Score) ->
     #blockchain_txn_gen_gateway_v1_pb{gateway=Gateway,
                                       owner=Owner,
-                                      location=Location,
+                                      location=h3:to_string(Location),
                                       last_poc_challenge=LastPocChallenge,
                                       nonce=Nonce,
                                       score=Score}.
@@ -88,9 +88,9 @@ owner(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec location(txn_genesis_gateway()) -> undefined | pos_integer().
+-spec location(txn_genesis_gateway()) -> h3:h3index().
 location(Txn) ->
-    Txn#blockchain_txn_gen_gateway_v1_pb.location.
+    h3:from_string(Txn#blockchain_txn_gen_gateway_v1_pb.location).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -174,37 +174,39 @@ absorb(Txn, Ledger) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+-define(TEST_LOCATION, 631210968840687103).
+
 new_test() ->
     Tx = #blockchain_txn_gen_gateway_v1_pb{gateway = <<"0">>,
                                            owner = <<"1">>,
-                                           location=1000,
+                                           location = h3:to_string(?TEST_LOCATION),
                                            last_poc_challenge=30,
                                            nonce=10,
                                            score=0.8},
-    ?assertEqual(Tx, new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8)).
+    ?assertEqual(Tx, new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8)).
 
 gateway_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
     ?assertEqual(<<"0">>, gateway(Tx)).
 
 owner_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
     ?assertEqual(<<"1">>, owner(Tx)).
 
 location_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
-    ?assertEqual(1000, location(Tx)).
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
+    ?assertEqual(?TEST_LOCATION, location(Tx)).
 
 last_poc_challenge_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
     ?assertEqual(30, last_poc_challenge(Tx)).
 
 nonce_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
     ?assertEqual(10, nonce(Tx)).
 
 score_test() ->
-    Tx = new(<<"0">>, <<"1">>, 1000, 30, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 30, 10, 0.8),
     ?assertEqual(0.8, score(Tx)).
 
 -endif.

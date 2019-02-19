@@ -5,7 +5,9 @@ message txn_assert_location_v1 {
     bytes owner = 2;
     bytes gateway_signature = 3;
     bytes owner_signature = 4;
-    uint64 location = 5;
+    // Use the h3 string representation since it will use all 64 bits
+    // (and JS doesn't support that)
+    string location = 5;
     uint64 nonce = 6;
     uint64 fee = 7;
 }
