@@ -354,6 +354,8 @@ fees_since(Height, Chain) ->
     fees_since(Height, CurrentHeight, Chain).
 
 -spec fees_since(non_neg_integer(), non_neg_integer(), blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+fees_since(1, _CurrentHeight, _Chain) ->
+    {error, bad_height};
 fees_since(Height, CurrentHeight, Chain) when CurrentHeight > Height ->
     Txns = lists:foldl(
         fun(H, Acc) ->

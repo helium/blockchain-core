@@ -690,4 +690,5 @@ fees_since_test(Config) ->
     ),
 
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
-    ?assertEqual({ok, 100}, blockchain:fees_since(1, Chain)).
+    ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
+    ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)).
