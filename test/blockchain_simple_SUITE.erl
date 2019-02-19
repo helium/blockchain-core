@@ -402,7 +402,7 @@ poc_request_test(Config) ->
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
@@ -529,7 +529,7 @@ export_test(Config) ->
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 

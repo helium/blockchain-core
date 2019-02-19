@@ -235,7 +235,7 @@ height_test() ->
     ?assertEqual(Height, height(Block)).
 
 transactions_test() ->
-    Txs = [blockchain_txn_add_gateway_v1:new(1, 1, 1)],
+    Txs = [blockchain_txn_add_gateway_v1:new(1, 1, 1, 1)],
     Block = new_merge(#{transactions => Txs}),
     ?assertEqual(Txs, transactions(Block)).
 

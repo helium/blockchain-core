@@ -5,6 +5,7 @@ message txn_add_gateway_v1 {
     bytes gateway = 2;
     bytes owner_signature = 3;
     bytes gateway_signature = 4;
-    uint64 fee = 5;
+    uint64 amount = 5;
+    uint64 fee = 6;
 
 }
