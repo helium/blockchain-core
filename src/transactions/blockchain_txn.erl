@@ -29,6 +29,7 @@
 -callback absorb(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 -callback is_valid(txn(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+-callback fee(txn()) -> non_neg_integer().
 
 -export([
     hash/1,

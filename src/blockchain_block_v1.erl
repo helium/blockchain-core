@@ -235,7 +235,7 @@ height_test() ->
     ?assertEqual(Height, height(Block)).
 
 transactions_test() ->
-    Txs = [blockchain_txn_add_gateway_v1:new(1, 1)],
+    Txs = [blockchain_txn_add_gateway_v1:new(1, 1, 1, 1)],
     Block = new_merge(#{transactions => Txs}),
     ?assertEqual(Txs, transactions(Block)).
 
@@ -260,9 +260,10 @@ set_signatures_test() ->
     ?assertEqual([], signatures(set_signatures(Block, []))).
 
 new_genesis_test() ->
-    Txs = [blockchain_txn_add_gateway_v1:new(1, 1),
-           blockchain_txn_add_gateway_v1:new(2, 2),
-           blockchain_txn_add_gateway_v1:new(3, 3)],
+    Loc = h3:from_geo({37.780586, -122.469471}, 13),
+    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1, 1, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1, 1, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1, 1, 1)],
     Block = new_genesis_block(Txs),
     ?assertEqual(<<0:256>>, prev_hash(Block)),
     ?assertEqual(1, height(Block)),

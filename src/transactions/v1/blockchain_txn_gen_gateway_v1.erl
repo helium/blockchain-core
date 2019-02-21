@@ -22,6 +22,7 @@
     last_poc_info/1,
     nonce/1,
     score/1,
+    fee/1,
     is_valid/2,
     absorb/2
 ]).
@@ -138,6 +139,14 @@ nonce(Txn) ->
 -spec score(txn_genesis_gateway()) -> float().
 score(Txn) ->
     Txn#blockchain_txn_gen_gateway_v1_pb.score.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_genesis_gateway()) -> non_neg_integer().
+fee(_Txn) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% @doc

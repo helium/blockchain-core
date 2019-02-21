@@ -17,7 +17,8 @@
     bogus_coinbase_test/1,
     bogus_coinbase_with_good_payment_test/1,
     export_test/1,
-    delayed_ledger_test/1
+    delayed_ledger_test/1,
+    fees_since_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -41,7 +42,8 @@ all() ->
         bogus_coinbase_test,
         bogus_coinbase_with_good_payment_test,
         export_test,
-        delayed_ledger_test
+        delayed_ledger_test,
+        fees_since_test
     ].
 
 %%--------------------------------------------------------------------
@@ -400,7 +402,7 @@ poc_request_test(Config) ->
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
@@ -527,7 +529,7 @@ export_test(Config) ->
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 
@@ -658,3 +660,35 @@ delayed_ledger_test(Config) ->
     {ok, Entry4} = blockchain_ledger_v1:find_entry(Payee, DelayedLedger),
     ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
     ok.
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+fees_since_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Payee = blockchain_swarm:pubkey_bin(),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+
+    % Add 100 txns with 1 fee each
+    lists:foreach(
+        fun(X) ->
+            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 1, X),
+            SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+            B = test_utils:create_block(ConsensusMembers, [SignedTx]),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self())
+        end,
+        lists:seq(1, 100)
+    ),
+
+    ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
+    ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
+    ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)).

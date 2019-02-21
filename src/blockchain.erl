@@ -13,6 +13,7 @@
     ledger/1, ledger_at/2,
     dir/1,
     blocks/1, add_block/2, add_block/3, get_block/2, add_blocks/2,
+    fees_since/2,
     build/3,
     close/1
 ]).
@@ -342,6 +343,41 @@ add_blocks([Head | Tail], Chain) ->
         Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fees_since(non_neg_integer(), blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+fees_since(Height, Chain) ->
+    {ok, CurrentHeight} = ?MODULE:height(Chain),
+    fees_since(Height, CurrentHeight, Chain).
+
+-spec fees_since(non_neg_integer(), non_neg_integer(), blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+fees_since(1, _CurrentHeight, _Chain) ->
+    {error, bad_height};
+fees_since(Height, CurrentHeight, Chain) when CurrentHeight > Height ->
+    Txns = lists:foldl(
+        fun(H, Acc) ->
+            {ok, Block} = ?MODULE:get_block(H, Chain),
+            Acc ++ blockchain_block:transactions(Block)
+        end,
+        [],
+        lists:seq(Height, CurrentHeight)
+    ),
+    Fees = lists:foldl(
+        fun(Txn, Acc) ->
+            Type = blockchain_txn:type(Txn),
+            Fee = Type:fee(Txn),
+            Fee + Acc
+        end,
+        0,
+        Txns
+    ),
+    {ok, Fees};
+fees_since(_Height, _CurrentHeight, _Chain) ->
+    {error, bad_height}.
+
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -9,13 +9,14 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/3,
+    new/4,
     receipts/1,
     signature/1,
     challenger/1,
     secret/1,
     sign/2,
     hash/1,
+    fee/1,
     is_valid/2,
     absorb/2,
     create_secret_hash/2
@@ -33,12 +34,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:pubkey_bin(), binary()) -> txn_poc_receipts().
-new(Receipts, Challenger, Secret) ->
+-spec new(blockchain_poc_receipt_v1:poc_receipts(), libp2p_crypto:pubkey_bin(),
+          binary(), non_neg_integer()) -> txn_poc_receipts().
+new(Receipts, Challenger, Secret, Fee) ->
     #blockchain_txn_poc_receipts_v1_pb{
         receipts=Receipts,
         challenger=Challenger,
         secret=Secret,
+        fee=Fee,
         signature = <<>>
     }.
 
@@ -65,6 +68,14 @@ challenger(Txn) ->
 -spec secret(txn_poc_receipts()) -> binary().
 secret(Txn) ->
     Txn#blockchain_txn_poc_receipts_v1_pb.secret.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_poc_receipts()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -191,31 +202,36 @@ new_test() ->
         receipts=[],
         challenger = <<"challenger">>,
         secret = <<"secret">>,
+        fee = 1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new([], <<"challenger">>, <<"secret">>)).
+    ?assertEqual(Tx, new([], <<"challenger">>, <<"secret">>, 1)).
 
 receipts_test() ->
-    Tx = new([], <<"challenger">>, <<"secret">>),
+    Tx = new([], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual([], receipts(Tx)).
 
 challenger_test() ->
-    Tx = new([], <<"challenger">>, <<"secret">>),
+    Tx = new([], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
 
 secret_test() ->
-    Tx = new([], <<"challenger">>, <<"secret">>),
+    Tx = new([], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<"secret">>, secret(Tx)).
 
+fee_test() ->
+    Tx = new([], <<"challenger">>, <<"secret">>, 1),
+    ?assertEqual(1, fee(Tx)).
+
 signature_test() ->
-    Tx = new([], <<"challenger">>, <<"secret">>),
+    Tx = new([], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx0 = new([], Challenger, <<"secret">>),
+    Tx0 = new([], Challenger, <<"secret">>, 1),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
     EncodedTx1 = blockchain_txn_poc_receipts_v1_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v1_pb{signature = <<>>}),
