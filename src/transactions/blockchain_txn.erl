@@ -110,7 +110,7 @@ validate([], Valid,  Invalid, Ledger) ->
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Ledger) ->
     Type = ?MODULE:type(Txn),
-    case Type:is_valid(Txn, Ledger) of
+    case catch Type:is_valid(Txn, Ledger) of
         ok ->
             case ?MODULE:absorb(Txn, Ledger) of
                 ok ->
