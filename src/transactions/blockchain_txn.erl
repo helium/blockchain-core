@@ -190,7 +190,7 @@ absorb(Txn, Ledger) ->
 %%--------------------------------------------------------------------
 -spec sort(txn(), txn()) -> boolean().
 sort(TxnA, TxnB) ->
-    {actor(TxnA), nonce(TxnA)} =< {actor(TxnB), nonce(TxnB)}.
+    {type_order(TxnA), actor(TxnA), nonce(TxnA)} =< {type_order(TxnB), actor(TxnB), nonce(TxnB)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -221,6 +221,31 @@ type(#blockchain_txn_gen_gateway_v1_pb{}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec type_order(txn()) -> non_neg_integer().
+type_order(Txn) ->
+    Order = [
+        blockchain_txn_coinbase_v1,
+        blockchain_txn_gen_gateway_v1,
+        blockchain_txn_payment_v1,
+        blockchain_txn_consensus_group_v1,
+        blockchain_txn_add_gateway_v1,
+        blockchain_txn_assert_location_v1,
+        blockchain_txn_create_htlc_v1,
+        blockchain_txn_redeem_htlc_v1,
+        blockchain_txn_poc_request_v1,
+        blockchain_txn_poc_receipts_v1
+    ],
+    Map = lists:zip(Order, lists:seq(1, erlang:length(Order))),
+    Type = type(Txn),
+    case lists:keyfind(Type, 1, Map) of
+        {Type, Index} -> Index;
+        false -> erlang:length(Order)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
