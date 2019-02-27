@@ -51,6 +51,18 @@
 -endif.
 
 -define(BLOCK_DELAY, 50).
+-define(ORDER, [
+    {blockchain_txn_coinbase_v1, 1},
+    {blockchain_txn_gen_gateway_v1, 2},
+    {blockchain_txn_payment_v1, 3},
+    {blockchain_txn_consensus_group_v1, 4},
+    {blockchain_txn_add_gateway_v1, 5},
+    {blockchain_txn_assert_location_v1, 6},
+    {blockchain_txn_create_htlc_v1, 7},
+    {blockchain_txn_redeem_htlc_v1, 8},
+    {blockchain_txn_poc_request_v1, 9},
+    {blockchain_txn_poc_receipts_v1, 10}
+]).
 
 hash(Txn) ->
     (type(Txn)):hash(Txn).
@@ -228,23 +240,10 @@ type(#blockchain_txn_gen_gateway_v1_pb{}) ->
 %%--------------------------------------------------------------------
 -spec type_order(txn()) -> non_neg_integer().
 type_order(Txn) ->
-    Order = [
-        blockchain_txn_coinbase_v1,
-        blockchain_txn_gen_gateway_v1,
-        blockchain_txn_payment_v1,
-        blockchain_txn_consensus_group_v1,
-        blockchain_txn_add_gateway_v1,
-        blockchain_txn_assert_location_v1,
-        blockchain_txn_create_htlc_v1,
-        blockchain_txn_redeem_htlc_v1,
-        blockchain_txn_poc_request_v1,
-        blockchain_txn_poc_receipts_v1
-    ],
-    Map = lists:zip(Order, lists:seq(1, erlang:length(Order))),
     Type = type(Txn),
-    case lists:keyfind(Type, 1, Map) of
+    case lists:keyfind(Type, 1, ?ORDER) of
         {Type, Index} -> Index;
-        false -> erlang:length(Order)
+        false -> erlang:length(?ORDER)
     end.
 
 %%--------------------------------------------------------------------
