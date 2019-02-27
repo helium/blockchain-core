@@ -539,7 +539,9 @@ export_test(Config) ->
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
-    Block2 = test_utils:create_block(ConsensusMembers, [PaymentTxn1, PaymentTxn2, PaymentTxn3, SignedGatewayAddGatewayTx, SignedAssertLocationTx]),
+    Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
+    Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
+    Block2 = test_utils:create_block(ConsensusMembers, Txns1),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
