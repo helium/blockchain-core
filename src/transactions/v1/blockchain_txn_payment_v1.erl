@@ -154,12 +154,18 @@ absorb(Txn, Ledger) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
-        ok ->
-            Payee = ?MODULE:payee(Txn),
-            blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+    Payee = ?MODULE:payee(Txn),
+
+    case Payer == Payee of
+        false ->
+            case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+            end;
+        true ->
+            {error, self_payment}
     end.
 
 %% ------------------------------------------------------------------
@@ -185,7 +191,6 @@ payer_test() ->
 payee_test() ->
     Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
     ?assertEqual(<<"payee">>, payee(Tx)).
-
 
 amount_test() ->
     Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
