@@ -121,6 +121,7 @@ sign(Txn, SigFun) ->
 -spec is_valid(txn_payment(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 is_valid(Txn, Ledger) ->
     Payer = ?MODULE:payer(Txn),
+    Payee = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
@@ -129,18 +130,23 @@ is_valid(Txn, Ledger) ->
         false ->
             {error, bad_signature};
         true ->
-            Amount = ?MODULE:amount(Txn),
-            Fee = ?MODULE:fee(Txn),
-            case blockchain_ledger_v1:transaction_fee(Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, MinerFee} ->
-                    case (Amount >= 0) andalso (Fee >= MinerFee) of
-                        false ->
-                            {error, invalid_transaction};
-                        true ->
-                            blockchain_ledger_v1:check_balance(Payer, Fee + Amount, Ledger)
-                    end
+            case Payer == Payee of
+                false ->
+                    Amount = ?MODULE:amount(Txn),
+                    Fee = ?MODULE:fee(Txn),
+                    case blockchain_ledger_v1:transaction_fee(Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        {ok, MinerFee} ->
+                            case (Amount >= 0) andalso (Fee >= MinerFee) of
+                                false ->
+                                    {error, invalid_transaction};
+                                true ->
+                                    blockchain_ledger_v1:check_balance(Payer, Fee + Amount, Ledger)
+                            end
+                    end;
+                true ->
+                    {error, invalid_transaction_self_payment}
             end
     end.
 
