@@ -15,7 +15,7 @@
     oui/1,
     fee/1,
     owner/1,
-    routing/1,
+    addresses/1,
     signature/1,
     sign/2,
     is_valid/3,
@@ -33,13 +33,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(binary(), non_neg_integer(), libp2p_crypto:pubkey_bin(), string()) -> txn_oui().
-new(OUI, Fee, Owner, Routing) ->
+-spec new(binary(), non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()]) -> txn_oui().
+new(OUI, Fee, Owner, Addresses) ->
     #blockchain_txn_oui_v1_pb{
        oui=OUI,
        fee=Fee,
        owner=Owner,
-       routing=Routing,
+       addresses=Addresses,
        signature= <<>>
       }.
 
@@ -81,9 +81,9 @@ owner(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec routing(txn_oui()) -> string().
-routing(Txn) ->
-    Txn#blockchain_txn_oui_v1_pb.routing.
+-spec addresses(txn_oui()) -> [binary()].
+addresses(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.addresses.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -119,10 +119,10 @@ is_valid(Txn, _Block, Ledger) ->
         false ->
             {error, bad_signature};
         true ->
-            Routing = ?MODULE:routing(Txn),
-            case validate_routing(Routing) of
+            Addresses = ?MODULE:addresses(Txn),
+            case validate_addresses(Addresses) of
                 false ->
-                    {error, invalid_routing};
+                    {error, invalid_addresses};
                 true ->
                     Fee = ?MODULE:fee(Txn),
                     Owner = ?MODULE:owner(Txn),
@@ -140,27 +140,33 @@ is_valid(Txn, _Block, Ledger) ->
 absorb(Txn, _Block, Ledger) ->
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
-    blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger).
+    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            OUI = ?MODULE:oui(Txn),
+            Addresses = ?MODULE:addresses(Txn),
+            blockchain_ledger_v1:add_routing(OUI, Addresses, Ledger)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec validate_routing(string()) -> boolean().
-validate_routing("") ->
+-spec validate_addresses(string()) -> boolean().
+validate_addresses([]) ->
     true;
-validate_routing(Routing) ->
-    Infos = string:split(Routing, ",", all),
-    case erlang:length(Infos) of
+validate_addresses(Addresses) ->
+    case erlang:length(Addresses) of
         L when L =< 3 ->
-            lists:all(fun is_p2p/1, Infos);
+            lists:all(fun is_p2p/1, Addresses);
         _ ->
             false
     end.
 
--spec is_p2p(string()) -> boolean().
+-spec is_p2p(binary()) -> boolean().
 is_p2p(Address) ->
-    case catch multiaddr:protocols(Address) of
+    case catch multiaddr:protocols(erlang:binary_to_list(Address)) of
         [{"p2p", _}] -> true;
         _ -> false
     end.
@@ -175,49 +181,52 @@ new_test() ->
         oui= <<"0">>,
         fee=1,
         owner= <<"owner">>,
-        routing = "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ",
+        addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
         signature= <<>>
     },
-    ?assertEqual(Tx, new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ")).
+    ?assertEqual(Tx, new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])).
 
 oui_test() ->
-    Tx = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     ?assertEqual(<<"0">>, oui(Tx)).
 
 fee_test() ->
-    Tx = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     ?assertEqual(1, fee(Tx)).
 
 owner_test() ->
-    Tx = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
-routing_test() ->
-    Tx = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
-    ?assertEqual("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ", routing(Tx)).
+addresses_test() ->
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
+    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(Tx)).
 
 signature_test() ->
-    Tx = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"0">>, 1, <<"owner">>, "/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ"),
+    Tx0 = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_oui_v1_pb:encode_msg(Tx1#blockchain_txn_oui_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
-validate_routing_test() ->
-    ?assert(validate_routing("")),
-    ?assertNot(validate_routing(",")),
-    ?assert(validate_routing("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ")),
-    ?assert(validate_routing("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ")),
-    ?assert(validate_routing("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ")),
-    ?assertNot(validate_routing("http://test.com")),
-    ?assertNot(validate_routing("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,http://test.com")),
-    ?assertNot(validate_routing("/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ,http://test.com")),
+ecode_decode_test() ->
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
+    ?assertEqual(Tx, blockchain_txn_oui_v1_pb:decode_msg(blockchain_txn_oui_v1_pb:encode_msg(Tx), blockchain_txn_oui_v1_pb)).
+
+validate_addresses_test() ->
+    ?assert(validate_addresses([])),
+    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
+    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
+    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
+    ?assertNot(validate_addresses([<<"http://test.com">>])),
+    ?assertNot(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"http://test.com">>])),
+    ?assertNot(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"http://test.com">>])),
     ok.
 
 -endif.

@@ -37,6 +37,9 @@
     add_htlc/7,
     redeem_htlc/3,
 
+    find_routing/2,
+    add_routing/3,
+
     clean/1, close/1
 ]).
 
@@ -60,6 +63,7 @@
     entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
+    routing :: rocksdb:cf_handle(),
     context :: undefined | rocksdb:batch_handle(),
     cache :: undefined | ets:tid()
 }).
@@ -84,8 +88,8 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, 
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF] = CFs,
+    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, RoutingCf,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedRoutingCf] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -95,14 +99,16 @@ new(Dir) ->
             active_gateways=AGwsCF,
             entries=EntriesCF,
             htlcs=HTLCsCF,
-            pocs=PoCsCF
+            pocs=PoCsCF,
+            routing=RoutingCf
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
             entries=DelayedEntriesCF,
             htlcs=DelayedHTLCsCF,
-            pocs=DelayedPoCsCF
+            pocs=DelayedPoCsCF,
+            routing=DelayedRoutingCf
         }
     }.
 
@@ -637,7 +643,7 @@ check_balance(Address, Amount, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec find_htlc(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
-                                                      | {error, any()}.
+                                                         | {error, any()}.
 find_htlc(Address, Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
     case cache_get(Ledger, HTLCsCF, Address, []) of
@@ -684,6 +690,34 @@ redeem_htlc(Address, Payee, Ledger) ->
                     cache_delete(Ledger, HTLCsCF, Address)
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_routing(binary(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
+                                          | {error, any()}.
+find_routing(OUI, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    case cache_get(Ledger, RoutingCF, OUI, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_routing_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_routing(binary(), string(), ledger()) -> ok | {error, any()}.
+add_routing(OUI, Addresses, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    Routing = blockchain_ledger_routing_v1:new(OUI, Addresses),
+    Bin = blockchain_ledger_routing_v1:serialize(Routing),
+    cache_put(Ledger, RoutingCF, OUI, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -775,6 +809,16 @@ pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec routing_cf(ledger()) -> rocksdb:cf_handle().
+routing_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{routing=RoutingCF}}) ->
+    RoutingCF;
+routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) ->
+    RoutingCF.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
@@ -832,8 +876,11 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs", "delayed_pocs"],
+    DefaultCFs = [
+        "default", "active_gateways", "entries", "htlcs", "pocs", "routing",
+        "delayed_default", "delayed_active_gateways", "delayed_entries",
+        "delayed_htlcs", "delayed_pocs", "delayed_routing"
+    ],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -876,7 +923,7 @@ mode_test() ->
     ?assertEqual({error, not_found}, consensus_members(Ledger)),
     Ledger1 = new_context(Ledger),
     ok = consensus_members([1, 2, 3], Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)),
     Ledger2 = mode(delayed, Ledger1),
     Ledger3 = new_context(Ledger2),
@@ -892,7 +939,7 @@ consensus_members_2_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = consensus_members([1, 2, 3], Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)).
 
 active_gateways_test() ->
@@ -905,7 +952,7 @@ add_gateway_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     ?assertMatch(
         {ok, _},
         find_gateway_info(<<"gw_address">>, Ledger)
@@ -917,7 +964,7 @@ add_gateway_location_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     Ledger2 = new_context(Ledger),
     ?assertEqual(
        ok,
@@ -929,7 +976,7 @@ credit_account_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = credit_account(<<"address">>, 1000, Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)).
 
@@ -938,13 +985,13 @@ debit_account_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = credit_account(<<"address">>, 1000, Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_account(<<"address">>, 1000, 0, Ledger)),
     ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_account(<<"address">>, 1000, 12, Ledger)),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 1, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_account(<<"address">>, 500, 1, Ledger2),
-    commit_context(Ledger2),
+    ok = commit_context(Ledger2),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
@@ -954,11 +1001,11 @@ debit_fee_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ok = credit_account(<<"address">>, 1000, Ledger1),
-    commit_context(Ledger1),
+    ok = commit_context(Ledger1),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(<<"address">>, 9999, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_fee(<<"address">>, 500, Ledger2),
-    commit_context(Ledger2),
+    ok = commit_context(Ledger2),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
@@ -1057,5 +1104,19 @@ commit(Fun, Ledger0) ->
     _ = Fun(Ledger1),
     commit_context(Ledger1).
 
+
+routing_test() ->
+    BaseDir = test_utils:tmp_dir("routing_test"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ?assertEqual({error, not_found}, find_routing(<<"oui">>, Ledger1)),
+
+    Ledger2 = new_context(Ledger),
+    ok = add_routing(<<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Ledger2),
+    ok = commit_context(Ledger2),
+    {ok, Routing} = find_routing(<<"oui">>, Ledger),
+    ?assertEqual(<<"oui">>, blockchain_ledger_routing_v1:oui(Routing)),
+    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing)),
+    ok.
 
 -endif.
