@@ -38,7 +38,7 @@
     redeem_htlc/3,
 
     find_routing/2,
-    add_routing/3,
+    add_routing/4,
 
     clean/1, close/1
 ]).
@@ -712,10 +712,10 @@ find_routing(OUI, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_routing(binary(), string(), ledger()) -> ok | {error, any()}.
-add_routing(OUI, Addresses, Ledger) ->
+-spec add_routing(binary(), binary(), [binary()], ledger()) -> ok | {error, any()}.
+add_routing(Owner, OUI, Addresses, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    Routing = blockchain_ledger_routing_v1:new(OUI, Addresses),
+    Routing = blockchain_ledger_routing_v1:new(Owner, OUI, Addresses),
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
     cache_put(Ledger, RoutingCF, OUI, Bin).
 
@@ -1112,9 +1112,10 @@ routing_test() ->
     ?assertEqual({error, not_found}, find_routing(<<"oui">>, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_routing(<<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Ledger2),
+    ok = add_routing(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Ledger2),
     ok = commit_context(Ledger2),
     {ok, Routing} = find_routing(<<"oui">>, Ledger),
+    ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing)),
     ?assertEqual(<<"oui">>, blockchain_ledger_routing_v1:oui(Routing)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing)),
     ok.

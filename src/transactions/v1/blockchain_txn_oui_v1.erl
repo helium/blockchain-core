@@ -146,7 +146,7 @@ absorb(Txn, _Block, Ledger) ->
         ok ->
             OUI = ?MODULE:oui(Txn),
             Addresses = ?MODULE:addresses(Txn),
-            blockchain_ledger_v1:add_routing(OUI, Addresses, Ledger)
+            blockchain_ledger_v1:add_routing(Owner, OUI, Addresses, Ledger)
     end.
 
 %% ------------------------------------------------------------------
