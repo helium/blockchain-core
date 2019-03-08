@@ -7,6 +7,7 @@ import "v1/blockchain_txn_create_htlc_v1.proto";
 import "v1/blockchain_txn_consensus_group_v1.proto";
 import "v1/blockchain_txn_gen_gateway_v1.proto";
 import "v1/blockchain_txn_oui_v1.proto";
+import "v1/blockchain_txn_routing_v1.proto";
 import "v1/blockchain_txn_payment_v1.proto";
 import "v1/blockchain_txn_poc_receipts_v1.proto";
 import "v1/blockchain_txn_poc_request_v1.proto";
@@ -21,9 +22,10 @@ message txn {
         txn_gen_gateway_v1 gen_gateway = 5;
         txn_consensus_group_v1 consensus_group = 6;
         txn_oui_v1 oui = 7;
-        txn_payment_v1 payment = 8;
-        txn_poc_receipts_v1 poc_receipts = 9;
-        txn_poc_request_v1 poc_request = 10;
-        txn_redeem_htlc_v1 redeem_htlc = 11;
+        txn_routing_v1 routing = 8;
+        txn_payment_v1 payment = 9;
+        txn_poc_receipts_v1 poc_receipts = 10;
+        txn_poc_request_v1 poc_request = 11;
+        txn_redeem_htlc_v1 redeem_htlc = 12;
     }
 }
