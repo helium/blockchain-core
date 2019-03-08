@@ -193,12 +193,18 @@ is_valid(Txn, Ledger) ->
                         {error, _} ->
                             {error, {unknown_gateway, Gateway, Ledger}};
                         {ok, GwInfo} ->
-                            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-                            case Nonce =:= LedgerNonce + 1 of
+                            GwOwner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
+                            case Owner == GwOwner of
                                 false ->
-                                    {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                    {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                 true ->
-                                    ok
+                                    LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
+                                    case Nonce =:= LedgerNonce + 1 of
+                                        false ->
+                                            {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                        true ->
+                                            ok
+                                    end
                             end
                     end
             end
