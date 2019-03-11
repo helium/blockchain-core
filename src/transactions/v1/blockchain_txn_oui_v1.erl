@@ -106,28 +106,34 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_oui(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) ->ok | {error, any()}.
-is_valid(Txn, _Block, Ledger) ->
-    Owner = ?MODULE:owner(Txn),
-    Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
-    BaseTxn = Txn#blockchain_txn_oui_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
-    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-        false ->
-            {error, bad_signature};
-        true ->
-            Addresses = ?MODULE:addresses(Txn),
-            case validate_addresses(Addresses) of
+-spec is_valid(txn_oui(), blockchain_ledger_v1:ledger()) ->ok | {error, any()}.
+is_valid(Txn, Ledger) ->
+    OUI = ?MODULE:oui(Txn),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, not_found} ->
+            Owner = ?MODULE:owner(Txn),
+            Signature = ?MODULE:signature(Txn),
+            PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+            BaseTxn = Txn#blockchain_txn_oui_v1_pb{signature = <<>>},
+            EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
+            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                 false ->
-                    {error, invalid_addresses};
+                    {error, bad_signature};
                 true ->
-                    Fee = ?MODULE:fee(Txn),
-                    Owner = ?MODULE:owner(Txn),
-                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
-            end
+                    Addresses = ?MODULE:addresses(Txn),
+                    case validate_addresses(Addresses) of
+                        false ->
+                            {error, invalid_addresses};
+                        true ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = ?MODULE:owner(Txn),
+                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                    end
+            end;
+        {error, _}=Error ->
+            Error;
+        {ok, _} ->
+            {error, already_exist}
     end.
 
 %%--------------------------------------------------------------------
