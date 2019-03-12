@@ -38,9 +38,8 @@
     redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/1,
-    add_oui/3,
-    find_routing/2,
-    add_routing/5,
+    find_ouis/2, add_oui/3,
+    find_routing/2,  add_routing/5,
 
     clean/1, close/1
 ]).
@@ -645,6 +644,19 @@ check_balance(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+find_ouis(Owner, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    case cache_get(Ledger, RoutingCF, Owner, []) of
+        {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
+        not_found -> {ok, []};
+        Error -> Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec find_htlc(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
                                                          | {error, any()}.
 find_htlc(Address, Ledger) ->
@@ -742,15 +754,21 @@ add_oui(Owner, Addresses, Ledger) ->
             RoutingCF = routing_cf(Ledger),
             Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, 0),
             Bin = blockchain_ledger_routing_v1:serialize(Routing),
-            cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin)
+            case ?MODULE:find_ouis(Owner, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, OUIs} ->
+                    cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin),
+                    cache_put(Ledger, RoutingCF, Owner, erlang:term_to_binary([OUI|OUIs]))
+            end
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_routing(binary(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
-                                          | {error, any()}.
+-spec find_routing(non_neg_integer(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
+                                                   | {error, any()}.
 find_routing(OUI, Ledger) ->
     RoutingCF = routing_cf(Ledger),
     case cache_get(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, []) of
@@ -1192,6 +1210,9 @@ routing_test() ->
     ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing2)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing2)),
     ?assertEqual(1, blockchain_ledger_routing_v1:nonce(Routing2)),
+
+    ?assertEqual({ok, [1]}, blockchain_ledger_v1:find_ouis(<<"owner">>, Ledger)),
+    ?assertEqual({ok, [2]}, blockchain_ledger_v1:find_ouis(<<"owner2">>, Ledger)),
 
     ok.
 

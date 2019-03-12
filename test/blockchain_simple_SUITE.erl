@@ -807,4 +807,5 @@ routing_test(Config) ->
     Routing2 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, 0),
     ?assertEqual({ok, Routing2}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
+    ?assertEqual({ok, [2, 1]}, blockchain_ledger_v1:find_ouis(Payer, Ledger)),
     ok.
