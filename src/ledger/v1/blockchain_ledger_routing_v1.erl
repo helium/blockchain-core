@@ -20,7 +20,7 @@
 
 -record(routing_v1, {
     owner :: binary(),
-    oui :: binary(),
+    oui :: non_neg_integer(),
     addresses :: [binary()],
     nonce :: non_neg_integer()
 }).
@@ -29,7 +29,7 @@
 
 -export_type([routing/0]).
 
--spec new(binary(), binary(), [binary()], non_neg_integer()) -> routing().
+-spec new(binary(), non_neg_integer(), [binary()], non_neg_integer()) -> routing().
 new(Owner, OUI, Addresses, Nonce) when Owner /= undefined andalso
                                        OUI /= undefined andalso
                                        Addresses /= undefined andalso
@@ -61,7 +61,7 @@ owner(Owner, Entry) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec oui(routing()) -> binary().
+-spec oui(routing()) -> non_neg_integer().
 oui(#routing_v1{oui=OUI}) ->
     OUI.
 
@@ -69,7 +69,7 @@ oui(#routing_v1{oui=OUI}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec oui(binary(), routing()) -> routing().
+-spec oui(non_neg_integer(), routing()) -> routing().
 oui(OUI, Entry) ->
     Entry#routing_v1{oui=OUI}.
 
@@ -136,30 +136,30 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Routing = #routing_v1{
         owner = <<"owner">>,
-        oui = <<"oui">>,
+        oui = 1,
         addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
         nonce = 0
     },
-    ?assertEqual(Routing, new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
+    ?assertEqual(Routing, new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
 
 owner_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(<<"owner">>, owner(Routing)),
     ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, Routing))).
 
 oui_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
-    ?assertEqual(<<"oui">>, oui(Routing)),
-    ?assertEqual(<<"oui2">>, oui(oui(<<"oui2">>, Routing))).
+    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    ?assertEqual(1, oui(Routing)),
+    ?assertEqual(2, oui(oui(2, Routing))).
 
 nonce_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(0, nonce(Routing)),
     ?assertEqual(1, nonce(nonce(1, Routing))).
 
 addresses_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, "", 0),
-    ?assertEqual("", addresses(Routing)),
+    Routing = new(<<"owner">>, 1, [], 0),
+    ?assertEqual([], addresses(Routing)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Routing))).
 
 -endif.

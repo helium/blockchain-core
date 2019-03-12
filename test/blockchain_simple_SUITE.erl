@@ -766,7 +766,7 @@ routing_test(Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
-    OUI = <<"1">>,
+    OUI = 1,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
     OUITxn0 = blockchain_txn_oui_v1:new(OUI, 1, Payer, Addresses0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),

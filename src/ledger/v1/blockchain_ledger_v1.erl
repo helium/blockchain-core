@@ -699,7 +699,7 @@ redeem_htlc(Address, Payee, Ledger) ->
                                           | {error, any()}.
 find_routing(OUI, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, OUI, []) of
+    case cache_get(Ledger, RoutingCF, <<OUI/little-unsigned-integer>>, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_routing_v1:deserialize(BinEntry)};
         not_found ->
@@ -712,12 +712,12 @@ find_routing(OUI, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_routing(binary(), binary(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
+-spec add_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
 add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
     RoutingCF = routing_cf(Ledger),
     Routing = blockchain_ledger_routing_v1:new(Owner, OUI, Addresses, Nonce),
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
-    cache_put(Ledger, RoutingCF, OUI, Bin).
+    cache_put(Ledger, RoutingCF, <<OUI/little-unsigned-integer>>, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1109,14 +1109,14 @@ routing_test() ->
     BaseDir = test_utils:tmp_dir("routing_test"),
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
-    ?assertEqual({error, not_found}, find_routing(<<"oui">>, Ledger1)),
+    ?assertEqual({error, not_found}, find_routing(1, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_routing(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0, Ledger2),
+    ok = add_routing(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0, Ledger2),
     ok = commit_context(Ledger2),
-    {ok, Routing} = find_routing(<<"oui">>, Ledger),
+    {ok, Routing} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing)),
-    ?assertEqual(<<"oui">>, blockchain_ledger_routing_v1:oui(Routing)),
+    ?assertEqual(1, blockchain_ledger_routing_v1:oui(Routing)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing)),
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing)),
     ok.
