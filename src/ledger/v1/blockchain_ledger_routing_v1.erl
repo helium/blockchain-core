@@ -6,10 +6,11 @@
 -module(blockchain_ledger_routing_v1).
 
 -export([
-    new/3,
+    new/4,
     owner/1, owner/2,
     oui/1, oui/2,
     addresses/1, addresses/2,
+    nonce/1, nonce/2,
     serialize/1, deserialize/1
 ]).
 
@@ -20,18 +21,25 @@
 -record(routing_v1, {
     owner :: binary(),
     oui :: binary(),
-    addresses :: [binary()]
+    addresses :: [binary()],
+    nonce :: non_neg_integer()
 }).
 
 -type routing() :: #routing_v1{}.
 
 -export_type([routing/0]).
 
--spec new(binary(), binary(), [binary()]) -> routing().
-new(Owner, OUI, Addresses) when Owner /= undefined andalso
-                                OUI /= undefined andalso
-                                Addresses /= undefined ->
-    #routing_v1{owner=Owner, oui=OUI, addresses=Addresses}.
+-spec new(binary(), binary(), [binary()], non_neg_integer()) -> routing().
+new(Owner, OUI, Addresses, Nonce) when Owner /= undefined andalso
+                                       OUI /= undefined andalso
+                                       Addresses /= undefined andalso
+                                       Nonce /= undefined ->
+    #routing_v1{
+        owner=Owner,
+        oui=OUI,
+        addresses=Addresses,
+        nonce=Nonce
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -83,6 +91,22 @@ addresses(Addresses, Entry) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(routing()) -> non_neg_integer().
+nonce(#routing_v1{nonce=Nonce}) ->
+    Nonce.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(non_neg_integer(), routing()) -> routing().
+nonce(Nonce, Entry) ->
+    Entry#routing_v1{nonce=Nonce}.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Version 1
 %% @end
 %%--------------------------------------------------------------------
@@ -113,21 +137,28 @@ new_test() ->
     Routing = #routing_v1{
         owner = <<"owner">>,
         oui = <<"oui">>,
-        addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]
+        addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+        nonce = 0
     },
-    ?assertEqual(Routing, new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])).
+    ?assertEqual(Routing, new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
 
 owner_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
+    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(<<"owner">>, owner(Routing)),
     ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, Routing))).
+
 oui_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
+    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(<<"oui">>, oui(Routing)),
     ?assertEqual(<<"oui2">>, oui(oui(<<"oui2">>, Routing))).
 
+nonce_test() ->
+    Routing = new(<<"owner">>, <<"oui">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    ?assertEqual(0, nonce(Routing)),
+    ?assertEqual(1, nonce(nonce(1, Routing))).
+
 addresses_test() ->
-    Routing = new(<<"owner">>, <<"oui">>, ""),
+    Routing = new(<<"owner">>, <<"oui">>, "", 0),
     ?assertEqual("", addresses(Routing)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Routing))).
 

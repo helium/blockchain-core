@@ -5,5 +5,6 @@ message txn_oui_v1 {
     uint64 fee = 2;
     bytes owner = 3;
     repeated bytes addresses = 4;
-    bytes signature = 5;
+    uint64 nonce = 5;
+    bytes signature = 6;
 }

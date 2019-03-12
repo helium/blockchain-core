@@ -16,6 +16,7 @@
     fee/1,
     owner/1,
     addresses/1,
+    nonce/1,
     signature/1,
     sign/2,
     is_valid/3,
@@ -40,6 +41,7 @@ new(OUI, Fee, Owner, Addresses) ->
        fee=Fee,
        owner=Owner,
        addresses=Addresses,
+       nonce=0,
        signature= <<>>
       }.
 
@@ -84,6 +86,14 @@ owner(Txn) ->
 -spec addresses(txn_oui()) -> [binary()].
 addresses(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.addresses.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(txn_oui()) -> 0.
+nonce(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -152,7 +162,8 @@ absorb(Txn, _Block, Ledger) ->
         ok ->
             OUI = ?MODULE:oui(Txn),
             Addresses = ?MODULE:addresses(Txn),
-            blockchain_ledger_v1:add_routing(Owner, OUI, Addresses, Ledger)
+            Nonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_v1:add_routing(Owner, OUI, Addresses, Nonce, Ledger)
     end.
 
 %% ------------------------------------------------------------------
@@ -188,6 +199,7 @@ new_test() ->
         fee=1,
         owner= <<"owner">>,
         addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+        nonce = 0,
         signature= <<>>
     },
     ?assertEqual(Tx, new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])).
@@ -207,6 +219,10 @@ owner_test() ->
 addresses_test() ->
     Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(Tx)).
+
+nonce_test() ->
+    Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),
+    ?assertEqual(0, nonce(Tx)).
 
 signature_test() ->
     Tx = new(<<"0">>, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>]),

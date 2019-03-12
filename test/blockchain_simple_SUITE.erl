@@ -778,7 +778,7 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
-    Routing0 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses0),
+    Routing0 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses0, 0),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
 
     % Trying to do OUI on existing one should fail
@@ -792,14 +792,14 @@ routing_test(Config) ->
 
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
 
-    OUITxn2 = blockchain_txn_routing_v1:new(OUI, 1, Payer, Addresses1),
+    OUITxn2 = blockchain_txn_routing_v1:new(OUI, 1, Payer, Addresses1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
-    Routing1 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses1),
+    Routing1 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses1, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
 
     ok.
