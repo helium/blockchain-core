@@ -19,8 +19,8 @@
 -endif.
 
 -record(routing_v1, {
-    owner :: binary(),
     oui :: non_neg_integer(),
+    owner :: binary(),
     addresses :: [binary()],
     nonce :: non_neg_integer()
 }).
@@ -29,33 +29,17 @@
 
 -export_type([routing/0]).
 
--spec new(binary(), non_neg_integer(), [binary()], non_neg_integer()) -> routing().
-new(Owner, OUI, Addresses, Nonce) when Owner /= undefined andalso
+-spec new(non_neg_integer(),  binary(), [binary()], non_neg_integer()) -> routing().
+new(OUI, Owner, Addresses, Nonce) when Owner /= undefined andalso
                                        OUI /= undefined andalso
                                        Addresses /= undefined andalso
                                        Nonce /= undefined ->
     #routing_v1{
-        owner=Owner,
         oui=OUI,
+        owner=Owner,
         addresses=Addresses,
         nonce=Nonce
     }.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec owner(routing()) -> binary().
-owner(#routing_v1{owner=Owner}) ->
-    Owner.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec owner(binary(), routing()) -> routing().
-owner(Owner, Entry) ->
-    Entry#routing_v1{owner=Owner}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,6 +56,22 @@ oui(#routing_v1{oui=OUI}) ->
 -spec oui(non_neg_integer(), routing()) -> routing().
 oui(OUI, Entry) ->
     Entry#routing_v1{oui=OUI}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec owner(routing()) -> binary().
+owner(#routing_v1{owner=Owner}) ->
+    Owner.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec owner(binary(), routing()) -> routing().
+owner(Owner, Entry) ->
+    Entry#routing_v1{owner=Owner}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -140,25 +140,25 @@ new_test() ->
         addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
         nonce = 0
     },
-    ?assertEqual(Routing, new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
-
-owner_test() ->
-    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
-    ?assertEqual(<<"owner">>, owner(Routing)),
-    ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, Routing))).
+    ?assertEqual(Routing, new(1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
 
 oui_test() ->
-    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Routing = new(1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(1, oui(Routing)),
     ?assertEqual(2, oui(oui(2, Routing))).
 
+owner_test() ->
+    Routing = new(1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    ?assertEqual(<<"owner">>, owner(Routing)),
+    ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, Routing))).
+
 nonce_test() ->
-    Routing = new(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Routing = new(1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
     ?assertEqual(0, nonce(Routing)),
     ?assertEqual(1, nonce(nonce(1, Routing))).
 
 addresses_test() ->
-    Routing = new(<<"owner">>, 1, [], 0),
+    Routing = new(1, <<"owner">>, [], 0),
     ?assertEqual([], addresses(Routing)),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Routing))).
 

@@ -13,9 +13,9 @@
     new/5,
     hash/1,
     oui/1,
-    fee/1,
     owner/1,
     addresses/1,
+    fee/1,
     nonce/1,
     signature/1,
     sign/2,
@@ -34,13 +34,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(non_neg_integer(), non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer()) -> txn_routing().
-new(OUI, Fee, Owner, Addresses, Nonce) ->
+-spec new(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer()) -> txn_routing().
+new(OUI, Owner, Addresses, Fee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
-       fee=Fee,
        owner=Owner,
        addresses=Addresses,
+       fee=Fee,
        nonce=Nonce,
        signature= <<>>
       }.
@@ -67,14 +67,6 @@ oui(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec fee(txn_routing()) -> non_neg_integer().
-fee(Txn) ->
-    Txn#blockchain_txn_routing_v1_pb.fee.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner(txn_routing()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_routing_v1_pb.owner.
@@ -86,6 +78,14 @@ owner(Txn) ->
 -spec addresses(txn_routing()) -> [binary()].
 addresses(Txn) ->
     Txn#blockchain_txn_routing_v1_pb.addresses.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fee(txn_routing()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_routing_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -204,41 +204,41 @@ is_p2p(Address) ->
 new_test() ->
     Tx = #blockchain_txn_routing_v1_pb{
         oui= 0,
-        fee=1,
         owner= <<"owner">>,
         addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+        fee=1,
         nonce = 0,
         signature= <<>>
     },
-    ?assertEqual(Tx, new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0)).
+    ?assertEqual(Tx, new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0)).
 
 oui_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual(0, oui(Tx)).
 
 fee_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual(1, fee(Tx)).
 
 owner_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(Tx)).
 
 nonce_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual(0, nonce(Tx)).
 
 signature_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx0 = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 0),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -246,7 +246,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 ecode_decode_test() ->
-    Tx = new(0, 1, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0),
+    Tx = new(0, <<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],  1, 0),
     ?assertEqual(Tx, blockchain_txn_routing_v1_pb:decode_msg(blockchain_txn_routing_v1_pb:encode_msg(Tx), blockchain_txn_routing_v1_pb)).
 
 validate_addresses_test() ->

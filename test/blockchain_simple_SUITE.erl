@@ -766,40 +766,45 @@ routing_test(Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
-    OUI = 1,
+    OUI1 = 1,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(OUI, 1, Payer, Addresses0),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 1),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
-    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     Block0 = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block0, Chain, N, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
-    Routing0 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses0, 0),
-    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
+    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, 0),
+    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    % Trying to do OUI on existing one should fail
     Addresses1 = [<<"/p2p/random">>],
-    OUITxn1 = blockchain_txn_oui_v1:new(OUI, 1, Payer, Addresses1),
-    SignedOUITxn1 = blockchain_txn_oui_v1:sign(OUITxn1, SigFun),
-    Block1 = test_utils:create_block(ConsensusMembers, [SignedOUITxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, N, self()),
-
-    timer:sleep(2000),
-
-    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
-
-    OUITxn2 = blockchain_txn_routing_v1:new(OUI, 1, Payer, Addresses1, 1),
+    OUITxn2 = blockchain_txn_routing_v1:new(OUI1, Payer, Addresses1, 1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
-    Block2 = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    Block1 = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, N, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
-    Routing1 = blockchain_ledger_routing_v1:new(Payer, OUI, Addresses1, 1),
-    ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI, Ledger)),
+    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, 1),
+    ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    OUI2 = 2,
+    Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
+    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 1),
+    SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
+
+    Block2 = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 4} == blockchain:height(Chain) end),
+
+    Routing2 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, 0),
+    ?assertEqual({ok, Routing2}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     ok.

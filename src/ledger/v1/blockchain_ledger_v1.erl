@@ -37,6 +37,8 @@
     add_htlc/7,
     redeem_htlc/3,
 
+    get_oui_counter/1, increment_oui_counter/1,
+    add_oui/3,
     find_routing/2,
     add_routing/5,
 
@@ -72,6 +74,7 @@
 -define(CURRENT_HEIGHT, <<"current_height">>).
 -define(TRANSACTION_FEE, <<"transaction_fee">>).
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
+-define(OUI_COUNTER, <<"oui_counter">>).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -691,6 +694,57 @@ redeem_htlc(Address, Payee, Ledger) ->
             end
     end.
 
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+get_oui_counter(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?OUI_COUNTER, []) of
+        {ok, <<OUI:32/little-unsigned-integer>>} ->
+            {ok, OUI};
+        not_found ->
+            {ok, 0};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec increment_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+increment_oui_counter(Ledger) ->
+    case ?MODULE:get_oui_counter(Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, OUICounter} ->
+            DefaultCF = default_cf(Ledger),
+            OUI = OUICounter + 1,
+            case cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>) of
+                {error, _}=Error -> Error;
+                ok -> {ok, OUI}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_oui(binary(), [binary()], ledger()) -> ok | {error, any()}.
+add_oui(Owner, Addresses, Ledger) ->
+    case ?MODULE:increment_oui_counter(Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, OUI} ->
+            RoutingCF = routing_cf(Ledger),
+            Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, 0),
+            Bin = blockchain_ledger_routing_v1:serialize(Routing),
+            cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin)
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -699,7 +753,7 @@ redeem_htlc(Address, Payee, Ledger) ->
                                           | {error, any()}.
 find_routing(OUI, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, <<OUI/little-unsigned-integer>>, []) of
+    case cache_get(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_routing_v1:deserialize(BinEntry)};
         not_found ->
@@ -715,9 +769,9 @@ find_routing(OUI, Ledger) ->
 -spec add_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
 add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    Routing = blockchain_ledger_routing_v1:new(Owner, OUI, Addresses, Nonce),
+    Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Nonce),
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
-    cache_put(Ledger, RoutingCF, <<OUI/little-unsigned-integer>>, Bin).
+    cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1110,15 +1164,35 @@ routing_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ?assertEqual({error, not_found}, find_routing(1, Ledger1)),
+    ?assertEqual({ok, 0}, get_oui_counter(Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_routing(<<"owner">>, 1, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 0, Ledger2),
+    ok = add_oui(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Ledger2),
     ok = commit_context(Ledger2),
-    {ok, Routing} = find_routing(1, Ledger),
-    ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing)),
-    ?assertEqual(1, blockchain_ledger_routing_v1:oui(Routing)),
-    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing)),
-    ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing)),
+    {ok, Routing0} = find_routing(1, Ledger),
+    ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
+    ?assertEqual(1, blockchain_ledger_routing_v1:oui(Routing0)),
+    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing0)),
+    ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
+
+    Ledger3 = new_context(Ledger),
+    ok = add_oui(<<"owner2">>, [<<"/p2p/random">>], Ledger3),
+    ok = commit_context(Ledger3),
+    {ok, Routing1} = find_routing(2, Ledger),
+    ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing1)),
+    ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing1)),
+    ?assertEqual([<<"/p2p/random">>], blockchain_ledger_routing_v1:addresses(Routing1)),
+    ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing1)),
+
+    Ledger4 = new_context(Ledger),
+    ok = add_routing(<<"owner2">>, 2, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, Ledger4),
+    ok = commit_context(Ledger4),
+    {ok, Routing2} = find_routing(2, Ledger),
+    ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing2)),
+    ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing2)),
+    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing2)),
+    ?assertEqual(1, blockchain_ledger_routing_v1:nonce(Routing2)),
+
     ok.
 
 -endif.

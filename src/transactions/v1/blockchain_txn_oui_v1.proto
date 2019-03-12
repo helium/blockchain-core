@@ -1,10 +1,8 @@
 syntax = "proto3";
 
 message txn_oui_v1 {
-    uint32 oui = 1;
-    uint64 fee = 2;
-    bytes owner = 3;
-    repeated bytes addresses = 4;
-    uint64 nonce = 5;
-    bytes signature = 6;
+    bytes owner = 1;
+    repeated bytes addresses = 2;
+    uint64 fee = 3;
+    bytes signature = 4;
 }
