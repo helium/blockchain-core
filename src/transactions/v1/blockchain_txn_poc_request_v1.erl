@@ -110,10 +110,24 @@ is_valid(Txn, Ledger) ->
                 {error, _Reason}=Error ->
                     Error;
                 {ok, Info} ->
-                    Fee = ?MODULE:fee(Txn),
-                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
-                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
-                
+                    case blockchain_ledger_gateway_v1:location(Info) of
+                        undefined ->
+                            {error, no_gateway_location};
+                        _Location ->
+                            case blockchain_ledger_v1:current_height(Ledger) of
+                                {error, _}=Error ->
+                                    Error;
+                                {ok, Height} ->
+                                    case blockchain_ledger_gateway_v1:last_poc_challenge(Info) > (Height - 30) of
+                                        false ->
+                                            {error, too_many_challenges};
+                                        true ->
+                                            Fee = ?MODULE:fee(Txn),
+                                            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                                    end
+                            end
+                    end
             end
     end.
 
