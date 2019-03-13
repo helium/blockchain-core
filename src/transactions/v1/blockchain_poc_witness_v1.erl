@@ -7,9 +7,10 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/3,
+    new/4,
     address/1,
     timestamp/1,
+    signal/1,
     hash/1,
     signature/1,
     sign/2,
@@ -33,11 +34,13 @@
 %%--------------------------------------------------------------------
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
+          Signal :: integer(),
           Hash :: binary()) -> poc_witness().
-new(Address, Timestamp, Hash) ->
+new(Address, Timestamp, Signal, Hash) ->
     #blockchain_poc_witness_v1_pb{
         address=Address,
         timestamp=Timestamp,
+        signal=Signal,
         hash=Hash,
         signature = <<>>
     }.
@@ -56,6 +59,14 @@ address(Receipt) ->
 -spec timestamp(Receipt :: poc_witness()) -> non_neg_integer().
 timestamp(Receipt) ->
     Receipt#blockchain_poc_witness_v1_pb.timestamp.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec signal(Receipt :: poc_witness()) -> integer().
+signal(Receipt) ->
+    Receipt#blockchain_poc_witness_v1_pb.signal.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -119,31 +130,36 @@ new_test() ->
     Receipt = #blockchain_poc_witness_v1_pb{
         address= <<"address">>,
         timestamp= 1,
+        signal=12,
         hash= <<"hash">>,
         signature = <<>>
     },
-    ?assertEqual(Receipt, new(<<"address">>, 1, <<"hash">>)).
+    ?assertEqual(Receipt, new(<<"address">>, 1, 12, <<"hash">>)).
 
 address_test() ->
-    Receipt = new(<<"address">>, 1, <<"hash">>),
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
     ?assertEqual(<<"address">>, address(Receipt)).
 
 timestamp_test() ->
-    Receipt = new(<<"address">>, 1, <<"hash">>),
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
     ?assertEqual(1, timestamp(Receipt)).
 
+signal_test() ->
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
+    ?assertEqual(12, signal(Receipt)).
+
 hash_test() ->
-    Receipt = new(<<"address">>, 1, <<"hash">>),
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
     ?assertEqual(<<"hash">>, hash(Receipt)).
 
 signature_test() ->
-    Receipt = new(<<"address">>, 1, <<"hash">>),
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
     ?assertEqual(<<>>, signature(Receipt)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Address = libp2p_crypto:pubkey_to_bin(PubKey),
-    Receipt0 = new(Address, 1, <<"hash">>),
+    Receipt0 = new(Address, 1, 12, <<"hash">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
@@ -152,7 +168,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
-    Receipt = new(<<"address">>, 1, <<"hash">>),
+    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
     ?assertEqual(Receipt, decode(encode(Receipt))).
 
 -endif.
