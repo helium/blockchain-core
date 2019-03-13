@@ -7,10 +7,18 @@ message poc_receipt_v1 {
     bytes signature = 4;
 }
 
+message poc_witness_v1 {
+    bytes address = 1;
+    uint64 timestamp = 2;
+    bytes hash = 3;
+    bytes signature = 4;
+}
+
 message txn_poc_receipts_v1 {
     repeated poc_receipt_v1 receipts = 1;
-    bytes challenger = 2;
-    bytes secret = 3;
-    uint64 fee = 4;
-    bytes signature = 5;
+    repeated poc_witness_v1 witnesses = 2;
+    bytes challenger = 3;
+    bytes secret = 4;
+    uint64 fee = 5;
+    bytes signature = 6;
 }

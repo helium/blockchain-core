@@ -417,24 +417,19 @@ request_poc(GatewayAddress, {Hash, Onion}, Ledger) ->
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw} ->
-            case blockchain_ledger_gateway_v1:location(Gw) of
-                undefined ->
-                    {error, no_gateway_location};
-                _Location ->
-                    case ?MODULE:current_height(Ledger) of
-                        {error, _}=Error ->
-                            Error;
-                        {ok, Height} ->
-                            case blockchain_ledger_gateway_v1:last_poc_challenge(Gw) > (Height - 30) of
-                                false ->
-                                    {error, too_many_challenges};
-                                true ->
-                                    Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
-                                    Gw1 = blockchain_ledger_gateway_v1:last_poc_info({Hash, Onion}, Gw0),
-                                    Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
-                                    AGwsCF = active_gateways_cf(Ledger),
-                                    cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
-                            end
+            case ?MODULE:current_height(Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, Height} ->
+                    case blockchain_ledger_gateway_v1:last_poc_challenge(Gw) > (Height - 30) of
+                        false ->
+                            {error, too_many_challenges};
+                        true ->
+                            Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
+                            Gw1 = blockchain_ledger_gateway_v1:last_poc_info({Hash, Onion}, Gw0),
+                            Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
+                            AGwsCF = active_gateways_cf(Ledger),
+                            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
                     end
             end
     end.
