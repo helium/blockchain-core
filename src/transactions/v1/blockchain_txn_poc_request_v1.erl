@@ -118,7 +118,8 @@ is_valid(Txn, Ledger) ->
                                 {error, _}=Error ->
                                     Error;
                                 {ok, Height} ->
-                                    case blockchain_ledger_gateway_v1:last_poc_challenge(Info) > (Height - 30) of
+                                    LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
+                                    case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
                                         false ->
                                             {error, too_many_challenges};
                                         true ->
