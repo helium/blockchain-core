@@ -261,6 +261,27 @@ prob(Score, LenScores, SumScores) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+select_target_test() ->
+    Iterations = 10000,
+    Results = lists:foldl(fun(_I, Acc) ->
+                                  Entropy = entropy(crypto:strong_rand_bytes(32)),
+                                  {Rand, _} = rand:uniform_s(Entropy),
+                                  ProbsAndGws = [{0.1, <<"gw1">>}, {0.2, <<"gw2">>}, {0.4, <<"gw3">>}, {0.3, <<"gw4">>}],
+                                  Selected = select_target(ProbsAndGws, Rand),
+                                  case maps:get(Selected, Acc, 0) of
+                                      0 -> maps:put(Selected, 1, Acc);
+                                      V -> maps:put(Selected, V+1, Acc)
+                                  end
+                          end,
+                          #{},
+                          lists:seq(1, Iterations)),
+
+    ProbGw3 = maps:get(<<"gw3">>, Results)/Iterations,
+    io:format("ProbGw3: ~p~n", [ProbGw3]),
+    ?assert(ProbGw3 > 0.38),
+    ?assert(ProbGw3 < 0.42),
+    ok.
+
 neighbors_test() ->
     LatLongs = [
         {{37.782061, -122.446167}, 0.1}, % This should be excluded cause target
