@@ -181,8 +181,12 @@ edge_weight(Gw1, Gw2) ->
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
     ProbsAndGatewayAddrs = create_probs(ActiveGateways),
-    Entropy = entropy(Hash, ProbsAndGatewayAddrs),
-    Target = select_target(ProbsAndGatewayAddrs, Entropy),
+    Probs = [P || {P, _} <- ProbsAndGatewayAddrs],
+    Entropy = entropy(Hash),
+    {NewEntropy, ShuffledProbsAndGatewayAddrs} = shuffle(Entropy, ProbsAndGatewayAddrs),
+    {RandVal, _} = rand:uniform_s(NewEntropy),
+    TargetVal = RandVal * lists:sum(Probs),
+    Target = select_target(ShuffledProbsAndGatewayAddrs, TargetVal),
     {Target, ActiveGateways}.
 
 %%--------------------------------------------------------------------
@@ -201,14 +205,20 @@ create_probs(Gateways) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec entropy(Entropy :: binary(), ProbsAndGatewayAddrs :: [{float(), libp2p_crypto:pubkey_bin()}]) -> float().
-entropy(Entropy, ProbsAndGatewayAddrs) ->
-    Probs = [P || {P, _} <- ProbsAndGatewayAddrs],
+-spec entropy(Entropy :: binary()) -> rand:state().
+entropy(Entropy) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
-    S = rand:seed_s(exs1024s, {A, B, C}),
-    {R, _} = rand:uniform_s(S),
-    R * lists:sum(Probs).
+    rand:seed_s(exs1024s, {A, B, C}).
+
+-spec shuffle(rand:state(), [{float(), libp2p_crypto:pubkey_bin()}]) -> {rand:state(), [{float(), libp2p_crypto:pubkey_bin()}]}.
+shuffle(InSeed, List) ->
+    {OutSeed, TaggedList} = lists:foldl(fun(E, {Seed, Acc}) ->
+                                                {R, NewSeed} = rand:uniform_s(Seed),
+                                                {NewSeed, [{R,E}|Acc]}
+                                        end, {InSeed, []}, List),
+    OutList = element(2, lists:unzip(lists:keysort(1, TaggedList))),
+    {OutSeed, OutList}.
 
 %%--------------------------------------------------------------------
 %% @doc
