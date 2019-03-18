@@ -192,6 +192,7 @@ init(Args) ->
             {ok, Chain} ->
                 ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
+                libp2p_swarm:network_id(Swarm, blockchain:genesis_hash(Chain)),
                 Chain
         end,
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
@@ -224,6 +225,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
             ok = add_handlers(Swarm, State#state.n, Blockchain),
+            libp2p_swarm:network_id(Swarm, blockchain:genesis_hash(Blockchain)),
             self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain}}
     end;
