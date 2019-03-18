@@ -24,8 +24,8 @@
     fee/1,
     signature/1,
     sign/2,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -143,8 +143,10 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_create_htlc(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Block, Ledger) ->
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
@@ -174,9 +176,11 @@ is_valid(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_create_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+-spec absorb(txn_create_htlc(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 
-absorb(Txn, Ledger) ->
+absorb(Txn, _Block, Ledger) ->
     Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),

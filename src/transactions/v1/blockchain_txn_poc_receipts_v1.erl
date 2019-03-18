@@ -18,8 +18,8 @@
     sign/2,
     hash/1,
     fee/1,
-    is_valid/2,
-    absorb/2,
+    is_valid/3,
+    absorb/3,
     create_secret_hash/2
 ]).
 
@@ -119,8 +119,10 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_poc_receipts(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Block, Ledger) ->
     Challenger = ?MODULE:challenger(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
@@ -179,8 +181,10 @@ is_valid(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_receipts(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(_Txn, _Ledger) ->
+-spec absorb(txn_poc_receipts(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(_Txn, _Block, _Ledger) ->
     ok.
 
 %%--------------------------------------------------------------------

@@ -17,8 +17,8 @@
     signature/1,
     fee/1,
     sign/2,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -94,8 +94,10 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_poc_request(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Block, Ledger) ->
     Gateway = ?MODULE:gateway(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
@@ -114,19 +116,15 @@ is_valid(Txn, Ledger) ->
                         undefined ->
                             {error, no_gateway_location};
                         _Location ->
-                            case blockchain_ledger_v1:current_height(Ledger) of
-                                {error, _}=Error ->
-                                    Error;
-                                {ok, Height} ->
-                                    LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                                    case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
-                                        false ->
-                                            {error, too_many_challenges};
-                                        true ->
-                                            Fee = ?MODULE:fee(Txn),
-                                            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
-                                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
-                                    end
+                            Height = blockchain_block:height(Block),
+                            LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
+                            case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
+                                false ->
+                                    {error, too_many_challenges};
+                                true ->
+                                    Fee = ?MODULE:fee(Txn),
+                                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
                             end
                     end
             end
@@ -136,8 +134,10 @@ is_valid(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_request(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
+-spec absorb(txn_poc_request(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, Block, Ledger) ->
     Gateway = ?MODULE:gateway(Txn),
     case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
         {ok, Info} ->
@@ -149,7 +149,7 @@ absorb(Txn, Ledger) ->
                 ok ->
                     Hash = ?MODULE:hash(Txn),
                     Onion = ?MODULE:onion(Txn),
-                    blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Ledger)
+                    blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Block, Ledger)
             end;
         {error, _Reason}=Error ->
             Error

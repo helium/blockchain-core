@@ -18,8 +18,8 @@
     fee/1,
     signature/1,
     sign/2,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -109,8 +109,10 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_redeem_htlc(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Block, Ledger) ->
     Payee = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
@@ -161,16 +163,12 @@ is_valid(Txn, Ledger) ->
                                                     end;
                                                 true ->
                                                     Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
-                                                    case blockchain_ledger_v1:current_height(Ledger) of
-                                                        {error, _}=Error ->
-                                                            Error;
-                                                        {ok, Height} ->
-                                                            case Timelock >= Height of
-                                                                true ->
-                                                                    {error, timelock_not_expired};
-                                                                false ->
-                                                                    ok
-                                                            end
+                                                    Height =  blockchain_block:height(Block),
+                                                    case Timelock >= Height of
+                                                        true ->
+                                                            {error, timelock_not_expired};
+                                                        false ->
+                                                            ok
                                                     end
                                             end
                                     end
@@ -183,8 +181,10 @@ is_valid(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_redeem_htlc(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
+-spec absorb(txn_redeem_htlc(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, _Block, Ledger) ->
     Fee = ?MODULE:fee(Txn),
     Redeemer = ?MODULE:payee(Txn),
     case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger) of

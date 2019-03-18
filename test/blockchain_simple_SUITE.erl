@@ -447,7 +447,7 @@ poc_request_test(Config) ->
 
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(3, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
+    ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     ok.
 
