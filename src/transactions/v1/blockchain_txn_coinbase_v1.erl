@@ -94,8 +94,7 @@ is_valid(Txn, Block, _Ledger) ->
                 false ->
                     {error, zero_or_negative_amount}
             end;
-        _E ->
-            ct:pal("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, _E]),
+        _ ->
             {error, not_in_genesis_block}
     end.
 
