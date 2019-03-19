@@ -20,7 +20,7 @@
     htlcs/1,
 
     find_gateway_info/2,
-    add_gateway/3, add_gateway/8,
+    add_gateway/3, add_gateway/6,
     add_gateway_location/4,
 
     request_poc/4,
@@ -354,16 +354,12 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
 -spec add_gateway(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
-                  LastPocChallenge :: undefined | non_neg_integer(),
-                  LastPocInfo :: undefined | {binary(), binary()},
                   Nonce :: non_neg_integer(),
                   Score :: float(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
-            LastPocChallenge,
-            LastPocInfo,
             Nonce,
             Score,
             Ledger) ->
@@ -373,8 +369,6 @@ add_gateway(OwnerAddr,
         _ ->
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
                                                        Location,
-                                                       LastPocChallenge,
-                                                       LastPocInfo,
                                                        Nonce,
                                                        Score),
             Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
