@@ -261,9 +261,9 @@ set_signatures_test() ->
 
 new_genesis_test() ->
     Loc = h3:from_geo({37.780586, -122.469471}, 13),
-    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1, 1, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1, 1, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1, 1, 1)],
+    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1, 1)],
     Block = new_genesis_block(Txs),
     ?assertEqual(<<0:256>>, prev_hash(Block)),
     ?assertEqual(1, height(Block)),

@@ -4,9 +4,6 @@ message txn_gen_gateway_v1 {
     bytes gateway = 1;
     bytes owner = 2;
     string location = 3;
-    uint64 last_poc_challenge = 4;
-    bytes last_poc_hash = 5;
-    uint64 nonce = 6;
-    float score = 7;
-    bytes last_poc_onion = 8;
+    uint64 nonce = 4;
+    float score = 5;
 }

@@ -228,7 +228,7 @@ active_gateways(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-select_target([{Prob1,  GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 < 0 ->
+select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 < 0 ->
    GwAddr1;
 select_target([{Prob1, _GwAddr1} | Tail], Rnd) ->
    select_target(Tail, Rnd - Prob1).
@@ -262,7 +262,7 @@ target_test() ->
     Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
 
     lists:map(fun({Owner, Gw}) ->
-                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, undefined, undefined, 0, 0, Ledger1)
+                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.0, Ledger1)
               end, Gateways),
     blockchain_ledger_v1:commit_context(Ledger1),
 
