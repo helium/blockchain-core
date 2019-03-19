@@ -554,8 +554,6 @@ export_test(Config) ->
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,?TEST_LOCATION},
-                   {last_poc_challenge,undefined},
-                   {last_poc_info, undefined},
                    {nonce,1},
                    {score,0.0}]], Gateways),
 
