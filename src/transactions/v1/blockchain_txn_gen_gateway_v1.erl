@@ -36,7 +36,7 @@
 %%--------------------------------------------------------------------
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
-          Location :: h3:h3index(),
+          Location :: undefined | h3:h3index(),
           Nonce :: non_neg_integer(),
           Score :: float()) -> txn_genesis_gateway().
 new(Gateway, Owner, Location, Nonce, Score) ->
