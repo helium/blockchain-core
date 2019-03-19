@@ -181,12 +181,9 @@ edge_weight(Gw1, Gw2) ->
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
     ProbsAndGatewayAddrs = create_probs(ActiveGateways),
-    Probs = [P || {P, _} <- ProbsAndGatewayAddrs],
     Entropy = entropy(Hash),
-    {NewEntropy, ShuffledProbsAndGatewayAddrs} = shuffle(Entropy, ProbsAndGatewayAddrs),
-    {RandVal, _} = rand:uniform_s(NewEntropy),
-    TargetVal = RandVal * lists:sum(Probs),
-    Target = select_target(ShuffledProbsAndGatewayAddrs, TargetVal),
+    {RandVal, _} = rand:uniform_s(Entropy),
+    Target = select_target(ProbsAndGatewayAddrs, RandVal),
     {Target, ActiveGateways}.
 
 %%--------------------------------------------------------------------
@@ -210,15 +207,6 @@ entropy(Entropy) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
     rand:seed_s(exs1024s, {A, B, C}).
-
--spec shuffle(rand:state(), [{float(), libp2p_crypto:pubkey_bin()}]) -> {rand:state(), [{float(), libp2p_crypto:pubkey_bin()}]}.
-shuffle(InSeed, List) ->
-    {OutSeed, TaggedList} = lists:foldl(fun(E, {Seed, Acc}) ->
-                                                {R, NewSeed} = rand:uniform_s(Seed),
-                                                {NewSeed, [{R,E}|Acc]}
-                                        end, {InSeed, []}, List),
-    OutList = element(2, lists:unzip(lists:keysort(1, TaggedList))),
-    {OutSeed, OutList}.
 
 %%--------------------------------------------------------------------
 %% @doc
