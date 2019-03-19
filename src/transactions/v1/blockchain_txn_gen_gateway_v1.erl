@@ -17,9 +17,6 @@
     owner/1,
     location/1,
     last_poc_challenge/1,
-    last_poc_hash/1,
-    last_poc_onion/1,
-    last_poc_info/1,
     nonce/1,
     score/1,
     fee/1,
@@ -106,23 +103,6 @@ location(Txn) ->
 -spec last_poc_challenge(txn_genesis_gateway()) -> undefined | non_neg_integer().
 last_poc_challenge(Txn) ->
     Txn#blockchain_txn_gen_gateway_v1_pb.last_poc_challenge.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec last_poc_info(txn_genesis_gateway()) -> undefined | {Hash::binary(), Onion::binary()}.
-last_poc_info(Txn) ->
-    {last_poc_hash(Txn), last_poc_onion(Txn)}.
-
-
--spec last_poc_onion(txn_genesis_gateway()) -> undefined | binary().
-last_poc_onion(Txn) ->
-    Txn#blockchain_txn_gen_gateway_v1_pb.last_poc_onion.
-
--spec last_poc_hash(txn_genesis_gateway()) -> undefined | binary().
-last_poc_hash(Txn) ->
-    Txn#blockchain_txn_gen_gateway_v1_pb.last_poc_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
