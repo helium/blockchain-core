@@ -181,8 +181,9 @@ edge_weight(Gw1, Gw2) ->
 target(Hash, Ledger) ->
     ActiveGateways = active_gateways(Ledger),
     ProbsAndGatewayAddrs = create_probs(ActiveGateways),
-    Entropy = entropy(Hash, ProbsAndGatewayAddrs),
-    Target = select_target(ProbsAndGatewayAddrs, Entropy),
+    Entropy = entropy(Hash),
+    {RandVal, _} = rand:uniform_s(Entropy),
+    Target = select_target(ProbsAndGatewayAddrs, RandVal),
     {Target, ActiveGateways}.
 
 %%--------------------------------------------------------------------
@@ -201,14 +202,11 @@ create_probs(Gateways) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec entropy(Entropy :: binary(), ProbsAndGatewayAddrs :: [{float(), libp2p_crypto:pubkey_bin()}]) -> float().
-entropy(Entropy, ProbsAndGatewayAddrs) ->
-    Probs = [P || {P, _} <- ProbsAndGatewayAddrs],
+-spec entropy(Entropy :: binary()) -> rand:state().
+entropy(Entropy) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
-    S = rand:seed_s(exs1024s, {A, B, C}),
-    {R, _} = rand:uniform_s(S),
-    R * lists:sum(Probs).
+    rand:seed_s(exs1024s, {A, B, C}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -250,6 +248,42 @@ prob(Score, LenScores, SumScores) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+target_test() ->
+    BaseDir = test_utils:tmp_dir("target_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+        <<"yolo">>
+    end),
+
+    Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
+
+    lists:map(fun({Owner, Gw}) ->
+                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, undefined, undefined, 0, 0, Ledger1)
+              end, Gateways),
+    blockchain_ledger_v1:commit_context(Ledger1),
+
+    Iterations = 10000,
+    Results = dict:to_list(lists:foldl(fun(_, Acc) ->
+                                               {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1),
+                                               dict:update_counter(Target, 1, Acc)
+                                       end,
+                                       dict:new(),
+                                       lists:seq(1, Iterations))),
+
+    lists:foreach(fun({_Gw, Count}) ->
+                          Prob = Count/Iterations,
+                          ?assert(Prob < 0.27),
+                          ?assert(Prob > 0.23)
+                  end,
+                  Results),
+
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm),
+    ok.
 
 neighbors_test() ->
     LatLongs = [
