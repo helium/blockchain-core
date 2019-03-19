@@ -22,8 +22,8 @@
     sign_request/2,
     is_valid_gateway/1,
     is_valid_owner/1,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -158,8 +158,10 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, _Ledger) ->
+-spec is_valid(txn_add_gateway(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Block, _Ledger) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn)} of
         {false, _} ->
@@ -184,8 +186,10 @@ is_valid(Txn, _Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_add_gateway(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
+-spec absorb(txn_add_gateway(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, _Block, Ledger) ->
     Owner = ?MODULE:owner(Txn),
     Gateway = ?MODULE:gateway(Txn),
     case blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger) of

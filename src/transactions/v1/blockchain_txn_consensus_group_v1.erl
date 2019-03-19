@@ -15,8 +15,8 @@
     sign/2,
     members/1,
     fee/1,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -72,8 +72,10 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_consensus_group(), blockchain_ledger_v1:ledger()) -> ok.
-is_valid(Txn, _Ledger) ->
+-spec is_valid(txn_consensus_group(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok.
+is_valid(Txn, _Block, _Ledger) ->
     case ?MODULE:members(Txn) of
         [] -> {error, no_members};
         _ -> ok
@@ -84,8 +86,9 @@ is_valid(Txn, _Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_consensus_group(),
+             blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok| {error, any()}.
-absorb(Txn, Ledger) ->
+absorb(Txn, _Block, Ledger) ->
     Members = ?MODULE:members(Txn),
     blockchain_ledger_v1:consensus_members(Members, Ledger).
 

@@ -23,8 +23,8 @@
     sign/2,
     is_valid_owner/1,
     is_valid_gateway/1,
-    is_valid/2,
-    absorb/2
+    is_valid/3,
+    absorb/3
 ]).
 
 -ifdef(TEST).
@@ -175,8 +175,10 @@ is_valid_owner(#blockchain_txn_assert_location_v1_pb{owner=PubKeyBin,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_assert_location(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Block, Ledger) ->
     case ?MODULE:is_valid_gateway(Txn) andalso ?MODULE:is_valid_owner(Txn) of
         false ->
             {error, bad_signature};
@@ -214,8 +216,10 @@ is_valid(Txn, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_assert_location(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Ledger) ->
+-spec absorb(txn_assert_location(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, _Block, Ledger) ->
     Gateway = ?MODULE:gateway(Txn),
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
