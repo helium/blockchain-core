@@ -249,25 +249,40 @@ prob(Score, LenScores, SumScores) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-select_target_test() ->
-    Iterations = 10000,
-    Results = lists:foldl(fun(_I, Acc) ->
-                                  Entropy = entropy(crypto:strong_rand_bytes(32)),
-                                  {Rand, _} = rand:uniform_s(Entropy),
-                                  ProbsAndGws = [{0.1, <<"gw1">>}, {0.2, <<"gw2">>}, {0.4, <<"gw3">>}, {0.3, <<"gw4">>}],
-                                  Selected = select_target(ProbsAndGws, Rand),
-                                  case maps:get(Selected, Acc, 0) of
-                                      0 -> maps:put(Selected, 1, Acc);
-                                      V -> maps:put(Selected, V+1, Acc)
-                                  end
-                          end,
-                          #{},
-                          lists:seq(1, Iterations)),
+target_test() ->
+    BaseDir = test_utils:tmp_dir("target_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
-    ProbGw3 = maps:get(<<"gw3">>, Results)/Iterations,
-    io:format("ProbGw3: ~p~n", [ProbGw3]),
-    ?assert(ProbGw3 > 0.38),
-    ?assert(ProbGw3 < 0.42),
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+        <<"yolo">>
+    end),
+
+    Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
+
+    lists:map(fun({Owner, Gw}) ->
+                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, undefined, undefined, 0, 0, Ledger1)
+              end, Gateways),
+    blockchain_ledger_v1:commit_context(Ledger1),
+
+    Iterations = 10000,
+    Results = dict:to_list(lists:foldl(fun(_, Acc) ->
+                                               {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1),
+                                               dict:update_counter(Target, 1, Acc)
+                                       end,
+                                       dict:new(),
+                                       lists:seq(1, Iterations))),
+
+    lists:foreach(fun({_Gw, Count}) ->
+                          Prob = Count/Iterations,
+                          ?assert(Prob < 0.27),
+                          ?assert(Prob > 0.23)
+                  end,
+                  Results),
+
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm),
     ok.
 
 neighbors_test() ->
