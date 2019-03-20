@@ -132,47 +132,52 @@ is_valid(Txn, _Block, Ledger) ->
         false ->
             {error, bad_signature};
         true ->
-            case blockchain_ledger_v1:find_gateway_info(?MODULE:challenger(Txn), Ledger) of
-                {ok, ChallengerInfo} ->
-                    case blockchain_ledger_gateway_v1:last_poc_challenge(ChallengerInfo) of
-                        undefined ->
-                            lager:error("challenger: ~p, error: last_poc_challenge_undefined", [ChallengerInfo]),
-                            {error, last_poc_challenge_undefined};
-                        _Height ->
-                            case blockchain_ledger_gateway_v1:last_poc_info(ChallengerInfo) of
+            case ?MODULE:receipts(Txn) =:= [] andalso ?MODULE:witnesses(Txn) of
+                true ->
+                    {error, empty_empty};
+                false ->
+                    case blockchain_ledger_v1:find_gateway_info(?MODULE:challenger(Txn), Ledger) of
+                        {ok, ChallengerInfo} ->
+                            case blockchain_ledger_gateway_v1:last_poc_challenge(ChallengerInfo) of
                                 undefined ->
-                                    lager:error("challenger: ~p, error: last_poc_undefined_undefined", [ChallengerInfo]),
-                                    {error, last_poc_info_undefined};
-                                {Hash, _Onion} ->
-                                    Secret = ?MODULE:secret(Txn),
-                                    SecretHash = crypto:hash(sha256, Secret),
-                                    case Hash =:= SecretHash of
-                                        true ->
-                                            ok;
-                                            % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
-                                            % ledger at time X. For now do nothing.
-                                            % Use create_secret_hash to verify receipts
+                                    lager:error("challenger: ~p, error: last_poc_challenge_undefined", [ChallengerInfo]),
+                                    {error, last_poc_challenge_undefined};
+                                _Height ->
+                                    case blockchain_ledger_gateway_v1:last_poc_info(ChallengerInfo) of
+                                        undefined ->
+                                            lager:error("challenger: ~p, error: last_poc_undefined_undefined", [ChallengerInfo]),
+                                            {error, last_poc_info_undefined};
+                                        {Hash, _Onion} ->
+                                            Secret = ?MODULE:secret(Txn),
+                                            SecretHash = crypto:hash(sha256, Secret),
+                                            case Hash =:= SecretHash of
+                                                true ->
+                                                    ok;
+                                                    % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
+                                                    % ledger at time X. For now do nothing.
+                                                    % Use create_secret_hash to verify receipts
 
-                                            % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
-                                            % lager:info("target: ~p", [Target]),
-                                            % {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
-                                            % lager:info("path: ~p", [Path]),
-                                            % ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
-                                            % case ReceiptAddrs == lists:sort(Path) andalso
-                                            %      lists:member(Target, ReceiptAddrs) of
-                                            %     true ->
-                                            %         lager:info("got receipts from all the members in the path!");
-                                            %     false ->
-                                            %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
-                                            %         ok
-                                            % end;
-                                        false ->
-                                            lager:error("POC receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
-                                            {error, incorrect_secret_hash}
+                                                    % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
+                                                    % lager:info("target: ~p", [Target]),
+                                                    % {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
+                                                    % lager:info("path: ~p", [Path]),
+                                                    % ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
+                                                    % case ReceiptAddrs == lists:sort(Path) andalso
+                                                    %      lists:member(Target, ReceiptAddrs) of
+                                                    %     true ->
+                                                    %         lager:info("got receipts from all the members in the path!");
+                                                    %     false ->
+                                                    %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
+                                                    %         ok
+                                                    % end;
+                                                false ->
+                                                    lager:error("POC receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
+                                                    {error, incorrect_secret_hash}
+                                            end
                                     end
-                            end
-                    end;
-                {error, _}=Error -> Error
+                            end;
+                        {error, _}=Error -> Error
+                    end
             end
     end.
 
