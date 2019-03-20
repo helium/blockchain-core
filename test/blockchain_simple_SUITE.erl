@@ -432,23 +432,41 @@ poc_request_test(Config) ->
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Create the PoC challenge request txn
-    Secret = crypto:strong_rand_bytes(8),
-    {ok, _PvtOnionKey, OnionCompactKey} = ecc_compact:generate_key(),
-    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret), OnionCompactKey),
-    SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
-    Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    Secret = libp2p_crypto:keys_to_bin(Keys),
+    #{public := OnionCompactKey} = Keys,
+    SecretHash = crypto:hash(sha256, Secret),
+    OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey)),
+    PoCReqTxn = blockchain_txn_poc_request_v1:new(Gateway, SecretHash, OnionKeyHash, blockchain_block:hash_block(Block2)),
+    SignedPoCReqTxn = blockchain_txn_poc_request_v1:sign(PoCReqTxn, GatewaySigFun),
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
-    timer:sleep(500),
+    
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
 
+    Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
     ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
-    ?assertEqual({ok, 4}, blockchain:height(Chain)),
-
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
+    % Check that the PoC info
+    {ok, PoC} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+    ?assertEqual(SecretHash, blockchain_ledger_poc_v1:secret_hash(PoC)),
+    ?assertEqual(OnionKeyHash, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
+    ?assertEqual(Gateway, blockchain_ledger_poc_v1:gateway_address(PoC)),
+
+    Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>),
+    PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(OnionKeyHash, [], [Witness], Gateway, Secret, 0),
+    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
+    Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
+    
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 5} =:= blockchain:height(Chain) end),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger)),
     ok.
 
 bogus_coinbase_test(Config) ->
