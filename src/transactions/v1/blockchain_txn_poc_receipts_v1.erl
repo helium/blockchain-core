@@ -132,7 +132,7 @@ is_valid(Txn, _Block, Ledger) ->
         false ->
             {error, bad_signature};
         true ->
-            case ?MODULE:receipts(Txn) =:= [] andalso ?MODULE:witnesses(Txn) of
+            case ?MODULE:receipts(Txn) =:= [] andalso ?MODULE:witnesses(Txn) =:= [] of
                 true ->
                     {error, empty_empty};
                 false ->
