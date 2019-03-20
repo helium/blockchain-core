@@ -11,9 +11,10 @@
 
 -export([
     new/3,
-    gateway/1,
     hash/1,
-    onion/1,
+    gateway_address/1,
+    secret_hash/1,
+    onion_key_hash/1,
     signature/1,
     fee/1,
     sign/2,
@@ -33,11 +34,11 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), binary(),  binary()) -> txn_poc_request().
-new(Gateway, Hash, Onion) ->
+new(GatewayAddress, SecretHash, OnionKeyHash) ->
     #blockchain_txn_poc_request_v1_pb{
-       gateway=Gateway,
-       hash=Hash,
-       onion=Onion,
+       gateway_address=GatewayAddress,
+       secret_hash=SecretHash,
+       onion_key_hash=OnionKeyHash,
        signature = <<>>
       }.
 
@@ -45,25 +46,35 @@ new(Gateway, Hash, Onion) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
-gateway(Txn) ->
-    Txn#blockchain_txn_poc_request_v1_pb.gateway.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_poc_request()) -> blockchain_txn:hash().
 hash(Txn) ->
-    Txn#blockchain_txn_poc_request_v1_pb.hash.
+    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec onion(txn_poc_request()) -> binary().
-onion(Txn) ->
-    Txn#blockchain_txn_poc_request_v1_pb.onion.
+-spec gateway_address(txn_poc_request()) -> libp2p_crypto:pubkey_bin().
+gateway_address(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.gateway_address.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec secret_hash(txn_poc_request()) -> blockchain_txn:hash().
+secret_hash(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.secret_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec onion_key_hash(txn_poc_request()) -> binary().
+onion_key_hash(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -98,35 +109,42 @@ sign(Txn, SigFun) ->
                blockchain_block:block(),
                blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 is_valid(Txn, Block, Ledger) ->
-    Gateway = ?MODULE:gateway(Txn),
+    GatewayAddress = ?MODULE:gateway_address(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
+    PubKey = libp2p_crypto:bin_to_pubkey(GatewayAddress),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
         true ->
-            Gateway = ?MODULE:gateway(Txn),
-            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, Info} ->
-                    case blockchain_ledger_gateway_v1:location(Info) of
-                        undefined ->
-                            {error, no_gateway_location};
-                        _Location ->
-                            Height = blockchain_block:height(Block),
-                            LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
-                                false ->
-                                    {error, too_many_challenges};
-                                true ->
-                                    Fee = ?MODULE:fee(Txn),
-                                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
-                                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+            OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+            case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
+                {ok, _} ->
+                    {error, already_exist};
+                {error, not_found} ->
+                    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        {ok, Info} ->
+                            case blockchain_ledger_gateway_v1:location(Info) of
+                                undefined ->
+                                    {error, no_gateway_location};
+                                _Location ->
+                                    Height = blockchain_block:height(Block),
+                                    LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
+                                    case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
+                                        false ->
+                                            {error, too_many_challenges};
+                                        true ->
+                                            Fee = ?MODULE:fee(Txn),
+                                            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                                    end
                             end
-                    end
+                    end;
+                {error, _}=Error ->
+                    Error
             end
     end.
 
@@ -138,18 +156,18 @@ is_valid(Txn, Block, Ledger) ->
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, Block, Ledger) ->
-    Gateway = ?MODULE:gateway(Txn),
-    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
-        {ok, Info} ->
+    GatewayAddress = ?MODULE:gateway_address(Txn),
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
+        {ok, GwInfo} ->
             Fee = ?MODULE:fee(Txn),
-            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+            Owner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
             case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
-                    Hash = ?MODULE:hash(Txn),
-                    Onion = ?MODULE:onion(Txn),
-                    blockchain_ledger_v1:request_poc(Gateway, {Hash, Onion}, Block, Ledger)
+                    SecretHash = ?MODULE:secret_hash(Txn),
+                    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, GatewayAddress, Block, Ledger)
             end;
         {error, _Reason}=Error ->
             Error
@@ -162,24 +180,24 @@ absorb(Txn, Block, Ledger) ->
 
 new_test() ->
     Tx = #blockchain_txn_poc_request_v1_pb{
-        gateway= <<"gateway_address">>,
-        hash= <<"hash">>,
-        onion = <<"onion">>,
+        gateway_address= <<"gateway_address">>,
+        secret_hash= <<"hash">>,
+        onion_key_hash = <<"onion">>,
         signature= <<>>
     },
     ?assertEqual(Tx, new(<<"gateway_address">>, <<"hash">>, <<"onion">>)).
 
-hash_test() ->
+gateway_address_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assertEqual(<<"hash">>, hash(Tx)).
+    ?assertEqual(<<"gateway_address">>, gateway_address(Tx)).
 
-onion_test() ->
+secret_hash_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assertEqual(<<"onion">>, onion(Tx)).
+    ?assertEqual(<<"hash">>, secret_hash(Tx)).
 
-gateway_test() ->
+onion_key_hash_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),
-    ?assertEqual(<<"gateway_address">>, gateway(Tx)).
+    ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 signature_test() ->
     Tx = new(<<"gateway_address">>, <<"hash">>, <<"onion">>),

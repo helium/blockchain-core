@@ -17,10 +17,11 @@ message poc_witness_v1 {
 }
 
 message txn_poc_receipts_v1 {
-    repeated poc_receipt_v1 receipts = 1;
-    repeated poc_witness_v1 witnesses = 2;
-    bytes challenger = 3;
-    bytes secret = 4;
-    uint64 fee = 5;
-    bytes signature = 6;
+    bytes onion_key_hash = 1;
+    bytes challenger = 2;
+    bytes secret = 3;
+    repeated poc_receipt_v1 receipts = 4;
+    repeated poc_witness_v1 witnesses = 5;
+    uint64 fee = 6;
+    bytes signature = 7;
 }

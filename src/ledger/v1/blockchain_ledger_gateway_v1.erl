@@ -10,7 +10,6 @@
     owner_address/1, owner_address/2,
     location/1, location/2,
     last_poc_challenge/1, last_poc_challenge/2,
-    last_poc_info/1, last_poc_info/2,
     nonce/1, nonce/2,
     score/1, score/2,
     print/1,
@@ -27,7 +26,6 @@
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
-    last_poc_info :: undefined | {binary(), binary()},
     nonce = 0 :: non_neg_integer(),
     score = 0.0 :: float()
 }).
@@ -112,22 +110,6 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_info(Gateway :: gateway()) ->  undefined | {binary(), binary()}.
-last_poc_info(Gateway) ->
-    Gateway#gateway_v1.last_poc_info.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec last_poc_info(LastPocInfo :: {binary(), binary()}, Gateway :: gateway()) -> gateway().
-last_poc_info(LastPocInfo, Gateway) ->
-    Gateway#gateway_v1{last_poc_info=LastPocInfo}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
     Gateway#gateway_v1.nonce.
@@ -171,7 +153,6 @@ print(Gateway) ->
         {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
-        {last_poc_info, UndefinedHandleFunc(last_poc_info(Gateway))},
         {nonce, nonce(Gateway)},
         {score, score(Gateway)}
     ].
@@ -205,7 +186,6 @@ new_test() ->
         owner_address = <<"owner_address">>,
         location = 12,
         last_poc_challenge = undefined,
-        last_poc_info = undefined,
         nonce = 0,
         score = 0.0
     },
@@ -225,11 +205,6 @@ last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(undefined, last_poc_challenge(Gw)),
     ?assertEqual(123, last_poc_challenge(last_poc_challenge(123, Gw))).
-
-last_poc_info_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(undefined, last_poc_info(Gw)),
-    ?assertEqual({<<"hash">>, <<"onion">>}, last_poc_info(last_poc_info({<<"hash">>, <<"onion">>}, Gw))).
 
 nonce_test() ->
     Gw = new(<<"owner_address">>, 12),

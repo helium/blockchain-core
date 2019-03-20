@@ -9,15 +9,16 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/5,
-    receipts/1,
-    witnesses/1,
-    signature/1,
+    new/6,
+    hash/1,
+    onion_key_hash/1,
     challenger/1,
     secret/1,
-    sign/2,
-    hash/1,
+    receipts/1,
+    witnesses/1,
     fee/1,
+    signature/1,
+    sign/2,
     is_valid/3,
     absorb/3,
     create_secret_hash/2
@@ -35,10 +36,11 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_poc_receipt_v1:poc_receipts(), blockchain_poc_witness_v1:poc_witnesss(),
+-spec new(binary(), blockchain_poc_receipt_v1:poc_receipts(), blockchain_poc_witness_v1:poc_witnesss(),
           libp2p_crypto:pubkey_bin(),  binary(), non_neg_integer()) -> txn_poc_receipts().
-new(Receipts, Witnesses, Challenger, Secret, Fee) ->
+new(OnionKeyHash, Receipts, Witnesses, Challenger, Secret, Fee) ->
     #blockchain_txn_poc_receipts_v1_pb{
+        onion_key_hash=OnionKeyHash,
         receipts=Receipts,
         witnesses=Witnesses,
         challenger=Challenger,
@@ -51,17 +53,19 @@ new(Receipts, Witnesses, Challenger, Secret, Fee) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt_v1:poc_receipts().
-receipts(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.receipts.
+-spec hash(txn_poc_receipts()) -> blockchain_txn:hash().
+hash(Txn) ->
+    BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
+    crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec witnesses(txn_poc_receipts()) -> blockchain_poc_witness_v1:poc_witnesss().
-witnesses(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.witnesses.
+-spec onion_key_hash(txn_poc_receipts()) -> binary().
+onion_key_hash(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -78,6 +82,22 @@ challenger(Txn) ->
 -spec secret(txn_poc_receipts()) -> binary().
 secret(Txn) ->
     Txn#blockchain_txn_poc_receipts_v1_pb.secret.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt_v1:poc_receipts().
+receipts(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.receipts.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec witnesses(txn_poc_receipts()) -> blockchain_poc_witness_v1:poc_witnesss().
+witnesses(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.witnesses.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -109,16 +129,6 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_poc_receipts()) -> blockchain_txn:hash().
-hash(Txn) ->
-    BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
-    crypto:hash(sha256, EncodedTxn).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec is_valid(txn_poc_receipts(),
                blockchain_block:block(),
                blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
@@ -136,47 +146,43 @@ is_valid(Txn, _Block, Ledger) ->
                 true ->
                     {error, empty_empty};
                 false ->
-                    case blockchain_ledger_v1:find_gateway_info(?MODULE:challenger(Txn), Ledger) of
-                        {ok, ChallengerInfo} ->
-                            case blockchain_ledger_gateway_v1:last_poc_challenge(ChallengerInfo) of
-                                undefined ->
-                                    lager:error("challenger: ~p, error: last_poc_challenge_undefined", [ChallengerInfo]),
-                                    {error, last_poc_challenge_undefined};
-                                _Height ->
-                                    case blockchain_ledger_gateway_v1:last_poc_info(ChallengerInfo) of
-                                        undefined ->
-                                            lager:error("challenger: ~p, error: last_poc_undefined_undefined", [ChallengerInfo]),
-                                            {error, last_poc_info_undefined};
-                                        {Hash, _Onion} ->
-                                            Secret = ?MODULE:secret(Txn),
-                                            SecretHash = crypto:hash(sha256, Secret),
-                                            case Hash =:= SecretHash of
-                                                true ->
-                                                    ok;
-                                                    % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
-                                                    % ledger at time X. For now do nothing.
-                                                    % Use create_secret_hash to verify receipts
+                    case blockchain_ledger_v1:find_poc(?MODULE:onion_key_hash(Txn), Ledger) of
+                        {error, not_found} ->
+                            {error, poc_not_found};
+                        {error, _}=Error ->
+                            Error;
+                        {ok, PoC} ->
+                            Secret = ?MODULE:secret(Txn),
+                            SecretHash = blockchain_ledger_poc_v1:secret_hash(PoC),
+                            GatewayAddress = blockchain_ledger_poc_v1:gateway_address(PoC),
+                            case {crypto:hash(sha256, Secret) =:= SecretHash,
+                                  Challenger =:= GatewayAddress} of
+                                {true, true} ->
+                                    ok;
+                                    % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
+                                    % ledger at time X. For now do nothing.
+                                    % Use create_secret_hash to verify receipts
 
-                                                    % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
-                                                    % lager:info("target: ~p", [Target]),
-                                                    % {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
-                                                    % lager:info("path: ~p", [Path]),
-                                                    % ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
-                                                    % case ReceiptAddrs == lists:sort(Path) andalso
-                                                    %      lists:member(Target, ReceiptAddrs) of
-                                                    %     true ->
-                                                    %         lager:info("got receipts from all the members in the path!");
-                                                    %     false ->
-                                                    %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
-                                                    %         ok
-                                                    % end;
-                                                false ->
-                                                    lager:error("POC receipt secret ~p does not match Challenger POC Request Hash: ~p", [SecretHash, Hash]),
-                                                    {error, incorrect_secret_hash}
-                                            end
-                                    end
-                            end;
-                        {error, _}=Error -> Error
+                                    % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
+                                    % lager:info("target: ~p", [Target]),
+                                    % {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
+                                    % lager:info("path: ~p", [Path]),
+                                    % ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
+                                    % case ReceiptAddrs == lists:sort(Path) andalso
+                                    %      lists:member(Target, ReceiptAddrs) of
+                                    %     true ->
+                                    %         lager:info("got receipts from all the members in the path!");
+                                    %     false ->
+                                    %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
+                                    %         ok
+                                    % end;
+                                {false, _} ->
+                                    lager:error("PoC receipt secret hash does not match: ~p =/= ~p", [crypto:hash(sha256, Secret), SecretHash]),
+                                    {error, bad_secret_hash};
+                                {_, false} ->
+                                    lager:error("PoC receipt challenger does not match: ~p =/= ~p", [Challenger, GatewayAddress]),
+                                    {error, bad_challenger}
+                            end
                     end
             end
     end.
@@ -189,8 +195,10 @@ is_valid(Txn, _Block, Ledger) ->
 -spec absorb(txn_poc_receipts(),
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(_Txn, _Block, _Ledger) ->
-    ok.
+absorb(Txn, _Block, Ledger) ->
+    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    % TODO: Update score here
+    blockchain_ledger_v1:delete_poc(OnionKeyHash, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -218,43 +226,49 @@ create_secret_hash(Secret, X, Acc) ->
 
 new_test() ->
     Tx = #blockchain_txn_poc_receipts_v1_pb{
-        receipts=[],
+        onion_key_hash = <<"onion">>,
         challenger = <<"challenger">>,
         secret = <<"secret">>,
+        receipts=[],
+        witnesses=[],
         fee = 1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new([], [], <<"challenger">>, <<"secret">>, 1)).
+    ?assertEqual(Tx, new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1)).
 
-receipts_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
-    ?assertEqual([], receipts(Tx)).
-
-witnesses_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
-    ?assertEqual([], witnesses(Tx)).
+onion_key_hash_test() ->
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
+    ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 challenger_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
 
 secret_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<"secret">>, secret(Tx)).
 
+receipts_test() ->
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
+    ?assertEqual([], receipts(Tx)).
+
+witnesses_test() ->
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
+    ?assertEqual([], witnesses(Tx)).
+
 fee_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(1, fee(Tx)).
 
 signature_test() ->
-    Tx = new([], [], <<"challenger">>, <<"secret">>, 1),
+    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx0 = new([], [], Challenger, <<"secret">>, 1),
+    Tx0 = new(<<"onion">>, [], [], Challenger, <<"secret">>, 1),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
     EncodedTx1 = blockchain_txn_poc_receipts_v1_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v1_pb{signature = <<>>}),

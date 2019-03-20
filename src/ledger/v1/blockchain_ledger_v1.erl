@@ -23,7 +23,9 @@
     add_gateway/3, add_gateway/6,
     add_gateway_location/4,
 
-    request_poc/4,
+    find_poc/2,
+    request_poc/5,
+    delete_poc/2,
 
     find_entry/2,
     credit_account/3,
@@ -57,6 +59,7 @@
     active_gateways :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
+    pocs :: rocksdb:cf_handle(),
     context :: undefined | rocksdb:batch_handle(),
     cache :: undefined | ets:tid()
 }).
@@ -71,6 +74,7 @@
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
+% -type pocs() :: #{binary() => blockchain_ledger_poc_v1:poc()}.
 
 -export_type([ledger/0]).
 
@@ -81,8 +85,8 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF,
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF] = CFs,
+    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, 
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -91,13 +95,15 @@ new(Dir) ->
             default=DefaultCF,
             active_gateways=AGwsCF,
             entries=EntriesCF,
-            htlcs=HTLCsCF
+            htlcs=HTLCsCF,
+            pocs=PoCsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
             entries=DelayedEntriesCF,
-            htlcs=DelayedHTLCsCF
+            htlcs=DelayedHTLCsCF,
+            pocs=DelayedPoCsCF
         }
     }.
 
@@ -404,29 +410,58 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec request_poc(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                  HashOnion :: {binary(), binary()},
-                  Block :: blockchain_block:block(),
-                  Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, {Hash, Onion}, Block, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _} ->
-            {error, no_active_gateway};
-        {ok, Gw} ->
-            Height = blockchain_block:height(Block),
-            Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
-            Gw1 = blockchain_ledger_gateway_v1:last_poc_info({Hash, Onion}, Gw0),
-            Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+-spec find_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v1:poc()} | {error, any()}.
+find_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoC} ->
+            {ok, blockchain_ledger_poc_v1:deserialize(BinPoC)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec request_poc(OnionKeyHash :: binary(),
+                  SecretHash :: binary(),
+                  GatewayAddress :: libp2p_crypto:pubkey_bin(),
+                  Block :: blockchain_block:block(),
+                  Ledger :: ledger()) -> ok | {error, any()}.
+request_poc(OnionKeyHash, SecretHash, GatewayAddress, Block, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw0} ->
+            Height = blockchain_block:height(Block),
+            Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
+            GwBin = blockchain_ledger_gateway_v1:serialize(Gw1),
+            AGwsCF = active_gateways_cf(Ledger),
+            ok = cache_put(Ledger, AGwsCF, GatewayAddress, GwBin),
+            PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, GatewayAddress),
+            PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
+            PoCsCF = pocs_cf(Ledger),
+            cache_put(Ledger, PoCsCF, OnionKeyHash, PoCBin)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_poc(binary(), ledger()) -> ok | {error, any()}.
+delete_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
-                                                       | {error, any()}.
+                                                          | {error, any()}.
 find_entry(Address, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     case cache_get(Ledger, EntriesCF, Address, []) of
@@ -668,6 +703,16 @@ htlcs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec pocs_cf(ledger()) -> rocksdb:cf_handle().
+pocs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{pocs=PoCsCF}}) ->
+    PoCsCF;
+pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
+    PoCsCF.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
@@ -725,8 +770,8 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default", "active_gateways", "entries", "htlcs",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs"],
+    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs", "delayed_pocs"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
