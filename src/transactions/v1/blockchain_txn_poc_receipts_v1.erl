@@ -144,7 +144,7 @@ is_valid(Txn, _Block, Ledger) ->
         true ->
             case ?MODULE:receipts(Txn) =:= [] andalso ?MODULE:witnesses(Txn) =:= [] of
                 true ->
-                    {error, empty_empty};
+                    {error, empty_receipts_witness};
                 false ->
                     case blockchain_ledger_v1:find_poc(?MODULE:onion_key_hash(Txn), Ledger) of
                         {error, not_found} ->
