@@ -74,7 +74,6 @@
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
-% -type pocs() :: #{binary() => blockchain_ledger_poc_v1:poc()}.
 
 -export_type([ledger/0]).
 
