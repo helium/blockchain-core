@@ -16,9 +16,11 @@
     secret_hash/1,
     onion_key_hash/1,
     block_hash/1,
-    signature/1,
+    challenger_signature/1,
+    onion_signature/1,
     fee/1,
     sign/2,
+    onion_sign/2,
     is_valid/3,
     absorb/3
 ]).
@@ -42,7 +44,8 @@ new(Challenger, SecretHash, OnionKeyHash, BlockHash) ->
         onion_key_hash=OnionKeyHash,
         block_hash=BlockHash,
         fee=0,
-        signature = <<>>
+        challenger_signature = <<>>,
+        onion_signature = <<>>
     }.
 
 %%--------------------------------------------------------------------
@@ -51,7 +54,8 @@ new(Challenger, SecretHash, OnionKeyHash, BlockHash) ->
 %%--------------------------------------------------------------------
 -spec hash(txn_poc_request()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
+    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{challenger_signature = <<>>,
+                                                   onion_signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
@@ -99,18 +103,39 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec signature(txn_poc_request()) -> binary().
-signature(Txn) ->
-    Txn#blockchain_txn_poc_request_v1_pb.signature.
+-spec challenger_signature(txn_poc_request()) -> binary().
+challenger_signature(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.challenger_signature.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec onion_signature(txn_poc_request()) -> binary().
+onion_signature(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.onion_signature.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec sign(txn_poc_request(), libp2p_crypto:sig_fun()) -> txn_poc_request().
-sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(Txn),
-    Txn#blockchain_txn_poc_request_v1_pb{signature=SigFun(EncodedTxn)}.
+sign(Txn0, ChallengerSigFun) ->
+    Txn1 = Txn0#blockchain_txn_poc_request_v1_pb{challenger_signature = <<>>,
+                                                 onion_signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(Txn1),
+    Txn0#blockchain_txn_poc_request_v1_pb{challenger_signature=ChallengerSigFun(EncodedTxn)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec onion_sign(txn_poc_request(), libp2p_crypto:sig_fun()) -> txn_poc_request().
+onion_sign(Txn0, OnionSigFun) ->
+    Txn1 = Txn0#blockchain_txn_poc_request_v1_pb{challenger_signature = <<>>,
+                                                 onion_signature = <<>>},
+    EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(Txn1),
+    Txn0#blockchain_txn_poc_request_v1_pb{onion_signature=OnionSigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -121,13 +146,14 @@ sign(Txn, SigFun) ->
                blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 is_valid(Txn, Block0, Ledger) ->
     Challenger = ?MODULE:challenger(Txn),
-    Signature = ?MODULE:signature(Txn),
+    ChallengerSignature = ?MODULE:challenger_signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
-    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
+    BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{challenger_signature = <<>>,
+                                                   onion_signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
-    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+    case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
         false ->
-            {error, bad_signature};
+            {error, bad_challenger_signature};
         true ->
             OnionKeyHash = ?MODULE:onion_key_hash(Txn),
             case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
@@ -208,7 +234,7 @@ new_test() ->
         onion_key_hash = <<"onion">>,
         block_hash = <<"block">>,
         fee=0,
-        signature= <<>>
+        challenger_signature= <<>>
     },
     ?assertEqual(Tx, new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>)).
 
@@ -232,19 +258,24 @@ fee_test() ->
     Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
     ?assertEqual(0, fee(Tx)).
 
-signature_test() ->
+challenger_signature_test() ->
     Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
-    ?assertEqual(<<>>, signature(Tx)).
+    ?assertEqual(<<>>, challenger_signature(Tx)).
 
 sign_test() ->
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
     Tx0 = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx1 = sign(Tx0, SigFun),
-    Sig1 = signature(Tx1),
-
-    EncodedTx1 = blockchain_txn_poc_request_v1_pb:encode_msg(Tx1#blockchain_txn_poc_request_v1_pb{signature = <<>>}),
-    ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+    ChallengerSigFun = libp2p_crypto:mk_sig_fun(PrivKey0),
+    OnionSigFun = libp2p_crypto:mk_sig_fun(PrivKey1),
+    Tx1 = sign(Tx0, ChallengerSigFun),
+    Tx2 = onion_sign(Tx1, OnionSigFun),
+    EncodedTx1 = blockchain_txn_poc_request_v1_pb:encode_msg(
+        Tx2#blockchain_txn_poc_request_v1_pb{challenger_signature = <<>>,
+                                             onion_signature = <<>>}
+    ),
+    ?assert(libp2p_crypto:verify(EncodedTx1, challenger_signature(Tx2), PubKey0)),
+    ?assert(libp2p_crypto:verify(EncodedTx1, onion_signature(Tx2), PubKey1)).
 
 
 -endif.

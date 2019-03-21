@@ -434,12 +434,14 @@ poc_request_test(Config) ->
     % Create the PoC challenge request txn
     Keys = libp2p_crypto:generate_keys(ecc_compact),
     Secret = libp2p_crypto:keys_to_bin(Keys),
-    #{public := OnionCompactKey} = Keys,
+    #{public := OnionCompactKey, secret := OnionPrivKey} = Keys,
     SecretHash = crypto:hash(sha256, Secret),
     OnionKeyHash = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey)),
     PoCReqTxn = blockchain_txn_poc_request_v1:new(Gateway, SecretHash, OnionKeyHash, blockchain_block:hash_block(Block2)),
-    SignedPoCReqTxn = blockchain_txn_poc_request_v1:sign(PoCReqTxn, GatewaySigFun),
-    Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn]),
+    SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn, GatewaySigFun),
+    OnionSigFun = libp2p_crypto:mk_sig_fun(OnionPrivKey),
+    SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:onion_sign(SignedPoCReqTxn0, OnionSigFun),
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
     
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
