@@ -1,25 +1,25 @@
 syntax = "proto3";
 
 message poc_receipt_v1 {
-    bytes address = 1;
+    bytes gateway = 1;
     uint64 timestamp = 2;
     sint32 signal = 3;
-    bytes hash = 4;
+    bytes data = 4;
     bytes signature = 5;
 }
 
 message poc_witness_v1 {
-    bytes address = 1;
+    bytes gateway = 1;
     uint64 timestamp = 2;
     sint32 signal = 3;
-    bytes hash = 4;
+    bytes packet_hash = 4;
     bytes signature = 5;
 }
 
 message txn_poc_receipts_v1 {
-    bytes onion_key_hash = 1;
-    bytes challenger = 2;
-    bytes secret = 3;
+    bytes challenger = 1;
+    bytes secret = 2;
+    bytes onion_key = 3;
     repeated poc_receipt_v1 receipts = 4;
     repeated poc_witness_v1 witnesses = 5;
     uint64 fee = 6;
