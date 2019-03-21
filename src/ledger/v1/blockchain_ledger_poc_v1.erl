@@ -10,7 +10,8 @@
     secret_hash/1, secret_hash/2,
     onion_key_hash/1, onion_key_hash/2,
     challenger/1, challenger/2,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    find_valid/3
 ]).
 
 -include("blockchain.hrl").
@@ -26,7 +27,8 @@
 }).
 
 -type poc() :: #poc_v1{}.
--export_type([poc/0]).
+-type pocs() :: [poc()].
+-export_type([poc/0, pocs/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -106,6 +108,23 @@ serialize(PoC) ->
 -spec deserialize(binary()) -> poc().
 deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_valid(pocs(), libp2p_crypto:pubkey_bin(), binary()) -> {ok, poc()} | {error, any()}.
+find_valid([], _Challenger, _Secret) ->
+    {error, not_found};
+find_valid([PoC|PoCs], Challenger, Secret) ->
+    case
+        blockchain_ledger_poc_v1:challenger(PoC) =:= Challenger andalso
+        blockchain_ledger_poc_v1:secret_hash(PoC) =:= crypto:hash(sha256, Secret)
+    of
+        false -> find_valid(PoCs, Challenger, Secret);
+        true -> {ok, PoC}
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

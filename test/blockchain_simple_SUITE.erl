@@ -455,7 +455,7 @@ poc_request_test(Config) ->
     ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
 
     % Check that the PoC info
-    {ok, PoC} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
+    {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
     ?assertEqual(SecretHash, blockchain_ledger_poc_v1:secret_hash(PoC)),
     ?assertEqual(OnionKeyHash, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
     ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
@@ -468,7 +468,7 @@ poc_request_test(Config) ->
     
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 5} =:= blockchain:height(Chain) end),
 
-    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger)),
+    ?assertEqual({ok, []}, blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger)),
     ok.
 
 bogus_coinbase_test(Config) ->

@@ -155,45 +155,37 @@ is_valid(Txn, Block0, Ledger) ->
         false ->
             {error, bad_challenger_signature};
         true ->
-            OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-            case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
-                {ok, _} ->
-                    {error, already_exist};
-                {error, not_found} ->
-                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        {ok, Info} ->
-                            case blockchain_ledger_gateway_v1:location(Info) of
-                                undefined ->
-                                    {error, no_gateway_location};
-                                _Location ->
-                                    Height = blockchain_block:height(Block0),
-                                    LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                                    case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
-                                        false ->
-                                            {error, too_many_challenges};
-                                        true ->
-                                            Blockchain = blockchain_worker:blockchain(),
-                                            BlockHash = ?MODULE:block_hash(Txn),
-                                            case blockchain:get_block(BlockHash, Blockchain) of
-                                                {error, _}=Error ->
-                                                    Error;
-                                                {ok, Block1} ->
-                                                    case (blockchain_block:height(Block1) + 30) > Height of
-                                                        false ->
-                                                            {error, replaying_request};
-                                                        true ->
-                                                            Fee = ?MODULE:fee(Txn),
-                                                            Owner = blockchain_ledger_gateway_v1:owner_address(Info),
-                                                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
-                                                    end
+            case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, Info} ->
+                    case blockchain_ledger_gateway_v1:location(Info) of
+                        undefined ->
+                            {error, no_gateway_location};
+                        _Location ->
+                            Height = blockchain_block:height(Block0),
+                            LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
+                            case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
+                                false ->
+                                    {error, too_many_challenges};
+                                true ->
+                                    Blockchain = blockchain_worker:blockchain(),
+                                    BlockHash = ?MODULE:block_hash(Txn),
+                                    case blockchain:get_block(BlockHash, Blockchain) of
+                                        {error, _}=Error ->
+                                            Error;
+                                        {ok, Block1} ->
+                                            case (blockchain_block:height(Block1) + 30) > Height of
+                                                false ->
+                                                    {error, replaying_request};
+                                                true ->
+                                                    Fee = ?MODULE:fee(Txn),
+                                                    Owner = blockchain_ledger_gateway_v1:owner_address(Info),
+                                                    blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
                                             end
                                     end
                             end
-                    end;
-                {error, _}=Error ->
-                    Error
+                    end
             end
     end.
 

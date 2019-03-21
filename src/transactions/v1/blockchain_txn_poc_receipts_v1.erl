@@ -134,9 +134,9 @@ sign(Txn, SigFun) ->
                blockchain_block:block(),
                blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 is_valid(Txn, _Block, Ledger) ->
-    Challenger0 = ?MODULE:challenger(Txn),
+    Challenger = ?MODULE:challenger(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Challenger0),
+    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -148,18 +148,15 @@ is_valid(Txn, _Block, Ledger) ->
                     {error, empty_receipts_witness};
                 false ->
                     case blockchain_ledger_v1:find_poc(?MODULE:onion_key(Txn), Ledger) of
-                        {error, not_found} ->
-                            {error, poc_not_found};
                         {error, _}=Error ->
                             Error;
-                        {ok, PoC} ->
+                        {ok, PoCs} ->
                             Secret = ?MODULE:secret(Txn),
-                            SecretHash = blockchain_ledger_poc_v1:secret_hash(PoC),
-                            Challenger1 = blockchain_ledger_poc_v1:challenger(PoC),
-                            case {crypto:hash(sha256, Secret) =:= SecretHash,
-                                  Challenger0 =:= Challenger1} of
-                                {true, true} ->
-                                    ok;
+                            case blockchain_ledger_poc_v1:find_valid(PoCs, Challenger, Secret) of
+                                {error, _} ->
+                                    {error, poc_not_found};
+                                {ok, _PoC} ->
+                                    ok
                                     % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
                                     % ledger at time X. For now do nothing.
                                     % Use create_secret_hash to verify receipts
@@ -177,12 +174,6 @@ is_valid(Txn, _Block, Ledger) ->
                                     %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
                                     %         ok
                                     % end;
-                                {false, _} ->
-                                    lager:error("PoC receipt secret hash does not match: ~p =/= ~p", [crypto:hash(sha256, Secret), SecretHash]),
-                                    {error, bad_secret_hash};
-                                {_, false} ->
-                                    lager:error("PoC receipt challenger does not match: ~p =/= ~p", [Challenger0, Challenger1]),
-                                    {error, bad_challenger}
                             end
                     end
             end
