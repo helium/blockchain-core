@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 message txn_poc_request_v1 {
-    bytes gateway_address = 1;
+    bytes gateway = 1;
     bytes secret_hash = 2;
     bytes onion_key_hash = 3;
     bytes block_hash = 4;

@@ -456,7 +456,7 @@ poc_request_test(Config) ->
     {ok, PoC} = blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger),
     ?assertEqual(SecretHash, blockchain_ledger_poc_v1:secret_hash(PoC)),
     ?assertEqual(OnionKeyHash, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
-    ?assertEqual(Gateway, blockchain_ledger_poc_v1:gateway_address(PoC)),
+    ?assertEqual(Gateway, blockchain_ledger_poc_v1:gateway(PoC)),
 
     Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>),
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(OnionKeyHash, [], [Witness], Gateway, Secret, 0),

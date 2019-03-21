@@ -9,7 +9,7 @@
     new/3,
     secret_hash/1, secret_hash/2,
     onion_key_hash/1, onion_key_hash/2,
-    gateway_address/1, gateway_address/2,
+    gateway/1, gateway/2,
     serialize/1, deserialize/1
 ]).
 
@@ -22,7 +22,7 @@
 -record(poc_v1, {
     secret_hash :: binary(),
     onion_key_hash :: binary(),
-    gateway_address :: libp2p_crypto:pubkey_bin()
+    gateway :: libp2p_crypto:pubkey_bin()
 }).
 
 -type poc() :: #poc_v1{}.
@@ -33,11 +33,11 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(binary(), binary(), libp2p_crypto:pubkey_bin()) -> poc().
-new(SecretHash, OnionKeyHash, GatewayAddress) ->
+new(SecretHash, OnionKeyHash, Gateway) ->
     #poc_v1{
         secret_hash=SecretHash,
         onion_key_hash=OnionKeyHash,
-        gateway_address=GatewayAddress
+        gateway=Gateway
     }.
 
 %%--------------------------------------------------------------------
@@ -76,17 +76,17 @@ onion_key_hash(OnionKeyHash, PoC) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(poc()) -> libp2p_crypto:pubkey_bin().
-gateway_address(PoC) ->
-    PoC#poc_v1.gateway_address.
+-spec gateway(poc()) -> libp2p_crypto:pubkey_bin().
+gateway(PoC) ->
+    PoC#poc_v1.gateway.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gateway_address(libp2p_crypto:pubkey_bin(), poc()) -> poc().
-gateway_address(OnionKeyHash, PoC) ->
-    PoC#poc_v1{gateway_address=OnionKeyHash}.
+-spec gateway(libp2p_crypto:pubkey_bin(), poc()) -> poc().
+gateway(OnionKeyHash, PoC) ->
+    PoC#poc_v1{gateway=OnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -116,7 +116,7 @@ new_test() ->
     PoC = #poc_v1{
         secret_hash= <<"some sha256">>,
         onion_key_hash= <<"some key bin">>,
-        gateway_address = <<"address">>
+        gateway = <<"address">>
     },
     ?assertEqual(PoC, new(<<"some sha256">>, <<"some key bin">>, <<"address">>)).
 
@@ -130,9 +130,9 @@ onion_key_hash_test() ->
     ?assertEqual(<<"some key bin">>, onion_key_hash(PoC)),
     ?assertEqual(<<"some key bin 2">>, onion_key_hash(onion_key_hash(<<"some key bin 2">>, PoC))).
 
-gateway_address_test() ->
+gateway_test() ->
     PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>),
-    ?assertEqual(<<"address">>, gateway_address(PoC)),
-    ?assertEqual(<<"address 2">>, gateway_address(gateway_address(<<"address 2">>, PoC))).
+    ?assertEqual(<<"address">>, gateway(PoC)),
+    ?assertEqual(<<"address 2">>, gateway(gateway(<<"address 2">>, PoC))).
 
 -endif.

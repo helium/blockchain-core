@@ -154,7 +154,7 @@ is_valid(Txn, _Block, Ledger) ->
                         {ok, PoC} ->
                             Secret = ?MODULE:secret(Txn),
                             SecretHash = blockchain_ledger_poc_v1:secret_hash(PoC),
-                            GatewayAddress = blockchain_ledger_poc_v1:gateway_address(PoC),
+                            GatewayAddress = blockchain_ledger_poc_v1:gateway(PoC),
                             case {crypto:hash(sha256, Secret) =:= SecretHash,
                                   Challenger =:= GatewayAddress} of
                                 {true, true} ->
