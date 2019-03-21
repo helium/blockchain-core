@@ -11,7 +11,7 @@
 -export([
     new/5,
     hash/1,
-    onion_key/1,
+    onion_key_hash/1,
     challenger/1,
     secret/1,
     receipts/1,
@@ -36,12 +36,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), blockchain_poc_receipt_v1:poc_receipts(),
+-spec new(binary(), blockchain_poc_receipt_v1:poc_receipts(),
           blockchain_poc_witness_v1:poc_witnesss(), libp2p_crypto:pubkey_bin(),
           binary()) -> txn_poc_receipts().
-new(OnionKey, Receipts, Witnesses, Challenger, Secret) ->
+new(OnionKeyHash, Receipts, Witnesses, Challenger, Secret) ->
     #blockchain_txn_poc_receipts_v1_pb{
-        onion_key=OnionKey,
+        onion_key_hash=OnionKeyHash,
         receipts=Receipts,
         witnesses=Witnesses,
         challenger=Challenger,
@@ -64,9 +64,9 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec onion_key(txn_poc_receipts()) -> binary().
-onion_key(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.onion_key.
+-spec onion_key_hash(txn_poc_receipts()) -> binary().
+onion_key_hash(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -147,7 +147,7 @@ is_valid(Txn, _Block, Ledger) ->
                 true ->
                     {error, empty_receipts_witness};
                 false ->
-                    case blockchain_ledger_v1:find_poc(?MODULE:onion_key(Txn), Ledger) of
+                    case blockchain_ledger_v1:find_poc(?MODULE:onion_key_hash(Txn), Ledger) of
                         {error, _}=Error ->
                             Error;
                         {ok, PoCs} ->
@@ -188,7 +188,7 @@ is_valid(Txn, _Block, Ledger) ->
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 absorb(Txn, _Block, Ledger) ->
-    OnionKeyHash = ?MODULE:onion_key(Txn),
+    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     % TODO: Update score here
     blockchain_ledger_v1:delete_poc(OnionKeyHash, Ledger).
 
@@ -218,7 +218,7 @@ create_secret_hash(Secret, X, Acc) ->
 
 new_test() ->
     Tx = #blockchain_txn_poc_receipts_v1_pb{
-        onion_key = <<"onion">>,
+        onion_key_hash = <<"onion">>,
         challenger = <<"challenger">>,
         secret = <<"secret">>,
         receipts=[],
@@ -228,9 +228,9 @@ new_test() ->
     },
     ?assertEqual(Tx, new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>)).
 
-onion_key_test() ->
+onion_key_hash_test() ->
     Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
-    ?assertEqual(<<"onion">>, onion_key(Tx)).
+    ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 challenger_test() ->
     Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
