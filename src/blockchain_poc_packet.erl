@@ -7,19 +7,24 @@
 
 -export([build/3, decrypt/2]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -spec decrypt(Packet :: binary(), ECDHFun :: libp2p_crypto:ecdh_fun()) -> error | {Payload :: binary(), NextLayer :: binary()}.
 decrypt(<<IV:12/binary, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
     PubKey = libp2p_crypto:bin_to_pubkey(OnionCompactKey),
     SharedKey = ECDHFun(PubKey),
-    case crypto:block_decrypt(aes_gcm, SharedKey, IV, {IV, CipherText, Tag}) of
+    case crypto:block_decrypt(aes_gcm, SharedKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
+                                                       CipherText, Tag}) of
         <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
             Padding = binary:part(crypto:hash(sha512, Data), 0, DataSize+1+4),
-            {<<DataSize:8/integer, Data/binary>>, <<IV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
+            {<<Data/binary>>, <<IV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
         _ ->
             error
     end.
 
--spec build(OnionKey :: libp2p_crypto:key_map(), IV :: <<_:96>>, KeysAndData :: [{libp2p_crypto:pubkey_bin(), binary()}, ...]) -> Layers :: [binary()].
+-spec build(OnionKey :: libp2p_crypto:key_map(), IV :: <<_:96>>, KeysAndData :: [{libp2p_crypto:pubkey_bin(), binary()}, ...]) -> {OuterLayer :: binary, Layers :: [binary()]}.
 build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     ECDHFun = libp2p_crypto:mk_ecdh_fun(OnionPrivKey),
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(OnionPubKey),
@@ -31,7 +36,9 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     %% fill in the data cells
     DataMatrix = lists:foldl(fun({Row, Col=1}, Acc) ->
                                      %% For column 1, the value is the Payload for that row
-                                     setelement(((Row-1)*N)+Col, Acc, element(2, lists:nth(Row, PubKeysAndData)));
+                                     Data = element(2, lists:nth(Row, PubKeysAndData)),
+                                     DataSize = byte_size(Data),
+                                     setelement(((Row-1)*N)+Col, Acc, <<DataSize:8/integer, Data/binary>>);
                                 ({Row, Col}, Acc) ->
                                      %% For other columns, the value is (Row+1, Column -1) ^ Key(Row+1)
                                      setelement(((Row-1)*N)+Col, Acc, encrypt_cell(Row+1, Col-1, N, Acc, OnionCompactKey, ECDHFun, IV, PubKeysAndData))
@@ -40,8 +47,8 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     %% fill in the padding cells
     PaddingMatrix = lists:foldl(fun({Row, Col}, Acc) when Col == N ->
                                         %% For column N, the value is Hash(Row-1, 1) ^ Key(Row)
-                                        <<Size:8/integer, Data/binary>> = element(2, lists:nth(Row-1, PubKeysAndData)),
-                                        DataSize = Size + 1 + 4,
+                                        Data = element(2, lists:nth(Row-1, PubKeysAndData)),
+                                        DataSize = byte_size(Data) + 1 + 4,
                                         <<Hash:DataSize/binary, _/binary>> = crypto:hash(sha512, Data),
                                         case Row > N of
                                             false ->
@@ -69,7 +76,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     %% now we need to re-encrypt the data cells now we have the padding in place, row by row, removing the padding bytes from the previous row
     %% and propogating the tags upwards
     EncryptedMatrix = lists:foldl(fun(R, Acc) ->
-                                          PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + (4 * 1),
+                                          PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + 5,
                                           Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IV, PubKeysAndData),
                                           TAcc = setelement(((R-2)*N)+2, Acc, binary:part(Row, 0, byte_size(Row) - PaddingSize)),
                                           lists:foldl(fun(E, Acc2) ->
@@ -78,16 +85,18 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                                       end, TAcc, lists:seq(3, N))
                                   end, setelement(N, PaddingMatrix, <<>>), lists:reverse(lists:seq(2,N))),
 
-    lists:map(fun(RowNumber) ->
-                      case RowNumber > N of
-                          true ->
-                              %% the last row is all padding
-                              Bins = lists:sublist(tuple_to_list(EncryptedMatrix), ((RowNumber-1)*N)+1, N),
-                              list_to_binary(Bins);
-                          false ->
-                              encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IV, PubKeysAndData)
-                      end
-              end, lists:seq(1, N+1)).
+    [FirstRow|_] = PacketRows = lists:map(fun(RowNumber) ->
+                                                  case RowNumber > N of
+                                                      true ->
+                                                          %% the last row is all padding
+                                                          Bins = lists:sublist(tuple_to_list(EncryptedMatrix), ((RowNumber-1)*N)+1, N),
+                                                          list_to_binary([IV, OnionCompactKey, Bins]);
+                                                      false ->
+                                                          encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IV, PubKeysAndData)
+                                                  end
+                                          end, lists:seq(1, N+1)),
+    {<<IV/binary, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
+
 
 %% internal functions
 
@@ -110,3 +119,59 @@ encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHFun, IV, KeysAndData) ->
                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
                                                   list_to_binary(Bins), 4}),
     <<Tag/binary, CipherText/binary>>.
+
+-ifdef(TEST).
+
+encrypt_decrypt_test() ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey3, public := PubKey3} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey4, public := PubKey4} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey5, public := PubKey5} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey6, public := PubKey6} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey7, public := PubKey7} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey8, public := PubKey8} = libp2p_crypto:generate_keys(ecc_compact),
+
+    OnionKey = libp2p_crypto:generate_keys(ecc_compact),
+
+    PubKeys = [PubKey1, PubKey2, PubKey3, PubKey4, PubKey5, PubKey6, PubKey7, PubKey8],
+    PrivKeys = [PrivKey1, PrivKey2, PrivKey3, PrivKey4, PrivKey5, PrivKey6, PrivKey7, PrivKey8],
+
+    LayerData = [<<"abc">>, <<"def">>, <<"ghi">>, <<"jhk">>, <<"lmn">>, <<"opq">>, <<"rst">>, <<"uvw">>],
+
+    KeysAndData = lists:zip(PubKeys, LayerData),
+
+    IV = crypto:strong_rand_bytes(12),
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData),
+
+
+
+    #{secret := PrivOnionKey, public := PubOnionKey} = OnionKey,
+
+    ECDHFun1 = libp2p_crypto:mk_ecdh_fun(PrivKey1),
+    ECDHFun2 = libp2p_crypto:mk_ecdh_fun(PrivOnionKey),
+    SecretKey1 = ECDHFun1(PubOnionKey),
+    SecretKey2 = ECDHFun2(PubKey1),
+    ?assertEqual(SecretKey1, SecretKey2),
+    {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey1]])),
+    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    <<IV:12/binary, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
+    {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey2]])),
+    {<<"ghi">>, Remainder3} = decrypt(Remainder2, libp2p_crypto:mk_ecdh_fun(PrivKey3)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder2, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey3]])),
+    {<<"jhk">>, Remainder4} = decrypt(Remainder3, libp2p_crypto:mk_ecdh_fun(PrivKey4)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder3, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey4]])),
+    {<<"lmn">>, Remainder5} = decrypt(Remainder4, libp2p_crypto:mk_ecdh_fun(PrivKey5)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder4, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey5]])),
+    {<<"opq">>, Remainder6} = decrypt(Remainder5, libp2p_crypto:mk_ecdh_fun(PrivKey6)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder5, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey6]])),
+    {<<"rst">>, Remainder7} = decrypt(Remainder6, libp2p_crypto:mk_ecdh_fun(PrivKey7)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder6, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey7]])),
+    {<<"uvw">>, Remainder8} = decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PrivKey8)),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey8]])),
+    ?assertEqual(Remainder8, lists:last(Rows)),
+    ok.
+
+-endif.
