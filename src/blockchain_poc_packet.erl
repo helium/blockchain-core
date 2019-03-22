@@ -195,6 +195,8 @@ encrypt_decrypt_test() ->
 
     IV = rand:uniform(16384),
     {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData),
+    %% make sure it's deterministic
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData),
 
     #{secret := PrivOnionKey, public := PubOnionKey} = OnionKey,
 
