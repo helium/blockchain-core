@@ -10,6 +10,7 @@
     owner_address/1, owner_address/2,
     location/1, location/2,
     last_poc_challenge/1, last_poc_challenge/2,
+    last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
     score/1, score/2,
     print/1,
@@ -26,6 +27,7 @@
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
+    last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     score = 0.0 :: float()
 }).
@@ -110,6 +112,22 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
+last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
+    Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
+last_poc_onion_key_hash(Gateway) ->
+    Gateway#gateway_v1.last_poc_onion_key_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
     Gateway#gateway_v1.nonce.
@@ -186,6 +204,7 @@ new_test() ->
         owner_address = <<"owner_address">>,
         location = 12,
         last_poc_challenge = undefined,
+        last_poc_onion_key_hash = undefined,
         nonce = 0,
         score = 0.0
     },
@@ -205,6 +224,11 @@ last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(undefined, last_poc_challenge(Gw)),
     ?assertEqual(123, last_poc_challenge(last_poc_challenge(123, Gw))).
+
+last_poc_onion_key_hash_test() ->
+    Gw = new(<<"owner_address">>, 12),
+    ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
+    ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
 
 nonce_test() ->
     Gw = new(<<"owner_address">>, 12),

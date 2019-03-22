@@ -428,26 +428,33 @@ find_poc(OnionKeyHash, Ledger) ->
 %%--------------------------------------------------------------------
 -spec request_poc(OnionKeyHash :: binary(),
                   SecretHash :: binary(),
-                  GatewayAddress :: libp2p_crypto:pubkey_bin(),
+                  Challenger :: libp2p_crypto:pubkey_bin(),
                   Block :: blockchain_block:block(),
                   Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(OnionKeyHash, SecretHash, GatewayAddress, Block, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger) ->
+    case ?MODULE:find_gateway_info(Challenger, Ledger) of
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw0} ->
             case ?MODULE:find_poc(OnionKeyHash, Ledger) of
                 {error, _} ->
-                    {error, fail_getching_poc};
+                    {error, fail_getting_poc};
                 {ok, PoCs} ->
+                    PoCsCF = pocs_cf(Ledger),
+                    case blockchain_ledger_gateway_v1:last_poc_onion_key_hash(Gw0) of
+                        undefined -> ok;
+                        LastOnionKeyHash  ->  
+                            ok = cache_delete(Ledger, PoCsCF, LastOnionKeyHash)
+                    end,
                     Height = blockchain_block:height(Block),
                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
-                    GwBin = blockchain_ledger_gateway_v1:serialize(Gw1),
+                    Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+                    GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
                     AGwsCF = active_gateways_cf(Ledger),
-                    ok = cache_put(Ledger, AGwsCF, GatewayAddress, GwBin),
-                    PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, GatewayAddress),
+                    ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+
+                    PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, Challenger),
                     PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
-                    PoCsCF = pocs_cf(Ledger),
                     BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
                     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
             end
