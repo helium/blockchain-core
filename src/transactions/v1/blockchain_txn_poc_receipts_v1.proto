@@ -1,11 +1,17 @@
 syntax = "proto3";
 
+enum origin {
+    p2p = 0;
+    radio = 1;
+}
+
 message poc_receipt_v1 {
     bytes gateway = 1;
     uint64 timestamp = 2;
     sint32 signal = 3;
     bytes data = 4;
-    bytes signature = 5;
+    origin origin = 5;
+    bytes signature = 6;
 }
 
 message poc_witness_v1 {
@@ -13,7 +19,8 @@ message poc_witness_v1 {
     uint64 timestamp = 2;
     sint32 signal = 3;
     bytes packet_hash = 4;
-    bytes signature = 5;
+    origin origin = 5;
+    bytes signature = 6;
 }
 
 message txn_poc_receipts_v1 {

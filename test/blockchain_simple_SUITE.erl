@@ -459,7 +459,7 @@ poc_request_test(Config) ->
     ?assertEqual(OnionKeyHash0, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
     ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
 
-    Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>),
+    Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>, radio),
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(OnionKeyHash0, [], [Witness], Gateway, Secret0),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),

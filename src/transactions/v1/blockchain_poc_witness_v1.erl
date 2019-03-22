@@ -7,11 +7,12 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/5,
     gateway/1,
     timestamp/1,
     signal/1,
     packet_hash/1,
+    origin/1,
     signature/1,
     sign/2,
     is_valid/1,
@@ -23,6 +24,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type origin() :: 'p2p' | 'radio' | integer() | undefined.
 -type poc_witness() :: #blockchain_poc_witness_v1_pb{}.
 -type poc_witnesss() :: [poc_witness()].
 
@@ -35,13 +37,15 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
           Signal :: integer(),
-          PacketHash :: binary()) -> poc_witness().
-new(Gateway, Timestamp, Signal, PacketHash) ->
+          PacketHash :: binary(),
+          Origin :: origin()) -> poc_witness().
+new(Gateway, Timestamp, Signal, PacketHash, Origin) ->
     #blockchain_poc_witness_v1_pb{
         gateway=Gateway,
         timestamp=Timestamp,
         signal=Signal,
         packet_hash=PacketHash,
+        origin=Origin,
         signature = <<>>
     }.
 %%--------------------------------------------------------------------
@@ -75,6 +79,14 @@ signal(Receipt) ->
 -spec packet_hash(Receipt :: poc_witness()) -> binary().
 packet_hash(Receipt) ->
     Receipt#blockchain_poc_witness_v1_pb.packet_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec origin(Receipt :: poc_witness()) -> origin().
+origin(Receipt) ->
+    Receipt#blockchain_poc_witness_v1_pb.origin.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -132,34 +144,39 @@ new_test() ->
         timestamp= 1,
         signal=12,
         packet_hash= <<"hash">>,
+        origin=p2p,
         signature = <<>>
     },
-    ?assertEqual(Receipt, new(<<"gateway">>, 1, 12, <<"hash">>)).
+    ?assertEqual(Receipt, new(<<"gateway">>, 1, 12, <<"hash">>, p2p)).
 
 gateway_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(<<"gateway">>, gateway(Receipt)).
 
 timestamp_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(1, timestamp(Receipt)).
 
 signal_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(12, signal(Receipt)).
 
 packet_hash_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(<<"hash">>, packet_hash(Receipt)).
 
+origin_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
+    ?assertEqual(p2p, origin(Receipt)).
+
 signature_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(<<>>, signature(Receipt)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
-    Receipt0 = new(Gateway, 1, 12, <<"hash">>),
+    Receipt0 = new(Gateway, 1, 12, <<"hash">>, p2p),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
@@ -168,7 +185,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
-    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"hash">>, p2p),
     ?assertEqual(Receipt, decode(encode(Receipt))).
 
 -endif.
