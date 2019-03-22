@@ -7,6 +7,35 @@
 
 -export([build/3, decrypt/2]).
 
+%% @doc A module for constructing a v2 onion packet.
+%%
+%% Onion packets are nested encrypted packets that have 4 important properties:
+%%
+%% * All layers are the same size
+%% * No decrypter knows how many layers remain
+%% * The padding added at each layer is deterministic
+%% * No decryptor knows the target of the next layer
+%%
+%% The outermost packet looks like this:
+%% <<IV:12/binary, PublicKey:33/binary, Tag:4/binary, CipherText/binary>>
+%%
+%% The authenticated data is the IV and the public key. The tag is the AES-GCM message
+%% authentication code.
+%%
+%% After decryption the plaintext looks like this:
+%% <<Length:8/integer, Data:Length/binary, InnerLayer/binary>>
+%%
+%% The decryptor then appends the first Length+1 bytes of the SHA512
+%% of the Data field. The new packet thus looks like this:
+%%
+%% <<IV:12/binary, PublicKey:33/binary, NextTag/binary, CipherText/binary, Padding/binary>>
+%%
+%% Thus the next decryptor sees an identical length packet which it can decrypt in the same way.
+%%
+%% At the end of the packet, the final layer is entirely padding and cannot be decrypted.
+
+%% TODO explain the packet construction
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -172,6 +201,8 @@ encrypt_decrypt_test() ->
     {<<"uvw">>, Remainder8} = decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PrivKey8)),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey8]])),
     ?assertEqual(Remainder8, lists:last(Rows)),
+    %% check all packets are the same length
+    ?assertEqual(1, length(lists:usort([ byte_size(B) || B <- [OuterPacket, Remainder1, Remainder2, Remainder3, Remainder4, Remainder5, Remainder6, Remainder7, Remainder8]]))),
     ok.
 
 -endif.
