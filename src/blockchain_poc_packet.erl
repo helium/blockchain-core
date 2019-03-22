@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain PoC Path ==
+%% == Blockchain PoC Packet ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_packet).
@@ -17,7 +17,7 @@
 %% * No decryptor knows the target of the next layer
 %%
 %% The outermost packet looks like this:
-%% <<IV:12/binary, PublicKey:33/binary, Tag:4/binary, CipherText/binary>>
+%% <<IV:16/integer-little, PublicKey:33/binary, Tag:4/binary, CipherText/binary>>
 %%
 %% The authenticated data is the IV and the public key. The tag is the AES-GCM message
 %% authentication code.
@@ -28,39 +28,51 @@
 %% The decryptor then appends the first Length+1 bytes of the SHA512
 %% of the Data field. The new packet thus looks like this:
 %%
-%% <<IV:12/binary, PublicKey:33/binary, NextTag/binary, CipherText/binary, Padding/binary>>
+%% <<IV:16/integer-little, PublicKey:33/binary, NextTag/binary, CipherText/binary, Padding/binary>>
 %%
 %% Thus the next decryptor sees an identical length packet which it can decrypt in the same way.
 %%
 %% At the end of the packet, the final layer is entirely padding and cannot be decrypted.
 
-%% TODO explain the packet construction
-
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+%% @doc Attempt to decrypt the outer layer of a PoC onion packet.
+%% If the decryption was sucessfull, return the per-layer data and the next layer of the onion packet, with padding applied.
+%% If the decryption fails, return `error'.
 -spec decrypt(Packet :: binary(), ECDHFun :: libp2p_crypto:ecdh_fun()) -> error | {Payload :: binary(), NextLayer :: binary()}.
-decrypt(<<IV:12/binary, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
+decrypt(<<IV0:16/integer-little, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
     PubKey = libp2p_crypto:bin_to_pubkey(OnionCompactKey),
     SharedKey = ECDHFun(PubKey),
+    IV = <<0:80/integer, IV0:16/integer-little>>,
     case crypto:block_decrypt(aes_gcm, SharedKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
                                                        CipherText, Tag}) of
         <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
-            Padding = binary:part(crypto:hash(sha512, Data), 0, DataSize+1+4),
-            {<<Data/binary>>, <<IV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
+            PaddingSize = DataSize +5,
+            <<Padding:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
+            NextIV = <<((IV0 bxor Xor) band 16#ffff):16/integer-little>>,
+            {<<Data/binary>>, <<NextIV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
         _ ->
             error
     end.
 
--spec build(OnionKey :: libp2p_crypto:key_map(), IV :: <<_:96>>, KeysAndData :: [{libp2p_crypto:pubkey_bin(), binary()}, ...]) -> {OuterLayer :: binary, Layers :: [binary()]}.
+%% @doc Construct a PoC onion packet.
+%% The packets are encrypted for each layer's public key using an ECDH exchange with the private key of the ephemeral onion key.
+%% All the layer data should be the same size. The general overhead of the packet is 33+2 + (5 * LayerCount) in addition to the size of all the
+%% layer data fields. The IV should be a random 16 bit number. The IV will change for each layer (although this is not strictly necessary).
+-spec build(OnionKey :: libp2p_crypto:key_map(), IV :: non_neg_integer(), KeysAndData :: [{libp2p_crypto:pubkey_bin(), binary()}, ...]) -> {OuterLayer :: binary, Layers :: [binary()]}.
 build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     ECDHFun = libp2p_crypto:mk_ecdh_fun(OnionPrivKey),
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(OnionPubKey),
     N = length(PubKeysAndData),
 
+    IVs = compute_ivs(IV, PubKeysAndData),
+
     MatrixLength = N*(N+1),
     EntryMatrix = list_to_tuple([undefined || _ <- lists:seq(1, MatrixLength)]),
+
+    %% TODO document the packet construction
 
     %% fill in the data cells
     DataMatrix = lists:foldl(fun({Row, Col=1}, Acc) ->
@@ -70,7 +82,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                      setelement(((Row-1)*N)+Col, Acc, <<DataSize:8/integer, Data/binary>>);
                                 ({Row, Col}, Acc) ->
                                      %% For other columns, the value is (Row+1, Column -1) ^ Key(Row+1)
-                                     setelement(((Row-1)*N)+Col, Acc, encrypt_cell(Row+1, Col-1, N, Acc, OnionCompactKey, ECDHFun, IV, PubKeysAndData))
+                                     setelement(((Row-1)*N)+Col, Acc, encrypt_cell(Row+1, Col-1, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData))
                              end, EntryMatrix, lists:reverse(lists:sort([ {X, Y} || X <- lists:seq(1, N+1), Y <- lists:seq(1, N), X+Y =< N+1])) ),
 
     %% fill in the padding cells
@@ -83,7 +95,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                             false ->
                                                 ExtraTagBytes = ((N-Row)*4),
                                                 TempMatrix = setelement(((Row-1)*N)+Col, Acc, <<0:(ExtraTagBytes*8)/integer, Hash/binary>>),
-                                                <<_:ExtraTagBytes/binary, Cell/binary>> = encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IV, PubKeysAndData),
+                                                <<_:ExtraTagBytes/binary, Cell/binary>> = encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData),
                                                 setelement(((Row-1)*N)+Col, Acc, Cell);
                                             true ->
                                                 setelement(((Row-1)*N)+Col, Acc, Hash)
@@ -95,7 +107,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                             false ->
                                                 ExtraTagBytes = ((N-Row)*4),
                                                 TempMatrix = setelement(((Row-1)*N)+Col, Acc, <<0:(ExtraTagBytes*8)/integer, Data/binary>>),
-                                                <<_:ExtraTagBytes/binary, Cell/binary>>= encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IV, PubKeysAndData),
+                                                <<_:ExtraTagBytes/binary, Cell/binary>>= encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData),
                                                 setelement(((Row-1)*N)+Col, Acc, Cell);
                                             true ->
                                                 setelement(((Row-1)*N)+Col, Acc, Data)
@@ -106,7 +118,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     %% and propogating the tags upwards
     EncryptedMatrix = lists:foldl(fun(R, Acc) ->
                                           PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + 5,
-                                          Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IV, PubKeysAndData),
+                                          Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData),
                                           TAcc = setelement(((R-2)*N)+2, Acc, binary:part(Row, 0, byte_size(Row) - PaddingSize)),
                                           lists:foldl(fun(E, Acc2) ->
                                                               %% zero out all the other columns but 1 and 2 for this row
@@ -119,20 +131,22 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                                       true ->
                                                           %% the last row is all padding
                                                           Bins = lists:sublist(tuple_to_list(EncryptedMatrix), ((RowNumber-1)*N)+1, N),
-                                                          list_to_binary([IV, OnionCompactKey, Bins]);
+                                                          list_to_binary([ <<(IV band 16#ffff):16/integer-little>>, OnionCompactKey, Bins]);
                                                       false ->
-                                                          encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IV, PubKeysAndData)
+                                                          encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData)
                                                   end
                                           end, lists:seq(1, N+1)),
-    {<<IV/binary, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
+    {<<(hd(IVs)):16/integer-little, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
 
 
 %% internal functions
 
-encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IV, KeysAndData) ->
+encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData) ->
     SecretKey = ECDHFun(element(1, lists:nth(Row, KeysAndData))),
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, Column),
     Offset = lists:sum([byte_size(X) || X <- Bins]) - byte_size(lists:last(Bins)),
+    IV0 = lists:nth(Row, IVs),
+    IV = <<0:80/integer, IV0:16/integer-little>>,
     {CipherText, _Tag} = crypto:block_encrypt(aes_gcm,
                                              SecretKey,
                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
@@ -140,14 +154,23 @@ encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IV, KeysAndData) 
     << _:Offset/binary, Cell/binary>> = CipherText,
     Cell.
 
-encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHFun, IV, KeysAndData) ->
+encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData) ->
     SecretKey = ECDHFun(element(1, lists:nth(Row, KeysAndData))),
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, N),
+    IV0 = lists:nth(Row, IVs),
+    IV = <<0:80/integer, IV0:16/integer-little>>,
     {CipherText, Tag} = crypto:block_encrypt(aes_gcm,
                                              SecretKey,
                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
                                                   list_to_binary(Bins), 4}),
     <<Tag/binary, CipherText/binary>>.
+
+compute_ivs(InitialIV, KeysAndData) ->
+    lists:foldl(fun({_, Data}, [H|_]=Acc) ->
+                        PaddingSize = byte_size(Data) + 5,
+                        <<_:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
+                        [(H bxor Xor) band 16#ffff | Acc]
+                end, [InitialIV], lists:reverse(KeysAndData)).
 
 -ifdef(TEST).
 
@@ -170,10 +193,8 @@ encrypt_decrypt_test() ->
 
     KeysAndData = lists:zip(PubKeys, LayerData),
 
-    IV = crypto:strong_rand_bytes(12),
+    IV = rand:uniform(16384),
     {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData),
-
-
 
     #{secret := PrivOnionKey, public := PubOnionKey} = OnionKey,
 
@@ -185,7 +206,8 @@ encrypt_decrypt_test() ->
     {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1)),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey1]])),
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
-    <<IV:12/binary, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
+    %ExpectedIV = IV+1,
+    <<_IV:16/integer-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
     {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2)),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey2]])),
     {<<"ghi">>, Remainder3} = decrypt(Remainder2, libp2p_crypto:mk_ecdh_fun(PrivKey3)),
