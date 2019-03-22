@@ -112,17 +112,17 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
-last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
-    Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
+-spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
+last_poc_onion_key_hash(Gateway) ->
+    Gateway#gateway_v1.last_poc_onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
-last_poc_onion_key_hash(Gateway) ->
-    Gateway#gateway_v1.last_poc_onion_key_hash.
+-spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
+last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
+    Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc

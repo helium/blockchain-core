@@ -25,7 +25,7 @@
 
     find_poc/2,
     request_poc/5,
-    delete_poc/2,
+    delete_poc/3, delete_pocs/2,
 
     find_entry/2,
     credit_account/3,
@@ -417,7 +417,7 @@ find_poc(OnionKeyHash, Ledger) ->
             PoCs = erlang:binary_to_term(BinPoCs),
             {ok, lists:map(fun blockchain_ledger_poc_v1:deserialize/1, PoCs)};
         not_found ->
-            {ok, []};
+            {error, not_found};
         Error ->
             Error
     end.
@@ -437,15 +437,35 @@ request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger) ->
             {error, no_active_gateway};
         {ok, Gw0} ->
             case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+                {error, not_found} ->
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, []);
                 {error, _} ->
                     {error, fail_getting_poc};
                 {ok, PoCs} ->
-                    PoCsCF = pocs_cf(Ledger),
-                    case blockchain_ledger_gateway_v1:last_poc_onion_key_hash(Gw0) of
-                        undefined -> ok;
-                        LastOnionKeyHash  ->  
-                            ok = cache_delete(Ledger, PoCsCF, LastOnionKeyHash)
-                    end,
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, PoCs)
+            end
+    end.
+
+request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, PoCs) ->
+    case blockchain_ledger_gateway_v1:last_poc_onion_key_hash(Gw0) of
+        undefined ->
+            Height = blockchain_block:height(Block),
+            Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
+            Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+            GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
+            AGwsCF = active_gateways_cf(Ledger),
+            ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+
+            PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, Challenger),
+            PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
+            BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
+            PoCsCF = pocs_cf(Ledger),
+            cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs);
+        LastOnionKeyHash  ->  
+            case delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
                     Height = blockchain_block:height(Block),
                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
                     Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
@@ -456,6 +476,7 @@ request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger) ->
                     PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, Challenger),
                     PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
                     BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
+                    PoCsCF = pocs_cf(Ledger),
                     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
             end
     end.
@@ -464,8 +485,36 @@ request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec delete_poc(binary(), ledger()) -> ok | {error, any()}.
-delete_poc(OnionKeyHash, Ledger) ->
+-spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
+delete_poc(OnionKeyHash, Challenger, Ledger) ->
+    case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+        {error, not_found} ->
+            ok;
+        {error, _}=Error ->
+            Error;
+        {ok, PoCs} ->
+            FilteredPoCs = lists:filter(
+                fun(PoC) ->
+                    blockchain_ledger_poc_v1:challenger(PoC) =/= Challenger
+                end,
+                PoCs
+            ),
+            case FilteredPoCs of
+                [] ->
+                    ?MODULE:delete_pocs(OnionKeyHash, Ledger);
+                _ ->
+                    BinPoCs = erlang:term_to_binary(lists:map(fun blockchain_ledger_poc_v1:serialize/1, FilteredPoCs)),
+                    PoCsCF = pocs_cf(Ledger),
+                    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_pocs(binary(), ledger()) -> ok | {error, any()}.
+delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 

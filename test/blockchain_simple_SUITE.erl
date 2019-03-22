@@ -493,7 +493,7 @@ poc_request_test(Config) ->
 
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 41} =:= blockchain:height(Chain) end),
 
-    ?assertEqual({ok, []}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(41, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
