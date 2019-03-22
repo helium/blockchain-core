@@ -42,16 +42,16 @@
 %% If the decryption was sucessfull, return the per-layer data and the next layer of the onion packet, with padding applied.
 %% If the decryption fails, return `error'.
 -spec decrypt(Packet :: binary(), ECDHFun :: libp2p_crypto:ecdh_fun()) -> error | {Payload :: binary(), NextLayer :: binary()}.
-decrypt(<<IV0:16/integer-little, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
+decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
     PubKey = libp2p_crypto:bin_to_pubkey(OnionCompactKey),
     SharedKey = ECDHFun(PubKey),
-    IV = <<0:80/integer, IV0:16/integer-little>>,
+    IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
     case crypto:block_decrypt(aes_gcm, SharedKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
                                                        CipherText, Tag}) of
         <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
             PaddingSize = DataSize +5,
             <<Padding:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
-            NextIV = <<((IV0 bxor Xor) band 16#ffff):16/integer-little>>,
+            NextIV = <<((IV0 bxor Xor) band 16#ffff):16/integer-unsigned-little>>,
             {<<Data/binary>>, <<NextIV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
         _ ->
             error
@@ -131,12 +131,12 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
                                                       true ->
                                                           %% the last row is all padding
                                                           Bins = lists:sublist(tuple_to_list(EncryptedMatrix), ((RowNumber-1)*N)+1, N),
-                                                          list_to_binary([ <<(IV band 16#ffff):16/integer-little>>, OnionCompactKey, Bins]);
+                                                          list_to_binary(Bins);
                                                       false ->
                                                           encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData)
                                                   end
                                           end, lists:seq(1, N+1)),
-    {<<(hd(IVs)):16/integer-little, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
+    {<<(hd(IVs)):16/integer-unsigned-little, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
 
 
 %% internal functions
@@ -146,7 +146,7 @@ encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData)
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, Column),
     Offset = lists:sum([byte_size(X) || X <- Bins]) - byte_size(lists:last(Bins)),
     IV0 = lists:nth(Row, IVs),
-    IV = <<0:80/integer, IV0:16/integer-little>>,
+    IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
     {CipherText, _Tag} = crypto:block_encrypt(aes_gcm,
                                              SecretKey,
                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
@@ -158,7 +158,7 @@ encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData) ->
     SecretKey = ECDHFun(element(1, lists:nth(Row, KeysAndData))),
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, N),
     IV0 = lists:nth(Row, IVs),
-    IV = <<0:80/integer, IV0:16/integer-little>>,
+    IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
     {CipherText, Tag} = crypto:block_encrypt(aes_gcm,
                                              SecretKey,
                                              IV, {<<IV/binary, OnionCompactKey/binary>>,
@@ -207,7 +207,7 @@ encrypt_decrypt_test() ->
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey1]])),
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
     %ExpectedIV = IV+1,
-    <<_IV:16/integer-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
+    <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
     {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2)),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey2]])),
     {<<"ghi">>, Remainder3} = decrypt(Remainder2, libp2p_crypto:mk_ecdh_fun(PrivKey3)),
@@ -222,9 +222,13 @@ encrypt_decrypt_test() ->
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder6, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey7]])),
     {<<"uvw">>, Remainder8} = decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PrivKey8)),
     ?assert(lists:all(fun(E) -> E == error end, [ decrypt(Remainder7, libp2p_crypto:mk_ecdh_fun(PK)) || PK <- PrivKeys -- [PrivKey8]])),
-    ?assertEqual(Remainder8, lists:last(Rows)),
     %% check all packets are the same length
     ?assertEqual(1, length(lists:usort([ byte_size(B) || B <- [OuterPacket, Remainder1, Remainder2, Remainder3, Remainder4, Remainder5, Remainder6, Remainder7, Remainder8]]))),
+    %% check all the packets at each decryption layer are as expected, and have the right IV
+    {IVs, Layers} = lists:unzip([{ThisIV, Layer} || <<ThisIV:16/integer-unsigned-little, ThisKey:33/binary, Layer/binary>>
+                        <- [OuterPacket, Remainder1, Remainder2, Remainder3, Remainder4, Remainder5, Remainder6, Remainder7, Remainder8], ThisKey == OnionCompactKey]),
+    ?assertEqual(Layers, Rows),
+    ?assertEqual(IVs, compute_ivs(IV, KeysAndData)),
     ok.
 
 -endif.
