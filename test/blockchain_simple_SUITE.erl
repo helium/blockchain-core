@@ -459,6 +459,9 @@ poc_request_test(Config) ->
     ?assertEqual(OnionKeyHash0, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
     ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
 
+    meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Block, _Ledger) -> ok end),
+
     Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>),
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(OnionKeyHash0, [], [Witness], Gateway, Secret0),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
@@ -498,6 +501,9 @@ poc_request_test(Config) ->
     {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(41, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo3)),
+
+    ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1),
     ok.
 
 bogus_coinbase_test(Config) ->
