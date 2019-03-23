@@ -155,25 +155,40 @@ is_valid(Txn, _Block, Ledger) ->
                             case blockchain_ledger_poc_v1:find_valid(PoCs, Challenger, Secret) of
                                 {error, _} ->
                                     {error, poc_not_found};
-                                {ok, _PoC} ->
-                                    ok
-                                    % TODO: Once chain rewing ready use blockchain:ledger_at(Height) to grap
-                                    % ledger at time X. For now do nothing.
-                                    % Use create_secret_hash to verify receipts
-
-                                    % {Target, ActiveGateways} = blockchain_poc_path:target(Secret, Ledger),
-                                    % lager:info("target: ~p", [Target]),
-                                    % {ok, Path} = blockchain_poc_path:build(Target, ActiveGateways),
-                                    % lager:info("path: ~p", [Path]),
-                                    % ReceiptAddrs = lists:sort([blockchain_poc_receipt_v1:address(R) || R <- ?MODULE:receipts(Txn)]),
-                                    % case ReceiptAddrs == lists:sort(Path) andalso
-                                    %      lists:member(Target, ReceiptAddrs) of
-                                    %     true ->
-                                    %         lager:info("got receipts from all the members in the path!");
-                                    %     false ->
-                                    %         lager:warning("missing receipts!, reconstructedPath: ~p, receivedReceipts: ~p", [Path, ReceiptAddrs]),
-                                    %         ok
-                                    % end;
+                                {ok, PoC} ->
+                                    Blockchain = blockchain_worker:blockchain(),
+                                    BlockHash = blockchain_txn_poc_request_v1:block_hash(PoC),
+                                    case blockchain:get_block(BlockHash, Blockchain) of
+                                        {error, _}=Error ->
+                                            Error;
+                                        {ok, Block1} ->
+                                            Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
+                                            {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
+                                            {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger),
+                                            {ok, Path} = blockchain_poc_path:build(Target, Gateways),
+                                            N = erlang:length(Path),
+                                            [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                            OnionList = lists:zip([ libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
+                                            {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
+                                            LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
+                                            %% verify each recipt and witness
+                                            ValidWitnesses = lists:map(fun(Witness) ->
+                                                                               blockchain_poc_witness:is_valid(Witness) andalso
+                                                                               lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
+                                                                       end, witnesses(Txn)),
+                                            ValidReceipts = lists:map(fun(Receipt) ->
+                                                                              GW = blockchain_poc_receipt:gateway(Receipt),
+                                                                              blockchain_poc_receipt:is_valid(Receipt) andalso
+                                                                              blockchain_poc_receipt:data(Receipt) == lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList) andalso
+                                                                              blockchain_poc_receipt:origin(Receipt) == expected_origin(GW, OnionList)
+                                                                      end, receipts(Txn)),
+                                            case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
+                                                true ->
+                                                    ok;
+                                                _ ->
+                                                    {error, invalid_receipt_or_witness}
+                                            end
+                                    end
                             end
                     end
             end
@@ -209,6 +224,12 @@ create_secret_hash(Secret, X, []) ->
 create_secret_hash(Secret, X, Acc) ->
     <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
     create_secret_hash(Secret, X-1, [Hash|Acc]).
+
+
+expected_origin(GW, [{GW, _}|_]) ->
+    p2p;
+expected_origin(_, _) ->
+    radio.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
