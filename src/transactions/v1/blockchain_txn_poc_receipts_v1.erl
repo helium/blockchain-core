@@ -155,38 +155,48 @@ is_valid(Txn, _Block, Ledger) ->
                             case blockchain_ledger_poc_v1:find_valid(PoCs, Challenger, Secret) of
                                 {error, _} ->
                                     {error, poc_not_found};
-                                {ok, PoC} ->
+                                {ok, _PoC} ->
                                     Blockchain = blockchain_worker:blockchain(),
-                                    BlockHash = blockchain_txn_poc_request_v1:block_hash(PoC),
-                                    case blockchain:get_block(BlockHash, Blockchain) of
-                                        {error, _}=Error ->
+                                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                                        {error, _Reason}=Error ->
                                             Error;
-                                        {ok, Block1} ->
-                                            Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
-                                            {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
-                                            {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger),
-                                            {ok, Path} = blockchain_poc_path:build(Target, Gateways),
-                                            N = erlang:length(Path),
-                                            [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                            OnionList = lists:zip([ libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
-                                            {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
-                                            LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
-                                            %% verify each recipt and witness
-                                            ValidWitnesses = lists:map(fun(Witness) ->
-                                                                               blockchain_poc_witness:is_valid(Witness) andalso
-                                                                               lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
-                                                                       end, witnesses(Txn)),
-                                            ValidReceipts = lists:map(fun(Receipt) ->
-                                                                              GW = blockchain_poc_receipt:gateway(Receipt),
-                                                                              blockchain_poc_receipt:is_valid(Receipt) andalso
-                                                                              blockchain_poc_receipt:data(Receipt) == lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList) andalso
-                                                                              blockchain_poc_receipt:origin(Receipt) == expected_origin(GW, OnionList)
-                                                                      end, receipts(Txn)),
-                                            case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
-                                                true ->
-                                                    ok;
-                                                _ ->
-                                                    {error, invalid_receipt_or_witness}
+                                        {ok, GwInfo} ->
+                                            LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo),
+                                            case blockchain:get_block(LastChallenge, Blockchain) of
+                                                {error, _}=Error ->
+                                                    Error;
+                                                {ok, Block1} ->
+                                                    BlockHash = blockchain_block:hash_block(Block1),
+                                                    Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
+                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
+                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger),
+                                                    {ok, Path} = blockchain_poc_path:build(Target, Gateways),
+                                                    N = erlang:length(Path),
+                                                    [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                                    OnionList = lists:zip([ libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
+                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
+                                                    LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
+                                                    %% verify each recipt and witness
+                                                    ValidWitnesses = lists:map(
+                                                        fun(Witness) ->
+                                                            blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                            lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
+                                                        end,
+                                                        ?MODULE:witnesses(Txn)
+                                                    ),
+                                                    ValidReceipts = lists:map(
+                                                        fun(Receipt) ->
+                                                            GW = blockchain_poc_receipt_v1:gateway(Receipt),
+                                                            blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                                                            blockchain_poc_receipt_v1:data(Receipt) == lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList) andalso
+                                                            blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(GW, OnionList)
+                                                        end,
+                                                        ?MODULE:receipts(Txn)
+                                                    ),
+                                                    case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
+                                                        true -> ok;
+                                                        _ -> {error, invalid_receipt_or_witness}
+                                                    end
                                             end
                                     end
                             end
