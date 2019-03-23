@@ -268,7 +268,7 @@ target_test() ->
 
     Iterations = 10000,
     Results = dict:to_list(lists:foldl(fun(_, Acc) ->
-                                               {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1),
+                                               {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1, <<>>),
                                                dict:update_counter(Target, 1, Acc)
                                        end,
                                        dict:new(),
