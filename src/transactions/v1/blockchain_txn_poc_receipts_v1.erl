@@ -169,7 +169,7 @@ is_valid(Txn, _Block, Ledger) ->
                                                     BlockHash = blockchain_block:hash_block(Block1),
                                                     Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
-                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger),
+                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                     {ok, Path} = blockchain_poc_path:build(Target, Gateways),
                                                     N = erlang:length(Path),
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),

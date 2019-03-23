@@ -10,7 +10,7 @@
     shortest/3,
     length/3,
     build_graph/2,
-    target/2
+    target/3
 ]).
 
 -ifdef(TEST).
@@ -177,9 +177,9 @@ edge_weight(Gw1, Gw2) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec target(Hash :: binary(),
-             Ledger :: blockchain_ledger_v1:ledger()) -> {libp2p_crypto:pubkey_bin(), map()}.
-target(Hash, Ledger) ->
-    ActiveGateways = active_gateways(Ledger),
+             Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> {libp2p_crypto:pubkey_bin(), map()}.
+target(Hash, Ledger, Challenger) ->
+    ActiveGateways = active_gateways(Ledger, Challenger),
     ProbsAndGatewayAddrs = create_probs(ActiveGateways),
     Entropy = entropy(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
@@ -212,13 +212,13 @@ entropy(Entropy) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec active_gateways(Ledger :: blockchain_ledger_v1:ledger()) -> map().
-active_gateways(Ledger) ->
+-spec active_gateways(Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> map().
+active_gateways(Ledger, Challenger) ->
     ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
     maps:filter(
         fun(PubkeyBin, Gateway) ->
             % TODO: Maybe do some find of score check here
-            PubkeyBin =/= blockchain_swarm:pubkey_bin()
+            PubkeyBin =/= Challenger
             andalso blockchain_ledger_gateway_v1:location(Gateway) =/= undefined
         end
         ,ActiveGateways
