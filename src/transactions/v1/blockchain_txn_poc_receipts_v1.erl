@@ -173,7 +173,7 @@ is_valid(Txn, _Block, Ledger) ->
                                                     {ok, Path} = blockchain_poc_path:build(Target, Gateways),
                                                     N = erlang:length(Path),
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                                    OnionList = lists:zip([ libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
+                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
                                                     LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
                                                     %% verify each recipt and witness
@@ -187,9 +187,10 @@ is_valid(Txn, _Block, Ledger) ->
                                                     ValidReceipts = lists:map(
                                                         fun(Receipt) ->
                                                             GW = blockchain_poc_receipt_v1:gateway(Receipt),
+                                                            {_, Data} = lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList),
                                                             blockchain_poc_receipt_v1:is_valid(Receipt) andalso
-                                                            blockchain_poc_receipt_v1:data(Receipt) == lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList) andalso
-                                                            blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(GW, OnionList)
+                                                            blockchain_poc_receipt_v1:data(Receipt) == Data andalso
+                                                            blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(libp2p_crypto:bin_to_pubkey(GW), OnionList)
                                                         end,
                                                         ?MODULE:receipts(Txn)
                                                     ),
