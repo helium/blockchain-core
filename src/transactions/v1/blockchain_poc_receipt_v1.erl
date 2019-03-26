@@ -169,6 +169,9 @@ sign_test() ->
 
 encode_decode_test() ->
     Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
-    ?assertEqual({receipt, Receipt}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt))).
+    ?assertEqual({receipt, Receipt}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt))),
+    Receipt2 = new(<<"gateway">>, 0, 13, <<"data">>, radio),
+    ?assertEqual({receipt, Receipt2}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt2))).
+
 
 -endif.
