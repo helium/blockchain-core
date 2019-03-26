@@ -164,11 +164,11 @@ sign_test() ->
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
 
-    EncodedReceipt = encode(Receipt1#blockchain_poc_receipt_v1_pb{signature = <<>>}),
+    EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(Receipt1#blockchain_poc_receipt_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
     Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
-    ?assertEqual(Receipt, decode(encode(Receipt))).
+    ?assertEqual({receipt, Receipt}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt))).
 
 -endif.
