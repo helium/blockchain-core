@@ -164,44 +164,61 @@ is_valid(Txn, _Block, Ledger) ->
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
-                                                    LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
-                                                    %% verify each recipt and witness
-                                                    Witnesses = lists:foldl(
-                                                        fun(Elem, Acc) ->
-                                                            blockchain_poc_path_element_v1:witnesses(Elem) ++ Acc
+                                                    LayerHashes = [crypto:hash(sha256, L) || L <- Layers],
+                                                    InOrder = lists:foldl(
+                                                        fun(_, false) ->
+                                                            false;
+                                                        ({Elem, Gateway}, _Acc) ->
+                                                            case blockchain_poc_path_element_v1:challengee(Elem) of
+                                                                Gateway -> true;
+                                                                _ -> false
+                                                            end
                                                         end,
-                                                        [],
-                                                        ?MODULE:path(Txn)
+                                                        true,
+                                                        lists:zip(?MODULE:path(Txn), Path)
                                                     ),
-                                                    ValidWitnesses = lists:map(
-                                                        fun(Witness) ->
-                                                            blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                            lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
-                                                        end,
-                                                        Witnesses
-                                                    ),
-                                                    Receipts = lists:foldl(
-                                                        fun(undefined, Acc)->
-                                                            Acc;
-                                                        (Elem, Acc) ->
-                                                            [blockchain_poc_path_element_v1:receipt(Elem)|Acc]
-                                                        end,
-                                                        [],
-                                                        ?MODULE:path(Txn)
-                                                    ),
-                                                    ValidReceipts = lists:map(
-                                                        fun(Receipt) ->
-                                                            GW = blockchain_poc_receipt_v1:gateway(Receipt),
-                                                            {_, Data} = lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList),
-                                                            blockchain_poc_receipt_v1:is_valid(Receipt) andalso
-                                                            blockchain_poc_receipt_v1:data(Receipt) == Data andalso
-                                                            blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(libp2p_crypto:bin_to_pubkey(GW), OnionList)
-                                                        end,
-                                                        Receipts
-                                                    ),
-                                                    case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
-                                                        true -> ok;
-                                                        _ -> {error, invalid_receipt_or_witness}
+                                                    case InOrder of
+                                                        false ->
+                                                            {error, receipt_not_in_order};
+                                                        true ->
+                                                            %% verify each recipt and witness
+                                                            Witnesses = lists:foldl(
+                                                                fun(Elem, Acc) ->
+                                                                    blockchain_poc_path_element_v1:witnesses(Elem) ++ Acc
+                                                                end,
+                                                                [],
+                                                                ?MODULE:path(Txn)
+                                                            ),
+                                                            ValidWitnesses = lists:map(
+                                                                fun(Witness) ->
+                                                                    blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                                    lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
+                                                                end,
+                                                                Witnesses
+                                                            ),
+                                                            Receipts = lists:foldl(
+                                                                fun(undefined, Acc)->
+                                                                    Acc;
+                                                                (Elem, Acc) ->
+                                                                    [blockchain_poc_path_element_v1:receipt(Elem)|Acc]
+                                                                end,
+                                                                [],
+                                                                ?MODULE:path(Txn)
+                                                            ),
+                                                            ValidReceipts = lists:map(
+                                                                fun(Receipt) ->
+                                                                    GW = blockchain_poc_receipt_v1:gateway(Receipt),
+                                                                    {_, Data} = lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList),
+                                                                    blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                                                                    blockchain_poc_receipt_v1:data(Receipt) == Data andalso
+                                                                    blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(libp2p_crypto:bin_to_pubkey(GW), OnionList)
+                                                                end,
+                                                                Receipts
+                                                            ),
+                                                            case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
+                                                                true -> ok;
+                                                                _ -> {error, invalid_receipt_or_witness}
+                                                            end
                                                     end
                                             end
                                     end
