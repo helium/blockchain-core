@@ -36,7 +36,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), binary(), binary(),
-          blockchain_poc_element_v1:path()) -> txn_poc_receipts().
+          blockchain_poc_path_element_v1:path()) -> txn_poc_receipts().
 new(Challenger, Secret, OnionKeyHash, Path) ->
     #blockchain_txn_poc_receipts_v1_pb{
         challenger=Challenger,
