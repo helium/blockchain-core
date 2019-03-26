@@ -15,9 +15,7 @@
     origin/1,
     signature/1,
     sign/2,
-    is_valid/1,
-    encode/1,
-    decode/1
+    is_valid/1
 ]).
 
 -ifdef(TEST).
@@ -117,22 +115,6 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
     BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec encode(Receipt :: poc_receipt()) -> binary().
-encode(Receipt) ->
-    blockchain_txn_poc_receipts_v1_pb:encode_msg(Receipt).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec decode(Binary :: binary()) -> poc_receipt().
-decode(Binary) ->
-    blockchain_txn_poc_receipts_v1_pb:decode_msg(Binary,  blockchain_poc_receipt_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
