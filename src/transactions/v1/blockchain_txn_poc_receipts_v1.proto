@@ -29,12 +29,17 @@ message poc_response_v1 {
     }
 }
 
+message poc_path_element_v1 {
+    bytes challengee = 1;
+    poc_receipt_v1 receipt = 2;
+    repeated poc_witness_v1 witnesses = 3;
+}
+
 message txn_poc_receipts_v1 {
     bytes challenger = 1;
     bytes secret = 2;
     bytes onion_key_hash = 3;
-    repeated poc_receipt_v1 receipts = 4;
-    repeated poc_witness_v1 witnesses = 5;
-    uint64 fee = 6;
-    bytes signature = 7;
+    repeated poc_path_element_v1 path = 4;
+    uint64 fee = 5;
+    bytes signature = 6;
 }

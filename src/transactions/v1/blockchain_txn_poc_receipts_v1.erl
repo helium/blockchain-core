@@ -9,13 +9,12 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/4,
     hash/1,
     onion_key_hash/1,
     challenger/1,
     secret/1,
-    receipts/1,
-    witnesses/1,
+    path/1,
     fee/1,
     signature/1,
     sign/2,
@@ -36,16 +35,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(binary(), blockchain_poc_receipt_v1:poc_receipts(),
-          blockchain_poc_witness_v1:poc_witnesss(), libp2p_crypto:pubkey_bin(),
-          binary()) -> txn_poc_receipts().
-new(OnionKeyHash, Receipts, Witnesses, Challenger, Secret) ->
+-spec new(libp2p_crypto:pubkey_bin(), binary(), binary(),
+          blockchain_poc_element_v1:path()) -> txn_poc_receipts().
+new(Challenger, Secret, OnionKeyHash, Path) ->
     #blockchain_txn_poc_receipts_v1_pb{
-        onion_key_hash=OnionKeyHash,
-        receipts=Receipts,
-        witnesses=Witnesses,
         challenger=Challenger,
         secret=Secret,
+        onion_key_hash=OnionKeyHash,
+        path=Path,
         fee=0,
         signature = <<>>
     }.
@@ -59,14 +56,6 @@ hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec onion_key_hash(txn_poc_receipts()) -> binary().
-onion_key_hash(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -88,17 +77,17 @@ secret(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec receipts(txn_poc_receipts()) -> blockchain_poc_receipt_v1:poc_receipts().
-receipts(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.receipts.
+-spec onion_key_hash(txn_poc_receipts()) -> binary().
+onion_key_hash(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec witnesses(txn_poc_receipts()) -> blockchain_poc_witness_v1:poc_witnesss().
-witnesses(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.witnesses.
+-spec path(txn_poc_receipts()) -> blockchain_poc_element_v1:path().
+path(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.path.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -143,9 +132,9 @@ is_valid(Txn, _Block, Ledger) ->
         false ->
             {error, bad_signature};
         true ->
-            case ?MODULE:receipts(Txn) =:= [] andalso ?MODULE:witnesses(Txn) =:= [] of
+            case ?MODULE:path(Txn) =:= [] of
                 true ->
-                    {error, empty_receipts_witness};
+                    {error, empty_path};
                 false ->
                     case blockchain_ledger_v1:find_poc(?MODULE:onion_key_hash(Txn), Ledger) of
                         {error, _}=Error ->
@@ -177,12 +166,28 @@ is_valid(Txn, _Block, Ledger) ->
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
                                                     LayerHashes = [ crypto:hash(sha256, L) || L <- Layers ],
                                                     %% verify each recipt and witness
+                                                    Witnesses = lists:foldl(
+                                                        fun(Elem, Acc) ->
+                                                            blockchain_poc_path_element_v1:witnesses(Elem) ++ Acc
+                                                        end,
+                                                        [],
+                                                        ?MODULE:path(Txn)
+                                                    ),
                                                     ValidWitnesses = lists:map(
                                                         fun(Witness) ->
                                                             blockchain_poc_witness_v1:is_valid(Witness) andalso
                                                             lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
                                                         end,
-                                                        ?MODULE:witnesses(Txn)
+                                                        Witnesses
+                                                    ),
+                                                    Receipts = lists:foldl(
+                                                        fun(undefined, Acc)->
+                                                            Acc;
+                                                        (Elem, Acc) ->
+                                                            [blockchain_poc_path_element_v1:receipt(Elem)|Acc]
+                                                        end,
+                                                        [],
+                                                        ?MODULE:path(Txn)
                                                     ),
                                                     ValidReceipts = lists:map(
                                                         fun(Receipt) ->
@@ -192,7 +197,7 @@ is_valid(Txn, _Block, Ledger) ->
                                                             blockchain_poc_receipt_v1:data(Receipt) == Data andalso
                                                             blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(libp2p_crypto:bin_to_pubkey(GW), OnionList)
                                                         end,
-                                                        ?MODULE:receipts(Txn)
+                                                        Receipts
                                                     ),
                                                     case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
                                                         true -> ok;
@@ -249,49 +254,44 @@ expected_origin(_, _) ->
 
 new_test() ->
     Tx = #blockchain_txn_poc_receipts_v1_pb{
-        onion_key_hash = <<"onion">>,
         challenger = <<"challenger">>,
         secret = <<"secret">>,
-        receipts=[],
-        witnesses=[],
+        onion_key_hash = <<"onion">>,
+        path=[],
         fee = 0,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>)).
+    ?assertEqual(Tx, new(<<"challenger">>,  <<"secret">>, <<"onion">>, [])).
 
 onion_key_hash_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
     ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 challenger_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
     ?assertEqual(<<"challenger">>, challenger(Tx)).
 
 secret_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
     ?assertEqual(<<"secret">>, secret(Tx)).
 
-receipts_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
-    ?assertEqual([], receipts(Tx)).
-
-witnesses_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
-    ?assertEqual([], witnesses(Tx)).
+path_test() ->
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
+    ?assertEqual([], path(Tx)).
 
 fee_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
     ?assertEqual(0, fee(Tx)).
 
 signature_test() ->
-    Tx = new(<<"onion">>, [], [], <<"challenger">>, <<"secret">>),
+    Tx = new(<<"challenger">>,  <<"secret">>, <<"onion">>, []),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Challenger = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Tx0 = new(<<"onion">>, [], [], Challenger, <<"secret">>),
+    Tx0 = new(Challenger,  <<"secret">>, <<"onion">>, []),
     Tx1 = sign(Tx0, SigFun),
     Sig = signature(Tx1),
     EncodedTx1 = blockchain_txn_poc_receipts_v1_pb:encode_msg(Tx1#blockchain_txn_poc_receipts_v1_pb{signature = <<>>}),

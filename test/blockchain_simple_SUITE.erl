@@ -462,8 +462,7 @@ poc_request_test(Config) ->
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Block, _Ledger) -> ok end),
 
-    Witness = blockchain_poc_witness_v1:new(Gateway, 0, 0, <<"hash">>),
-    PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(OnionKeyHash0, [], [Witness], Gateway, Secret0),
+    PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(Gateway, Secret0, OnionKeyHash0, []),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
