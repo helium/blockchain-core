@@ -85,7 +85,7 @@ onion_key_hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec path(txn_poc_receipts()) -> blockchain_poc_element_v1:path().
+-spec path(txn_poc_receipts()) -> blockchain_poc_path_element_v1:path().
 path(Txn) ->
     Txn#blockchain_txn_poc_receipts_v1_pb.path.
 
