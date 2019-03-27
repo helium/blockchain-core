@@ -161,65 +161,11 @@ is_valid(Txn, _Block, Ledger) ->
                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                     {ok, Path} = blockchain_poc_path:build(Target, Gateways),
                                                     N = erlang:length(Path),
-                                                    [<<IV:16/integer-unsigned-little, _/binary>> | Hashes] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], Hashes),
+                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
                                                     LayerHashes = [crypto:hash(sha256, L) || L <- Layers],
-                                                    InOrder = lists:foldl(
-                                                        fun(_, false) ->
-                                                            false;
-                                                        ({Elem, Gateway}, _Acc) ->
-                                                            case blockchain_poc_path_element_v1:challengee(Elem) of
-                                                                Gateway -> true;
-                                                                _ -> false
-                                                            end
-                                                        end,
-                                                        true,
-                                                        lists:zip(?MODULE:path(Txn), Path)
-                                                    ),
-                                                    case InOrder of
-                                                        false ->
-                                                            {error, receipt_not_in_order};
-                                                        true ->
-                                                            %% verify each recipt and witness
-                                                            Witnesses = lists:foldl(
-                                                                fun(Elem, Acc) ->
-                                                                    blockchain_poc_path_element_v1:witnesses(Elem) ++ Acc
-                                                                end,
-                                                                [],
-                                                                ?MODULE:path(Txn)
-                                                            ),
-                                                            ValidWitnesses = lists:map(
-                                                                fun(Witness) ->
-                                                                    blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                                    lists:member(blockchain_poc_witness_v1:packet_hash(Witness), LayerHashes)
-                                                                end,
-                                                                Witnesses
-                                                            ),
-                                                            Receipts = lists:foldl(
-                                                                fun(undefined, Acc)->
-                                                                    Acc;
-                                                                (Elem, Acc) ->
-                                                                    [blockchain_poc_path_element_v1:receipt(Elem)|Acc]
-                                                                end,
-                                                                [],
-                                                                ?MODULE:path(Txn)
-                                                            ),
-                                                            ValidReceipts = lists:map(
-                                                                fun(Receipt) ->
-                                                                    GW = blockchain_poc_receipt_v1:gateway(Receipt),
-                                                                    {_, Data} = lists:keyfind(libp2p_crypto:bin_to_pubkey(GW), 1, OnionList),
-                                                                    blockchain_poc_receipt_v1:is_valid(Receipt) andalso
-                                                                    blockchain_poc_receipt_v1:data(Receipt) == Data andalso
-                                                                    blockchain_poc_receipt_v1:origin(Receipt) == expected_origin(libp2p_crypto:bin_to_pubkey(GW), OnionList)
-                                                                end,
-                                                                Receipts
-                                                            ),
-                                                            case lists:all(fun(T) -> T == true end, ValidWitnesses ++ ValidReceipts) of
-                                                                true -> ok;
-                                                                _ -> {error, invalid_receipt_or_witness}
-                                                            end
-                                                    end
+                                                    validate(Txn, Path, LayerData, LayerHashes)
                                             end
                                     end
                             end
@@ -258,11 +204,73 @@ create_secret_hash(Secret, X, Acc) ->
     <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
     create_secret_hash(Secret, X-1, [Hash|Acc]).
 
-
-expected_origin(GW, [{GW, _}|_]) ->
-    p2p;
-expected_origin(_, _) ->
-    radio.
+%% @doc Validate the proof of coverage receipt path.
+%%
+%% The proof of coverage receipt path consists of a list of `poc path elements',
+%% each of which corresponds to a layer of the onion-encrypted PoC packet. This
+%% path element records who the layer was intended for, if we got a receipt from
+%% them and any other peers that witnessed this packet but were unable to decrypt
+%% it. This function verifies that all the receipts and witnesses appear in the
+%% expected order, and satisfy all the validity checks.
+%%
+%% Because the first packet is delivered over p2p, it cannot have witnesses and
+%% the receipt must indicate the origin was `p2p'. All subsequent packets must
+%% have the receipt origin as `radio'. The final layer has the packet composed
+%% entirely of padding, so there cannot be a valid receipt, but there can be
+%% witnesses (as evidence that the final recipient transmitted it).
+-spec validate(txn_poc_receipts(), list(), [binary(), ...], [binary(), ...]) ->
+    ok | {error, atom()}.
+validate(Txn, Path, LayerData, LayerHashes) ->
+    lists:foldl(
+      fun(_, {error, _} = Error) ->
+              Error;
+         ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
+              case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
+                  true ->
+                      IsLast = Elem == lists:last(?MODULE:path(Txn)),
+                      IsFirst = Elem == hd(?MODULE:path(Txn)),
+                      Receipt = blockchain_poc_path_element_v1:receipt(Elem),
+                      ExpectedOrigin = case IsFirst of
+                                           true -> p2p;
+                                           false -> radio
+                                       end,
+                      %% check the receipt
+                      %% NOTE the last path element should have no receipt
+                      case Receipt == undefined orelse
+                           (IsLast == false andalso
+                            blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                            blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
+                            blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
+                            blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin) of
+                          true ->
+                              %% ok the receipt looks good, check the witnesses
+                              %% NOTE the first path element should have no witnesses
+                              Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
+                              case Witnesses /= [] andalso IsFirst of
+                                  true ->
+                                      {error, illegal_witnesses};
+                                  false ->
+                                      %% all the witnesses should have the right LayerHash
+                                      %% and be valid
+                                      case lists:all(fun(Witness) ->
+                                                             blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                             blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                                                     end, Witnesses) of
+                                          true ->
+                                              ok;
+                                          false ->
+                                              {error, invalid_witness}
+                                      end
+                              end;
+                          false ->
+                              {error, invalid_receipt}
+                      end;
+                  _ -> {error, receipt_not_in_order}
+              end
+      end,
+      ok,
+      lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData, LayerHashes))
+     ).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
