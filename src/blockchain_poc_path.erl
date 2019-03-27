@@ -60,7 +60,11 @@ build(Target, Gateways) ->
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
-            {ok, Path1 ++ Path2}
+            Path3 = Path1 ++ Path2,
+            case erlang:length(Path3) > 2 of
+                false -> {error, path_too_small};
+                true -> {ok, Path3}
+            end
     end.
 
 %%--------------------------------------------------------------------
