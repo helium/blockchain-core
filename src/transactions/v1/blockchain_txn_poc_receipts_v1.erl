@@ -181,9 +181,11 @@ is_valid(Txn, _Block, Ledger) ->
 -spec absorb(txn_poc_receipts(),
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(_Txn, _Block, _Ledger) ->
+absorb(Txn, _Block, Ledger) ->
     % TODO: Update score here
-    ok.
+    LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    Challenger = ?MODULE:challenger(Txn),
+    blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
