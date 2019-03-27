@@ -270,7 +270,7 @@ validate(Txn, Path, LayerData, LayerHashes) ->
       end,
       ok,
       %% tack on a final empty layerdata so the zip is happy
-      lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData ++ [<<>>], LayerHashes))
+      lists:zip3(?MODULE:path(Txn), Path ++ [<<>>], lists:zip(LayerData ++ [<<>>], LayerHashes))
      ).
 
 %% ------------------------------------------------------------------
