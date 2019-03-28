@@ -53,14 +53,22 @@ build(Target, Gateways) ->
         false ->
             {error, not_enough_gateways};
         true ->
-            [{_, Start}, {_, End}|_] = lists:sort(fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
-                                                          ScoreA * ?MODULE:length(Graph, Target, AddrA) >
-                                                          ScoreB * ?MODULE:length(Graph, Target, AddrB)
-                                                  end, GraphList),
+            [{_, Start}, {_, End}|_] = lists:sort(
+                fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
+                    ScoreA * ?MODULE:length(Graph, Target, AddrA) >
+                    ScoreB * ?MODULE:length(Graph, Target, AddrB)
+                end,
+                GraphList
+            ),
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
-            {ok, Path1 ++ Path2}
+            Path3 = Path1 ++ Path2,
+            % case erlang:length(Path3) > 2 of
+            %     false -> {error, path_too_small};
+            %     true -> {ok, Path3}
+            % end
+            {ok, Path3}
     end.
 
 %%--------------------------------------------------------------------
