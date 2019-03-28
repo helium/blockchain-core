@@ -250,26 +250,28 @@ validate(Txn, Path, LayerData, LayerHashes) ->
                             %% ok the receipt looks good, check the witnesses
                             %% NOTE the first path element should have no witnesses
                             Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                            case
-                                Witnesses /= [] andalso IsFirst orelse
-                                erlang:length(Witnesses) > 5
-                            of
+                            case Witnesses /= [] andalso IsFirst of
                                 true ->
                                     {error, illegal_witnesses};
                                 false ->
-                                    %% all the witnesses should have the right LayerHash
-                                    %% and be valid
-                                    case
-                                        lists:all(
-                                            fun(Witness) ->
-                                                blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                                            end,
-                                            Witnesses
-                                        )
-                                    of
-                                        true -> ok;
-                                        false -> {error, invalid_witness}
+                                    case erlang:length(Witnesses) > 5 of
+                                        true ->
+                                            {error, too_many_witnesses};
+                                        false ->
+                                            %% all the witnesses should have the right LayerHash
+                                            %% and be valid
+                                            case
+                                                lists:all(
+                                                    fun(Witness) ->
+                                                        blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                        blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                                                    end,
+                                                    Witnesses
+                                                )
+                                            of
+                                                true -> ok;
+                                                false -> {error, invalid_witness}
+                                            end
                                     end
                             end;
                         false ->
