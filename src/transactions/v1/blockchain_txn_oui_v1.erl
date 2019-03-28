@@ -96,8 +96,10 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_oui(), blockchain_ledger_v1:ledger()) ->ok | {error, any()}.
-is_valid(Txn, Ledger) ->
+-spec is_valid(txn_oui(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, _Block, Ledger) ->
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),

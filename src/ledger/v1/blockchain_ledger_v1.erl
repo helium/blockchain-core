@@ -735,10 +735,8 @@ increment_oui_counter(Ledger) ->
         {ok, OUICounter} ->
             DefaultCF = default_cf(Ledger),
             OUI = OUICounter + 1,
-            case cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>) of
-                {error, _}=Error -> Error;
-                ok -> {ok, OUI}
-            end
+            ok = cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>),
+            {ok, OUI}
     end.
 
 %%--------------------------------------------------------------------
@@ -758,7 +756,7 @@ add_oui(Owner, Addresses, Ledger) ->
                 {error, _}=Error ->
                     Error;
                 {ok, OUIs} ->
-                    cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin),
+                    ok = cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin),
                     cache_put(Ledger, RoutingCF, Owner, erlang:term_to_binary([OUI|OUIs]))
             end
     end.
