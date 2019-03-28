@@ -250,6 +250,12 @@ add_block(Block, Blockchain) ->
 
 -spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
 add_block(Block, Blockchain, Syncing) ->
+    blockchain_lock:acquire(),
+    Res = add_block_(Block, Blockchain, Syncing),
+    blockchain_lock:release(),
+    Res.
+
+add_block_(Block, Blockchain, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of

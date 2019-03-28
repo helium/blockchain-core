@@ -82,6 +82,7 @@ init(Args) ->
     BEventOpts = [],
     BTxnManagerOpts = [],
     ChildSpecs = [
+        ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
