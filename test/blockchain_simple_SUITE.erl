@@ -432,23 +432,77 @@ poc_request_test(Config) ->
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
 
     % Create the PoC challenge request txn
-    Secret = crypto:strong_rand_bytes(8),
-    {ok, _PvtOnionKey, OnionCompactKey} = ecc_compact:generate_key(),
-    Tx = blockchain_txn_poc_request_v1:new(Gateway, crypto:hash(sha256, Secret), OnionCompactKey),
-    SignedTx = blockchain_txn_poc_request_v1:sign(Tx, GatewaySigFun),
-    Block3 = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    Keys0 = libp2p_crypto:generate_keys(ecc_compact),
+    Secret0 = libp2p_crypto:keys_to_bin(Keys0),
+    #{public := OnionCompactKey0} = Keys0,
+    SecretHash0 = crypto:hash(sha256, Secret0),
+    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2)),
+    SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
-    timer:sleep(500),
+    
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
 
+    Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
     ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
-    ?assertEqual({ok, 4}, blockchain:height(Chain)),
-
     % Check that the last_poc_challenge block height got recorded in GwInfo
-    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
+    {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo2)),
 
+    % Check that the PoC info
+    {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger),
+    ?assertEqual(SecretHash0, blockchain_ledger_poc_v1:secret_hash(PoC)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
+    ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
+
+    meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Block, _Ledger) -> ok end),
+
+    PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(Gateway, Secret0, OnionKeyHash0, []),
+    SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
+    Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
+    
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 5} =:= blockchain:height(Chain) end),
+
+    Block40 = lists:foldl(
+        fun(_, _) ->
+            B = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+            timer:sleep(10),
+            B
+        end,
+        <<>>,
+        lists:seq(1, 35)
+    ),
+
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 40} =:= blockchain:height(Chain) end),
+
+    % Create another PoC challenge request txn
+    Keys1 = libp2p_crypto:generate_keys(ecc_compact),
+    Secret1 = libp2p_crypto:keys_to_bin(Keys1),
+    #{public := OnionCompactKey1} = Keys1,
+    SecretHash1 = crypto:hash(sha256, Secret1),
+    OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
+    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block40)),
+    SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
+    Block5 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block5, Chain, N, self()),
+
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 41} =:= blockchain:height(Chain) end),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
+    % Check that the last_poc_challenge block height got recorded in GwInfo
+    {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(41, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo3)),
+
+    ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1),
     ok.
 
 bogus_coinbase_test(Config) ->

@@ -7,22 +7,22 @@
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/4,
-    address/1,
+    new/5,
+    gateway/1,
     timestamp/1,
     signal/1,
-    hash/1,
+    data/1,
+    origin/1,
     signature/1,
     sign/2,
-    is_valid/1,
-    encode/1,
-    decode/1
+    is_valid/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type origin() :: 'p2p' | 'radio' | integer() | undefined.
 -type poc_receipt() :: #blockchain_poc_receipt_v1_pb{}.
 -type poc_receipts() :: [poc_receipt()].
 
@@ -35,22 +35,24 @@
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
           Signal :: integer(),
-          Hash :: binary()) -> poc_receipt().
-new(Address, Timestamp, Signal, Hash) ->
+          Data :: binary(),
+          Origin :: origin()) -> poc_receipt().
+new(Address, Timestamp, Signal, Data, Origin) ->
     #blockchain_poc_receipt_v1_pb{
-        address=Address,
+        gateway=Address,
         timestamp=Timestamp,
         signal=Signal,
-        hash=Hash,
+        data=Data,
+        origin=Origin,
         signature = <<>>
     }.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec address(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
-address(Receipt) ->
-    Receipt#blockchain_poc_receipt_v1_pb.address.
+-spec gateway(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
+gateway(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.gateway.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,9 +74,18 @@ signal(Receipt) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(Receipt :: poc_receipt()) -> binary().
-hash(Receipt) ->
-    Receipt#blockchain_poc_receipt_v1_pb.hash.
+-spec data(Receipt :: poc_receipt()) -> binary().
+data(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.data.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec origin(Receipt :: poc_receipt()) -> origin().
+origin(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.origin.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -99,27 +110,11 @@ sign(Receipt, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(Receipt :: poc_receipt()) -> boolean().
-is_valid(Receipt=#blockchain_poc_receipt_v1_pb{address=Address, signature=Signature}) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(Address),
+is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature}) ->
+    PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
     BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec encode(Receipt :: poc_receipt()) -> binary().
-encode(Receipt) ->
-    blockchain_txn_poc_receipts_v1_pb:encode_msg(Receipt).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec decode(Binary :: binary()) -> poc_receipt().
-decode(Binary) ->
-    blockchain_txn_poc_receipts_v1_pb:decode_msg(Binary,  blockchain_poc_receipt_v1_pb).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -128,47 +123,55 @@ decode(Binary) ->
 
 new_test() ->
     Receipt = #blockchain_poc_receipt_v1_pb{
-        address= <<"address">>,
+        gateway= <<"gateway">>,
         timestamp= 1,
         signal=12,
-        hash= <<"hash">>,
+        data= <<"data">>,
+        origin=p2p,
         signature = <<>>
     },
-    ?assertEqual(Receipt, new(<<"address">>, 1, 12, <<"hash">>)).
+    ?assertEqual(Receipt, new(<<"gateway">>, 1, 12, <<"data">>, p2p)).
 
-address_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
-    ?assertEqual(<<"address">>, address(Receipt)).
+gateway_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
+    ?assertEqual(<<"gateway">>, gateway(Receipt)).
 
 timestamp_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
     ?assertEqual(1, timestamp(Receipt)).
 
 signal_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
     ?assertEqual(12, signal(Receipt)).
 
-hash_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
-    ?assertEqual(<<"hash">>, hash(Receipt)).
+data_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
+    ?assertEqual(<<"data">>, data(Receipt)).
+
+origin_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
+    ?assertEqual(p2p, origin(Receipt)).
 
 signature_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
     ?assertEqual(<<>>, signature(Receipt)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Address = libp2p_crypto:pubkey_to_bin(PubKey),
-    Receipt0 = new(Address, 1, 12, <<"hash">>),
+    Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
+    Receipt0 = new(Gateway, 1, 12, <<"data">>, p2p),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
 
-    EncodedReceipt = encode(Receipt1#blockchain_poc_receipt_v1_pb{signature = <<>>}),
+    EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(Receipt1#blockchain_poc_receipt_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
-    Receipt = new(<<"address">>, 1, 12, <<"hash">>),
-    ?assertEqual(Receipt, decode(encode(Receipt))).
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
+    ?assertEqual({receipt, Receipt}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt))),
+    Receipt2 = new(<<"gateway">>, 0, 13, <<"data">>, radio),
+    ?assertEqual({receipt, Receipt2}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt2))).
+
 
 -endif.

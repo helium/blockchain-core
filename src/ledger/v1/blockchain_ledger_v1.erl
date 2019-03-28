@@ -23,7 +23,9 @@
     add_gateway/3, add_gateway/6,
     add_gateway_location/4,
 
-    request_poc/4,
+    find_poc/2,
+    request_poc/5,
+    delete_poc/3, delete_pocs/2,
 
     find_entry/2,
     credit_account/3,
@@ -57,6 +59,7 @@
     active_gateways :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
+    pocs :: rocksdb:cf_handle(),
     context :: undefined | rocksdb:batch_handle(),
     cache :: undefined | ets:tid()
 }).
@@ -81,8 +84,8 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF,
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF] = CFs,
+    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, 
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -91,13 +94,15 @@ new(Dir) ->
             default=DefaultCF,
             active_gateways=AGwsCF,
             entries=EntriesCF,
-            htlcs=HTLCsCF
+            htlcs=HTLCsCF,
+            pocs=PoCsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
             entries=DelayedEntriesCF,
-            htlcs=DelayedHTLCsCF
+            htlcs=DelayedHTLCsCF,
+            pocs=DelayedPoCsCF
         }
     }.
 
@@ -404,29 +409,121 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec request_poc(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                  HashOnion :: {binary(), binary()},
-                  Block :: blockchain_block:block(),
-                  Ledger :: ledger()) -> ok | {error, any()}.
-request_poc(GatewayAddress, {Hash, Onion}, Block, Ledger) ->
-    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _} ->
-            {error, no_active_gateway};
-        {ok, Gw} ->
-            Height = blockchain_block:height(Block),
-            Gw0 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw),
-            Gw1 = blockchain_ledger_gateway_v1:last_poc_info({Hash, Onion}, Gw0),
-            Bin = blockchain_ledger_gateway_v1:serialize(Gw1),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+-spec find_poc(binary(), ledger()) -> {ok, blockchain_ledger_poc_v1:pocs()} | {error, any()}.
+find_poc(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    case cache_get(Ledger, PoCsCF, OnionKeyHash, []) of
+        {ok, BinPoCs} ->
+            PoCs = erlang:binary_to_term(BinPoCs),
+            {ok, lists:map(fun blockchain_ledger_poc_v1:deserialize/1, PoCs)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec request_poc(OnionKeyHash :: binary(),
+                  SecretHash :: binary(),
+                  Challenger :: libp2p_crypto:pubkey_bin(),
+                  Block :: blockchain_block:block(),
+                  Ledger :: ledger()) -> ok | {error, any()}.
+request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger) ->
+    case ?MODULE:find_gateway_info(Challenger, Ledger) of
+        {error, _} ->
+            {error, no_active_gateway};
+        {ok, Gw0} ->
+            case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+                {error, not_found} ->
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, []);
+                {error, _} ->
+                    {error, fail_getting_poc};
+                {ok, PoCs} ->
+                    request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, PoCs)
+            end
+    end.
+
+request_poc_(OnionKeyHash, SecretHash, Challenger, Block, Ledger, Gw0, PoCs) ->
+    case blockchain_ledger_gateway_v1:last_poc_onion_key_hash(Gw0) of
+        undefined ->
+            Height = blockchain_block:height(Block),
+            Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
+            Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+            GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
+            AGwsCF = active_gateways_cf(Ledger),
+            ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+
+            PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, Challenger),
+            PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
+            BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
+            PoCsCF = pocs_cf(Ledger),
+            cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs);
+        LastOnionKeyHash  ->  
+            case delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    Height = blockchain_block:height(Block),
+                    Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height, Gw0),
+                    Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+                    GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
+                    AGwsCF = active_gateways_cf(Ledger),
+                    ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+
+                    PoC = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash, Challenger),
+                    PoCBin = blockchain_ledger_poc_v1:serialize(PoC),
+                    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
+                    PoCsCF = pocs_cf(Ledger),
+                    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_poc(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, any()}.
+delete_poc(OnionKeyHash, Challenger, Ledger) ->
+    case ?MODULE:find_poc(OnionKeyHash, Ledger) of
+        {error, not_found} ->
+            ok;
+        {error, _}=Error ->
+            Error;
+        {ok, PoCs} ->
+            FilteredPoCs = lists:filter(
+                fun(PoC) ->
+                    blockchain_ledger_poc_v1:challenger(PoC) =/= Challenger
+                end,
+                PoCs
+            ),
+            case FilteredPoCs of
+                [] ->
+                    ?MODULE:delete_pocs(OnionKeyHash, Ledger);
+                _ ->
+                    BinPoCs = erlang:term_to_binary(lists:map(fun blockchain_ledger_poc_v1:serialize/1, FilteredPoCs)),
+                    PoCsCF = pocs_cf(Ledger),
+                    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_pocs(binary(), ledger()) -> ok | {error, any()}.
+delete_pocs(OnionKeyHash, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
-                                                       | {error, any()}.
+                                                          | {error, any()}.
 find_entry(Address, Ledger) ->
     EntriesCF = entries_cf(Ledger),
     case cache_get(Ledger, EntriesCF, Address, []) of
@@ -668,6 +765,16 @@ htlcs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{htlcs=HTLCsCF}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec pocs_cf(ledger()) -> rocksdb:cf_handle().
+pocs_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{pocs=PoCsCF}}) ->
+    PoCsCF;
+pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
+    PoCsCF.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
@@ -725,8 +832,8 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default", "active_gateways", "entries", "htlcs",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs"],
+    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs", "delayed_pocs"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -855,5 +962,100 @@ debit_fee_test() ->
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
+
+poc_test() ->
+    BaseDir = test_utils:tmp_dir("poc_test"),
+    Ledger = new(BaseDir),
+
+    Challenger0 = <<"challenger0">>,
+    Challenger1 = <<"challenger1">>,
+
+    OnionKeyHash0 = <<"onion_key_hash0">>,
+    OnionKeyHash1 = <<"onion_key_hash1">>,
+
+    OwnerAddr = <<"owner_address">>,
+    Location = 123456789,
+    Nonce = 1,
+    Score = 0.1,
+   
+    SecretHash = <<"secret_hash">>,
+    Block = blockchain_block_v1:new(#{
+        prev_hash => <<"00000">>,
+        height => 12,
+        time => 0,
+        hbbft_round => [],
+        transactions => [],
+        signatures => []
+    }),
+
+    ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),
+
+    commit(
+        fun(L) ->
+            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, Score, L),
+            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, Score, L),
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, Block, L)
+        end,
+        Ledger
+    ),
+    PoC0 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash0, Challenger0),
+    ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
+    {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
+    ?assertEqual(12, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo0)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo0)),
+
+    commit(
+        fun(L) ->
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger1, Block, L)
+        end,
+        Ledger
+    ),
+    PoC1 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash0, Challenger1),
+    ?assertEqual({ok, [PoC1, PoC0]}, find_poc(OnionKeyHash0, Ledger)),
+
+    commit(
+        fun(L) ->
+            ok = delete_poc(OnionKeyHash0, Challenger0, L)
+        end,
+        Ledger
+    ),
+    ?assertEqual({ok, [PoC1]} ,find_poc(OnionKeyHash0, Ledger)),
+
+    commit(
+        fun(L) ->
+            ok = delete_poc(OnionKeyHash0, Challenger1, L)
+        end,
+        Ledger
+    ),
+    ?assertEqual({error, not_found} ,find_poc(OnionKeyHash0, Ledger)),
+
+    commit(
+        fun(L) ->
+            ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, Block, L)
+        end,
+        Ledger
+    ),
+    ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
+
+    commit(
+        fun(L) ->
+            ok = request_poc(OnionKeyHash1, SecretHash, Challenger0, Block, L)
+        end,
+        Ledger
+    ),
+    ?assertEqual({error, not_found} ,find_poc(OnionKeyHash0, Ledger)),
+    PoC2 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash1, Challenger0),
+    ?assertEqual({ok, [PoC2]}, find_poc(OnionKeyHash1, Ledger)),
+    {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
+    ?assertEqual(12, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo1)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo1)),
+
+    ok.
+
+commit(Fun, Ledger0) ->
+    Ledger1 = new_context(Ledger0),
+    _ = Fun(Ledger1),
+    commit_context(Ledger1).
+
 
 -endif.

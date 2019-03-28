@@ -250,6 +250,12 @@ add_block(Block, Blockchain) ->
 
 -spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
 add_block(Block, Blockchain, Syncing) ->
+    blockchain_lock:acquire(),
+    Res = add_block_(Block, Blockchain, Syncing),
+    blockchain_lock:release(),
+    Res.
+
+add_block_(Block, Blockchain, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
@@ -536,6 +542,8 @@ blocks_test() ->
         ok
     end),
 
+    {ok, Pid} = blockchain_lock:start_link(),
+
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
@@ -552,6 +560,8 @@ blocks_test() ->
         Hash => Block
     },
     ?assertMatch(Map, blocks(Chain)),
+
+    ok = gen_server:stop(Pid),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
@@ -574,6 +584,8 @@ get_block_test() ->
         ok
     end),
 
+    {ok, Pid} = blockchain_lock:start_link(),
+
     GenBlock = blockchain_block:new_genesis_block([]),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
@@ -586,6 +598,8 @@ get_block_test() ->
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
     ?assertMatch({ok, Block}, get_block(Hash, Chain)),
+
+    ok = gen_server:stop(Pid),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
