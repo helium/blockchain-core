@@ -323,11 +323,11 @@ update_challengees(Path, Height, Ledger) ->
     ZippedPath = lists:zip(lists:seq(1, N), Path),
     lists:foreach(
         fun({I, Elem}) ->
+            Challengee = blockchain_poc_path_element_v1:challengee(Elem),
             case blockchain_poc_path_element_v1:receipt(Elem) of
                 undefined ->
                     update_score(Challengee, Height, -1.0, Ledger);
                 _ ->
-                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
                     case proplists:get_value(I+1, ZippedPath, undefined) of
                         undefined ->
                             update_score(Challengee, Height, 0.5, Ledger);
