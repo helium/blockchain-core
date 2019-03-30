@@ -176,21 +176,40 @@ is_valid(Txn, _Block, Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Challenger + 0.25
+%% Challenger + 0.25 √
 %% Challengee receipt + 0.5 
 %%      * 2 (to 1.0) if next layer has a witness or a receipt
-%% Any witness get + 0.25
+%% Any witness get + 0.25 √
 %% Challengee does not send receipt and nothing after -1.0
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(),
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
-    % TODO: Update score here
+absorb(Txn, Block, Ledger) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
-    blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger).
+    case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            Height = blockchain_block:height(Block),
+            Path = ?MODULE:path(Txn),
+            lists:foreach(
+                fun(Elem) ->
+                    lists:foreach(
+                        fun(Witness) ->
+                            G = blockchain_poc_witness_v1:gateway(Witness),
+                            _ = update_score(G, Height, 0.25, Ledger)
+                        end,
+                        blockchain_poc_path_element_v1:witnesses(Elem)
+                    )
+                end,
+                Path
+            ),
+            _ = update_score(Challenger, Height, 0.25, Ledger),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -210,6 +229,20 @@ create_secret_hash(Secret, X, []) ->
 create_secret_hash(Secret, X, Acc) ->
     <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
     create_secret_hash(Secret, X-1, [Hash|Acc]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+update_score(GatewayAddress, Height, ScoreUpdate, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, GwInfo0} ->
+            LastScore = blockchain_ledger_gateway_v1:latest_score(GwInfo0),
+            NewScore = LastScore + ScoreUpdate,
+            blockchain_ledger_v1:update_gateway_score(GatewayAddress, Height, NewScore, Ledger)
+    end.
 
 %% @doc Validate the proof of coverage receipt path.
 %%
