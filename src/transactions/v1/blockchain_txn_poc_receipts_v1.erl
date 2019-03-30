@@ -319,7 +319,7 @@ update_score(GatewayAddress, Height, ScoreUpdate, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 update_challengees(Path, Height, Ledger) ->
-    N = erlang:lenght(Path),
+    N = erlang:length(Path),
     ZippedPath = lists:zip(lists:seq(1, N), Path),
     lists:foreach(
         fun({I, Elem}) ->
