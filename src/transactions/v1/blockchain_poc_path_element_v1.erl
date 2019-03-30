@@ -28,7 +28,7 @@
 %%--------------------------------------------------------------------
 -spec new(Challengee :: libp2p_crypto:pubkey_bin(),
           Receipt :: blockchain_poc_receipt_v1:poc_receipt() | undefined,
-        Witnesses :: blockchain_poc_witness_v1:poc_witnesss()) -> poc_element().
+          Witnesses :: blockchain_poc_witness_v1:poc_witnesss()) -> poc_element().
 new(Challengee, Receipt, Witnesses) ->
     #blockchain_poc_path_element_v1_pb{
         challengee=Challengee,
