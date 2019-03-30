@@ -176,6 +176,11 @@ is_valid(Txn, _Block, Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Challenger + 0.25
+%% Challengee receipt + 0.5 
+%%      * 2 (to 1.0) if next layer has a witness or a receipt
+%% Any witness get + 0.25
+%% Challengee does not send receipt and nothing after -1.0
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(),
