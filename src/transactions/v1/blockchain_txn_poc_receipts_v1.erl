@@ -195,21 +195,55 @@ absorb(Txn, Block, Ledger) ->
         ok ->
             Height = blockchain_block:height(Block),
             Path = ?MODULE:path(Txn),
-            lists:foreach(
-                fun(Elem) ->
-                    lists:foreach(
-                        fun(Witness) ->
-                            G = blockchain_poc_witness_v1:gateway(Witness),
-                            _ = update_score(G, Height, 0.25, Ledger)
-                        end,
-                        blockchain_poc_path_element_v1:witnesses(Elem)
-                    )
-                end,
-                Path
-            ),
+            _ = update_witnesses(Path, Height, Ledger),
+            _ = update_challengees(Path, Height, Ledger),
             _ = update_score(Challenger, Height, 0.25, Ledger),
             ok
     end.
+
+update_challengees(Path, Height, Ledger) ->
+    N = erlang:lenght(Path),
+    ZippedPath = lists:zip(lists:seq(1, N), Path),
+    lists:foreach(
+        fun({I, Elem}) ->
+            case blockchain_poc_path_element_v1:receipt(Elem) of
+                undefined ->
+                    ok;
+                _ ->
+                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+                    case proplists:get_value(I+1, ZippedPath, undefined) of
+                        undefined ->
+                            update_score(Challengee, Height, 0.5, Ledger);
+                        Elem1 ->
+                            case
+                                blockchain_poc_path_element_v1:receipt(Elem1) =/= undefined orelse
+                                blockchain_poc_path_element_v1:witnesses(Elem1) =/= []
+                            of
+                                false ->
+                                    update_score(Challengee, Height, 0.5, Ledger);
+                                true ->
+                                    update_score(Challengee, Height, 1, Ledger)
+                            end
+                    end
+            end
+        end,
+        ZippedPath
+    ),
+    ok.
+
+update_witnesses(Path, Height, Ledger) ->
+    lists:foreach(
+        fun(Elem) ->
+            lists:foreach(
+                fun(Witness) ->
+                    G = blockchain_poc_witness_v1:gateway(Witness),
+                    _ = update_score(G, Height, 0.25, Ledger)
+                end,
+                blockchain_poc_path_element_v1:witnesses(Elem)
+            )
+        end,
+        Path
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
