@@ -12,7 +12,7 @@
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
-    score/1, score/2,
+    score/1, score/3, latest_score/1,
     print/1,
     serialize/1, deserialize/1
 ]).
@@ -29,9 +29,10 @@
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
-    score = 0.0 :: float()
+    score = #{0 => 0.0} :: score_map()
 }).
 
+-type score_map() :: #{non_neg_integer() => float()}.
 -type gateway() :: #gateway_v1{}.
 -export_type([gateway/0]).
 
@@ -56,7 +57,7 @@ new(OwnerAddress, Location, Nonce, Score) ->
         owner_address=OwnerAddress,
         location=Location,
         nonce=Nonce,
-        score=Score
+        score=#{0 => Score}
     }.
 
 %%--------------------------------------------------------------------
@@ -144,7 +145,7 @@ nonce(Nonce, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(Gateway :: gateway()) -> float().
+-spec score(Gateway :: gateway()) -> score_map().
 score(Gateway) ->
     Gateway#gateway_v1.score.
 
@@ -152,9 +153,21 @@ score(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(Score :: float(), Gateway :: gateway()) -> gateway().
-score(Score, Gateway) ->
-    Gateway#gateway_v1{score=Score}.
+-spec score(Height :: non_neg_integer(), Score :: float(), Gateway :: gateway()) -> gateway().
+score(Height, Score, Gateway) ->
+    ScoreMap = ?MODULE:score(Gateway),
+    Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec latest_score(Gateway :: gateway()) -> float().
+latest_score(Gateway) ->
+    ScoreMap = ?MODULE:score(Gateway),
+    Keys = maps:keys(ScoreMap),
+    LastestHeight = lists:max(Keys),
+    maps:get(LastestHeight, ScoreMap).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -206,7 +219,7 @@ new_test() ->
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
         nonce = 0,
-        score = 0.0
+        score = #{0 => 0.0}
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -237,7 +250,10 @@ nonce_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.0, score(Gw)),
-    ?assertEqual(1.0, score(score(1.0, Gw))).
+    ?assertEqual(#{0 => 0.0}, score(Gw)),
+    ?assertEqual(#{0 => 0.0, 1 => 1.0}, score(score(1, 1.0, Gw))),
+    Gw1 = score(1, 1.0, Gw),
+    Gw2 = score(2, 2.0, Gw1),
+    ?assertEqual(2.0, latest_score(Gw2)).
 
 -endif.
