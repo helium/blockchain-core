@@ -155,8 +155,16 @@ score(Gateway) ->
 %%--------------------------------------------------------------------
 -spec score(Height :: non_neg_integer(), Score :: float(), Gateway :: gateway()) -> gateway().
 score(Height, Score, Gateway) ->
-    ScoreMap = ?MODULE:score(Gateway),
-    Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap)}.
+    ScoreMap0 = ?MODULE:score(Gateway),
+    case maps:size(ScoreMap0) >= 10 of
+        false ->
+             Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap0)};
+        true ->
+            Heights = maps:keys(ScoreMap0),
+            OldestHeight = lists:min(Heights),
+            ScoreMap1 = maps:remove(OldestHeight, ScoreMap0),
+            Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap1)}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -165,8 +173,8 @@ score(Height, Score, Gateway) ->
 -spec latest_score(Gateway :: gateway()) -> float().
 latest_score(Gateway) ->
     ScoreMap = ?MODULE:score(Gateway),
-    Keys = maps:keys(ScoreMap),
-    LastestHeight = lists:max(Keys),
+    Heights = maps:keys(ScoreMap),
+    LastestHeight = lists:max(Heights),
     maps:get(LastestHeight, ScoreMap).
 
 %%--------------------------------------------------------------------
