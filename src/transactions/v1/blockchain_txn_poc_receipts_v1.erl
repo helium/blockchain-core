@@ -176,11 +176,6 @@ is_valid(Txn, _Block, Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Challenger + 0.25 √
-%% Challengee receipt + 0.5 √
-%%      * 2 (to 1.0) if next layer has a witness or a receipt √
-%% Any witness get + 0.25 √
-%% Challengee does not send receipt and nothing after -1.0 √
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_poc_receipts(),
@@ -195,9 +190,17 @@ absorb(Txn, Block, Ledger) ->
         ok ->
             Height = blockchain_block:height(Block),
             Path = ?MODULE:path(Txn),
-            _ = update_witnesses(Path, Height, Ledger),
-            _ = update_challengees(Path, Height, Ledger),
-            _ = update_score(Challenger, Height, 0.25, Ledger),
+            ResultsMap0 = #{},
+            ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
+            ResultsMap2 = get_challengees_results(Path, ResultsMap1),
+            maps:fold(
+                fun(K, V, _) ->
+                    blockchain_ledger_v1:update_pocs_results(K, Height, V, Ledger)
+                end,
+                ok,
+                ResultsMap2
+            ),
+            _ = blockchain_ledger_v1:update_gateway_score(Challenger, 0.1, Ledger),
             ok
     end.
 
@@ -304,67 +307,74 @@ validate(Txn, Path, LayerData, LayerHashes) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-update_score(GatewayAddress, Height, ScoreUpdate, Ledger) ->
-    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, GwInfo0} ->
-            LastScore = blockchain_ledger_gateway_v1:latest_score(GwInfo0),
-            NewScore = LastScore + ScoreUpdate,
-            blockchain_ledger_v1:update_gateway_score(GatewayAddress, Height, NewScore, Ledger)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-update_challengees(Path, Height, Ledger) ->
+get_challengees_results(Path, ResultsMap) ->
     N = erlang:length(Path),
     ZippedPath = lists:zip(lists:seq(1, N), Path),
-    lists:foreach(
-        fun({I, Elem}) ->
+    lists:foldl(
+        fun({I, Elem}, Acc) ->
+            Elem1 = proplists:get_value(I+1, ZippedPath, undefined),
             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-            case blockchain_poc_path_element_v1:receipt(Elem) of
-                undefined ->
-                    update_score(Challengee, Height, -1.0, Ledger);
-                _ ->
-                    case proplists:get_value(I+1, ZippedPath, undefined) of
-                        undefined ->
-                            update_score(Challengee, Height, 0.5, Ledger);
-                        Elem1 ->
-                            case
-                                blockchain_poc_path_element_v1:receipt(Elem1) =/= undefined orelse
-                                blockchain_poc_path_element_v1:witnesses(Elem1) =/= []
-                            of
-                                false ->
-                                    update_score(Challengee, Height, 0.5, Ledger);
+            Results = maps:get(Challengee, Acc, []),
+            case elem_receipt(Elem) == undefined of
+                true ->
+                    case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
+                        true ->
+                            case elem_receipt(Elem1) == undefined of
                                 true ->
-                                    update_score(Challengee, Height, 1.0, Ledger)
-                            end
+                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:fail()|Results], Acc);
+                                false ->
+                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:tx()|Results], Acc)
+                            end;
+                        false ->
+                            maps:put(Challengee, [blockchain_ledger_gateway_v1:tx()|Results], Acc)
+                    end;
+                false ->
+                    case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
+                        true ->
+                            case elem_receipt(Elem1) == undefined of
+                                true ->
+                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:rx()|Results], Acc);
+                                false ->
+                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:rxtx()|Results], Acc)
+                            end;
+                        false ->
+                            maps:put(Challengee, [blockchain_ledger_gateway_v1:rxtx()|Results], Acc)
                     end
             end
         end,
+        ResultsMap,
         ZippedPath
-    ),
-    ok.
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-update_witnesses(Path, Height, Ledger) ->
-    lists:foreach(
-        fun(Elem) ->
-            lists:foreach(
-                fun(Witness) ->
+get_witnesses_results(Path, ResultsMap) ->
+    lists:foldl(
+        fun(Elem, Acc0) ->
+            lists:foldl(
+                fun(Witness, Acc1) ->
                     G = blockchain_poc_witness_v1:gateway(Witness),
-                    _ = update_score(G, Height, 0.25, Ledger)
+                    Results = maps:get(G, Acc1, []),
+                    maps:put(G, [blockchain_ledger_gateway_v1:rx()|Results], Acc1)
                 end,
+                Acc0,
                 blockchain_poc_path_element_v1:witnesses(Elem)
             )
         end,
+        ResultsMap,
         Path
     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+elem_receipt(undefined) ->
+    undefined;
+elem_receipt(Elem) ->
+    blockchain_poc_path_element_v1:receipt(Elem).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

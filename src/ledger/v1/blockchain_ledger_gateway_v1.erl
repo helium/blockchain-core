@@ -9,10 +9,12 @@
     new/2, new/4,
     owner_address/1, owner_address/2,
     location/1, location/2,
+    score/1, score/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
+    pocs_results/1, pocs_results/3,
+    rxtx/0, rx/0, tx/0, fail/0,
     nonce/1, nonce/2,
-    score/1, score/3, latest_score/1,
     print/1,
     serialize/1, deserialize/1
 ]).
@@ -26,15 +28,23 @@
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
+    score = 0.0 :: float(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
-    nonce = 0 :: non_neg_integer(),
-    score = #{0 => 0.0} :: score_map()
+    pocs_results = #{0 => []} :: pocs_results(),
+    nonce = 0 :: non_neg_integer()
 }).
 
--type score_map() :: #{non_neg_integer() => float()}.
+-define(RXTX, rxtx).
+-define(RX, rx).
+-define(TX, tx).
+-define(FAIL, fail).
+
+-type poc_result_type() :: rxtx | rx | tx | fail.
+-type poc_result_types() :: [poc_result_type()].
+-type pocs_results() :: #{non_neg_integer() => poc_result_types()}.
 -type gateway() :: #gateway_v1{}.
--export_type([gateway/0]).
+-export_type([gateway/0, pocs_results/0, poc_result_types/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,8 +66,8 @@ new(OwnerAddress, Location, Nonce, Score) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location,
-        nonce=Nonce,
-        score=#{0 => Score}
+        score=Score,
+        nonce=Nonce
     }.
 
 %%--------------------------------------------------------------------
@@ -97,6 +107,22 @@ location(Location, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec score(Gateway :: gateway()) -> float().
+score(Gateway) ->
+    Gateway#gateway_v1.score.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec score(Score :: float(), Gateway :: gateway()) -> gateway().
+score(Score, Gateway) ->
+    Gateway#gateway_v1{score=Score}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
     Gateway#gateway_v1.last_poc_challenge.
@@ -125,6 +151,70 @@ last_poc_onion_key_hash(Gateway) ->
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
     Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec pocs_results(gateway()) -> poc_result_types().
+pocs_results(#gateway_v1{pocs_results=Results}) ->
+    maps:fold(
+        fun(_, PoCsResults, Acc) ->
+            PoCsResults ++ Acc
+        end,
+        [],
+        Results
+    ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec pocs_results(non_neg_integer(), poc_result_types(), gateway()) -> gateway().
+pocs_results(Height, PoCsResults0, #gateway_v1{pocs_results=Results0}=Gateway) ->
+    PoCsResults1 = maps:get(Height, Results0, []) ++ PoCsResults0,
+    case maps:size(Results0) >= 10 of
+        false ->
+            Gateway#gateway_v1{pocs_results=maps:put(Height, PoCsResults1, Results0)};
+        true ->
+            Heights = maps:keys(Results0),
+            OldestHeight = lists:min(Heights),
+            Results1 = maps:remove(OldestHeight, Results0),
+            Gateway#gateway_v1{pocs_results=maps:put(Height, PoCsResults1, Results1)}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec rxtx() -> poc_result_type().
+rxtx() ->
+    ?RXTX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec rx() -> poc_result_type().
+rx() ->
+    ?RX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec tx() -> poc_result_type().
+tx() ->
+    ?TX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fail() -> poc_result_type().
+fail() ->
+    ?FAIL.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -140,42 +230,6 @@ nonce(Gateway) ->
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
     Gateway#gateway_v1{nonce=Nonce}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(Gateway :: gateway()) -> score_map().
-score(Gateway) ->
-    Gateway#gateway_v1.score.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(Height :: non_neg_integer(), Score :: float(), Gateway :: gateway()) -> gateway().
-score(Height, Score, Gateway) ->
-    ScoreMap0 = ?MODULE:score(Gateway),
-    case maps:size(ScoreMap0) >= 10 of
-        false ->
-             Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap0)};
-        true ->
-            Heights = maps:keys(ScoreMap0),
-            OldestHeight = lists:min(Heights),
-            ScoreMap1 = maps:remove(OldestHeight, ScoreMap0),
-            Gateway#gateway_v1{score=maps:put(Height, Score, ScoreMap1)}
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec latest_score(Gateway :: gateway()) -> float().
-latest_score(Gateway) ->
-    ScoreMap = ?MODULE:score(Gateway),
-    Heights = maps:keys(ScoreMap),
-    LastestHeight = lists:max(Heights),
-    maps:get(LastestHeight, ScoreMap).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -223,11 +277,12 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
+        score = 0.0,
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
-        nonce = 0,
-        score = #{0 => 0.0}
+        pocs_results = #{0 => []},
+        nonce = 0
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -241,6 +296,11 @@ location_test() ->
     ?assertEqual(12, location(Gw)),
     ?assertEqual(13, location(location(13, Gw))).
 
+score_test() ->
+    Gw = new(<<"owner_address">>, 12),
+    ?assertEqual(0.0, score(Gw)),
+    ?assertEqual(1.0, score(score(1.0, Gw))).
+
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(undefined, last_poc_challenge(Gw)),
@@ -251,17 +311,14 @@ last_poc_onion_key_hash_test() ->
     ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
     ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
 
+pocs_results_test() ->
+    Gw = new(<<"owner_address">>, 12),
+    ?assertEqual([], pocs_results(Gw)),
+    ?assertEqual([tx, rx], pocs_results(pocs_results(1, [tx, rx], Gw))).
+
 nonce_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(0, nonce(Gw)),
     ?assertEqual(1, nonce(nonce(1, Gw))).
-
-score_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(#{0 => 0.0}, score(Gw)),
-    ?assertEqual(#{0 => 0.0, 1 => 1.0}, score(score(1, 1.0, Gw))),
-    Gw1 = score(1, 1.0, Gw),
-    Gw2 = score(2, 2.0, Gw1),
-    ?assertEqual(2.0, latest_score(Gw2)).
 
 -endif.

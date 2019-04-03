@@ -43,7 +43,7 @@ build(Target, Gateways) ->
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
             G = maps:get(Addr, Gateways),
-            Score = blockchain_ledger_gateway_v1:latest_score(G),
+            Score = blockchain_ledger_gateway_v1:score(G),
             [{Score, Addr}|Acc]
         end,
         [],
@@ -181,7 +181,7 @@ neighbors(Address, Gateways) ->
 %% @end
 %%--------------------------------------------------------------------
 edge_weight(Gw1, Gw2) ->
-    1 - abs(blockchain_ledger_gateway_v1:latest_score(Gw1) -  blockchain_ledger_gateway_v1:latest_score(Gw2)).
+    1 - abs(blockchain_ledger_gateway_v1:score(Gw1) -  blockchain_ledger_gateway_v1:score(Gw2)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -203,7 +203,7 @@ target(Hash, Ledger, Challenger) ->
 %%--------------------------------------------------------------------
 -spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
-    GwScores = [{A, blockchain_ledger_gateway_v1:latest_score(G)} || {A, G} <- maps:to_list(Gateways)],
+    GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
     Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
     SumGwScores = lists:sum(Scores),
@@ -531,7 +531,7 @@ build_gateways(LatLongs) ->
             Res = rand:uniform(7) + 8,
             Index = h3:from_geo(LatLong, Res),
             G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
-            G1 = blockchain_ledger_gateway_v1:score(1, Score, G0),
+            G1 = blockchain_ledger_gateway_v1:score(Score, G0),
             maps:put(Address, G1, Acc)
 
         end,
