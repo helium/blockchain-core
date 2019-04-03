@@ -51,6 +51,8 @@ build(Target, Gateways) ->
     ),
     case erlang:length(GraphList) > 2 of
         false ->
+            lager:error("target/gateways ~p", [{Target, Gateways}]),
+            lager:error("graph: ~p", [Graph]),
             {error, not_enough_gateways};
         true ->
             [{_, Start}, {_, End}|_] = lists:sort(
@@ -68,8 +70,13 @@ build(Target, Gateways) ->
             %% NOTE: It is possible the path contains dupes, these are also considered valid
             Path3 = Path1 ++ Path2,
             case erlang:length(Path3) > 2 of
-                false -> {error, path_too_small};
-                true -> {ok, Path3}
+                false ->
+                    lager:error("target/gateways ~p", [{Target, Gateways}]),
+                    lager:error("graph: ~p", [Graph]),
+                    lager:error("path: ~p", [Path3]),
+                    {error, path_too_small};
+                true ->
+                    {ok, Path3}
             end
     end.
 
