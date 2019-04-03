@@ -42,9 +42,14 @@ build(Target, Gateways) ->
     Graph = ?MODULE:build_graph(Target, Gateways),
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
-            G = maps:get(Addr, Gateways),
-            Score = blockchain_ledger_gateway_v1:score(G),
-            [{Score, Addr}|Acc]
+            case Addr == Target of
+                true ->
+                    Acc;
+                false ->
+                    G = maps:get(Addr, Gateways),
+                    Score = blockchain_ledger_gateway_v1:score(G),
+                    [{Score, Addr}|Acc]
+            end
         end,
         [],
         Graph
