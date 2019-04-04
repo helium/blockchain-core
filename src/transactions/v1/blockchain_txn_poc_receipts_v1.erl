@@ -195,14 +195,30 @@ absorb(Txn, Block, Ledger) ->
             ResultsMap2 = get_challengees_results(Path, ResultsMap1),
             maps:fold(
                 fun(K, V, _) ->
-                    blockchain_ledger_v1:update_pocs_results(K, Height, V, Ledger)
+                    blockchain_ledger_v1:update_pocs_results(K, Height, V, Ledger),
+                    blockchain_ledger_v1:update_gateway_score(K, calculate_score(V), Ledger)
                 end,
                 ok,
                 ResultsMap2
             ),
-            _ = blockchain_ledger_v1:update_gateway_score(Challenger, 0.1, Ledger),
             ok
     end.
+
+
+% TEMPORARY UPDATE / REMOVE THIS 
+calculate_score(PoCResults) ->
+    calculate_score(PoCResults, 0).
+
+calculate_score([], Score) ->
+    Score;
+calculate_score([rxtx|PoCResults], Score) ->
+    calculate_score(PoCResults, Score + 1.0);
+calculate_score([rx|PoCResults], Score) ->
+    calculate_score(PoCResults, Score + 0.5);
+calculate_score([tx|PoCResults], Score) ->
+    calculate_score(PoCResults, Score + 0.5);
+calculate_score([fail|PoCResults], Score) ->
+    calculate_score(PoCResults, Score + -1.0).
 
 %%--------------------------------------------------------------------
 %% @doc
