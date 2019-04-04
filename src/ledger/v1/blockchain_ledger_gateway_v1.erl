@@ -12,8 +12,6 @@
     score/1, score/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
-    pocs_results/1, pocs_results/3,
-    rxtx/0, rx/0, tx/0, fail/0,
     nonce/1, nonce/2,
     print/1,
     serialize/1, deserialize/1
@@ -31,20 +29,11 @@
     score = 0.0 :: float(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
-    pocs_results = #{0 => []} :: pocs_results(),
     nonce = 0 :: non_neg_integer()
 }).
 
--define(RXTX, rxtx).
--define(RX, rx).
--define(TX, tx).
--define(FAIL, fail).
-
--type poc_result_type() :: rxtx | rx | tx | fail.
--type poc_result_types() :: [poc_result_type()].
--type pocs_results() :: #{non_neg_integer() => poc_result_types()}.
 -type gateway() :: #gateway_v1{}.
--export_type([gateway/0, pocs_results/0, poc_result_types/0]).
+-export_type([gateway/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -151,70 +140,6 @@ last_poc_onion_key_hash(Gateway) ->
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
     Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec pocs_results(gateway()) -> poc_result_types().
-pocs_results(#gateway_v1{pocs_results=Results}) ->
-    maps:fold(
-        fun(_, PoCsResults, Acc) ->
-            PoCsResults ++ Acc
-        end,
-        [],
-        Results
-    ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec pocs_results(non_neg_integer(), poc_result_types(), gateway()) -> gateway().
-pocs_results(Height, PoCsResults0, #gateway_v1{pocs_results=Results0}=Gateway) ->
-    PoCsResults1 = maps:get(Height, Results0, []) ++ PoCsResults0,
-    case maps:size(Results0) >= 10 of
-        false ->
-            Gateway#gateway_v1{pocs_results=maps:put(Height, PoCsResults1, Results0)};
-        true ->
-            Heights = maps:keys(Results0),
-            OldestHeight = lists:min(Heights),
-            Results1 = maps:remove(OldestHeight, Results0),
-            Gateway#gateway_v1{pocs_results=maps:put(Height, PoCsResults1, Results1)}
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec rxtx() -> poc_result_type().
-rxtx() ->
-    ?RXTX.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec rx() -> poc_result_type().
-rx() ->
-    ?RX.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec tx() -> poc_result_type().
-tx() ->
-    ?TX.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec fail() -> poc_result_type().
-fail() ->
-    ?FAIL.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -281,7 +206,6 @@ new_test() ->
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
-        pocs_results = #{0 => []},
         nonce = 0
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
@@ -310,11 +234,6 @@ last_poc_onion_key_hash_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(undefined, last_poc_onion_key_hash(Gw)),
     ?assertEqual(<<"onion_key_hash">>, last_poc_onion_key_hash(last_poc_onion_key_hash(<<"onion_key_hash">>, Gw))).
-
-pocs_results_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual([], pocs_results(Gw)),
-    ?assertEqual([tx, rx], pocs_results(pocs_results(1, [tx, rx], Gw))).
 
 nonce_test() ->
     Gw = new(<<"owner_address">>, 12),

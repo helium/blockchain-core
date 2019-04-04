@@ -11,7 +11,8 @@
     onion_key_hash/1, onion_key_hash/2,
     challenger/1, challenger/2,
     serialize/1, deserialize/1,
-    find_valid/3
+    find_valid/3,
+    rxtx/0, rx/0, tx/0, fail/0
 ]).
 
 -include("blockchain.hrl").
@@ -26,9 +27,16 @@
     challenger :: libp2p_crypto:pubkey_bin()
 }).
 
+-define(RXTX, rxtx).
+-define(RX, rx).
+-define(TX, tx).
+-define(FAIL, fail).
+
+-type poc_result_type() :: rxtx | rx | tx | fail.
+-type poc_result_types() :: [poc_result_type()].
 -type poc() :: #poc_v1{}.
 -type pocs() :: [poc()].
--export_type([poc/0, pocs/0]).
+-export_type([poc/0, pocs/0, poc_result_type/0, poc_result_types/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -125,6 +133,39 @@ find_valid([PoC|PoCs], Challenger, Secret) ->
         false -> find_valid(PoCs, Challenger, Secret);
         true -> {ok, PoC}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec rxtx() -> poc_result_type().
+rxtx() ->
+    ?RXTX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec rx() -> poc_result_type().
+rx() ->
+    ?RX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec tx() -> poc_result_type().
+tx() ->
+    ?TX.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec fail() -> poc_result_type().
+fail() ->
+    ?FAIL.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

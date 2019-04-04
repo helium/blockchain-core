@@ -181,21 +181,19 @@ is_valid(Txn, _Block, Ledger) ->
 -spec absorb(txn_poc_receipts(),
              blockchain_block:block(),
              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Block, Ledger) ->
+absorb(Txn, _Block, Ledger) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
     case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
-            Height = blockchain_block:height(Block),
             Path = ?MODULE:path(Txn),
             ResultsMap0 = #{},
             ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
             ResultsMap2 = get_challengees_results(Path, ResultsMap1),
             maps:fold(
                 fun(K, V, _) ->
-                    blockchain_ledger_v1:update_pocs_results(K, Height, V, Ledger),
                     blockchain_ledger_v1:update_gateway_score(K, calculate_score(V), Ledger)
                 end,
                 ok,
@@ -337,24 +335,24 @@ get_challengees_results(Path, ResultsMap) ->
                         true ->
                             case elem_receipt(Elem1) == undefined of
                                 true ->
-                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:fail()|Results], Acc);
+                                    maps:put(Challengee, [blockchain_ledger_poc_v1:fail()|Results], Acc);
                                 false ->
-                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:tx()|Results], Acc)
+                                    maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
                             end;
                         false ->
-                            maps:put(Challengee, [blockchain_ledger_gateway_v1:tx()|Results], Acc)
+                            maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
                     end;
                 false ->
                     case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
                         true ->
                             case elem_receipt(Elem1) == undefined of
                                 true ->
-                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:rx()|Results], Acc);
+                                    maps:put(Challengee, [blockchain_ledger_poc_v1:rx()|Results], Acc);
                                 false ->
-                                    maps:put(Challengee, [blockchain_ledger_gateway_v1:rxtx()|Results], Acc)
+                                    maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
                             end;
                         false ->
-                            maps:put(Challengee, [blockchain_ledger_gateway_v1:rxtx()|Results], Acc)
+                            maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
                     end
             end
         end,
@@ -373,7 +371,7 @@ get_witnesses_results(Path, ResultsMap) ->
                 fun(Witness, Acc1) ->
                     G = blockchain_poc_witness_v1:gateway(Witness),
                     Results = maps:get(G, Acc1, []),
-                    maps:put(G, [blockchain_ledger_gateway_v1:rx()|Results], Acc1)
+                    maps:put(G, [blockchain_ledger_poc_v1:rx()|Results], Acc1)
                 end,
                 Acc0,
                 blockchain_poc_path_element_v1:witnesses(Elem)
