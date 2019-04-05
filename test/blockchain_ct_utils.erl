@@ -220,18 +220,23 @@ init_per_testcase(TestCase, Config) ->
     %% test that each node setup libp2p properly
     lists:foreach(fun(Node) ->
                           Swarm = ct_rpc:call(Node, blockchain_swarm, swarm, []),
+                          SwarmID = ct_rpc:call(Node, libp2p_swarm, network_id, [Swarm]),
                           Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                           Sessions = ct_rpc:call(Node, libp2p_swarm, sessions, [Swarm]),
                           GossipGroup = ct_rpc:call(Node, libp2p_swarm, gossip_group, [Swarm]),
                           ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip, connected_addrs, [GossipGroup, all]),
                           ?assertNotEqual(0, length(ConnectedAddrs)),
-                          ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup: ~p~nConnectedAddrs: ~p", [Node,
-                                                                                                                         Addr,
-                                                                                                                         libp2p_crypto:pubkey_bin_to_p2p(Addr),
-                                                                                                                         Sessions,
-                                                                                                                         GossipGroup,
-                                                                                                                         ConnectedAddrs
-                                                                                                                        ])
+                          ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
+                                 " ~p~nConnectedAddrs: ~p~nSwarm:~p~nSwarmID: ~p",
+                                 [Node,
+                                  Addr,
+                                  libp2p_crypto:pubkey_bin_to_p2p(Addr),
+                                  Sessions,
+                                  GossipGroup,
+                                  ConnectedAddrs,
+                                  Swarm,
+                                  SwarmID
+                                 ])
                   end, Nodes),
 
 
