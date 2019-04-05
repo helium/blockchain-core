@@ -65,7 +65,7 @@ gossip_test(Config) ->
                                ok = blockchain_ct_utils:wait_until(fun() ->
                                                                            C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                                                                            {ok, 1} == ct_rpc:call(Node, blockchain, height, [C0])
-                                                                   end, 10, timer:seconds(6))
+                                                                   end, 120, 500)
                        end, Nodes),
 
     %% FIXME: should do this for each test case presumably

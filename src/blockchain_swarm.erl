@@ -15,8 +15,7 @@
     pubkey_bin/0,
     swarm/0,
     keys/0,
-    gossip_peers/0,
-    network_id/0, network_id/1
+    gossip_peers/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -75,18 +74,6 @@ keys() ->
 gossip_peers() ->
     gen_server:call(?MODULE, gossip_peers, infinity).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec network_id() -> binary().
-network_id() ->
-    gen_server:call(?MODULE, network_id, infinity).
-
--spec network_id(binary()) -> ok.
-network_id(ID) ->
-    gen_server:cast(?MODULE, {network_id, ID}).
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -105,15 +92,10 @@ handle_call(key, _From, #state{swarm=Swarm}=State)  ->
     {reply, libp2p_swarm:keys(Swarm), State};
 handle_call(gossip_peers, _From, #state{swarm=Swarm}=State) ->
     {reply, libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all), State};
-handle_call(network_id, _From, #state{swarm=Swarm}=State) when Swarm /= undefined ->
-    {reply, libp2p_swarm:network_id(Swarm), State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({network_id, ID}, State=#state{swarm=Swarm}) when Swarm /= undefined ->
-    _ =  libp2p_swarm:network_id(Swarm, ID),
-    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
