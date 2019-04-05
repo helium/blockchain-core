@@ -164,7 +164,8 @@ is_valid(Txn, _Block, Ledger) ->
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
-                                                    LayerHashes = [crypto:hash(sha256, L) || L <- Layers],
+                                                    %% no witness will exist with the first layer hash
+                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                                                     validate(Txn, Path, LayerData, LayerHashes)
                                             end
                                     end
@@ -314,7 +315,7 @@ validate(Txn, Path, LayerData, LayerHashes) ->
         end,
         ok,
         %% tack on a final empty layerdata so the zip is happy
-        lists:zip3(?MODULE:path(Txn), Path ++ [<<>>], lists:zip(LayerData ++ [<<>>], LayerHashes))
+        lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData, LayerHashes))
     ).
 
 %%--------------------------------------------------------------------
