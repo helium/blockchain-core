@@ -193,7 +193,7 @@ init(Args) ->
                 ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
-                ok = libp2p_swarm:network_id(Swarm, GenesisHash),
+                true = libp2p_swarm:network_id(Swarm, GenesisHash),
                 Chain
         end,
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),

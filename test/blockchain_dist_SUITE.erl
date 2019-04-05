@@ -119,7 +119,7 @@ gossip_test(Config) ->
         ok = blockchain_ct_utils:wait_until(fun() ->
             C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
             {ok, 2} == ct_rpc:call(Node, blockchain, height, [C])
-        end, 10, timer:seconds(10))
+        end, 100, timer:seconds(1))
     end, Nodes),
 
     Chain2 = ct_rpc:call(FirstNode, blockchain_worker, blockchain, []),
