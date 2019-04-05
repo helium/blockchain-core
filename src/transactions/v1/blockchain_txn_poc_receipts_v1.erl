@@ -164,8 +164,9 @@ is_valid(Txn, _Block, Ledger) ->
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
-                                                    LayerHashes = [crypto:hash(sha256, L) || L <- Layers],
-                                                    validate(Txn, Path, LayerData, LayerHashes)
+                                                    %% no witness will exist with the first layer hash
+                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
                                             end
                                     end
                             end
@@ -178,14 +179,46 @@ is_valid(Txn, _Block, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_receipts(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
-    % TODO: Update score here
-    LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    Challenger = ?MODULE:challenger(Txn),
-    blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger).
+absorb(_Txn, _Block, _Ledger) -> ok.
+% -spec absorb(txn_poc_receipts(),
+%              blockchain_block:block(),
+%              blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+% absorb(Txn, _Block, Ledger) ->
+%     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+%     Challenger = ?MODULE:challenger(Txn),
+%     case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+%         {error, _}=Error ->
+%             Error;
+%         ok ->
+%             Path = ?MODULE:path(Txn),
+%             ResultsMap0 = #{},
+%             ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
+%             ResultsMap2 = get_challengees_results(Path, ResultsMap1),
+%             maps:fold(
+%                 fun(K, V, _) ->
+%                     blockchain_ledger_v1:update_gateway_score(K, calculate_score(V), Ledger)
+%                 end,
+%                 ok,
+%                 ResultsMap2
+%             ),
+%             ok
+%     end.
+
+
+% % TEMPORARY UPDATE / REMOVE THIS 
+% calculate_score(PoCResults) ->
+%     calculate_score(PoCResults, 0).
+
+% calculate_score([], Score) ->
+%     Score;
+% calculate_score([rxtx|PoCResults], Score) ->
+%     calculate_score(PoCResults, Score + 1.0);
+% calculate_score([rx|PoCResults], Score) ->
+%     calculate_score(PoCResults, Score + 0.5);
+% calculate_score([tx|PoCResults], Score) ->
+%     calculate_score(PoCResults, Score + 0.5);
+% calculate_score([fail|PoCResults], Score) ->
+%     calculate_score(PoCResults, Score + -1.0).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -221,15 +254,14 @@ create_secret_hash(Secret, X, Acc) ->
 %% entirely of padding, so there cannot be a valid receipt, but there can be
 %% witnesses (as evidence that the final recipient transmitted it).
 -spec validate(txn_poc_receipts(), list(),
-               [binary(), ...], [binary(), ...]) -> ok | {error, atom()}.
-validate(Txn, Path, LayerData, LayerHashes) ->
+               [binary(), ...], [binary(), ...], blockchain_ledger_v1:ledger()) -> ok | {error, atom()}.
+validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     lists:foldl(
         fun(_, {error, _} = Error) ->
             Error;
         ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
             case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
                 true ->
-                    IsLast = Elem == lists:last(?MODULE:path(Txn)),
                     IsFirst = Elem == hd(?MODULE:path(Txn)),
                     Receipt = blockchain_poc_path_element_v1:receipt(Elem),
                     ExpectedOrigin = case IsFirst of
@@ -237,41 +269,42 @@ validate(Txn, Path, LayerData, LayerHashes) ->
                         false -> radio
                     end,
                     %% check the receipt
-                    %% NOTE the last path element should have no receipt
                     case
                         Receipt == undefined orelse
-                        IsLast == false andalso
-                        blockchain_poc_receipt_v1:is_valid(Receipt) andalso
-                        blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
-                        blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
-                        blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin
+                        (blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                         blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
+                         blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
+                         blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
                     of
                         true ->
                             %% ok the receipt looks good, check the witnesses
-                            %% NOTE the first path element should have no witnesses
                             Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                            case Witnesses /= [] andalso IsFirst of
+                            case erlang:length(Witnesses) > 5 of
                                 true ->
-                                    {error, illegal_witnesses};
+                                    {error, too_many_witnesses};
                                 false ->
-                                    case erlang:length(Witnesses) > 5 of
-                                        true ->
-                                            {error, too_many_witnesses};
-                                        false ->
-                                            %% all the witnesses should have the right LayerHash
-                                            %% and be valid
-                                            case
-                                                lists:all(
-                                                    fun(Witness) ->
-                                                        blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                        blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                                                    end,
-                                                    Witnesses
-                                                )
-                                            of
-                                                true -> ok;
-                                                false -> {error, invalid_witness}
-                                            end
+                                    %% all the witnesses should have the right LayerHash
+                                    %% and be valid
+                                    case
+                                        lists:all(
+                                          fun(Witness) ->
+                                                  %% the witnesses should have an asserted location
+                                                  %% at the point when the request was mined!
+                                                  case blockchain_ledger_v1:find_gateway_info(
+                                                         blockchain_poc_witness_v1:gateway(Witness), OldLedger) of
+                                                      {error, _} ->
+                                                          false;
+                                                      {ok, GWInfo} ->
+                                                          blockchain_ledger_gateway_v1:location(GWInfo) /= undefined andalso
+                                                          blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                                                  end
+                                          end,
+                                          Witnesses
+                                         )
+                                    of
+                                        true -> ok;
+                                        false -> {error, invalid_witness}
                                     end
                             end;
                         false ->
@@ -282,9 +315,81 @@ validate(Txn, Path, LayerData, LayerHashes) ->
             end
         end,
         ok,
-        %% tack on a final empty layerdata so the zip is happy
-        lists:zip3(?MODULE:path(Txn), Path ++ [<<>>], lists:zip(LayerData ++ [<<>>], LayerHashes))
+        lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData, LayerHashes))
     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+% get_challengees_results(Path, ResultsMap) ->
+%     N = erlang:length(Path),
+%     ZippedPath = lists:zip(lists:seq(1, N), Path),
+%     lists:foldl(
+%         fun({I, Elem}, Acc) ->
+%             Elem1 = proplists:get_value(I+1, ZippedPath, undefined),
+%             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+%             Results = maps:get(Challengee, Acc, []),
+%             case elem_receipt(Elem) == undefined of
+%                 true ->
+%                     case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
+%                         true ->
+%                             case elem_receipt(Elem1) == undefined of
+%                                 true ->
+%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:fail()|Results], Acc);
+%                                 false ->
+%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
+%                             end;
+%                         false ->
+%                             maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
+%                     end;
+%                 false ->
+%                     case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
+%                         true ->
+%                             case elem_receipt(Elem1) == undefined of
+%                                 true ->
+%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:rx()|Results], Acc);
+%                                 false ->
+%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
+%                             end;
+%                         false ->
+%                             maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
+%                     end
+%             end
+%         end,
+%         ResultsMap,
+%         ZippedPath
+%     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+% get_witnesses_results(Path, ResultsMap) ->
+%     lists:foldl(
+%         fun(Elem, Acc0) ->
+%             lists:foldl(
+%                 fun(Witness, Acc1) ->
+%                     G = blockchain_poc_witness_v1:gateway(Witness),
+%                     Results = maps:get(G, Acc1, []),
+%                     maps:put(G, [blockchain_ledger_poc_v1:rx()|Results], Acc1)
+%                 end,
+%                 Acc0,
+%                 blockchain_poc_path_element_v1:witnesses(Elem)
+%             )
+%         end,
+%         ResultsMap,
+%         Path
+%     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+% elem_receipt(undefined) ->
+%     undefined;
+% elem_receipt(Elem) ->
+%     blockchain_poc_path_element_v1:receipt(Elem).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

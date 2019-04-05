@@ -23,6 +23,8 @@
     add_gateway/3, add_gateway/6,
     add_gateway_location/4,
 
+    update_gateway_score/3,
+
     find_poc/2,
     request_poc/5,
     delete_poc/3, delete_pocs/2,
@@ -401,6 +403,22 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                     blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
             end,
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
+            AGwsCF = active_gateways_cf(Ledger),
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec update_gateway_score(libp2p_crypto:pubkey_bin(), float(), ledger()) -> ok | {error, any()}.
+update_gateway_score(GatewayAddress, Score, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, GwInfo0} ->
+            GwInfo1 = blockchain_ledger_gateway_v1:score(Score, GwInfo0),
+            Bin = blockchain_ledger_gateway_v1:serialize(GwInfo1),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.

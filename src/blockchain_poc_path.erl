@@ -42,19 +42,29 @@ build(Target, Gateways) ->
     Graph = ?MODULE:build_graph(Target, Gateways),
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
-            G = maps:get(Addr, Gateways),
-            Score = blockchain_ledger_gateway_v1:score(G),
-            [{Score, Addr}|Acc]
+            case Addr == Target of
+                true ->
+                    Acc;
+                false ->
+                    G = maps:get(Addr, Gateways),
+                    Score = blockchain_ledger_gateway_v1:score(G),
+                    [{Score, Addr}|Acc]
+            end
         end,
         [],
         Graph
     ),
     case erlang:length(GraphList) > 2 of
         false ->
+            lager:error("target/gateways ~p", [{Target, Gateways}]),
+            lager:error("graph: ~p", [Graph]),
             {error, not_enough_gateways};
         true ->
             [{_, Start}, {_, End}|_] = lists:sort(
-                fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
+                fun({_ScoreA, AddrA}, {_ScoreB, AddrB}) when AddrA == Target orelse
+                                                             AddrB == Target ->
+                    false;
+                ({ScoreA, AddrA}, {ScoreB, AddrB}) ->
                     ScoreA * ?MODULE:length(Graph, Target, AddrA) >
                     ScoreB * ?MODULE:length(Graph, Target, AddrB)
                 end,
@@ -64,11 +74,15 @@ build(Target, Gateways) ->
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
             Path3 = Path1 ++ Path2,
-            % case erlang:length(Path3) > 2 of
-            %     false -> {error, path_too_small};
-            %     true -> {ok, Path3}
-            % end
-            {ok, Path3}
+            case erlang:length(Path3) > 2 of
+                false ->
+                    lager:error("target/gateways ~p", [{Target, Gateways}]),
+                    lager:error("graph: ~p", [Graph]),
+                    lager:error("path: ~p", [Path3]),
+                    {error, path_too_small};
+                true ->
+                    {ok, Path3}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -104,7 +118,8 @@ build_graph([Address0|Addresses], Gateways, Graph0) ->
     Graph1 = lists:foldl(
         fun({_W, Address1}, Acc) ->
             case maps:is_key(Address1, Acc) of
-                true -> Acc;
+                true ->
+                    Acc;
                 false ->
                     Neighbors1 = neighbors(Address1, Gateways),
                     Graph1 = maps:put(Address1, Neighbors1, Acc),
@@ -220,16 +235,54 @@ entropy(Entropy) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec active_gateways(Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> map().
+-spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->  #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 active_gateways(Ledger, Challenger) ->
-    ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-    maps:filter(
-        fun(PubkeyBin, Gateway) ->
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    maps:fold(
+        fun(PubkeyBin, Gateway, Acc0) ->
             % TODO: Maybe do some find of score check here
-            PubkeyBin =/= Challenger
-            andalso blockchain_ledger_gateway_v1:location(Gateway) =/= undefined
-        end
-        ,ActiveGateways
+            case
+                PubkeyBin == Challenger orelse
+                blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
+                maps:is_key(PubkeyBin, Acc0)
+            of
+                true ->
+                    Acc0;
+                false ->
+                    Graph = ?MODULE:build_graph(PubkeyBin, Gateways),
+                    case maps:size(Graph) > 2 of
+                        false ->
+                            Acc0;
+                        true ->
+                            maps:fold(
+                                fun(Addr, Neighbors, Acc1) ->
+                                    Acc2 = case Addr == Challenger of
+                                        true ->
+                                            Acc1;
+                                        false ->
+                                            maps:put(Addr, maps:get(Addr, Gateways), Acc1)
+                                    end,
+                                    lists:foldl(
+                                        fun({_, Neighbor}, Acc3) ->
+                                            case Neighbor == Challenger of
+                                                true ->
+                                                    Acc3;
+                                                false ->
+                                                    maps:put(Neighbor, maps:get(Neighbor, Gateways), Acc3)
+                                            end
+                                        end,
+                                        Acc2,
+                                        Neighbors
+                                    )
+                                end,
+                                Acc0,
+                                Graph
+                            )
+                    end
+            end
+        end,
+        #{},
+        Gateways
     ).
 
 %%--------------------------------------------------------------------
@@ -282,12 +335,14 @@ target_test() ->
                                        dict:new(),
                                        lists:seq(1, Iterations))),
 
-    lists:foreach(fun({_Gw, Count}) ->
-                          Prob = Count/Iterations,
-                          ?assert(Prob < 0.27),
-                          ?assert(Prob > 0.23)
-                  end,
-                  Results),
+    lists:foreach(
+        fun({_Gw, Count}) ->
+            Prob = Count/Iterations,
+            ?assert(Prob < 0.27),
+            ?assert(Prob > 0.23)
+        end,
+        Results
+    ),
 
     ?assert(meck:validate(blockchain_swarm)),
     meck:unload(blockchain_swarm),
@@ -431,6 +486,53 @@ build_with_zero_score_test() ->
     {Target, Gateways} = build_gateways(LatLongs),
     {ok, Path} = build(Target, Gateways),
     ?assert(lists:member(Target, Path)),
+    ok.
+
+build_with_zero_score_2_test() ->
+    % All these point are together
+    LatLongs = [
+        {{48.854918, 2.345903}, 0},
+        {{48.854918, 2.345902}, 0},
+        {{48.852969, 2.349872}, 0},
+        {{48.855425, 2.344980}, 0},
+        {{48.854127, 2.344637}, 0},
+        {{48.855228, 2.347126}, 0}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+    {ok, Path} = build(Target, Gateways),
+    ?assertEqual(3, erlang:length(Path)),
+    [_P1, P2, _P3] = Path,
+    ?assertEqual(Target, P2),
+    ok.
+
+active_gateways_test() ->
+    % 2 First points are grouped together and next ones form a group also
+    LatLongs = [
+        {{48.858391, 2.294469}, 1.1},
+        {{48.856696, 2.293997}, 1.2},
+        {{48.852969, 2.349872}, 2.1},
+        {{48.855425, 2.344980}, 2.2},
+        {{48.854127, 2.344637}, 2.3},
+        {{48.855228, 2.347126}, 2.4}
+    ],
+    {_Target0, Gateways} = build_gateways(LatLongs),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, active_gateways, fun(_) ->
+        Gateways
+    end),
+
+    [{LL0, _}, {LL1, _}, {LL2, _}|_] = LatLongs,
+    Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
+    ActiveGateways = active_gateways(fake_ledger, Challenger),
+
+    ?assertNot(maps:is_key(Challenger, ActiveGateways)),
+    ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
+    ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
+    ?assertEqual(3, maps:size(ActiveGateways)),
+
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 build_gateways(LatLongs) ->
