@@ -75,10 +75,17 @@ fee(_Txn) ->
 -spec is_valid(txn_consensus_group(),
                blockchain_block:block(),
                blockchain_ledger_v1:ledger()) -> ok.
-is_valid(Txn, _Block, _Ledger) ->
-    case ?MODULE:members(Txn) of
-        [] -> {error, no_members};
-        _ -> ok
+is_valid(Txn, Block, _Ledger) ->
+    %% for now, we only allow this in the genesis block
+    %% until elections land
+    case blockchain_block:height(Block) of
+        1 ->
+            case ?MODULE:members(Txn) of
+                [] -> {error, no_members};
+                _ -> ok
+            end;
+        _ ->
+            {error, not_in_genesis_block}
     end.
 
 %%--------------------------------------------------------------------
