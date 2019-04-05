@@ -166,7 +166,7 @@ is_valid(Txn, _Block, Ledger) ->
                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
                                                     %% no witness will exist with the first layer hash
                                                     [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                    validate(Txn, Path, LayerData, LayerHashes)
+                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
                                             end
                                     end
                             end
@@ -253,15 +253,14 @@ create_secret_hash(Secret, X, Acc) ->
 %% entirely of padding, so there cannot be a valid receipt, but there can be
 %% witnesses (as evidence that the final recipient transmitted it).
 -spec validate(txn_poc_receipts(), list(),
-               [binary(), ...], [binary(), ...]) -> ok | {error, atom()}.
-validate(Txn, Path, LayerData, LayerHashes) ->
+               [binary(), ...], [binary(), ...], blockchain_ledger_v1:ledger()) -> ok | {error, atom()}.
+validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     lists:foldl(
         fun(_, {error, _} = Error) ->
             Error;
         ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
             case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
                 true ->
-                    IsLast = Elem == lists:last(?MODULE:path(Txn)),
                     IsFirst = Elem == hd(?MODULE:path(Txn)),
                     Receipt = blockchain_poc_path_element_v1:receipt(Elem),
                     ExpectedOrigin = case IsFirst of
@@ -269,41 +268,42 @@ validate(Txn, Path, LayerData, LayerHashes) ->
                         false -> radio
                     end,
                     %% check the receipt
-                    %% NOTE the last path element should have no receipt
                     case
                         Receipt == undefined orelse
-                        IsLast == false andalso
-                        blockchain_poc_receipt_v1:is_valid(Receipt) andalso
-                        blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
-                        blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
-                        blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin
+                        (blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                         blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
+                         blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
+                         blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
                     of
                         true ->
                             %% ok the receipt looks good, check the witnesses
-                            %% NOTE the first path element should have no witnesses
                             Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                            case Witnesses /= [] andalso IsFirst of
+                            case erlang:length(Witnesses) > 5 of
                                 true ->
-                                    {error, illegal_witnesses};
+                                    {error, too_many_witnesses};
                                 false ->
-                                    case erlang:length(Witnesses) > 5 of
-                                        true ->
-                                            {error, too_many_witnesses};
-                                        false ->
-                                            %% all the witnesses should have the right LayerHash
-                                            %% and be valid
-                                            case
-                                                lists:all(
-                                                    fun(Witness) ->
-                                                        blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                        blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                                                    end,
-                                                    Witnesses
-                                                )
-                                            of
-                                                true -> ok;
-                                                false -> {error, invalid_witness}
-                                            end
+                                    %% all the witnesses should have the right LayerHash
+                                    %% and be valid
+                                    case
+                                        lists:all(
+                                          fun(Witness) ->
+                                                  %% the witnesses should have an asserted location
+                                                  %% at the point when the request was mined!
+                                                  case blockchain_ledger_v1:find_gateway_info(
+                                                         blockchain_poc_witness_v1:gateway(Witness), OldLedger) of
+                                                      {error, _} ->
+                                                          false;
+                                                      {ok, GWInfo} ->
+                                                          blockchain_ledger_gateway_v1:location(GWInfo) /= undefined andalso
+                                                          blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                                                  end
+                                          end,
+                                          Witnesses
+                                         )
+                                    of
+                                        true -> ok;
+                                        false -> {error, invalid_witness}
                                     end
                             end;
                         false ->
@@ -314,7 +314,6 @@ validate(Txn, Path, LayerData, LayerHashes) ->
             end
         end,
         ok,
-        %% tack on a final empty layerdata so the zip is happy
         lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData, LayerHashes))
     ).
 
