@@ -176,13 +176,16 @@ neighbors(Address, Gateways) ->
     end,
     GwInRing = maps:to_list(maps:filter(
         fun(A, G) ->
-            I = blockchain_ledger_gateway_v1:location(G),
-            I1 = case h3:get_resolution(I) of
-                R when R =< ?RESOLUTION -> I;
-                R when R > ?RESOLUTION -> h3:parent(I, ?RESOLUTION)
-            end,
-            lists:member(I1, KRing)
-                andalso Address =/= A
+            case blockchain_ledger_gateway_v1:location(G) of
+                undefined -> false;
+                I ->
+                    I1 = case h3:get_resolution(I) of
+                             R when R =< ?RESOLUTION -> I;
+                             R when R > ?RESOLUTION -> h3:parent(I, ?RESOLUTION)
+                         end,
+                    lists:member(I1, KRing)
+                    andalso Address =/= A
+            end
         end,
         Gateways
     )),
@@ -363,7 +366,7 @@ neighbors_test() ->
     {Target, Gateways} = build_gateways(LatLongs),
     Neighbors = neighbors(Target, Gateways),
 
-    ?assertEqual(erlang:length(maps:keys(Gateways)) - 2, erlang:length(Neighbors)),
+    ?assertEqual(erlang:length(maps:keys(Gateways)) - 3, erlang:length(Neighbors)),
     {LL1, _} =  lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     lists:foreach(
@@ -552,6 +555,6 @@ build_gateways(LatLongs) ->
     ),
     [{LL, _}|_] = LatLongs,
     Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
-    {Target, Gateways}.
+    {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
 
 -endif.
