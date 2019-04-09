@@ -148,7 +148,7 @@ handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{t
                         end
                 end,
 
-    {noreply, State=#state{txn_map=NewTxnMap}, ?TIMEOUT};
+    {noreply, State#state{txn_map=NewTxnMap}, ?TIMEOUT};
 handle_info({blockchain_txn_response, {error, TxnHash, RejectedBy}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
