@@ -250,15 +250,15 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            ok = send_txn(SignedPaymentTxn, Chain)
+            ok = send_txn(SignedPaymentTxn)
     end,
     {noreply, State};
-handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm}=State) ->
     PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-    ok = send_txn(SignedPaymentTxn, Chain),
+    ok = send_txn(SignedPaymentTxn),
     {noreply, State};
 handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}, #state{blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
@@ -269,7 +269,7 @@ handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee}, #state{blo
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            ok = send_txn(SignedPaymentTxn, Chain)
+            ok = send_txn(SignedPaymentTxn)
     end,
     {noreply, State};
 handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #state{blockchain=Chain}=State) ->
@@ -280,28 +280,28 @@ handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #st
         {ok, _Entry} ->
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
-            ok = send_txn(SignedPaymentTxn, Chain)
+            ok = send_txn(SignedPaymentTxn)
     end,
     {noreply, State};
-handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedCreateHTLCTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
-    ok = send_txn(SignedCreateHTLCTxn, Chain),
+    ok = send_txn(SignedCreateHTLCTxn),
     {noreply, State};
-handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
+handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, PubkeyBin, Preimage, Fee),
     {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
-    ok = send_txn(SignedRedeemHTLCTxn, Chain),
+    ok = send_txn(SignedRedeemHTLCTxn),
     {noreply, State};
-handle_cast({submit_txn, Txn}, #state{blockchain=Chain}=State) ->
-    ok = send_txn(Txn, Chain),
+handle_cast({submit_txn, Txn}, State) ->
+    ok = send_txn(Txn),
     {noreply, State};
-handle_cast({submit_txn, Txn, Callback}, #state{blockchain=Chain}=State) ->
-    ok = send_txn(Txn, Chain, Callback),
+handle_cast({submit_txn, Txn, Callback}, State) ->
+    ok = send_txn(Txn, Callback),
     {noreply, State};
 handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, swarm=Swarm}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
@@ -428,10 +428,8 @@ sync(Swarm, N, Chain, Peer) ->
         end
     end).
 
-send_txn(Txn, Chain) ->
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+send_txn(Txn) ->
     ok = blockchain_txn_manager:submit(Txn,
-                                       ConsensusMembers,
                                        (fun(Res) ->
                                                 case Res of
                                                     ok ->
@@ -441,6 +439,5 @@ send_txn(Txn, Chain) ->
                                                 end
                                         end)).
 
-send_txn(Txn, Chain, Callback) ->
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    ok = blockchain_txn_manager:submit(Txn, ConsensusMembers, Callback).
+send_txn(Txn, Callback) ->
+    ok = blockchain_txn_manager:submit(Txn, Callback).
