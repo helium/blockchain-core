@@ -48,6 +48,7 @@
          }).
 
 -define(TIMEOUT, 5000).
+-define(FLUSHER, 10). %% send timeout every 10 messages
 
 -type entry() :: #entry{}.
 -type txn_map() :: #{blockchain_txn:hash() => entry()}.
@@ -78,7 +79,7 @@ init(_Args) ->
 handle_cast({submit, Txn, Callback}, State=#state{txn_map=TxnMap, counter=Counter}) ->
     NewTxnMap = maps:put(blockchain_txn:hash(Txn), new_entry(Txn, Callback, [], []), TxnMap),
 
-    case (Counter + 1) rem 50 == 0 of
+    case (Counter + 1) rem ?FLUSHER == 0 of
         true ->
             %% force the txn queue to flush every 50 messages
             self() ! timeout;
@@ -116,14 +117,15 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) when Chain /= un
                                                DataToSend = blockchain_txn:serialize(Txn),
                                                case libp2p_framed_stream:send(Stream, DataToSend) of
                                                    {error, Reason} ->
-                                                       lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
+                                                       lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
                                                    _ ->
                                                        ok
                                                end;
                                            {error, Reason} ->
-                                               lager:error("blockchain_txn_manager, libp2p_framed_stream dial failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash])
+                                               lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash])
                                        end;
                                    true ->
+                                       lager:info("ConsensusMember: ~p already has txn: ~p", [P2PAddress, TxnHash]),
                                        ok
                                end
                        end,
@@ -141,6 +143,7 @@ handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{t
                     #entry{acceptors=Acceptors, callback=Callback}=Entry ->
                         case (length(Acceptors) + 1) > F of
                             true ->
+                                lager:info("Reached acceptance threshold for txn: ~p, invoking ok callback", [TxnHash]),
                                 invoke_callback(Callback, ok),
                                 maps:remove(TxnHash, TxnMap);
                             false ->
@@ -160,6 +163,7 @@ handle_info({blockchain_txn_response, {error, TxnHash, RejectedBy}}, State=#stat
                     #entry{rejectors=Rejectors, callback=Callback}=Entry ->
                         case (length(Rejectors) + 1) > F of
                             true ->
+                                lager:info("Reached rejection threshold for txn: ~p, invoking error callback", [TxnHash]),
                                 invoke_callback(Callback, {error, rejected}),
                                 maps:remove(TxnHash, TxnMap);
                             false ->
