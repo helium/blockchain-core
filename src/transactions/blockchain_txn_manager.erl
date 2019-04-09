@@ -36,8 +36,7 @@
 
 -record(state, {
           txn_map = #{} :: txn_map(),
-          chain :: undefined | blockchain:blockchain(),
-          counter = 0
+          chain :: undefined | blockchain:blockchain()
          }).
 
 -record(entry, {
@@ -47,8 +46,7 @@
           callback :: fun()
          }).
 
--define(TIMEOUT, 5000).
--define(FLUSHER, 10). %% send timeout every 10 messages
+-define(LIMIT, 10).
 
 -type entry() :: #entry{}.
 -type txn_map() :: #{blockchain_txn:hash() => entry()}.
@@ -76,27 +74,32 @@ init(_Args) ->
     Chain = blockchain_worker:blockchain(),
     {ok, #state{chain=Chain}}.
 
-handle_cast({submit, Txn, Callback}, State=#state{txn_map=TxnMap, counter=Counter}) ->
-    NewTxnMap = maps:put(blockchain_txn:hash(Txn), new_entry(Txn, Callback, [], []), TxnMap),
+handle_cast({submit, Txn, Callback}, State=#state{txn_map=TxnMap}) ->
+    TxnHash = blockchain_txn:hash(Txn),
+    NewTxnMap = maps:put(TxnHash, new_entry(Txn, Callback, [], []), TxnMap),
 
-    case (Counter + 1) rem ?FLUSHER == 0 of
-        true ->
-            %% force the txn queue to flush every 50 messages
-            self() ! timeout;
-        false ->
-            ok
+    case maps:size(NewTxnMap) > ?LIMIT of
+        true -> self() ! timeout;
+        false -> ok
     end,
-    {noreply, State#state{txn_map=NewTxnMap, counter=Counter+1}, ?TIMEOUT};
+
+    lager:info("Got Txn: ~p, TxnMap: ~p", [TxnHash, NewTxnMap]),
+
+    {noreply, State#state{txn_map=NewTxnMap}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_manager got unknown cast: ~p", [_Msg]),
-    {noreply, State, ?TIMEOUT}.
+    {noreply, State}.
 
 handle_call(txn_map, _From, State=#state{txn_map=TxnMap}) ->
-    {reply, TxnMap, State, ?TIMEOUT};
+    {reply, TxnMap, State};
 handle_call(_, _, State) ->
-    {reply, ok, State, ?TIMEOUT}.
+    {reply, ok, State}.
 
-handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) when Chain /= undefined ->
+handle_info(Msg, State = #state{chain=undefined}) ->
+    Chain = blockchain_worker:blockchain(),
+    self() ! Msg,
+    {noreply, State#state{chain=Chain}};
+handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
     Swarm = blockchain_swarm:swarm(),
@@ -131,7 +134,7 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) when Chain /= un
                        end,
                        SortedTxns),
 
-    {noreply, State, ?TIMEOUT};
+    {noreply, State};
 handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{txn_map=TxnMap, chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -151,7 +154,7 @@ handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{t
                         end
                 end,
 
-    {noreply, State#state{txn_map=NewTxnMap}, ?TIMEOUT};
+    {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({blockchain_txn_response, {error, TxnHash, RejectedBy}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -170,21 +173,8 @@ handle_info({blockchain_txn_response, {error, TxnHash, RejectedBy}}, State=#stat
                                 maps:put(TxnHash, Entry#entry{rejectors=[RejectedBy | Rejectors]}, TxnMap)
                         end
                 end,
-    {noreply, State#state{txn_map=NewTxnMap}, ?TIMEOUT};
-handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain0, txn_map=TxnMap}) ->
-    Chain = case Chain0 of
-                undefined ->
-                    case blockchain_worker:blockchain() of
-                        undefined ->
-                            %% uncaught throws count as a return value in gen_servers
-                            throw({noreply, State});
-                        C ->
-                            C
-                    end;
-                C ->
-                    C
-            end,
-
+    {noreply, State#state{txn_map=NewTxnMap}};
+handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=Chain, txn_map=TxnMap}) ->
     case blockchain:get_block(Hash, Chain) of
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
@@ -203,13 +193,13 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
                                     end,
                                     TxnMap),
 
-            {noreply, State#state{txn_map=NewTxnMap, chain=Chain}, ?TIMEOUT};
+            {noreply, State#state{txn_map=NewTxnMap}};
         _ ->
             %% this should not happen
             error(missing_block)
     end;
 handle_info(_Msg, State) ->
-    {noreply, State, ?TIMEOUT}.
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
