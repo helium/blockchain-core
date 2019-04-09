@@ -36,6 +36,7 @@
 
     find_security_entry/2,
     credit_security/3, debit_security/4,
+    check_security_balance/3,
 
     find_htlc/2,
     add_htlc/7,
@@ -718,6 +719,25 @@ debit_security(Address, Amount, Nonce, Ledger) ->
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_security_entry_v1:nonce(Entry)}}}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec check_security_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_security_balance(Address, Amount, Ledger) ->
+    case ?MODULE:find_security_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_security_entry_v1:balance(Entry),
+            case (Balance - Amount) >= 0 of
+                false ->
+                    {error, {insufficient_balance, Amount, Balance}};
+                true ->
+                    ok
             end
     end.
 
