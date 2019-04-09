@@ -100,37 +100,34 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) when Chain /= un
     {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
     Swarm = blockchain_swarm:swarm(),
 
-    SortedTxns = lists:sort(fun(EntryA, EntryB) ->
+    SortedTxns = lists:sort(fun({_TxnHashA, EntryA}, {_TxnHashB, EntryB}) ->
                                     blockchain_txn:sort(txn(EntryA), txn(EntryB))
-                            end, maps:values(TxnMap)),
+                            end, maps:to_list(TxnMap)),
 
-    ok = maps:fold(fun(TxnHash, #entry{txn=Txn, acceptors=Acceptors}=_Entry, _Acc) ->
-                            AddrsToSearch = ConsensusAddrs -- Acceptors,
-                            RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
-                            P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomAddr),
+    ok = lists:foreach(fun({TxnHash, #entry{txn=Txn, acceptors=Acceptors}=_Entry}) ->
+                               AddrsToSearch = ConsensusAddrs -- Acceptors,
+                               RandomAddr = lists:nth(rand:uniform(length(AddrsToSearch)), AddrsToSearch),
+                               P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(RandomAddr),
 
-                            case lists:member(RandomAddr, Acceptors) of
-                                false ->
-                                    case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), TxnHash, RandomAddr]) of
-                                        {ok, Stream} ->
-                                            DataToSend = blockchain_txn:serialize(Txn),
-                                            case libp2p_framed_stream:send(Stream, DataToSend) of
-                                                {error, Reason} ->
-                                                    lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
-                                                _ ->
-                                                    ok
-                                            end;
-                                        {error, Reason} ->
-                                            %% try to dial someone else ASAR
-                                            %% erlang:send_after(?TIMEOUT, self(), timeout)
-                                            lager:error("blockchain_txn_manager, libp2p_framed_stream dial failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash])
-                                    end;
-                                true ->
-                                    ok
-                            end
-                    end,
-                    ok,
-                    SortedTxns),
+                               case lists:member(RandomAddr, Acceptors) of
+                                   false ->
+                                       case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), TxnHash, RandomAddr]) of
+                                           {ok, Stream} ->
+                                               DataToSend = blockchain_txn:serialize(Txn),
+                                               case libp2p_framed_stream:send(Stream, DataToSend) of
+                                                   {error, Reason} ->
+                                                       lager:error("blockchain_txn_manager, libp2p_framed_stream send failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
+                                                   _ ->
+                                                       ok
+                                               end;
+                                           {error, Reason} ->
+                                               lager:error("blockchain_txn_manager, libp2p_framed_stream dial failed: ~p, to: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash])
+                                       end;
+                                   true ->
+                                       ok
+                               end
+                       end,
+                       SortedTxns),
 
     {noreply, State, ?TIMEOUT};
 handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{txn_map=TxnMap, chain=Chain}) ->

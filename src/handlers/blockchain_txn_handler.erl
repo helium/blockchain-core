@@ -27,8 +27,8 @@
 -record(state, {
     group :: undefined | pid(),
     parent :: undefined | pid(),
-    txn_hash :: blockchain_txn:hash(),
-    consensus_member :: libp2p_crypto:pubkey_bin()
+    txn_hash :: undefined | blockchain_txn:hash(),
+    consensus_member :: undefined | libp2p_crypto:pubkey_bin()
 }).
 
 client(Connection, Args) ->
