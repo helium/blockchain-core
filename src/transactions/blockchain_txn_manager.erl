@@ -183,12 +183,12 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
                                             case {lists:member(Txn, Txns), lists:member(Txn, InvalidTransactions)} of
                                                 {true, _} ->
                                                       invoke_callback(Callback, ok),
-                                                      true;
+                                                      false;
                                                 {_, true} ->
                                                       invoke_callback(Callback, {error, invalid}),
-                                                      true;
+                                                      false;
                                                 _ ->
-                                                    false
+                                                    true
                                             end
                                     end,
                                     TxnMap),
