@@ -30,10 +30,12 @@
     delete_poc/3, delete_pocs/2,
 
     find_entry/2,
-    credit_account/3,
-    debit_account/4,
+    credit_account/3, debit_account/4,
     debit_fee/3,
     check_balance/3,
+
+    find_security_entry/2,
+    credit_security/3, debit_security/4,
 
     find_htlc/2,
     add_htlc/7,
@@ -653,6 +655,76 @@ check_balance(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec find_security_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_security_entry_v1:entry()}
+                                                                   | {error, any()}.
+find_security_entry(Address, Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    case cache_get(Ledger, EntriesCF, security_entry_key(Address), []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_security_entry_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec credit_security(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
+credit_security(Address, Amount, Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    case ?MODULE:find_security_entry(Address, Ledger) of
+        {error, not_found} ->
+            Entry = blockchain_ledger_security_entry_v1:new(0, Amount),
+            Bin = blockchain_ledger_security_entry_v1:serialize(Entry),
+            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+        {ok, Entry} ->
+            Entry1 = blockchain_ledger_security_entry_v1:new(
+                blockchain_ledger_security_entry_v1:nonce(Entry),
+                blockchain_ledger_security_entry_v1:balance(Entry) + Amount
+            ),
+            Bin = blockchain_ledger_security_entry_v1:serialize(Entry1),
+            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+        {error, _}=Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec debit_security(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
+debit_security(Address, Amount, Nonce, Ledger) ->
+    case ?MODULE:find_security_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            case Nonce =:= blockchain_ledger_security_entry_v1:nonce(Entry) + 1 of
+                true ->
+                    Balance = blockchain_ledger_security_entry_v1:balance(Entry),
+                    case (Balance - Amount) >= 0 of
+                        true ->
+                            Entry1 = blockchain_ledger_security_entry_v1:new(
+                                Nonce,
+                                (Balance - Amount)
+                            ),
+                            Bin = blockchain_ledger_security_entry_v1:serialize(Entry1),
+                            EntriesCF = entries_cf(Ledger),
+                            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+                        false ->
+                            {error, {insufficient_balance, Amount, Balance}}
+                    end;
+                false ->
+                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_security_entry_v1:nonce(Entry)}}}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec find_htlc(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
                                                       | {error, any()}.
 find_htlc(Address, Ledger) ->
@@ -721,6 +793,15 @@ close(#ledger_v1{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec security_entry_key(binary()) -> binary().
+security_entry_key(Bin) ->
+    <<Bin/binary, "/security">>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -979,6 +1060,40 @@ debit_fee_test() ->
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
+
+credit_security_test() ->
+    BaseDir = test_utils:tmp_dir("credit_security_test"),
+    Ledger = new(BaseDir),
+    commit(
+        fun(L) ->
+            ok = credit_security(<<"address">>, 1000, L)
+        end,
+        Ledger
+    ),
+    {ok, Entry} = find_security_entry(<<"address">>, Ledger),
+    ?assertEqual(1000, blockchain_ledger_security_entry_v1:balance(Entry)).
+
+debit_security_test() ->
+    BaseDir = test_utils:tmp_dir("debit_security_test"),
+    Ledger = new(BaseDir),
+    commit(
+        fun(L) ->
+            ok = credit_security(<<"address">>, 1000, L)
+        end,
+        Ledger
+    ),
+    ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_security(<<"address">>, 1000, 0, Ledger)),
+    ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_security(<<"address">>, 1000, 12, Ledger)),
+    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_security(<<"address">>, 9999, 1, Ledger)),
+    commit(
+        fun(L) ->
+            ok = debit_security(<<"address">>, 500, 1, L)
+        end,
+        Ledger
+    ),
+    {ok, Entry} = find_security_entry(<<"address">>, Ledger),
+    ?assertEqual(500, blockchain_ledger_security_entry_v1:balance(Entry)),
+    ?assertEqual(1, blockchain_ledger_security_entry_v1:nonce(Entry)).
 
 poc_test() ->
     BaseDir = test_utils:tmp_dir("poc_test"),
