@@ -1,13 +1,13 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Transaction Coinbase ==
+%% == Blockchain Transaction Security Coinbase ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_coinbase_v1).
+-module(blockchain_txn_security_coinbase_v1).
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_coinbase_v1_pb.hrl").
+-include("pb/blockchain_txn_security_coinbase_v1_pb.hrl").
 
 -export([
     new/2,
@@ -15,8 +15,8 @@
     payee/1,
     amount/1,
     fee/1,
-    is_valid/2,
-    absorb/2,
+    is_valid/3,
+    absorb/3,
     sign/2
 ]).
 
@@ -24,31 +24,31 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_coinbase() :: #blockchain_txn_coinbase_v1_pb{}.
--export_type([txn_coinbase/0]).
+-type txn_security_coinbase() :: #blockchain_txn_security_coinbase_v1_pb{}.
+-export_type([txn_security_coinbase/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_coinbase().
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_security_coinbase().
 new(Payee, Amount) ->
-    #blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}.
+    #blockchain_txn_security_coinbase_v1_pb{payee=Payee, amount=Amount}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_coinbase()) -> blockchain_txn:hash().
+-spec hash(txn_security_coinbase()) -> blockchain_txn:hash().
 hash(Txn) ->
-    EncodedTxn = blockchain_txn_coinbase_v1_pb:encode_msg(Txn),
+    EncodedTxn = blockchain_txn_security_coinbase_v1_pb:encode_msg(Txn),
     crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_coinbase(), libp2p_crypto:sig_fun()) -> txn_coinbase().
+-spec sign(txn_security_coinbase(), libp2p_crypto:sig_fun()) -> txn_security_coinbase().
 sign(Txn, _SigFun) ->
     Txn.
 
@@ -56,23 +56,23 @@ sign(Txn, _SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payee(txn_coinbase()) -> libp2p_crypto:pubkey_bin().
+-spec payee(txn_security_coinbase()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
-    Txn#blockchain_txn_coinbase_v1_pb.payee.
+    Txn#blockchain_txn_security_coinbase_v1_pb.payee.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_coinbase()) -> non_neg_integer().
+-spec amount(txn_security_coinbase()) -> non_neg_integer().
 amount(Txn) ->
-    Txn#blockchain_txn_coinbase_v1_pb.amount.
+    Txn#blockchain_txn_security_coinbase_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec fee(txn_coinbase()) -> non_neg_integer().
+-spec fee(txn_security_coinbase()) -> non_neg_integer().
 fee(_Txn) ->
     0.
 
@@ -81,11 +81,12 @@ fee(_Txn) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_coinbase(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, 0} ->
+-spec is_valid(txn_security_coinbase(),
+               blockchain_block:block(),
+               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid(Txn, Block, _Ledger) ->
+    case blockchain_block:height(Block) of
+        1 ->
             Amount = ?MODULE:amount(Txn),
             case Amount > 0 of
                 true ->
@@ -101,9 +102,10 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec absorb(txn_security_coinbase(),
+             blockchain_block:block(),
+             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+absorb(Txn, _Block, Ledger) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
@@ -114,7 +116,7 @@ absorb(Txn, Chain) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_coinbase_v1_pb{payee= <<"payee">>, amount=666},
+    Tx = #blockchain_txn_security_coinbase_v1_pb{payee= <<"payee">>, amount=666},
     ?assertEqual(Tx, new(<<"payee">>, 666)).
 
 payee_test() ->
