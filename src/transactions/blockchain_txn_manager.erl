@@ -96,12 +96,12 @@ handle_call(_, _, State) ->
     {reply, ok, State}.
 
 handle_info(Msg, State = #state{chain=undefined}) ->
+    %% Keep trying to get a running chain
     Chain = blockchain_worker:blockchain(),
     self() ! Msg,
     {noreply, State#state{chain=Chain}};
 handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
-    Ledger = blockchain:ledger(Chain),
-    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     Swarm = blockchain_swarm:swarm(),
 
     SortedTxns = lists:sort(fun({_TxnHashA, EntryA}, {_TxnHashB, EntryB}) ->
@@ -136,8 +136,7 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     {noreply, State};
 handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{txn_map=TxnMap, chain=Chain}) ->
-    Ledger = blockchain:ledger(Chain),
-    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     F = (length(ConsensusAddrs) - 1) div 3,
 
     NewTxnMap = case maps:get(TxnHash, TxnMap, undefined) of
@@ -156,8 +155,7 @@ handle_info({blockchain_txn_response, {ok, TxnHash, AcceptedBy}}, State=#state{t
 
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({blockchain_txn_response, {error, TxnHash, RejectedBy}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
-    Ledger = blockchain:ledger(Chain),
-    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, ConsensusAddrs} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     F = (length(ConsensusAddrs) - 1) div 3,
 
     NewTxnMap = case maps:get(TxnHash, TxnMap, undefined) of
@@ -192,6 +190,8 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
                                             end
                                     end,
                                     TxnMap),
+
+            self() ! timeout,
 
             {noreply, State#state{txn_map=NewTxnMap}};
         _ ->
