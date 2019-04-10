@@ -116,6 +116,8 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
                                case lists:member(RandomAddr, Acceptors) of
                                    false ->
                                        case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), TxnHash, RandomAddr]) of
+                                           {error, Reason} ->
+                                               lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
                                            {ok, Stream} ->
                                                DataToSend = blockchain_txn:serialize(Txn),
                                                case libp2p_framed_stream:send(Stream, DataToSend) of
@@ -123,9 +125,7 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
                                                        lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
                                                    _ ->
                                                        ok
-                                               end;
-                                           {error, Reason} ->
-                                               lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash])
+                                               end
                                        end;
                                    true ->
                                        lager:info("ConsensusMember: ~p already has txn: ~p", [P2PAddress, TxnHash]),
@@ -196,7 +196,8 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
             {noreply, State#state{txn_map=NewTxnMap}};
         _ ->
             %% this should not happen
-            error(missing_block)
+            lager:error("missing_block!"),
+            {noreply, State}
     end;
 handle_info(_Msg, State) ->
     {noreply, State}.
