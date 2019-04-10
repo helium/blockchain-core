@@ -23,7 +23,8 @@
              | blockchain_txn_create_htlc_v1:txn_create_htlc()
              | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
              | blockchain_txn_poc_request_v1:txn_poc_request()
-             | blockchain_txn_poc_receipts_v1:txn_poc_receipts().
+             | blockchain_txn_poc_receipts_v1:txn_poc_receipts()
+             | blockchain_txn_data_credits_v1:txn_data_credits().
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
 
@@ -57,15 +58,17 @@
     {blockchain_txn_coinbase_v1, 1},
     {blockchain_txn_security_coinbase_v1, 2},
     {blockchain_txn_gen_gateway_v1, 3},
-    {blockchain_txn_payment_v1, 4},
-    {blockchain_txn_security_exchange_v1, 5},
-    {blockchain_txn_consensus_group_v1, 6},
-    {blockchain_txn_add_gateway_v1, 7},
-    {blockchain_txn_assert_location_v1, 8},
-    {blockchain_txn_create_htlc_v1, 9},
-    {blockchain_txn_redeem_htlc_v1, 10},
-    {blockchain_txn_poc_request_v1, 11},
-    {blockchain_txn_poc_receipts_v1, 12}
+    {blockchain_txn_oui_v1, 4},
+    {blockchain_txn_payment_v1, 5},
+    {blockchain_txn_security_exchange_v1, 6},
+    {blockchain_txn_data_credits_v1, 7},
+    {blockchain_txn_consensus_group_v1, 8},
+    {blockchain_txn_add_gateway_v1, 9},
+    {blockchain_txn_assert_location_v1, 10},
+    {blockchain_txn_create_htlc_v1, 11},
+    {blockchain_txn_redeem_htlc_v1, 12},
+    {blockchain_txn_poc_request_v1, 13},
+    {blockchain_txn_poc_receipts_v1, 14}
 ]).
 
 hash(Txn) ->
@@ -107,7 +110,9 @@ wrap_txn(#blockchain_txn_poc_request_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={poc_receipts, Txn}};
 wrap_txn(#blockchain_txn_gen_gateway_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={gen_gateway, Txn}}.
+    #blockchain_txn_pb{txn={gen_gateway, Txn}};
+wrap_txn(#blockchain_txn_data_credits_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={data_credits, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
@@ -244,7 +249,9 @@ type(#blockchain_txn_poc_request_v1_pb{}) ->
 type(#blockchain_txn_poc_receipts_v1_pb{}) ->
     blockchain_txn_poc_receipts_v1;
 type(#blockchain_txn_gen_gateway_v1_pb{}) ->
-    blockchain_txn_gen_gateway_v1.
+    blockchain_txn_gen_gateway_v1;
+type(#blockchain_txn_data_credits_v1_pb{}) ->
+    blockchain_txn_data_credits_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -327,6 +334,8 @@ nonce(Txn) ->
             blockchain_txn_payment_v1:nonce(Txn);
         blockchain_txn_security_exchange_v1 ->
             blockchain_txn_security_exchange_v1:nonce(Txn);
+        blockchain_txn_data_credits_v1 ->
+            blockchain_txn_data_credits_v1:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -358,6 +367,8 @@ actor(Txn) ->
             blockchain_txn_security_coinbase_v1:payee(Txn);
         blockchain_txn_poc_receipts_v1 ->
             blockchain_txn_poc_receipts_v1:challenger(Txn);
+        blockchain_txn_data_credits_v1 ->
+            blockchain_txn_data_credits_v1:payer(Txn);
         _ ->
             <<>>
     end.
