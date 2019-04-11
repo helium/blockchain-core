@@ -1010,7 +1010,7 @@ poc_test() ->
     PoC0 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash0, Challenger0),
     ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
     {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(0, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo0)),
+    ?assertEqual(1, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo0)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo0)),
 
     commit(
@@ -1056,7 +1056,7 @@ poc_test() ->
     PoC2 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash1, Challenger0),
     ?assertEqual({ok, [PoC2]}, find_poc(OnionKeyHash1, Ledger)),
     {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(0, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo1)),
+    ?assertEqual(1, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo1)),
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo1)),
 
     ok.
