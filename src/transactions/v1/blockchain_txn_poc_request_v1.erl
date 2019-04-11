@@ -19,8 +19,8 @@
     signature/1,
     fee/1,
     sign/2,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -118,10 +118,9 @@ sign(Txn0, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_request(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Block0, Ledger) ->
+-spec is_valid(txn_poc_request(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     ChallengerSignature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
@@ -139,7 +138,7 @@ is_valid(Txn, Block0, Ledger) ->
                         undefined ->
                             {error, no_gateway_location};
                         _Location ->
-                            Height = blockchain_block:height(Block0),
+                            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
                             case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
                                 false ->
@@ -169,10 +168,9 @@ is_valid(Txn, Block0, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_request(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, Block, Ledger) ->
+-spec absorb(txn_poc_request(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
         {ok, GwInfo} ->
@@ -184,7 +182,7 @@ absorb(Txn, Block, Ledger) ->
                 ok ->
                     SecretHash = ?MODULE:secret_hash(Txn),
                     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, Block, Ledger)
+                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, Ledger)
             end;
         {error, _Reason}=Error ->
             Error
