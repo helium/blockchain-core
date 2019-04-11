@@ -163,7 +163,7 @@ is_valid(Txn, Chain) ->
                                                 true ->
                                                     Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
                                                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                                                    case Timelock >= Height of
+                                                    case Timelock >= (Height+1) of
                                                         true ->
                                                             {error, timelock_not_expired};
                                                         false ->

@@ -140,17 +140,16 @@ is_valid(Txn, Chain) ->
                         _Location ->
                             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height - 30) of
+                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - 30) of
                                 false ->
                                     {error, too_many_challenges};
                                 true ->
-                                    Blockchain = blockchain_worker:blockchain(),
                                     BlockHash = ?MODULE:block_hash(Txn),
-                                    case blockchain:get_block(BlockHash, Blockchain) of
+                                    case blockchain:get_block(BlockHash, Chain) of
                                         {error, _}=Error ->
                                             Error;
                                         {ok, Block1} ->
-                                            case (blockchain_block:height(Block1) + 30) > Height of
+                                            case (blockchain_block:height(Block1) + 30) > (Height+1) of
                                                 false ->
                                                     {error, replaying_request};
                                                 true ->
