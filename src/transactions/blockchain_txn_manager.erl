@@ -115,14 +115,20 @@ handle_info(timeout, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
                                case lists:member(RandomAddr, Acceptors) of
                                    false ->
-                                       case libp2p_swarm:dial_framed_stream(Swarm, P2PAddress, ?TX_PROTOCOL, blockchain_txn_handler, [self(), TxnHash, RandomAddr]) of
+                                       case libp2p_swarm:dial_framed_stream(Swarm,
+                                                                            P2PAddress,
+                                                                            ?TX_PROTOCOL,
+                                                                            blockchain_txn_handler,
+                                                                            [self(), TxnHash, RandomAddr]) of
                                            {error, Reason} ->
-                                               lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
+                                               lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p",
+                                                           [Reason, P2PAddress, TxnHash]);
                                            {ok, Stream} ->
                                                DataToSend = blockchain_txn:serialize(Txn),
                                                case libp2p_framed_stream:send(Stream, DataToSend) of
                                                    {error, Reason} ->
-                                                       lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p", [Reason, P2PAddress, TxnHash]);
+                                                       lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p",
+                                                                   [Reason, P2PAddress, TxnHash]);
                                                    _ ->
                                                        ok
                                                end
@@ -176,7 +182,7 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
     case blockchain:get_block(Hash, Chain) of
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
-            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([txn(Entry) || Entry <- TxnQueue], Chain),
+            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([txn(Entry) || Entry <- maps:values(TxnMap)], Chain),
             NewTxnMap = maps:filter(fun(_TxnHash, #entry{txn=Txn, callback=Callback}) ->
                                             case {lists:member(Txn, Txns), lists:member(Txn, InvalidTransactions)} of
                                                 {true, _} ->
