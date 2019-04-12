@@ -27,8 +27,7 @@
 -record(state, {
     group :: undefined | pid(),
     parent :: undefined | pid(),
-    txn_hash :: undefined | blockchain_txn:hash(),
-    consensus_member :: undefined | libp2p_crypto:pubkey_bin()
+    ref :: undefined | reference()
 }).
 
 client(Connection, Args) ->
@@ -40,29 +39,29 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Parent, TxnHash, ConsensusMember]) ->
-    {ok, #state{parent=Parent, txn_hash=TxnHash, consensus_member=ConsensusMember}};
+init(client, _Conn, [Parent, Ref]) ->
+    {ok, #state{parent=Parent, ref=Ref}};
 init(server, _Conn, [_Path, _Parent, Group]) ->
     %lager:info("txn handler accepted connection~n"),
     {ok, #state{group=Group}}.
 
-handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash, consensus_member=ConsensusMember}) ->
-    Parent ! {blockchain_txn_response, {ok, TxnHash, ConsensusMember}},
-    {stop, normal, State};
-handle_data(client, <<"error">>, State=#state{parent=Parent, txn_hash=TxnHash, consensus_member=ConsensusMember}) ->
-    Parent ! {blockchain_txn_response, {error, TxnHash, ConsensusMember}},
-    {stop, normal, State};
+handle_data(client, <<"ok">>, State=#state{parent=Parent, ref=Ref}) ->
+    Parent ! {Ref, ok},
+    {noreply, State};
+handle_data(client, <<"error">>, State=#state{parent=Parent, ref=Ref}) ->
+    Parent ! {Ref, error},
+    {noreply, State};
 handle_data(server, Data, State=#state{group=Group}) ->
     try
         Txn = blockchain_txn:deserialize(Data),
         lager:info("Got ~p type transaction: ~p", [blockchain_txn:type(Txn), Txn]),
         case libp2p_group_relcast:handle_command(Group, Txn) of
             ok ->
-                {stop, normal, State, <<"ok">>};
+                {noreply, State, <<"ok">>};
             _ ->
-                {stop, normal, State, <<"error">>}
+                {noreply, State, <<"error">>}
         end
     catch _What:Why ->
             lager:notice("transaction_handler got bad data: ~p", [Why]),
-            {stop, normal, State, <<"error">>}
+            {noreply, State, <<"error">>}
     end.
