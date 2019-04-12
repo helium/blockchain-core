@@ -15,8 +15,8 @@
     payee/1,
     amount/1,
     fee/1,
-    is_valid/3,
-    absorb/3,
+    is_valid/2,
+    absorb/2,
     sign/2
 ]).
 
@@ -81,12 +81,11 @@ fee(_Txn) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_coinbase(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Block, _Ledger) ->
-    case blockchain_block:height(Block) of
-        1 ->
+-spec is_valid(txn_coinbase(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
             Amount = ?MODULE:amount(Txn),
             case Amount > 0 of
                 true ->
@@ -102,10 +101,9 @@ is_valid(Txn, Block, _Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_coinbase(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
+-spec absorb(txn_coinbase(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).

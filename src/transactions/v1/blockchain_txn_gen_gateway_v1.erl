@@ -19,8 +19,8 @@
     nonce/1,
     score/1,
     fee/1,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -122,12 +122,11 @@ fee(_Txn) ->
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_gateway(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(_Txn, Block, _Ledger) ->
-    case blockchain_block:height(Block) of
-        1 ->
+-spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
             ok;
         _ ->
             {error, not_in_genesis_block}
@@ -137,10 +136,9 @@ is_valid(_Txn, Block, _Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_genesis_gateway(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, not_in_genesis_block}.
-absorb(Txn, _Block, Ledger) ->
+-spec absorb(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, not_in_genesis_block}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),

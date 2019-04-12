@@ -170,7 +170,7 @@ handle_info({blockchain_event, {add_block, Hash, _Sync}}, State = #state{chain=C
     case blockchain:get_block(Hash, Chain) of
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
-            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([ txn(Entry) || Entry <- TxnQueue], Block, blockchain:ledger(Chain)),
+            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate([txn(Entry) || Entry <- TxnQueue], Chain),
             NewTxnQueue = lists:foldl(fun(#entry{txn=Txn, callback=Callback}=Entry, Acc) ->
                                               case {lists:member(txn(Entry), Txns), lists:member(Txn, InvalidTransactions)} of
                                                   {true, _} ->

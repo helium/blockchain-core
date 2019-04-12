@@ -18,8 +18,8 @@
     fee/1,
     signature/1,
     sign/2,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -109,10 +109,9 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, Block, Ledger) ->
+-spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
@@ -163,8 +162,8 @@ is_valid(Txn, Block, Ledger) ->
                                                     end;
                                                 true ->
                                                     Timelock = blockchain_ledger_htlc_v1:timelock(HTLC),
-                                                    Height =  blockchain_block:height(Block),
-                                                    case Timelock >= Height of
+                                                    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                                                    case Timelock >= (Height+1) of
                                                         true ->
                                                             {error, timelock_not_expired};
                                                         false ->
@@ -181,10 +180,9 @@ is_valid(Txn, Block, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_redeem_htlc(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
+-spec absorb(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
     Redeemer = ?MODULE:payee(Txn),
     case blockchain_ledger_v1:debit_fee(Redeemer, Fee, Ledger) of

@@ -17,8 +17,8 @@
     owner/1,
     signature/1,
     sign/2,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -95,10 +95,9 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_oui(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) ->ok | {error, any()}.
-is_valid(Txn, _Block, Ledger) ->
+-spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
@@ -117,10 +116,9 @@ is_valid(Txn, _Block, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_oui(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
+-spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger).
