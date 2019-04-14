@@ -82,12 +82,14 @@ init(Args) ->
     ],
     BEventOpts = [],
     BTxnManagerOpts = [],
+    BTxnMgrSupOpts = [],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
-        ?WORKER(blockchain_txn_manager, [BTxnManagerOpts])
+        ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
+        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
