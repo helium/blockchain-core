@@ -219,10 +219,15 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync}},
                                                     %% Note that the response map is still intact
                                                     %% Ensures that we don't lose previously ingested responses
                                                     %% Still questionable I suppose
-                                                    lists:foreach(fun(D) ->
-                                                                          blockchain_txn_mgr_sup:terminate_worker(D)
-                                                                  end, Dialers),
-                                                    NewDialers = blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers]),
+                                                    NewDialers = case length(Dialers) == 0 of
+                                                                     true ->
+                                                                         blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers]);
+                                                                     false ->
+                                                                         ok = lists:foreach(fun(D) ->
+                                                                                                    blockchain_txn_mgr_sup:terminate_worker(D)
+                                                                                            end, Dialers),
+                                                                         blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers])
+                                                                 end,
                                                     maps:put(Txn, {Callback, NewDialers}, Acc)
                                             end
                                     end,
