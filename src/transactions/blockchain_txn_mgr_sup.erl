@@ -52,4 +52,4 @@ start_worker([Parent, Txn, ConsensusMember]) ->
     ok.
 
 terminate_worker(Pid) ->
-    supervisor:terminate(?MODULE, Pid).
+    supervisor:terminate_child(?MODULE, Pid).
