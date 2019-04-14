@@ -54,20 +54,20 @@ handle_cast(_Msg, State) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info(dial, State) ->
+handle_info(dial, State=#state{member=Member, txn=Txn}) ->
     Swarm = blockchain_swarm:swarm(),
-    P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(State#state.member),
-    TxnHash = blockchain_txn:hash(State#state.txn),
+    P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
+    TxnHash = blockchain_txn:hash(Txn),
     case libp2p_swarm:dial_framed_stream(Swarm,
                                          P2PAddress,
                                          ?TX_PROTOCOL,
                                          blockchain_txn_handler,
-                                         [self(), blockchain_txn:hash(State#state.txn)]) of
+                                         [self(), blockchain_txn:hash(Txn)]) of
         {error, Reason} ->
             lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p",
                         [Reason, P2PAddress, TxnHash]);
         {ok, Stream} ->
-            DataToSend = blockchain_txn:serialize(State#state.txn),
+            DataToSend = blockchain_txn:serialize(Txn),
             case libp2p_framed_stream:send(Stream, DataToSend) of
                 {error, Reason} ->
                     lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p",
@@ -77,13 +77,11 @@ handle_info(dial, State) ->
             end
     end,
     {noreply, State};
-handle_info({blockchain_txn_response, {ok, _TxnHash}}, State) ->
-    State#state.parent ! {accepted, {self(), State#state.txn, State#state.member}},
+handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+    Parent ! {accepted, {self(), Txn, Member}},
     {noreply, State};
-handle_info({blockchain_txn_response, {error, _TxnHash}}, State) ->
-    State#state.parent ! {rejected, {self(), State#state.txn, State#state.member}},
-    % retry
-    erlang:send_after(1000, self(), dial),
+handle_info({blockchain_txn_response, {error, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+    Parent ! {rejected, {self(), Txn, Member}},
     {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.

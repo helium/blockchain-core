@@ -10,7 +10,10 @@
 %% ------------------------------------------------------------------
 %% API
 %% ------------------------------------------------------------------
--export([start_link/1, start_workers/1, terminate_worker/1]).
+-export([start_link/1,
+         start_worker/1,
+         start_workers/1,
+         terminate_worker/1]).
 -export([init/1]).
 
 %% ------------------------------------------------------------------
@@ -42,6 +45,11 @@ start_workers([Parent, Txn, ConsensusMembers]) ->
                 end,
                 [],
                 ConsensusMembers).
+
+start_worker([Parent, Txn, ConsensusMember]) ->
+    {ok, Pid} = supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]),
+    Pid ! dial,
+    ok.
 
 terminate_worker(Pid) ->
     supervisor:terminate(?MODULE, Pid).

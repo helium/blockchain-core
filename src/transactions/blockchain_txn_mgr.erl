@@ -78,8 +78,8 @@ handle_cast({submit, Txn, Callback}, State=#state{chain=undefined, txn_map=TxnMa
 handle_cast({submit, Txn, Callback}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     lager:info("blockchain_txn_mgr submit, Txn: ~p, Callback: ~p", [Txn, Callback]),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-    Workers = blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers]),
-    NewTxnMap = maps:put(Txn, {Callback, Workers}, TxnMap),
+    Dialers = blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers]),
+    NewTxnMap = maps:put(Txn, {Callback, Dialers}, TxnMap),
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown cast: ~p", [_Msg]),
@@ -105,68 +105,148 @@ handle_info(wait_for_chain, State=#state{chain=Chain}) ->
             {noreply, State#state{chain=Chain}}
     end;
 handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
-    NewTxnMap = maps:map(fun(Txn, {Callback, Workers}) ->
-                                 case Workers == [] of
-                                     true ->
-                                         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
-                                         {Callback, blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers])};
-                                    _ ->
-                                         {Callback, Workers}
-                                 end
-                         end,
-                         TxnMap),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+
+    SortedTxns = lists:sort(fun({TxnA, _}, {TxnB, _}) ->
+                                    blockchain_txn:sort(TxnA, TxnB)
+                            end, maps:to_list(TxnMap)),
+
+    NewTxnMap = lists:foldl(fun({Txn, {Callback, Dialers}}, Acc) ->
+                                    case Dialers == [] of
+                                        true ->
+                                            maps:put(Txn,
+                                                     {Callback, blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers])},
+                                                     Acc);
+                                        false ->
+                                            Acc
+                                    end
+                            end,
+                            #{},
+                            SortedTxns),
+
     {noreply, State#state{txn_map=NewTxnMap}};
-handle_info({accepted, {Dialer, Txn, Member}}, State) ->
+handle_info({accepted, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map=TxnMap, resp_map=RespMap}) ->
     lager:info("blockchain_txn_mgr, txn: ~p, accepted_by: ~p", [Txn, Member]),
 
-    %% The dialer did its job, no need to keep this one alive anymore
-    Dialer ! terminate,
-
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(State#state.chain)),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     F = (length(ConsensusMembers) - 1) div 3,
 
-    case maps:get(Txn, State#state.resp_map, undefined) of
+    case maps:get(Txn, RespMap, undefined) of
         undefined ->
             {noreply, State};
         {Accepts, Rejects} ->
             case length(Accepts) + 1 > F of
                 true ->
-                    {Callback, Workers} = maps:get(Txn, State#state.txn_map),
-                    lists:foreach(fun(Worker) ->
-                                          blockchain_txn_mgr_sup:terminate_worker(Worker)
-                                  end, Workers),
+                    %% Reached acceptance threshold
+                    %% Fire callback
+                    {Callback, Dialers} = maps:get(Txn, TxnMap),
+                    %% Stop all dialers
+                    lists:foreach(fun(D) ->
+                                          blockchain_txn_mgr_sup:terminate_worker(D)
+                                  end, Dialers),
                     invoke_callback(Callback, ok),
-                    NewTxnMap = maps:remove(Txn, State#state.txn_map),
-                    {noreply, State#state{txn_map=NewTxnMap}};
+                    %% Remove this txn from state
+                    NewTxnMap = maps:remove(Txn, TxnMap),
+                    NewRespMap = maps:remove(Txn, RespMap),
+                    {noreply, State#state{txn_map=NewTxnMap, resp_map=NewRespMap}};
                 false ->
+                    %% Stop this particular dialer
+                    blockchain_txn_mgr_sup:terminate_worker(Dialer),
+                    %% Update acceptance list for this txn
                     NewAccepts = [Member | Accepts],
-                    NewRespMap = maps:put(Txn, {NewAccepts, Rejects}, State#state.resp_map),
+                    NewRespMap = maps:put(Txn, {NewAccepts, Rejects}, RespMap),
                     {noreply, State#state{resp_map=NewRespMap}}
             end
     end;
-handle_info({rejected, {_Dialer, Txn, Member}}, State) ->
+handle_info({rejected, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map=TxnMap, resp_map=RespMap}) ->
     lager:info("blockchain_txn_mgr, txn: ~p, rejected_by: ~p", [Txn, Member]),
-    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(State#state.chain)),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
     F = (length(ConsensusMembers) - 1) div 3,
 
-    case maps:get(Txn, State#state.resp_map, undefined) of
+    case maps:get(Txn, RespMap, undefined) of
         undefined ->
             {noreply, State};
         {Accepts, Rejects} ->
             case length(Rejects) + 1 > 2*F of
                 true ->
-                    {Callback, Workers} = maps:get(Txn, State#state.txn_map),
-                    lists:foreach(fun(Worker) ->
-                                          blockchain_txn_mgr_sup:terminate_worker(Worker)
-                                  end, Workers),
+                    %% Reached rejection threshold
+                    %% Fire callback
+                    {Callback, Dialers} = maps:get(Txn, TxnMap),
+                    lists:foreach(fun(D) ->
+                                          blockchain_txn_mgr_sup:terminate_worker(D)
+                                  end, Dialers),
                     invoke_callback(Callback, error),
-                    NewTxnMap = maps:remove(Txn, State#state.txn_map),
-                    {noreply, State#state{txn_map=NewTxnMap}};
+                    %% Remove this txn from state
+                    NewTxnMap = maps:remove(Txn, TxnMap),
+                    NewRespMap = maps:remove(Txn, RespMap),
+                    {noreply, State#state{txn_map=NewTxnMap, resp_map=NewRespMap}};
                 false ->
+                    %% Stop this particular dialer
+                    blockchain_txn_mgr_sup:terminate_worker(Dialer),
+                    %% Start a new one
+                    blockchain_txn_mgr_sup:start_worker([self(), Txn, Member]),
+                    %% Update rejection list
                     NewRejects = [Member | Rejects],
-                    NewRespMap = maps:put(Txn, {Accepts, NewRejects}, State#state.resp_map),
+                    NewRespMap = maps:put(Txn, {Accepts, NewRejects}, RespMap),
                     {noreply, State#state{resp_map=NewRespMap}}
             end
+    end;
+handle_info({blockchain_event, {add_block, BlockHash, _Sync}},
+            State=#state{chain=Chain, txn_map=TxnMap, resp_map=RespMap}) ->
+
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)),
+
+    case blockchain:get_block(BlockHash, Chain) of
+        {ok, Block} ->
+            Txns = blockchain_block:transactions(Block),
+            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate(maps:keys(TxnMap), Chain),
+
+            SortedTxns = lists:sort(fun({TxnA, _}, {TxnB, _}) ->
+                                            blockchain_txn:sort(TxnA, TxnB)
+                                    end, maps:to_list(TxnMap)),
+
+            NewTxnMap = lists:foldl(fun({Txn, {Callback, Dialers}}, Acc) ->
+                                            case {lists:member(Txn, Txns),
+                                                  lists:member(Txn, InvalidTransactions)} of
+                                                {true, _} ->
+                                                    invoke_callback(Callback, ok),
+                                                    Acc;
+                                                {_, true} ->
+                                                    invoke_callback(Callback, {error, invalid}),
+                                                    Acc;
+                                                _ ->
+                                                    %% Retry from scratch on a new block
+                                                    %% Note that the response map is still intact
+                                                    %% Ensures that we don't lose previously ingested responses
+                                                    %% Still questionable I suppose
+                                                    lists:foreach(fun(D) ->
+                                                                          blockchain_txn_mgr_sup:terminate_worker(D)
+                                                                  end, Dialers),
+                                                    NewDialers = blockchain_txn_mgr_sup:start_workers([self(), Txn, ConsensusMembers]),
+                                                    maps:put(Txn, {Callback, NewDialers}, Acc)
+                                            end
+                                    end,
+                                    #{},
+                                    SortedTxns),
+
+            NewRespMap = lists:foldl(fun(Txn, Acc) ->
+                                             case {lists:member(Txn, Txns),
+                                                   lists:member(Txn, InvalidTransactions)} of
+                                                 {true, _} ->
+                                                     maps:remove(Txn, Acc);
+                                                 {_, true} ->
+                                                     maps:remove(Txn, Acc);
+                                                 _ ->
+                                                     Acc
+                                             end
+                                     end,
+                                     RespMap,
+                                     maps:keys(RespMap)),
+
+            {noreply, State#state{txn_map=NewTxnMap, resp_map=NewRespMap}};
+        _ ->
+            lager:error("WTF happened!"),
+            {noreply, State}
     end;
 handle_info(_Msg, State) ->
     {noreply, State}.
