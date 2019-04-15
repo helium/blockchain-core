@@ -470,6 +470,33 @@ build_test() ->
     ?assertNotEqual(Target, lists:last(Path)),
     ok.
 
+build_only_2_test() ->
+    % All these point are in a line one after the other
+    LatLongs = [
+        {{37.780959, -122.467496}, 0.90},
+        {{37.78101, -122.465372}, 0.1},
+        {{37.780586, -122.469471}, 0.90}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+
+    {ok, Path} = build(Target, Gateways),
+
+    ?assertNotEqual(Target, hd(Path)),
+    ?assert(lists:member(Target, Path)),
+    ?assertNotEqual(Target, lists:last(Path)),
+    ok.
+
+build_failed_test() ->
+    % All these point are in a line one after the other (except last)
+    LatLongs = [
+        {{37.780959, -122.467496}, 0.90},
+        {{37.78101, -122.465372}, 0.1},
+        {{12.780586, -122.469471}, 0.90}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+    ?assertEqual({error, not_enough_gateways}, build(Target, Gateways)),
+    ok.
+
 build_with_zero_score_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
