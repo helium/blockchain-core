@@ -210,8 +210,8 @@ absorb(Txn, Chain) ->
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     try Type:is_valid(Txn, Chain) of
-        ok ->
-            ok
+        Res ->
+            Res
     catch
         What:Why:Stack ->
             {error, {Type, What, {Why, Stack}}}
