@@ -49,7 +49,7 @@ start_workers([Parent, Txn, ConsensusMembers]) ->
 start_worker([Parent, Txn, ConsensusMember]) ->
     {ok, Pid} = supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]),
     Pid ! dial,
-    ok.
+    {ok, Pid}.
 
 terminate_worker(Pid) ->
     supervisor:terminate_child(?MODULE, Pid).
