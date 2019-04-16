@@ -63,26 +63,25 @@ txn_queue_usage() ->
     ].
 
 txn_queue(["txn", "queue"], [], []) ->
-    case (catch blockchain_txn_mgr:resp_map()) of
+    case (catch blockchain_txn_mgr:txn_map()) of
         {'EXIT', _} ->
             [clique_status:text("timeout")];
         [] ->
             [clique_status:text("empty")];
-        RespMap ->
-            R = format_resp_map(RespMap),
+        TxnMap ->
+            R = format_txn_map(TxnMap),
             [clique_status:table(R)]
     end;
 txn_queue([], [], []) ->
     usage.
 
-format_resp_map(RespMap) ->
-    lists:map(fun({Txn, {AcceptQ, RejectQ}}) ->
+format_txn_map(RespMap) ->
+    lists:map(fun({Txn, {_Callback, Retries, _Dialer}}) ->
                       TxnMod = blockchain_txn:type(Txn),
                       TxnHash = blockchain_txn:hash(Txn),
                       [
                        {txn_type, atom_to_list(TxnMod)},
                        {txn_hash, io_lib:format("~p", [libp2p_crypto:bin_to_b58(TxnHash)])},
-                       {accepted_by, integer_to_list(length(AcceptQ))},
-                       {rejected_by, integer_to_list(length(RejectQ))}
+                       {retries, integer_to_list(Retries)}
                       ]
               end, maps:to_list(RespMap)).

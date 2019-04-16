@@ -76,7 +76,7 @@ handle_cast({submit, Txn, Callback}, State=#state{chain=undefined, txn_map=TxnMa
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_cast({submit, Txn, Callback}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     %% Get a random consensus member from the chain who signed the previous block
-    RandMember = signatory_rand_member(Chain),
+    {ok, RandMember} = signatory_rand_member(Chain),
     Dialer = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
     ok = blockchain_txn_dialer:dial(Dialer),
     NewTxnMap = maps:put(Txn, {Callback, 0, Dialer}, TxnMap),
@@ -110,7 +110,7 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     NewTxnMap = lists:foldl(fun({Txn, {Callback, _Retries, Dialer}}, Acc) ->
                                     %% XXX: Do we keep the retries? Bleh
-                                    RandMember = signatory_rand_member(Chain),
+                                    {ok, RandMember} = signatory_rand_member(Chain),
                                     {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
                                     ok = blockchain_txn_dialer:dial(Dialer),
                                     maps:put(Txn, {Callback, 0, Dialer}, Acc)
@@ -134,7 +134,7 @@ handle_info({rejected, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map
             %% Stop this dialer
             ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
             %% Try a new one
-            NewRandMember = signatory_rand_member(Chain),
+            {ok, NewRandMember} = signatory_rand_member(Chain),
             {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, NewRandMember]),
             ok = blockchain_txn_dialer:dial(NewDialer),
             NewTxnMap = maps:put(Txn, {Callback, Retries + 1, NewDialer}, TxnMap),
@@ -144,7 +144,7 @@ handle_info({rejected, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map
             %% Stop this dialer
             ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
             %% Invoke callback
-            ok = invoke_callback(Callback, {error, exceeded_retries}),
+            _ = invoke_callback(Callback, {error, exceeded_retries}),
             %% Remove this txn
             NewTxnMap = maps:remove(Txn, TxnMap),
             {noreply, State#state{txn_map=NewTxnMap}}
@@ -173,7 +173,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chai
                                                     %% Stop this dialer
                                                     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                                     %% Retry with a new dialer
-                                                    RandMember = signatory_rand_member(Chain),
+                                                    {ok, RandMember} = signatory_rand_member(Chain),
                                                     NewDialer = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
                                                     maps:put(Txn, {Callback, Retries + 1, NewDialer}, Acc)
                                             end;
@@ -221,6 +221,5 @@ signatory_rand_member(Chain) ->
     {ok, PrevBlock} = blockchain:get_block(Height-1, Chain),
     Signatures = blockchain_block:signatures(PrevBlock),
     Index = rand:uniform(length(Signatures)),
-    RandSignee = lists:nth(Index, Signatures),
-    {Signer, _} = hd(RandSignee),
-    Signer.
+    {Signer, _} = lists:nth(Index, Signatures),
+    {ok, Signer}.
