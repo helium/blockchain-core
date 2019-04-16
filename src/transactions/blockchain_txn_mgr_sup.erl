@@ -11,9 +11,9 @@
 %% API
 %% ------------------------------------------------------------------
 -export([start_link/1,
-         start_worker/1,
-         start_workers/1,
-         terminate_worker/1]).
+         start_dialer/1,
+         stop_dialer/1]).
+
 -export([init/1]).
 
 %% ------------------------------------------------------------------
@@ -36,20 +36,8 @@ init(_Args) ->
                     shutdown => brutal_kill}],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_workers([Parent, Txn, ConsensusMembers]) ->
-    lager:info("Parent: ~p, txn: ~p, ConsensusMembers: ~p", [Parent, Txn, ConsensusMembers]),
-    lists:foldl(fun(Member, Acc) ->
-                        {ok, Pid} = supervisor:start_child(?MODULE, [[Parent, Txn, Member]]),
-                        Pid ! dial,
-                        [Pid | Acc]
-                end,
-                [],
-                ConsensusMembers).
+start_dialer([Parent, Txn, ConsensusMember]) ->
+    supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]).
 
-start_worker([Parent, Txn, ConsensusMember]) ->
-    {ok, Pid} = supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]),
-    Pid ! dial,
-    {ok, Pid}.
-
-terminate_worker(Pid) ->
+stop_dialer(Pid) ->
     supervisor:terminate_child(?MODULE, Pid).

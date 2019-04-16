@@ -13,7 +13,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-         start_link/1
+         start_link/1,
+         dial/1
         ]).
 
 %% ------------------------------------------------------------------
@@ -29,9 +30,9 @@
         ]).
 
 -record(state, {
-          parent,
-          txn,
-          member
+          parent :: pid(),
+          txn :: blockchain_txn:txn(),
+          member :: libp2p_crypto:pubkey_bin()
          }).
 
 %% ------------------------------------------------------------------
@@ -39,6 +40,9 @@
 %% ------------------------------------------------------------------
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
+
+dial(Pid) ->
+    gen_server:cast(Pid, dial).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -48,13 +52,10 @@ init(Args) ->
     [Parent, Txn, Member] = Args,
     {ok, #state{parent=Parent, txn=Txn, member=Member}}.
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info(dial, State=#state{member=Member, txn=Txn}) ->
+handle_cast(dial, State=#state{member=Member, txn=Txn}) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
@@ -77,6 +78,9 @@ handle_info(dial, State=#state{member=Member, txn=Txn}) ->
             end
     end,
     {noreply, State};
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
 handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
     Parent ! {accepted, {self(), Txn, Member}},
     {noreply, State};
