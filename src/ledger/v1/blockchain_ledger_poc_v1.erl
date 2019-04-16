@@ -27,12 +27,12 @@
     challenger :: libp2p_crypto:pubkey_bin()
 }).
 
--define(RXTX, rxtx).
--define(RX, rx).
--define(TX, tx).
--define(FAIL, fail).
+-define(RXTX, 1.0).
+-define(RX, 0.1).
+-define(TX, 0.2).
+-define(FAIL, -1.0).
 
--type poc_result_type() :: rxtx | rx | tx | fail.
+-type poc_result_type() :: float().
 -type poc_result_types() :: [poc_result_type()].
 -type poc() :: #poc_v1{}.
 -type pocs() :: [poc()].

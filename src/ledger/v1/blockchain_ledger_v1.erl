@@ -26,6 +26,7 @@
     add_gateway_location/4,
 
     update_gateway_score/3,
+    decay_gateway_scores/1,
 
     find_poc/2,
     request_poc/4,
@@ -499,6 +500,25 @@ update_gateway_score(GatewayAddress, Score, Ledger) ->
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
+
+-spec decay_gateway_scores(ledger()) -> ok | {error, any()}.
+decay_gateway_scores(Ledger) ->
+    ActiveGateways = active_gateways_cf(Ledger),
+    {ok, Height} = ?MODULE:current_height(Ledger),
+    Decay = 0.1*Height/(Height + 1000),
+    ok = lists:foreach(fun(GatewayAddress) ->
+                               case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+                                   {error, _}=Error ->
+                                       Error;
+                                   {ok, GwInfo0} ->
+                                       PrevScore = blockchain_ledger_gateway_v1:score(GwInfo0),
+                                       GwInfo1 = blockchain_ledger_gateway_v1:score(PrevScore-Decay, GwInfo0),
+                                       Bin = blockchain_ledger_gateway_v1:serialize(GwInfo1),
+                                       AGwsCF = active_gateways_cf(Ledger),
+                                       cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+                               end
+                       end,
+                       maps:keys(ActiveGateways)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1333,7 +1353,6 @@ poc_test() ->
     Location = 123456789,
     Nonce = 1,
     Score = 0.1,
-
     SecretHash = <<"secret_hash">>,
 
     ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),

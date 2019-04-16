@@ -202,6 +202,7 @@ absorb_block(Block, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
+            ok = blockchain_ledger_v1:decay_gateway_scores(Ledger),
             {ok, Chain};
         Error ->
             Error
