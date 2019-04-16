@@ -74,17 +74,19 @@ init(_Args) ->
 
 handle_cast({set_chain, Chain}, State=#state{chain=undefined}) ->
     {noreply, State#state{chain=Chain}};
-handle_cast({submit, Txn, Callback}, State=#state{chain=undefined, txn_map=TxnMap}) ->
+handle_cast({submit, Txn, Callback}, State=#state{chain=undefined, txn_map=TxnMap, resp_map=RespMap}) ->
     %% Got txn when there is no chain
     %% Keep it in the txn_map and process when there is a chain
     NewTxnMap = maps:put(Txn, {Callback, []}, TxnMap),
+    NewRespMap = maps:put(Txn, {[], []}, RespMap),
     self() ! wait_for_chain,
-    {noreply, State#state{txn_map=NewTxnMap}};
-handle_cast({submit, Txn, Callback}, State=#state{chain=Chain, txn_map=TxnMap}) ->
+    {noreply, State#state{txn_map=NewTxnMap, resp_map=NewRespMap}};
+handle_cast({submit, Txn, Callback}, State=#state{chain=Chain, txn_map=TxnMap, resp_map=RespMap}) ->
     RandMembers = rand_members(Chain),
     Dialers = blockchain_txn_mgr_sup:start_workers([self(), Txn, RandMembers]),
     NewTxnMap = maps:put(Txn, {Callback, Dialers}, TxnMap),
-    {noreply, State#state{txn_map=NewTxnMap}};
+    NewRespMap = maps:put(Txn, {[], []}, RespMap),
+    {noreply, State#state{txn_map=NewTxnMap, resp_map=NewRespMap}};
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown cast: ~p", [_Msg]),
     {noreply, State}.
