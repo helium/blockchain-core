@@ -34,6 +34,7 @@
     debit_fee/3,
     check_balance/3,
 
+    securities/1,
     find_security_entry/2,
     credit_security/3, debit_security/4,
     check_security_balance/3,
@@ -65,6 +66,7 @@
     entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
+    securities :: rocksdb:cf_handle(),
     context :: undefined | rocksdb:batch_handle(),
     cache :: undefined | ets:tid()
 }).
@@ -79,6 +81,7 @@
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
+-type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 
 -export_type([ledger/0]).
 
@@ -89,8 +92,9 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, 
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF, DelayedPoCsCF] = CFs,
+    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, SecuritiesCF,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF,
+     DelayedPoCsCF, DelayedSecuritiesCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -100,14 +104,16 @@ new(Dir) ->
             active_gateways=AGwsCF,
             entries=EntriesCF,
             htlcs=HTLCsCF,
-            pocs=PoCsCF
+            pocs=PoCsCF,
+            securities=SecuritiesCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
             entries=DelayedEntriesCF,
             htlcs=DelayedHTLCsCF,
-            pocs=DelayedPoCsCF
+            pocs=DelayedPoCsCF,
+            securities=DelayedSecuritiesCF
         }
     }.
 
@@ -656,11 +662,29 @@ check_balance(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec securities(ledger()) -> securities().
+securities(#ledger_v1{db=DB}=Ledger) ->
+    SecuritiesCF = securities_cf(Ledger),
+    rocksdb:fold(
+        DB,
+        SecuritiesCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_security_entry_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{},
+        []
+    ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec find_security_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_security_entry_v1:entry()}
                                                                    | {error, any()}.
 find_security_entry(Address, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
-    case cache_get(Ledger, EntriesCF, security_entry_key(Address), []) of
+    SecuritiesCF = securities_cf(Ledger),
+    case cache_get(Ledger, SecuritiesCF, Address, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_security_entry_v1:deserialize(BinEntry)};
         not_found ->
@@ -675,19 +699,19 @@ find_security_entry(Address, Ledger) ->
 %%--------------------------------------------------------------------
 -spec credit_security(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_security(Address, Amount, Ledger) ->
-    EntriesCF = entries_cf(Ledger),
+    SecuritiesCF = securities_cf(Ledger),
     case ?MODULE:find_security_entry(Address, Ledger) of
         {error, not_found} ->
             Entry = blockchain_ledger_security_entry_v1:new(0, Amount),
             Bin = blockchain_ledger_security_entry_v1:serialize(Entry),
-            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+            cache_put(Ledger, SecuritiesCF, Address, Bin);
         {ok, Entry} ->
             Entry1 = blockchain_ledger_security_entry_v1:new(
                 blockchain_ledger_security_entry_v1:nonce(Entry),
                 blockchain_ledger_security_entry_v1:balance(Entry) + Amount
             ),
             Bin = blockchain_ledger_security_entry_v1:serialize(Entry1),
-            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+            cache_put(Ledger, SecuritiesCF, Address, Bin);
         {error, _}=Error ->
             Error
     end.
@@ -712,8 +736,8 @@ debit_security(Address, Amount, Nonce, Ledger) ->
                                 (Balance - Amount)
                             ),
                             Bin = blockchain_ledger_security_entry_v1:serialize(Entry1),
-                            EntriesCF = entries_cf(Ledger),
-                            cache_put(Ledger, EntriesCF, security_entry_key(Address), Bin);
+                            SecuritiesCF = securities_cf(Ledger),
+                            cache_put(Ledger, SecuritiesCF, Address, Bin);
                         false ->
                             {error, {insufficient_balance, Amount, Balance}}
                     end;
@@ -818,14 +842,6 @@ close(#ledger_v1{db=DB}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec security_entry_key(binary()) -> binary().
-security_entry_key(Bin) ->
-    <<Bin/binary, "/security">>.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec context_cache(ledger()) -> {undefined | rocksdb:batch_handle(), undefined | ets:tid()}.
 context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{context=Context, cache=Cache}}) ->
     {Context, Cache};
@@ -892,6 +908,16 @@ pocs_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{pocs=PoCsCF}}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec securities_cf(ledger()) -> rocksdb:cf_handle().
+securities_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{securities=SecuritiesCF}}) ->
+    SecuritiesCF;
+securities_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{securities=SecuritiesCF}}) ->
+    SecuritiesCF.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
@@ -949,8 +975,9 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_htlcs", "delayed_pocs"],
+    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs", "securities",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries",
+                  "delayed_htlcs", "delayed_pocs", "delayed_securities"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -1090,6 +1117,7 @@ credit_security_test() ->
         Ledger
     ),
     {ok, Entry} = find_security_entry(<<"address">>, Ledger),
+    ?assertEqual(#{<<"address">> => Entry}, securities(Ledger)),
     ?assertEqual(1000, blockchain_ledger_security_entry_v1:balance(Entry)).
 
 debit_security_test() ->
