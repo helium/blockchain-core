@@ -351,9 +351,11 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %%--------------------------------------------------------------------
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
 add_blocks([], _Chain) -> ok;
-add_blocks([Head | Tail], Chain) ->
-    case ?MODULE:add_block(Head, Chain, true) of
-        ok -> add_blocks(Tail, Chain);
+add_blocks([LastBlock | []], Chain) ->
+    ?MODULE:add_block(LastBlock, Chain, false);
+add_blocks([Block | Blocks], Chain) ->
+    case ?MODULE:add_block(Block, Chain, true) of
+        ok -> add_blocks(Blocks, Chain);
         Error ->
             Error
     end.
