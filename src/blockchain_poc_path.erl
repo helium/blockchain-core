@@ -54,17 +54,14 @@ build(Target, Gateways) ->
         [],
         Graph
     ),
-    case erlang:length(GraphList) > 2 of
+    case erlang:length(GraphList) >= 2 of
         false ->
             lager:error("target/gateways ~p", [{Target, Gateways}]),
-            lager:error("graph: ~p", [Graph]),
+            lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
             {error, not_enough_gateways};
         true ->
             [{_, Start}, {_, End}|_] = lists:sort(
-                fun({_ScoreA, AddrA}, {_ScoreB, AddrB}) when AddrA == Target orelse
-                                                             AddrB == Target ->
-                    false;
-                ({ScoreA, AddrA}, {ScoreB, AddrB}) ->
+                fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
                     ScoreA * ?MODULE:length(Graph, Target, AddrA) >
                     ScoreB * ?MODULE:length(Graph, Target, AddrB)
                 end,
@@ -77,7 +74,7 @@ build(Target, Gateways) ->
             case erlang:length(Path3) > 2 of
                 false ->
                     lager:error("target/gateways ~p", [{Target, Gateways}]),
-                    lager:error("graph: ~p", [Graph]),
+                    lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
                     lager:error("path: ~p", [Path3]),
                     {error, path_too_small};
                 true ->
@@ -471,6 +468,33 @@ build_test() ->
     ?assertNotEqual(Target, hd(Path)),
     ?assert(lists:member(Target, Path)),
     ?assertNotEqual(Target, lists:last(Path)),
+    ok.
+
+build_only_2_test() ->
+    % All these point are in a line one after the other
+    LatLongs = [
+        {{37.780959, -122.467496}, 0.90},
+        {{37.78101, -122.465372}, 0.1},
+        {{37.780586, -122.469471}, 0.90}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+
+    {ok, Path} = build(Target, Gateways),
+
+    ?assertNotEqual(Target, hd(Path)),
+    ?assert(lists:member(Target, Path)),
+    ?assertNotEqual(Target, lists:last(Path)),
+    ok.
+
+build_failed_test() ->
+    % All these point are in a line one after the other (except last)
+    LatLongs = [
+        {{37.780959, -122.467496}, 0.90},
+        {{37.78101, -122.465372}, 0.1},
+        {{12.780586, -122.469471}, 0.90}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+    ?assertEqual({error, not_enough_gateways}, build(Target, Gateways)),
     ok.
 
 build_with_zero_score_test() ->
