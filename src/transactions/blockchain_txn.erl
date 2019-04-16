@@ -43,7 +43,8 @@
     serialize/1,
     deserialize/1,
     wrap_txn/1,
-    unwrap_txn/1
+    unwrap_txn/1,
+    is_valid/2
 ]).
 
 -ifdef(TEST).
@@ -200,6 +201,22 @@ absorb(Txn, Chain) ->
         What:Why:Stack ->
             {error, {Type, What, {Why, Stack}}}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Type = ?MODULE:type(Txn),
+    try Type:is_valid(Txn, Chain) of
+        Res ->
+            Res
+    catch
+        What:Why:Stack ->
+            {error, {Type, What, {Why, Stack}}}
+end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
