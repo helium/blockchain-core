@@ -16,7 +16,8 @@
          start_link/1,
          submit/2,
          set_chain/1,
-         txn_map/0
+         txn_map/0,
+         resp_map/0
         ]).
 
 %% ------------------------------------------------------------------
@@ -59,6 +60,10 @@ set_chain(Chain) ->
 txn_map() ->
     gen_server:call(?MODULE, txn_map, infinity).
 
+-spec resp_map() -> resp_map().
+resp_map() ->
+    gen_server:call(?MODULE, resp_map, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -86,6 +91,8 @@ handle_cast(_Msg, State) ->
 
 handle_call(txn_map, _, State) ->
     {reply, State#state.txn_map, State};
+handle_call(resp_map, _, State) ->
+    {reply, State#state.resp_map, State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
