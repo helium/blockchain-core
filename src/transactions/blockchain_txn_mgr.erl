@@ -36,9 +36,7 @@
           chain :: undefined | blockchain:blockchain()
          }).
 
-%% txn_map -> #{txn => {callback_fun, retries, dialer_pid}..}
--type txn_map() :: #{blockchain_txn:txn() => {fun(), non_neg_integer(), undefined | pid()}}.
--define(MAX_RETRIES, 3).
+-type txn_map() :: #{blockchain_txn:txn() => {fun(), undefined | pid()}}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -108,15 +106,14 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
                                     blockchain_txn:sort(TxnA, TxnB)
                             end, maps:to_list(TxnMap)),
 
-    NewTxnMap = lists:foldl(fun({Txn, {Callback, _Retries, Dialer}}, Acc) ->
-                                    %% XXX: Do we keep the retries? Bleh
+    NewTxnMap = lists:foldl(fun({Txn, {Callback, Dialer}}, Acc) ->
                                     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                     {ok, RandMember} = signatory_rand_member(Chain),
                                     {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
                                     ok = blockchain_txn_dialer:dial(NewDialer),
-                                    maps:put(Txn, {Callback, 0, NewDialer}, Acc)
+                                    maps:put(Txn, {Callback, NewDialer}, Acc)
                             end,
-                            #{},
+                            TxnMap,
                             SortedTxns),
 
     {noreply, State#state{txn_map=NewTxnMap}};
@@ -131,23 +128,14 @@ handle_info({rejected, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map
         undefined ->
             %% We no longer have this txn, do nothing
             {noreply, State};
-        {Callback, Retries, Dialer} when Retries < ?MAX_RETRIES ->
+        {Callback, Dialer} ->
             %% Stop this dialer
             ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
             %% Try a new one
             {ok, NewRandMember} = signatory_rand_member(Chain),
             {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, NewRandMember]),
             ok = blockchain_txn_dialer:dial(NewDialer),
-            NewTxnMap = maps:put(Txn, {Callback, Retries + 1, NewDialer}, TxnMap),
-            {noreply, State#state{txn_map=NewTxnMap}};
-        {Callback, _Retries, Dialer} ->
-            %% Reached max retries for this txn
-            %% Stop this dialer
-            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
-            %% Invoke callback
-            _ = invoke_callback(Callback, {error, exceeded_retries}),
-            %% Remove this txn
-            NewTxnMap = maps:remove(Txn, TxnMap),
+            NewTxnMap = maps:put(Txn, {Callback, NewDialer}, TxnMap),
             {noreply, State#state{txn_map=NewTxnMap}}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
@@ -160,44 +148,28 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chai
                                             blockchain_txn:sort(TxnA, TxnB)
                                     end, maps:to_list(TxnMap)),
 
-            NewTxnMap = lists:foldl(fun
-                                        ({Txn, {Callback, Retries, Dialer}}, Acc) when Retries < ?MAX_RETRIES andalso
-                                                                                       Dialer /= undefined ->
-                                            case {lists:member(Txn, Txns),
-                                                  lists:member(Txn, InvalidTransactions)} of
+            NewTxnMap = lists:foldl(fun({Txn, {Callback, Dialer}}, Acc) ->
+                                            case {lists:member(Txn, Txns), lists:member(Txn, InvalidTransactions)} of
                                                 {true, _} ->
                                                     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                                     invoke_callback(Callback, ok),
-                                                    Acc;
+                                                    maps:remove(Txn, Acc);
                                                 {_, true} ->
                                                     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                                     invoke_callback(Callback, {error, invalid}),
-                                                    Acc;
+                                                    maps:remove(Txn, Acc);
                                                 _ ->
                                                     %% Stop this dialer
+                                                    lager:info("Rescheduling txn: ~p, stopping Dialer: ~p", [blockchain_txn:hash(Txn), Dialer]),
                                                     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
-                                                    %% Retry with a new dialer
                                                     {ok, RandMember} = signatory_rand_member(Chain),
-                                                    NewDialer = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
-                                                    maps:put(Txn, {Callback, Retries + 1, NewDialer}, Acc)
-                                            end;
-                                        ({Txn, {Callback, _Retries, Dialer}}, Acc) ->
-                                            case {lists:member(Txn, Txns),
-                                                  lists:member(Txn, InvalidTransactions)} of
-                                                {true, _} ->
-                                                    invoke_callback(Callback, ok),
-                                                    Acc;
-                                                {_, true} ->
-                                                    invoke_callback(Callback, {error, invalid}),
-                                                    Acc;
-                                                _ ->
-                                                    %% Stop this dialer
-                                                    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
-                                                    invoke_callback(Callback, {error, exceeded_retries}),
-                                                    Acc
+                                                    %% Retry with a new dialer
+                                                    {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
+                                                    ok = blockchain_txn_dialer:dial(NewDialer),
+                                                    maps:put(Txn, {Callback, NewDialer}, Acc)
                                             end
                                     end,
-                                    #{},
+                                    TxnMap,
                                     SortedTxns),
 
             {noreply, State#state{txn_map=NewTxnMap}};
