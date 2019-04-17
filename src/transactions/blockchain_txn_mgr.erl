@@ -118,20 +118,21 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({accepted, {Dialer, Txn, Member}}, State=#state{txn_map=TxnMap}) ->
-    lager:info("txn: ~p, accepted_by: ~p", [Txn, Member]),
-    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
+    lager:info("txn: ~p, accepted_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewTxnMap = maps:remove(Txn, TxnMap),
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({rejected, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, rejected_by: ~p, dialer: ~p", [Txn, Member, Dialer]),
+    lager:info("txn: ~p, rejected_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
@@ -201,9 +202,7 @@ retry(Txn, State=#state{txn_map=TxnMap, chain=Chain}) ->
         undefined ->
             %% We no longer have this txn, do nothing
             State;
-        {Callback, Dialer} ->
-            %% Stop this dialer
-            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
+        {Callback, _Dialer} ->
             %% Try a new one
             {ok, NewRandMember} = signatory_rand_member(Chain),
             {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, NewRandMember]),
