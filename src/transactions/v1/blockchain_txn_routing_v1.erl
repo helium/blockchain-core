@@ -19,8 +19,8 @@
     nonce/1,
     signature/1,
     sign/2,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -117,9 +117,9 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_routing(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-is_valid(Txn, _Block, Ledger) ->
+               blockchain:blockchain()) -> ok | {error, any()}.
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     OUI = ?MODULE:oui(Txn),
     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
         {error, _}=Error ->
@@ -163,9 +163,9 @@ is_valid(Txn, _Block, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_routing(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-absorb(Txn, _Block, Ledger) ->
+             blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
