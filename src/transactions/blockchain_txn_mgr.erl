@@ -118,26 +118,22 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({accepted, {Dialer, Txn, Member}}, State=#state{txn_map=TxnMap}) ->
-    lager:info("blockchain_txn_mgr, txn: ~p, accepted_by: ~p", [Txn, Member]),
+    lager:info("txn: ~p, accepted_by: ~p", [Txn, Member]),
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     NewTxnMap = maps:remove(Txn, TxnMap),
     {noreply, State#state{txn_map=NewTxnMap}};
-handle_info({rejected, {Dialer, Txn, Member}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
-    lager:info("blockchain_txn_mgr, txn: ~p, rejected_by: ~p", [Txn, Member]),
-    case maps:get(Txn, TxnMap, undefined) of
-        undefined ->
-            %% We no longer have this txn, do nothing
-            {noreply, State};
-        {Callback, Dialer} ->
-            %% Stop this dialer
-            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
-            %% Try a new one
-            {ok, NewRandMember} = signatory_rand_member(Chain),
-            {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, NewRandMember]),
-            ok = blockchain_txn_dialer:dial(NewDialer),
-            NewTxnMap = maps:put(Txn, {Callback, NewDialer}, TxnMap),
-            {noreply, State#state{txn_map=NewTxnMap}}
-    end;
+handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
+    lager:info("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    NewState = retry(Txn, State),
+    {noreply, NewState};
+handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
+    lager:info("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    NewState = retry(Txn, State),
+    {noreply, NewState};
+handle_info({rejected, {Dialer, Txn, Member}}, State) ->
+    lager:info("txn: ~p, rejected_by: ~p, dialer: ~p", [Txn, Member, Dialer]),
+    NewState = retry(Txn, State),
+    {noreply, NewState};
 handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
@@ -199,3 +195,19 @@ signatory_rand_member(Chain) ->
     Index = rand:uniform(length(Signatures)),
     {Signer, _} = lists:nth(Index, Signatures),
     {ok, Signer}.
+
+retry(Txn, State=#state{txn_map=TxnMap, chain=Chain}) ->
+    case maps:get(Txn, TxnMap, undefined) of
+        undefined ->
+            %% We no longer have this txn, do nothing
+            State;
+        {Callback, Dialer} ->
+            %% Stop this dialer
+            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
+            %% Try a new one
+            {ok, NewRandMember} = signatory_rand_member(Chain),
+            {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, NewRandMember]),
+            ok = blockchain_txn_dialer:dial(NewDialer),
+            NewTxnMap = maps:put(Txn, {Callback, NewDialer}, TxnMap),
+            State#state{txn_map=NewTxnMap}
+    end.

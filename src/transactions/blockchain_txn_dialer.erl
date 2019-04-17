@@ -55,7 +55,7 @@ init(Args) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_cast(dial, State=#state{member=Member, txn=Txn}) ->
+handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
@@ -66,13 +66,15 @@ handle_cast(dial, State=#state{member=Member, txn=Txn}) ->
                                          [self(), blockchain_txn:hash(Txn)]) of
         {error, Reason} ->
             lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p",
-                        [Reason, P2PAddress, TxnHash]);
+                        [Reason, P2PAddress, TxnHash]),
+            Parent ! {dial_failed, {self(), Txn, Member}};
         {ok, Stream} ->
             DataToSend = blockchain_txn:serialize(Txn),
             case libp2p_framed_stream:send(Stream, DataToSend) of
                 {error, Reason} ->
                     lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p",
-                                [Reason, P2PAddress, TxnHash]);
+                                [Reason, P2PAddress, TxnHash]),
+                    Parent ! {send_failed, {self(), Txn, Member}};
                 _ ->
                     ok
             end
