@@ -67,19 +67,20 @@ handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
         {error, Reason} ->
             lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p",
                         [Reason, P2PAddress, TxnHash]),
-            Parent ! {dial_failed, {self(), Txn, Member}};
+            Parent ! {dial_failed, {self(), Txn, Member}},
+            {stop, normal, State};
         {ok, Stream} ->
             DataToSend = blockchain_txn:serialize(Txn),
             case libp2p_framed_stream:send(Stream, DataToSend) of
                 {error, Reason} ->
                     lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p",
                                 [Reason, P2PAddress, TxnHash]),
-                    Parent ! {send_failed, {self(), Txn, Member}};
+                    Parent ! {send_failed, {self(), Txn, Member}},
+                    {stop, normal, State};
                 _ ->
-                    ok
+                    {noreply, State}
             end
-    end,
-    {noreply, State};
+    end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 

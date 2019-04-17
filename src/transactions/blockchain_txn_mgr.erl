@@ -123,12 +123,10 @@ handle_info({accepted, {Dialer, Txn, Member}}, State=#state{txn_map=TxnMap}) ->
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
-    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
-    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({rejected, {Dialer, Txn, Member}}, State) ->
