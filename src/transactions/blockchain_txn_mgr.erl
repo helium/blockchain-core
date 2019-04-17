@@ -110,10 +110,11 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     NewTxnMap = lists:foldl(fun({Txn, {Callback, _Retries, Dialer}}, Acc) ->
                                     %% XXX: Do we keep the retries? Bleh
+                                    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                     {ok, RandMember} = signatory_rand_member(Chain),
-                                    {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
-                                    ok = blockchain_txn_dialer:dial(Dialer),
-                                    maps:put(Txn, {Callback, 0, Dialer}, Acc)
+                                    {ok, NewDialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
+                                    ok = blockchain_txn_dialer:dial(NewDialer),
+                                    maps:put(Txn, {Callback, 0, NewDialer}, Acc)
                             end,
                             #{},
                             SortedTxns),
@@ -160,13 +161,16 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync}}, State=#state{chai
                                     end, maps:to_list(TxnMap)),
 
             NewTxnMap = lists:foldl(fun
-                                        ({Txn, {Callback, Retries, Dialer}}, Acc) when Retries < ?MAX_RETRIES ->
+                                        ({Txn, {Callback, Retries, Dialer}}, Acc) when Retries < ?MAX_RETRIES andalso
+                                                                                       Dialer /= undefined ->
                                             case {lists:member(Txn, Txns),
                                                   lists:member(Txn, InvalidTransactions)} of
                                                 {true, _} ->
+                                                    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                                     invoke_callback(Callback, ok),
                                                     Acc;
                                                 {_, true} ->
+                                                    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
                                                     invoke_callback(Callback, {error, invalid}),
                                                     Acc;
                                                 _ ->
@@ -219,7 +223,7 @@ invoke_callback(Callback, Msg) ->
 signatory_rand_member(Chain) ->
     {ok, Height} = blockchain:height(Chain),
     {ok, PrevBlock} = blockchain:get_block(Height-1, Chain),
-    Signatures = blockchain_block:signatures(PrevBlock),
+    Signatures = blockchain_block:signatures(PrevBlock) -- [blockchain_swarm:pubkey_bin()],
     Index = rand:uniform(length(Signatures)),
     {Signer, _} = lists:nth(Index, Signatures),
     {ok, Signer}.
