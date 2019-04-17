@@ -10,13 +10,13 @@
 -include("pb/blockchain_txn_security_exchange_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/5,
     hash/1,
     payer/1,
     payee/1,
     amount/1,
-    nonce/1,
     fee/1,
+    nonce/1,
     signature/1,
     sign/2,
     is_valid/2,
@@ -35,12 +35,13 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
-          non_neg_integer()) -> txn_security_exchange().
-new(Payer, Recipient, Amount, Nonce) ->
+          non_neg_integer(), non_neg_integer()) -> txn_security_exchange().
+new(Payer, Recipient, Amount, Fee, Nonce) ->
     #blockchain_txn_security_exchange_v1_pb{
         payer=Payer,
         payee=Recipient,
         amount=Amount,
+        fee=Fee,
         nonce=Nonce,
         signature = <<>>
     }.
@@ -89,9 +90,9 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec fee(txn_security_exchange()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_security_exchange()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_security_exchange_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -167,35 +168,39 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=666,
+        fee=1,
         nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 1, 1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 payee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
-
 amount_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     ?assertEqual(666, amount(Tx)).
 
+fee_test() ->
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    ?assertEqual(1, fee(Tx)).
+
 nonce_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     ?assertEqual(1, nonce(Tx)).
 
 signature_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, <<"payee">>, 666, 1),
+    Tx0 = new(<<"payer">>, <<"payee">>, 666, 1, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
