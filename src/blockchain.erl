@@ -90,12 +90,12 @@ new(Dir, GenBlock) ->
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
     ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun() ->
-         ok = save_block(GenesisBlock, Blockchain),
-        GenBin = blockchain_block:serialize(GenesisBlock),
         {ok, Batch} = rocksdb:batch(),
+        ok = save_block(GenesisBlock, Batch, Blockchain),
+        GenBin = blockchain_block:serialize(GenesisBlock),
         ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
         ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
-        ok = rocksdb:write_batch(DB, Batch, [])
+        ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
     end),
     ok.
 
@@ -511,15 +511,19 @@ open_db(Dir) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec save_block(blockchain_block:block(), blockchain()) -> ok.
-save_block(Block, #blockchain{db=DB, default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
+save_block(Block, Chain = #blockchain{db=DB}) ->
+    {ok, Batch} = rocksdb:batch(),
+    save_block(Block, Batch, Chain),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+-spec save_block(blockchain_block:block(), rocksdb:batch_handle(), blockchain()) -> ok.
+save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
-    {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
     ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, Hash),
     %% lexiographic ordering works better with big endian
-    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
-    ok = rocksdb:write_batch(DB, Batch, []).
+    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
