@@ -77,7 +77,7 @@ handle_cast({submit, Txn, Callback}, State=#state{chain=undefined, txn_map=TxnMa
 handle_cast({submit, Txn, Callback}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     %% Get a random consensus member from the chain who signed the previous block
     {ok, RandMember} = signatory_rand_member(Chain),
-    Dialer = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
+    {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, RandMember]),
     ok = blockchain_txn_dialer:dial(Dialer),
     NewTxnMap = maps:put(Txn, {Callback, 0, Dialer}, TxnMap),
     {noreply, State#state{txn_map=NewTxnMap}};
