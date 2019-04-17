@@ -21,7 +21,12 @@
 -include("blockchain.hrl").
 
 -ifdef(TEST).
+-export([save_block/2]).
+%% export a macro so we can interpose block saving to test failure
+-define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
+-else.
+-define(save_block(Block, Chain), save_block(Block, Chain)).
 -endif.
 
 -record(blockchain, {
@@ -310,7 +315,7 @@ add_block_(Block, Blockchain, Syncing) ->
                                         {true, _} ->
                                             BeforeCommit = fun() ->
                                                 lager:info("adding block ~p", [Height]),
-                                                ok = save_block(Block, Blockchain),
+                                                ok = ?save_block(Block, Blockchain),
                                                 ok = blockchain_worker:notify({add_block, Hash, Syncing})
                                             end,
                                             case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
