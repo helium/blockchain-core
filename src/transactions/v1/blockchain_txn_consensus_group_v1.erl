@@ -15,8 +15,8 @@
     sign/2,
     members/1,
     fee/1,
-    is_valid/3,
-    absorb/3
+    is_valid/2,
+    absorb/2
 ]).
 
 -ifdef(TEST).
@@ -72,23 +72,28 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_consensus_group(),
-               blockchain_block:block(),
-               blockchain_ledger_v1:ledger()) -> ok.
-is_valid(Txn, _Block, _Ledger) ->
-    case ?MODULE:members(Txn) of
-        [] -> {error, no_members};
-        _ -> ok
+-spec is_valid(txn_consensus_group(), blockchain:blockchain()) -> ok.
+is_valid(Txn, Chain) ->
+    %% for now, we only allow this in the genesis block
+    %% until elections land
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, 0} ->
+            case ?MODULE:members(Txn) of
+                [] -> {error, no_members};
+                _ -> ok
+            end;
+        _ ->
+            {error, not_in_genesis_block}
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_consensus_group(),
-             blockchain_block:block(),
-             blockchain_ledger_v1:ledger()) -> ok| {error, any()}.
-absorb(Txn, _Block, Ledger) ->
+-spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, any()}.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
     blockchain_ledger_v1:consensus_members(Members, Ledger).
 

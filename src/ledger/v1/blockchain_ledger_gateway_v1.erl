@@ -9,10 +9,10 @@
     new/2, new/4,
     owner_address/1, owner_address/2,
     location/1, location/2,
+    score/1, score/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
-    score/1, score/2,
     print/1,
     serialize/1, deserialize/1
 ]).
@@ -26,10 +26,10 @@
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
+    score = 0.0 :: float(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
-    nonce = 0 :: non_neg_integer(),
-    score = 0.0 :: float()
+    nonce = 0 :: non_neg_integer()
 }).
 
 -type gateway() :: #gateway_v1{}.
@@ -55,8 +55,8 @@ new(OwnerAddress, Location, Nonce, Score) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location,
-        nonce=Nonce,
-        score=Score
+        score=Score,
+        nonce=Nonce
     }.
 
 %%--------------------------------------------------------------------
@@ -91,6 +91,22 @@ location(Gateway) ->
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
     Gateway#gateway_v1{location=Location}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec score(Gateway :: gateway()) -> float().
+score(Gateway) ->
+    Gateway#gateway_v1.score.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec score(Score :: float(), Gateway :: gateway()) -> gateway().
+score(Score, Gateway) ->
+    Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -144,22 +160,6 @@ nonce(Nonce, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec score(Gateway :: gateway()) -> float().
-score(Gateway) ->
-    Gateway#gateway_v1.score.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(Score :: float(), Gateway :: gateway()) -> gateway().
-score(Score, Gateway) ->
-    Gateway#gateway_v1{score=Score}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec print(Gateway :: gateway()) -> list().
 print(Gateway) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
@@ -202,11 +202,11 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
+        score = 0.0,
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
-        nonce = 0,
-        score = 0.0
+        nonce = 0
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -219,6 +219,11 @@ location_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(12, location(Gw)),
     ?assertEqual(13, location(location(13, Gw))).
+
+score_test() ->
+    Gw = new(<<"owner_address">>, 12),
+    ?assertEqual(0.0, score(Gw)),
+    ?assertEqual(1.0, score(score(1.0, Gw))).
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -234,10 +239,5 @@ nonce_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(0, nonce(Gw)),
     ?assertEqual(1, nonce(nonce(1, Gw))).
-
-score_test() ->
-    Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.0, score(Gw)),
-    ?assertEqual(1.0, score(score(1.0, Gw))).
 
 -endif.

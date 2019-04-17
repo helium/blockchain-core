@@ -462,7 +462,7 @@ poc_request_test(Config) ->
     ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
 
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
-    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Block, _Ledger) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
 
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(Gateway, Secret0, OnionKeyHash0, []),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),

@@ -48,7 +48,7 @@ start_link(Args) ->
 %%--------------------------------------------------------------------
 -spec pubkey_bin() -> libp2p_crypto:pubkey_bin().
 pubkey_bin() ->
-    gen_server:call(?MODULE, pubkey_bin).
+    gen_server:call(?MODULE, pubkey_bin, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,7 +56,7 @@ pubkey_bin() ->
 %%--------------------------------------------------------------------
 -spec swarm() -> pid().
 swarm() ->
-    gen_server:call(?MODULE, swarm).
+    gen_server:call(?MODULE, swarm, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -64,7 +64,7 @@ swarm() ->
 %%--------------------------------------------------------------------
 -spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()} | {error, term()}.
 keys() ->
-    gen_server:call(?MODULE, key).
+    gen_server:call(?MODULE, key, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,7 +72,7 @@ keys() ->
 %%--------------------------------------------------------------------
 -spec gossip_peers() -> [{string(), pid()}].
 gossip_peers() ->
-    gen_server:call(?MODULE, gossip_peers).
+    gen_server:call(?MODULE, gossip_peers, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

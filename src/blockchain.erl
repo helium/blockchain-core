@@ -10,7 +10,7 @@
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
     height/1,
-    ledger/1, ledger_at/2,
+    ledger/1, ledger/2, ledger_at/2,
     dir/1,
     blocks/1, add_block/2, add_block/3, get_block/2, add_blocks/2,
     fees_since/2,
@@ -182,9 +182,17 @@ ledger(#blockchain{ledger=Ledger}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec ledger(blockchain_ledger_v1:ledger(), blockchain()) -> blockchain().
+ledger(Ledger, Chain) ->
+    Chain#blockchain{ledger=Ledger}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
-ledger_at(Height, Blockchain) ->
-    Ledger = ?MODULE:ledger(Blockchain),
+ledger_at(Height, Chain0) ->
+    Ledger = ?MODULE:ledger(Chain0),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, Height} ->
             {ok, Ledger};
@@ -196,16 +204,16 @@ ledger_at(Height, Blockchain) ->
                 {ok, Height} ->
                     {ok, DelayedLedger};
                 {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
-                    DelayedLedger1 = lists:foldl(
-                        fun(H, Acc) ->
-                            {ok, Block} = ?MODULE:get_block(H, Blockchain),
-                            {ok, L} = blockchain_txn:absorb_block(Block, Acc),
-                            L
+                    Chain1 = lists:foldl(
+                        fun(H, ChainAcc) ->
+                            {ok, Block} = ?MODULE:get_block(H, Chain0),
+                            {ok, Chain1} = blockchain_txn:absorb_block(Block, ChainAcc),
+                            Chain1
                         end,
-                        blockchain_ledger_v1:new_context(DelayedLedger),
+                        ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0),
                         lists:seq(DelayedHeight+1, Height)
                     ),
-                    {ok, DelayedLedger1};
+                    {ok, ?MODULE:ledger(Chain1)};
                 {ok, DelayedHeight} when Height < DelayedHeight ->
                     {error, height_too_old};
                 {error, _}=Error ->
@@ -343,9 +351,11 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %%--------------------------------------------------------------------
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
 add_blocks([], _Chain) -> ok;
-add_blocks([Head | Tail], Chain) ->
-    case ?MODULE:add_block(Head, Chain, true) of
-        ok -> add_blocks(Tail, Chain);
+add_blocks([LastBlock | []], Chain) ->
+    ?MODULE:add_block(LastBlock, Chain, false);
+add_blocks([Block | Blocks], Chain) ->
+    case ?MODULE:add_block(Block, Chain, true) of
+        ok -> add_blocks(Blocks, Chain);
         Error ->
             Error
     end.
