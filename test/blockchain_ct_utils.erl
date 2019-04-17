@@ -163,6 +163,7 @@ init_per_testcase(TestCase, Config) ->
     TotalNodes = get_config("T", 8),
     NumConsensusMembers = get_config("N", 7),
     SeedNodes = [],
+    SwarmOpts = [{peer_cache_timeout, 100}],
     Port = get_config("PORT", 0),
 
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
@@ -190,6 +191,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, key, Key]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, libp2p_group_gossip, SwarmOpts]),
 
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
                                 ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])
