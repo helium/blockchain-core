@@ -39,7 +39,7 @@
     validate/2,
     absorb/2,
     sign/2,
-    absorb_and_commit/2,
+    absorb_and_commit/3,
     absorb_block/2,
     sort/2,
     type/1,
@@ -163,8 +163,8 @@ validate([Txn | Tail], Valid, Invalid, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb_and_commit(Block, Chain0) ->
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) -> ok | {error, any()}.
+absorb_and_commit(Block, Chain0, BeforeCommit) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
@@ -174,6 +174,7 @@ absorb_and_commit(Block, Chain0) ->
             case ?MODULE:absorb_block(Block, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
+                    BeforeCommit(),
                     ok = blockchain_ledger_v1:commit_context(Ledger2),
                     absorb_delayed(Block, Chain0);
                 Error ->

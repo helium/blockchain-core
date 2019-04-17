@@ -89,13 +89,14 @@ new(Dir, GenBlock) ->
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
-    ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain),
-    ok = save_block(GenesisBlock, Blockchain),
-    GenBin = blockchain_block:serialize(GenesisBlock),
-    {ok, Batch} = rocksdb:batch(),
-    ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
-    ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
-    ok = rocksdb:write_batch(DB, Batch, []),
+    ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun() ->
+         ok = save_block(GenesisBlock, Blockchain),
+        GenBin = blockchain_block:serialize(GenesisBlock),
+        {ok, Batch} = rocksdb:batch(),
+        ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
+        ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
+        ok = rocksdb:write_batch(DB, Batch, [])
+    end),
     ok.
 
 %%--------------------------------------------------------------------
@@ -307,14 +308,17 @@ add_block_(Block, Blockchain, Syncing) ->
                                         false ->
                                             {error, failed_verify_signatures};
                                         {true, _} ->
-                                            case blockchain_txn:absorb_and_commit(Block, Blockchain) of
-                                                ok ->
-                                                    lager:info("adding block ~p", [Height]),
-                                                    ok = save_block(Block, Blockchain),
-                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing});
+                                            BeforeCommit = fun() ->
+                                                lager:info("adding block ~p", [Height]),
+                                                ok = save_block(Block, Blockchain),
+                                                ok = blockchain_worker:notify({add_block, Hash, Syncing})
+                                            end,
+                                            case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
                                                 {error, Reason}=Error ->
                                                     lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                                                    Error
+                                                    Error;
+                                                ok ->
+                                                    ok
                                             end
                                     end
                             end
