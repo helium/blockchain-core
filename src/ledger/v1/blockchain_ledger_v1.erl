@@ -503,7 +503,7 @@ update_gateway_score(GatewayAddress, Score, Ledger) ->
 
 -spec decay_gateway_scores(ledger()) -> ok | {error, any()}.
 decay_gateway_scores(Ledger) ->
-    ActiveGateways = active_gateways_cf(Ledger),
+    ActiveGateways = ?MODULE:active_gateways(Ledger),
     {ok, Height} = ?MODULE:current_height(Ledger),
     Decay = 0.1*Height/(Height + 1000),
     ok = lists:foreach(fun(GatewayAddress) ->
