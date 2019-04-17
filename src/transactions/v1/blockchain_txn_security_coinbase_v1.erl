@@ -106,7 +106,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
-    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
+    blockchain_ledger_v1:credit_security(Payee, Amount, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
