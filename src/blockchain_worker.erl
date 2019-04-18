@@ -23,7 +23,8 @@
     create_htlc_txn/6,
     redeem_htlc_txn/3,
     peer_height/3,
-    notify/1
+    notify/1,
+    mismatch/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -173,6 +174,14 @@ peer_height(Height, Head, Sender) ->
 -spec notify(any()) -> ok.
 notify(Msg) ->
     ok = gen_event:notify(?EVT_MGR, Msg).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec mismatch() -> ok.
+mismatch() ->
+    gen_server:cast(?SERVER, mismatch).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -328,6 +337,21 @@ handle_cast({peer_height, Height, Head, Sender}, #state{n=N, blockchain=Chain, s
                     end
             end
     end,
+    {noreply, State};
+handle_cast(mismatch, #state{blockchain=Chain}=State) ->
+    lager:warning("got mismatch message"),
+    blockchain_lock:acquire(),
+    Ledger = blockchain:ledger(Chain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, ChainHeight} = blockchain:height(Chain),
+    lists:foreach(
+        fun(H) ->
+            {ok, Block} = blockchain:get_block(H, Chain),
+            ok = blockchain:delete_block(Block, Chain)
+        end,
+        lists:reverse(lists:seq(LedgerHeight+1, ChainHeight))
+    ),
+    blockchain_lock:release(),
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),

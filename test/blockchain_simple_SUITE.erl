@@ -922,19 +922,38 @@ absorb_failed_test(Config) ->
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, save_block, fun(B, C) -> meck:passthrough([B, C]), erlang:error(boom)  end),
+    meck:expect(blockchain, save_block, fun(B, C) ->
+        meck:passthrough([B, C]),
+        ct:pal("BOOM"),
+        blockchain_lock:release(),
+        erlang:error(boom)
+    end),
     ?assertError(boom, blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())),
     meck:unload(blockchain),
-    blockchain_lock:release(),
-    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
-
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+    
+    ct:pal("Try to re-add block 1 will cause the mismatch"),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
     Ledger = blockchain:ledger(Chain),
+    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain_ledger_v1:current_height(Ledger) end),
+
+    ct:pal("Try to re-add block 2"),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain_ledger_v1:current_height(Ledger) end),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 

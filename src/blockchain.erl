@@ -12,7 +12,9 @@
     height/1,
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
-    blocks/1, add_block/2, add_block/3, get_block/2, add_blocks/2,
+    blocks/1, get_block/2,
+    add_blocks/2, add_block/2, add_block/3, 
+    delete_block/2,
     fees_since/2,
     build/3,
     close/1
@@ -258,6 +260,45 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
+get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
+    case rocksdb:get(DB, BlocksCF, Hash, []) of
+        {ok, BinBlock} ->
+            {ok, blockchain_block:deserialize(BinBlock)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end;
+get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+        {ok, Hash} ->
+           ?MODULE:get_block(Hash, Blockchain);
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
+add_blocks([], _Chain) -> ok;
+add_blocks([LastBlock | []], Chain) ->
+    ?MODULE:add_block(LastBlock, Chain, false);
+add_blocks([Block | Blocks], Chain) ->
+    case ?MODULE:add_block(Block, Chain, true) of
+        ok -> add_blocks(Blocks, Chain);
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
 add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
@@ -284,20 +325,29 @@ add_block_(Block, Blockchain, Syncing) ->
                     Error;
                 {ok, HeadBlock} ->
                     HeadHash = blockchain_block:hash_block(HeadBlock),
+                    Ledger = blockchain:ledger(Blockchain),
+                    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+                    {ok, BlockchainHeight} = blockchain:height(Blockchain),
                     Height = blockchain_block:height(Block),
-                    case blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         Height == blockchain_block:height(HeadBlock) + 1
+                    case
+                        {blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                         Height =:= blockchain_block:height(HeadBlock) + 1,
+                         BlockchainHeight =:= LedgerHeight}
                     of
-                        false when HeadHash =:= Hash ->
-                            lager:debug("Already have this block"),
+                        {_, false} ->
+                            lager:warning("ledger and chain height don't match (L:~p, C:~p)", [LedgerHeight, BlockchainHeight]),
+                            ok = blockchain_worker:mismatch(),
+                            {error, mismatch_ledger_chain};
+                        {false, _} when HeadHash =:= Hash ->
+                            lager:info("Already have this block"),
                             ok;
-                        false ->
-                            lager:warning("gossipped block doesn't fit with our chain,
+                        {false, _} ->
+                            lager:warning("block doesn't fit with our chain,
                                           block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
                                                                                      blockchain_block:height(HeadBlock)]),
                             {error, disjoint_chain};
-                        true ->
-                            Ledger = blockchain:ledger(Blockchain),
+                        {true, true} ->
+                            lager:info("prev hash matches the gossiped block"),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
                                     lager:error("could not get consensus_members ~p", [_Reason]),
@@ -335,40 +385,18 @@ add_block_(Block, Blockchain, Syncing) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
-get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
-    case rocksdb:get(DB, BlocksCF, Hash, []) of
-        {ok, BinBlock} ->
-            {ok, blockchain_block:deserialize(BinBlock)};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end;
-get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
-    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
-        {ok, Hash} ->
-           ?MODULE:get_block(Hash, Blockchain);
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
-add_blocks([], _Chain) -> ok;
-add_blocks([LastBlock | []], Chain) ->
-    ?MODULE:add_block(LastBlock, Chain, false);
-add_blocks([Block | Blocks], Chain) ->
-    case ?MODULE:add_block(Block, Chain, true) of
-        ok -> add_blocks(Blocks, Chain);
-        Error ->
-            Error
-    end.
+-spec delete_block(blockchain_block:block(), blockchain()) -> ok.
+delete_block(Block, #blockchain{db=DB, default=DefaultCF,
+                                blocks=BlocksCF, heights=HeightsCF}) ->
+    {ok, Batch} = rocksdb:batch(),
+    Hash = blockchain_block:hash_block(Block),
+    PrevHash = blockchain_block:prev_hash(Block),
+    Height = blockchain_block:height(Block),
+    lager:warning("deleting block ~p height: ~p, Prev Hash ~p", [Hash, Height, PrevHash]),
+    ok = rocksdb:batch_delete(Batch, BlocksCF, Hash),
+    ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash),    
+    ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 %%--------------------------------------------------------------------
 %% @doc
