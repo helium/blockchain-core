@@ -2,4 +2,7 @@ syntax = "proto3";
 
 message txn_consensus_group_v1 {
     repeated bytes members = 1;
+    bytes proof = 2;
+    uint64 height = 3;
+    uint32 delay = 4; 
 }

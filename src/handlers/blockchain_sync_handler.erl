@@ -46,14 +46,14 @@ server(Connection, Path, _TID, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [N, Blockchain]) ->
-    lager:info("started sync_handler client"),
+    lager:debug("started sync_handler client"),
     {ok, #state{n=N, blockchain=Blockchain}};
 init(server, _Conn, [_Path, _, N, Blockchain]) ->
-    lager:info("started sync_handler server"),
+    lager:debug("started sync_handler server"),
     {ok, #state{n=N, blockchain=Blockchain}}.
 
 handle_data(client, Data, #state{blockchain=Chain}=State) ->
-    lager:info("client got data: ~p", [Data]),
+    lager:debug("client got data: ~p", [Data]),
     #blockchain_sync_blocks_pb{blocks=BinBlocks} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
@@ -66,10 +66,10 @@ handle_data(client, Data, #state{blockchain=Chain}=State) ->
     end,
     {stop, normal, State};
 handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
-    lager:info("server got data: ~p", [Data]),
+    lager:debug("server got data: ~p", [Data]),
     #blockchain_sync_hash_pb{hash=Hash} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
-    lager:info("syncing blocks with peer hash ~p", [Hash]),
+    lager:debug("syncing blocks with peer hash ~p", [Hash]),
     StartingBlock =
         case blockchain:get_block(Hash, Blockchain) of
             {ok, Block} ->
@@ -87,5 +87,5 @@ handle_info(client, {hash, Hash}, State) ->
     Msg = #blockchain_sync_hash_pb{hash=Hash},
     {noreply, State, blockchain_sync_handler_pb:encode_msg(Msg)};
 handle_info(_Type, _Msg, State) ->
-    lager:info("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
+    lager:debug("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
     {noreply, State}.

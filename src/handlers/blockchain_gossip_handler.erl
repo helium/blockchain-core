@@ -39,7 +39,7 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
             undefined ->
                 lager:notice("gossip_handler unknown block: ~p", [Block]);
             _ ->
-                lager:info("Got block: ~p from: ~p", [Block, From]),
+                lager:debug("Got block: ~p from: ~p", [Block, From]),
                 add_block(Swarm, Block, Blockchain, N, From)
         end
     catch
@@ -49,7 +49,7 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     ok.
 
 add_block(Swarm, Block, Chain, N, Sender) ->
-    lager:info("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
+    lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
             ok;

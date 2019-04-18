@@ -314,7 +314,7 @@ absorb_delayed(Block0, Chain0) ->
     DelayedLedger1 = blockchain_ledger_v1:new_context(DelayedLedger0),
     Chain1 = blockchain:ledger(DelayedLedger1, Chain0),
     case blockchain_ledger_v1:current_height(Ledger0) of
-        % This is so it absosbs genesis
+        % This is so it absorbs genesis
         {ok, H} when H < 2 ->
             absorb_delayed_(Block0, Chain1);
         {ok, CurrentHeight} ->

@@ -51,7 +51,7 @@ gossip_test(Config) ->
 
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
-    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs),
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
     Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
