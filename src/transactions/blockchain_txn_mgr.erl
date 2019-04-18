@@ -117,10 +117,9 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
                             SortedTxns),
 
     {noreply, State#state{txn_map=NewTxnMap}};
-handle_info({accepted, {Dialer, Txn, Member}}, State=#state{txn_map=TxnMap}) ->
+handle_info({accepted, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, accepted_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
-    NewTxnMap = maps:remove(Txn, TxnMap),
-    {noreply, State#state{txn_map=NewTxnMap}};
+    {noreply, State};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
