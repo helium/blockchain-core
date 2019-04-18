@@ -151,7 +151,9 @@ shuffle(List) ->
 init_per_testcase(TestCase, Config) ->
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
-    case net_kernel:start([list_to_atom("runner-blockchain@"++Hostname), shortnames]) of
+    case net_kernel:start([list_to_atom("runner-blockchain-" ++
+                                        integer_to_list(erlang:system_time(nanosecond)) ++
+                                        "@"++Hostname), shortnames]) of
         {ok, _} -> ok;
         {error, {already_started, _}} -> ok;
         {error, {{already_started, _},_}} -> ok
@@ -161,6 +163,7 @@ init_per_testcase(TestCase, Config) ->
     TotalNodes = get_config("T", 8),
     NumConsensusMembers = get_config("N", 7),
     SeedNodes = [],
+    PeerCacheTimeout = 100,
     Port = get_config("PORT", 0),
 
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
@@ -188,6 +191,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, key, Key]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
 
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
                                 ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])

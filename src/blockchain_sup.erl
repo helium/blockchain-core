@@ -70,7 +70,8 @@ init(Args) ->
         {libp2p_group_gossip, [
             {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
             {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
-            {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)}
+            {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)},
+            {peer_cache_timeout, proplists:get_value(peer_cache_timeout, Args, 10 * 1000)}
         ]}
     ],
     BWorkerOpts = [

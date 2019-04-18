@@ -20,6 +20,7 @@
              | blockchain_txn_payment_v1:txn_payment()
              | blockchain_txn_security_exchange_v1:txn_security_exchange()
              | blockchain_txn_oui_v1:txn_oui()
+             | blockchain_txn_routing_v1:txn_routing()
              | blockchain_txn_create_htlc_v1:txn_create_htlc()
              | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
              | blockchain_txn_poc_request_v1:txn_poc_request()
@@ -59,15 +60,16 @@
     {blockchain_txn_security_coinbase_v1, 2},
     {blockchain_txn_gen_gateway_v1, 3},
     {blockchain_txn_oui_v1, 4},
-    {blockchain_txn_payment_v1, 5},
-    {blockchain_txn_security_exchange_v1, 6},
-    {blockchain_txn_consensus_group_v1, 7},
-    {blockchain_txn_add_gateway_v1, 8},
-    {blockchain_txn_assert_location_v1, 9},
-    {blockchain_txn_create_htlc_v1, 10},
-    {blockchain_txn_redeem_htlc_v1, 11},
-    {blockchain_txn_poc_request_v1, 12},
-    {blockchain_txn_poc_receipts_v1, 13}
+    {blockchain_txn_routing_v1, 5},
+    {blockchain_txn_payment_v1, 6},
+    {blockchain_txn_security_exchange_v1, 7},
+    {blockchain_txn_consensus_group_v1, 8},
+    {blockchain_txn_add_gateway_v1, 9},
+    {blockchain_txn_assert_location_v1, 10},
+    {blockchain_txn_create_htlc_v1, 11},
+    {blockchain_txn_redeem_htlc_v1, 12},
+    {blockchain_txn_poc_request_v1, 13},
+    {blockchain_txn_poc_receipts_v1, 14}
 ]).
 
 hash(Txn) ->
@@ -109,7 +111,11 @@ wrap_txn(#blockchain_txn_poc_request_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_poc_receipts_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={poc_receipts, Txn}};
 wrap_txn(#blockchain_txn_gen_gateway_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={gen_gateway, Txn}}.
+    #blockchain_txn_pb{txn={gen_gateway, Txn}};
+wrap_txn(#blockchain_txn_oui_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={oui, Txn}};
+wrap_txn(#blockchain_txn_routing_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={routing, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
@@ -262,7 +268,11 @@ type(#blockchain_txn_poc_request_v1_pb{}) ->
 type(#blockchain_txn_poc_receipts_v1_pb{}) ->
     blockchain_txn_poc_receipts_v1;
 type(#blockchain_txn_gen_gateway_v1_pb{}) ->
-    blockchain_txn_gen_gateway_v1.
+    blockchain_txn_gen_gateway_v1;
+type(#blockchain_txn_oui_v1_pb{}) ->
+    blockchain_txn_oui_v1;
+type(#blockchain_txn_routing_v1_pb{}) ->
+    blockchain_txn_routing_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -376,6 +386,10 @@ actor(Txn) ->
             blockchain_txn_security_coinbase_v1:payee(Txn);
         blockchain_txn_poc_receipts_v1 ->
             blockchain_txn_poc_receipts_v1:challenger(Txn);
+        blockchain_txn_oui_v1 ->
+            blockchain_txn_oui_v1:owner(Txn);
+        blockchain_txn_routing_v1 ->
+            blockchain_txn_routing_v1:owner(Txn);
         _ ->
             <<>>
     end.
