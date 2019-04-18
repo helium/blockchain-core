@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+message txn_routing_v1 {
+    uint32 oui = 1;
+    bytes owner = 2;
+    repeated bytes addresses = 3;
+    uint64 fee = 4;
+    uint64 nonce = 5;
+    bytes signature = 6;
+}
