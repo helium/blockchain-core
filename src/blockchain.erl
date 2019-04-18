@@ -387,14 +387,19 @@ add_block_(Block, Blockchain, Syncing) ->
 %%--------------------------------------------------------------------
 -spec delete_block(blockchain_block:block(), blockchain()) -> ok.
 delete_block(Block, #blockchain{db=DB, default=DefaultCF,
-                                blocks=BlocksCF, heights=HeightsCF}) ->
+                                blocks=BlocksCF, heights=HeightsCF}=Chain) ->
     {ok, Batch} = rocksdb:batch(),
     Hash = blockchain_block:hash_block(Block),
     PrevHash = blockchain_block:prev_hash(Block),
     Height = blockchain_block:height(Block),
     lager:warning("deleting block ~p height: ~p, Prev Hash ~p", [Hash, Height, PrevHash]),
     ok = rocksdb:batch_delete(Batch, BlocksCF, Hash),
-    ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash),    
+    {ok, HeadHash} = ?MODULE:head_hash(Chain),
+    case HeadHash =:= Hash of
+        false -> ok;
+        true ->
+            ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash);
+    end,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
