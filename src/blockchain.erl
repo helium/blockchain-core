@@ -398,7 +398,7 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
     case HeadHash =:= Hash of
         false -> ok;
         true ->
-            ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash);
+            ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash)
     end,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
