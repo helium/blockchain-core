@@ -5,8 +5,7 @@
          has_new_group/1
         ]).
 
-%% we'll need size later
-new_group(Ledger, Hash, _Size) ->
+new_group(Ledger, Hash, Size) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     Gateways = maps:keys(Gateways0),
     lager:info("hash ~p gateways ~p", [Hash, Gateways]),
@@ -20,7 +19,7 @@ new_group(Ledger, Hash, _Size) ->
     Shuf = lists:sort(Shuf0),
     %% we should not need this on the mainnet, I'm not sure that it's
     %% fully deterministic anyway.  change when scores
-    [Node || {_, Node} <- Shuf].
+    lists:sublist([Node || {_, Node} <- Shuf], 1, Size).
 
 has_new_group(Txns) ->
     MyAddress = blockchain_swarm:pubkey_bin(),

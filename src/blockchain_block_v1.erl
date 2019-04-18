@@ -170,7 +170,7 @@ hash_block(Block) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec verify_signatures(Block::binary() | block(),
-                        ConsensueMembers::[libp2p_crypto:pubkey_bin()],
+                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
                         Signatures::[blockchain_block:signature()],
                         Threshold::pos_integer()) -> false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 verify_signatures(#blockchain_block_v1_pb{}=Block, ConsensusMembers, Signatures, Threshold) ->

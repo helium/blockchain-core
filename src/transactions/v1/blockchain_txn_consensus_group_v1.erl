@@ -14,8 +14,9 @@
     hash/1,
     sign/2,
     members/1,
+    proof/1,
     height/1,
-    tries/1,
+    delay/1,
     fee/1,
     is_valid/2,
     absorb/2
@@ -33,13 +34,13 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new([libp2p_crypto:pubkey_bin()], binary(), pos_integer(), non_neg_integer()) -> txn_consensus_group().
-new(_Members, _Proof, 0, _Tries) ->
+new(_Members, _Proof, 0, _Delay) ->
     error(blowupyay);
-new(Members, Proof, Height, Tries) ->
+new(Members, Proof, Height, Delay) ->
     #blockchain_txn_consensus_group_v1_pb{members = Members,
                                           proof = Proof,
                                           height = Height,
-                                          tries = Tries}.
+                                          delay = Delay}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -67,11 +68,14 @@ sign(Txn, _SigFun) ->
 members(Txn) ->
     Txn#blockchain_txn_consensus_group_v1_pb.members.
 
+proof(Txn) ->
+    Txn#blockchain_txn_consensus_group_v1_pb.proof.
+
 height(Txn) ->
     Txn#blockchain_txn_consensus_group_v1_pb.height.
 
-tries(Txn) ->
-    Txn#blockchain_txn_consensus_group_v1_pb.tries.
+delay(Txn) ->
+    Txn#blockchain_txn_consensus_group_v1_pb.delay.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -89,18 +93,57 @@ fee(_Txn) ->
 -spec is_valid(txn_consensus_group(), blockchain:blockchain()) -> ok.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case ?MODULE:members(Txn) of
+    Members = ?MODULE:members(Txn),
+    Delay = ?MODULE:delay(Txn),
+    Proof0 = ?MODULE:proof(Txn),
+    case Members of
         [] -> {error, no_members};
         _ ->
             case blockchain_ledger_v1:election_height(Ledger) of
                 {error, not_found} ->
                     ok;
                 {ok, Height} ->
-                    case ?MODULE:height(Txn) > Height of
-                        true -> ok;
-                        _ -> {error, {duplicate_group, ?MODULE:height(Txn), Height}}
+                    TxnHeight = ?MODULE:height(Txn),
+                    case TxnHeight > Height of
+                        true ->
+                            Proof = binary_to_term(Proof0),
+                            EffectiveHeight = TxnHeight + Delay,
+                            {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
+                            {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
+                            Hash = blockchain_block:hash_block(Block),
+                            verify_proof(Proof, Members, Hash, OldLedger);
+                        _ ->
+                            {error, {duplicate_group, ?MODULE:height(Txn), Height}}
                     end
             end
+    end.
+
+verify_proof(Proof, Members, Hash, OldLedger) ->
+    %% verify that the list is the proper list
+    L = length(Members),
+    HashMembers = blockchain_election:new_group(OldLedger, Hash, L),
+    Artifact = term_to_binary(Members),
+    case HashMembers of
+        Members ->
+            %% verify all the signatures
+            %% verify that the signatories are all in the members list
+            case lists:all(fun({Addr, Sig}) ->
+                                   lists:member(Addr, Members) andalso
+                                       libp2p_crypto:verify(Artifact, Sig,
+                                                            libp2p_crypto:bin_to_pubkey(Addr))
+
+                           end, Proof) andalso
+                lists:all(fun(M) ->
+                                  lists:keymember(M, 1, Proof)
+                          end, Members) of
+                true ->
+                    ok;
+                _ ->
+                    {error, group_verification_failed}
+            end;
+        _ ->
+            lager:info("groups didn't match: ~ntxn ~p ~nhash ~p", [Members, HashMembers]),
+            {error, group_mismatch}
     end.
 
 %%--------------------------------------------------------------------
@@ -124,7 +167,7 @@ new_test() ->
     Tx = #blockchain_txn_consensus_group_v1_pb{members = [<<"1">>],
                                                proof = <<"proof">>,
                                                height = 1,
-                                               tries = 0},
+                                               delay = 0},
     ?assertEqual(Tx, new([<<"1">>], <<"proof">>, 1, 0)).
 
 members_test() ->
