@@ -18,7 +18,8 @@
     bogus_coinbase_with_good_payment_test/1,
     export_test/1,
     delayed_ledger_test/1,
-    fees_since_test/1
+    fees_since_test/1,
+    security_token_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -43,7 +44,8 @@ all() ->
         bogus_coinbase_with_good_payment_test,
         export_test,
         delayed_ledger_test,
-        fees_since_test
+        fees_since_test,
+        security_token_test
     ].
 
 %%--------------------------------------------------------------------
@@ -746,3 +748,41 @@ fees_since_test(Config) ->
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
     ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)).
+
+
+security_token_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Balance = proplists:get_value(balance, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 10, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_security_exchange_v1:sign(Tx, SigFun),
+    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+
+    Ledger = blockchain:ledger(Chain),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_security_entry(Recipient, Ledger),
+    ?assertEqual(Balance + 2500, blockchain_ledger_security_entry_v1:balance(NewEntry0)),
+
+    {ok, NewEntry1} = blockchain_ledger_v1:find_security_entry(Payer, Ledger),
+    ?assertEqual(Balance - 2500, blockchain_ledger_security_entry_v1:balance(NewEntry1)),
+
+    %% the fee came out of the atom balance, not security tokens
+    {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry2)),
+
+    ok.

@@ -123,6 +123,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
+    Fee = ?MODULE:fee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
@@ -134,7 +135,12 @@ is_valid(Txn, Chain) ->
             case Payer == Payee of
                 false ->
                     Amount = ?MODULE:amount(Txn),
-                    blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger);
+                    case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
+                        ok ->
+                            blockchain_ledger_v1:check_balance(Payer, Fee, Ledger);
+                        Error ->
+                            Error
+                    end;
                 true ->
                     {error, invalid_transaction_self_payment}
             end
@@ -148,15 +154,22 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),
+    Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_security(Payer, Amount, Nonce, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
+    case blockchain_ledger_v1:debit_account(Payer, Fee, Nonce, Ledger) of
         ok ->
-            Payee = ?MODULE:payee(Txn),
-            blockchain_ledger_v1:credit_security(Payee, Amount, Ledger)
+            case blockchain_ledger_v1:debit_security(Payer, Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Payee = ?MODULE:payee(Txn),
+                    blockchain_ledger_v1:credit_security(Payee, Amount, Ledger)
+            end;
+        FeeError ->
+            FeeError
     end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
