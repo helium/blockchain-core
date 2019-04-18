@@ -12,7 +12,9 @@
     height/1,
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
-    blocks/1, add_block/2, add_block/3, get_block/2, add_blocks/2,
+    blocks/1, get_block/2,
+    add_blocks/2, add_block/2, add_block/3, 
+    delete_block/2,
     fees_since/2,
     build/3,
     close/1
@@ -21,7 +23,12 @@
 -include("blockchain.hrl").
 
 -ifdef(TEST).
+-export([save_block/2]).
+%% export a macro so we can interpose block saving to test failure
+-define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
+-else.
+-define(save_block(Block, Chain), save_block(Block, Chain)).
 -endif.
 
 -record(blockchain, {
@@ -89,13 +96,14 @@ new(Dir, GenBlock) ->
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
     GenHash = blockchain_block:hash_block(GenesisBlock),
-    ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain),
-    ok = save_block(GenesisBlock, Blockchain),
-    GenBin = blockchain_block:serialize(GenesisBlock),
-    {ok, Batch} = rocksdb:batch(),
-    ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
-    ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
-    ok = rocksdb:write_batch(DB, Batch, []),
+    ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun() ->
+        {ok, Batch} = rocksdb:batch(),
+        ok = save_block(GenesisBlock, Batch, Blockchain),
+        GenBin = blockchain_block:serialize(GenesisBlock),
+        ok = rocksdb:batch_put(Batch, DefaultCF, GenHash, GenBin),
+        ok = rocksdb:batch_put(Batch, DefaultCF, ?GENESIS, GenHash),
+        ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
+    end),
     ok.
 
 %%--------------------------------------------------------------------
@@ -252,80 +260,6 @@ blocks(#blockchain{db=DB, blocks=BlocksCF}) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
-add_block(Block, Blockchain) ->
-    add_block(Block, Blockchain, false).
-
--spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
-add_block(Block, Blockchain, Syncing) ->
-    blockchain_lock:acquire(),
-    Res = add_block_(Block, Blockchain, Syncing),
-    blockchain_lock:release(),
-    Res.
-
-add_block_(Block, Blockchain, Syncing) ->
-    Hash = blockchain_block:hash_block(Block),
-    {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
-    case blockchain_block:is_genesis(Block) of
-        true when Hash =:= GenesisHash ->
-            ok;
-        true ->
-            {error, unknown_genesis_block};
-        false ->
-            case blockchain:head_block(Blockchain) of
-                {error, Reason}=Error ->
-                    lager:error("could not get head hash ~p", [Reason]),
-                    Error;
-                {ok, HeadBlock} ->
-                    HeadHash = blockchain_block:hash_block(HeadBlock),
-                    Height = blockchain_block:height(Block),
-                    case blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         Height == blockchain_block:height(HeadBlock) + 1
-                    of
-                        false when HeadHash =:= Hash ->
-                            lager:debug("Already have this block"),
-                            ok;
-                        false ->
-                            lager:warning("gossipped block doesn't fit with our chain,
-                                          block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                     blockchain_block:height(HeadBlock)]),
-                            {error, disjoint_chain};
-                        true ->
-                            Ledger = blockchain:ledger(Blockchain),
-                            case blockchain_ledger_v1:consensus_members(Ledger) of
-                                {error, _Reason}=Error ->
-                                    lager:error("could not get consensus_members ~p", [_Reason]),
-                                    Error;
-                                {ok, ConsensusAddrs} ->
-                                    N = length(ConsensusAddrs),
-                                    F = (N-1) div 3,
-                                    case blockchain_block:verify_signatures(Block,
-                                                                            ConsensusAddrs,
-                                                                            blockchain_block:signatures(Block),
-                                                                            N-F)
-                                    of
-                                        false ->
-                                            {error, failed_verify_signatures};
-                                        {true, _} ->
-                                            case blockchain_txn:absorb_and_commit(Block, Blockchain) of
-                                                ok ->
-                                                    lager:info("adding block ~p", [Height]),
-                                                    ok = save_block(Block, Blockchain),
-                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing});
-                                                {error, Reason}=Error ->
-                                                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                                                    Error
-                                            end
-                                    end
-                            end
-                    end
-            end
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec get_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, blockchain_block:block()} | {error, any()}.
 get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
     case rocksdb:get(DB, BlocksCF, Hash, []) of
@@ -360,6 +294,114 @@ add_blocks([Block | Blocks], Chain) ->
         Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
+add_block(Block, Blockchain) ->
+    add_block(Block, Blockchain, false).
+
+-spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
+add_block(Block, Blockchain, Syncing) ->
+    blockchain_lock:acquire(),
+    Res = add_block_(Block, Blockchain, Syncing),
+    blockchain_lock:release(),
+    Res.
+
+add_block_(Block, Blockchain, Syncing) ->
+    Hash = blockchain_block:hash_block(Block),
+    {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
+    case blockchain_block:is_genesis(Block) of
+        true when Hash =:= GenesisHash ->
+            ok;
+        true ->
+            {error, unknown_genesis_block};
+        false ->
+            case blockchain:head_block(Blockchain) of
+                {error, Reason}=Error ->
+                    lager:error("could not get head hash ~p", [Reason]),
+                    Error;
+                {ok, HeadBlock} ->
+                    HeadHash = blockchain_block:hash_block(HeadBlock),
+                    Ledger = blockchain:ledger(Blockchain),
+                    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+                    {ok, BlockchainHeight} = blockchain:height(Blockchain),
+                    Height = blockchain_block:height(Block),
+                    case
+                        {blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                         Height =:= blockchain_block:height(HeadBlock) + 1,
+                         BlockchainHeight =:= LedgerHeight}
+                    of
+                        {_, false} ->
+                            lager:warning("ledger and chain height don't match (L:~p, C:~p)", [LedgerHeight, BlockchainHeight]),
+                            ok = blockchain_worker:mismatch(),
+                            {error, mismatch_ledger_chain};
+                        {false, _} when HeadHash =:= Hash ->
+                            lager:info("Already have this block"),
+                            ok;
+                        {false, _} ->
+                            lager:warning("block doesn't fit with our chain,
+                                          block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                     blockchain_block:height(HeadBlock)]),
+                            {error, disjoint_chain};
+                        {true, true} ->
+                            lager:info("prev hash matches the gossiped block"),
+                            case blockchain_ledger_v1:consensus_members(Ledger) of
+                                {error, _Reason}=Error ->
+                                    lager:error("could not get consensus_members ~p", [_Reason]),
+                                    Error;
+                                {ok, ConsensusAddrs} ->
+                                    N = length(ConsensusAddrs),
+                                    F = (N-1) div 3,
+                                    case blockchain_block:verify_signatures(Block,
+                                                                            ConsensusAddrs,
+                                                                            blockchain_block:signatures(Block),
+                                                                            N-F)
+                                    of
+                                        false ->
+                                            {error, failed_verify_signatures};
+                                        {true, _} ->
+                                            BeforeCommit = fun() ->
+                                                lager:info("adding block ~p", [Height]),
+                                                ok = ?save_block(Block, Blockchain),
+                                                ok = blockchain_worker:notify({add_block, Hash, Syncing})
+                                            end,
+                                            case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
+                                                {error, Reason}=Error ->
+                                                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                                                    Error;
+                                                ok ->
+                                                    ok
+                                            end
+                                    end
+                            end
+                    end
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_block(blockchain_block:block(), blockchain()) -> ok.
+delete_block(Block, #blockchain{db=DB, default=DefaultCF,
+                                blocks=BlocksCF, heights=HeightsCF}=Chain) ->
+    {ok, Batch} = rocksdb:batch(),
+    Hash = blockchain_block:hash_block(Block),
+    PrevHash = blockchain_block:prev_hash(Block),
+    Height = blockchain_block:height(Block),
+    lager:warning("deleting block ~p height: ~p, Prev Hash ~p", [Hash, Height, PrevHash]),
+    ok = rocksdb:batch_delete(Batch, BlocksCF, Hash),
+    {ok, HeadHash} = ?MODULE:head_hash(Chain),
+    case HeadHash =:= Hash of
+        false -> ok;
+        true ->
+            ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, PrevHash)
+    end,
+    ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -507,15 +549,19 @@ open_db(Dir) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec save_block(blockchain_block:block(), blockchain()) -> ok.
-save_block(Block, #blockchain{db=DB, default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
+save_block(Block, Chain = #blockchain{db=DB}) ->
+    {ok, Batch} = rocksdb:batch(),
+    save_block(Block, Batch, Chain),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+-spec save_block(blockchain_block:block(), rocksdb:batch_handle(), blockchain()) -> ok.
+save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights=HeightsCF}) ->
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
-    {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
     ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, Hash),
     %% lexiographic ordering works better with big endian
-    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
-    ok = rocksdb:write_batch(DB, Batch, []).
+    ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
