@@ -158,7 +158,7 @@ is_valid(Txn, Chain) ->
                                                     Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
-                                                    {ok, Path} = blockchain_poc_path:build(Target, Gateways),
+                                                    {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways),
                                                     N = erlang:length(Path),
                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),

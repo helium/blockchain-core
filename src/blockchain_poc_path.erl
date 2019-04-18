@@ -6,7 +6,7 @@
 -module(blockchain_poc_path).
 
 -export([
-    build/2,
+    build/3,
     shortest/3,
     length/3,
     build_graph/2,
@@ -37,8 +37,8 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build(Target :: binary(), Gateways :: map()) -> {ok, list()} | {error, any()}.
-build(Target, Gateways) ->
+-spec build(Hash :: binary(), Target :: binary(), Gateways :: map()) -> {ok, list()} | {error, any()}.
+build(Hash, Target, Gateways) ->
     Graph = ?MODULE:build_graph(Target, Gateways),
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
@@ -65,7 +65,7 @@ build(Target, Gateways) ->
                     ScoreA * ?MODULE:length(Graph, Target, AddrA) >
                     ScoreB * ?MODULE:length(Graph, Target, AddrB)
                 end,
-                GraphList
+                blockchain_utils:shuffle_from_hash(Hash, GraphList)
             ),
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
@@ -463,7 +463,7 @@ build_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    {ok, Path} = build(Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
 
     ?assertNotEqual(Target, hd(Path)),
     ?assert(lists:member(Target, Path)),
@@ -479,11 +479,47 @@ build_only_2_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    {ok, Path} = build(Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
 
     ?assertNotEqual(Target, hd(Path)),
     ?assert(lists:member(Target, Path)),
     ?assertNotEqual(Target, lists:last(Path)),
+    ok.
+
+build_prob_test() ->
+    LatLongs = [
+        {{37.780586, -122.469471}, 0.0},
+        {{37.780959, -122.467496}, 0.0},
+        {{37.78101, -122.465372}, 0.0},
+        {{37.78102, -122.465372}, 0.0},
+        {{37.78103, -122.465372}, 0.0},
+        {{37.78104, -122.465372}, 0.0}
+    ],
+    {Target, Gateways} = build_gateways(LatLongs),
+
+    Iteration = 1000,
+    Size = erlang:length(LatLongs)-1,
+    Av = Iteration / Size,
+
+    Starters = lists:foldl(
+        fun(_, Acc) ->
+            {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways),
+            V = maps:get(P1, Acc, 0),
+            maps:put(P1, V+1, Acc)
+        end,
+        #{},
+        lists:seq(1, Iteration)
+    ),
+
+    ?assertEqual(Size, maps:size(Starters)),
+    
+    maps:fold(
+        fun(_, V, _) ->
+            ?assert(V >= Av-(Av/10) orelse V =< Av+(Av/10))
+        end,
+        ok,
+        Starters
+    ),
     ok.
 
 build_failed_test() ->
@@ -494,7 +530,7 @@ build_failed_test() ->
         {{12.780586, -122.469471}, 0.90}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    ?assertEqual({error, not_enough_gateways}, build(Target, Gateways)),
+    ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways)),
     ok.
 
 build_with_zero_score_test() ->
@@ -511,7 +547,7 @@ build_with_zero_score_test() ->
         {{38.897675, -77.036530}, 0.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    {ok, Path} = build(Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
     ?assert(lists:member(Target, Path)),
     ok.
 
@@ -526,7 +562,7 @@ build_with_zero_score_2_test() ->
         {{48.855228, 2.347126}, 0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    {ok, Path} = build(Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
     ?assertEqual(3, erlang:length(Path)),
     [_P1, P2, _P3] = Path,
     ?assertEqual(Target, P2),
