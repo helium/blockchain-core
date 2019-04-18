@@ -9,17 +9,9 @@ new_group(Ledger, Hash, Size) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     Gateways = maps:keys(Gateways0),
     lager:info("hash ~p gateways ~p", [Hash, Gateways]),
-        <<I1:86/integer, I2:85/integer, I3:85/integer>> = Hash,
-    rand:seed(exs1024, {I1, I2, I3}),
-
-    %% guarantee that we have a deterministic starting order
     Nodes = lists:sort(Gateways),
-    %% for now, just randomize the node order
-    Shuf0 = [{rand:uniform(10000000), Node} || Node <- Nodes],
-    Shuf = lists:sort(Shuf0),
-    %% we should not need this on the mainnet, I'm not sure that it's
-    %% fully deterministic anyway.  change when scores
-    lists:sublist([Node || {_, Node} <- Shuf], 1, Size).
+    ShuffleNodes = blockchain_utils:shuffle_from_hash(Hash, Nodes),
+    lists:sublist(ShuffleNodes, 1, Size).
 
 has_new_group(Txns) ->
     MyAddress = blockchain_swarm:pubkey_bin(),
