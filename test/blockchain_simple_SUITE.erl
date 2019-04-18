@@ -796,6 +796,10 @@ security_token_test(Config) ->
 routing_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
     Ledger = blockchain:ledger(Chain),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,

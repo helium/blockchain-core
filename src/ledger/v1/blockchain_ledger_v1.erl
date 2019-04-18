@@ -771,6 +771,7 @@ check_security_balance(Address, Amount, Ledger) ->
                 true ->
                     ok
             end
+    end.
 
 -spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
 find_ouis(Owner, Ledger) ->
