@@ -503,14 +503,13 @@ build_prob_test() ->
 
     Starters = lists:foldl(
         fun(_, Acc) ->
-            {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(32), Target, Gateways),
+            {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways),
             V = maps:get(P1, Acc, 0),
             maps:put(P1, V+1, Acc)
         end,
         #{},
         lists:seq(1, Iteration)
     ),
-    io:format(user, "[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, Starters]),
 
     ?assertEqual(Size, maps:size(Starters)),
     

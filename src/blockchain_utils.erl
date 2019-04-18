@@ -30,7 +30,7 @@ shuffle_from_hash(Hash, L) ->
 %%--------------------------------------------------------------------
 -spec rand_from_hash(binary()) -> any().
 rand_from_hash(Hash) ->
-    <<I1:86/integer, I2:85/integer, I3:85/integer>> = Hash,
+    <<I1:86/integer, I2:85/integer, I3:85/integer, _/binary>> = Hash,
     rand:seed(exs1024, {I1, I2, I3}).
 
 %% ------------------------------------------------------------------
