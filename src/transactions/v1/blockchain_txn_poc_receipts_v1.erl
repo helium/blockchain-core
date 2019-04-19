@@ -178,15 +178,15 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-absorb(_Txn, _Chain) -> ok.
-% -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
-% absorb(Txn, Chain) ->
-%     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-%     Challenger = ?MODULE:challenger(Txn),
-%     case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
-%         {error, _}=Error ->
-%             Error;
-%         ok ->
+ -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+ absorb(Txn, Chain) ->
+     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+     Challenger = ?MODULE:challenger(Txn),
+     Ledger = blockchain:ledger(Chain),
+     case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+         {error, _}=Error ->
+             Error;
+         ok ->
 %             Path = ?MODULE:path(Txn),
 %             ResultsMap0 = #{},
 %             ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
@@ -198,8 +198,8 @@ absorb(_Txn, _Chain) -> ok.
 %                 ok,
 %                 ResultsMap2
 %             ),
-%             ok
-%     end.
+             ok
+     end.
 
 
 % % TEMPORARY UPDATE / REMOVE THIS 
