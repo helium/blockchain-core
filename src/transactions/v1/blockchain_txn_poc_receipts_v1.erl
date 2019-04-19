@@ -287,9 +287,11 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                           fun(Witness) ->
                                                   %% the witnesses should have an asserted location
                                                   %% at the point when the request was mined!
-                                                  case blockchain_ledger_v1:find_gateway_info(
-                                                         blockchain_poc_witness_v1:gateway(Witness), OldLedger) of
+                                                  WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
+                                                  case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
                                                       {error, _} ->
+                                                          false;
+                                                      {ok, _} when Gateway == WitnessGateway ->
                                                           false;
                                                       {ok, GWInfo} ->
                                                           blockchain_ledger_gateway_v1:location(GWInfo) /= undefined andalso
