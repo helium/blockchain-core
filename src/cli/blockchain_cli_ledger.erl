@@ -322,7 +322,9 @@ ledger_gateways(_CmdBase, [], []) ->
     [clique_status:table(R)].
 
 format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
-    [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)} |
+    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddr))),
+    [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
+     {name, Name} |
      blockchain_ledger_gateway_v1:print(Gateway)].
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
