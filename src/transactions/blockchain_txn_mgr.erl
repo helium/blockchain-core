@@ -187,8 +187,7 @@ invoke_callback(Callback, Msg) ->
     spawn(fun() -> Callback(Msg) end).
 
 signatory_rand_member(Chain) ->
-    {ok, Height} = blockchain:height(Chain),
-    {ok, PrevBlock} = blockchain:get_block(Height-1, Chain),
+    {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatures = blockchain_block:signatures(PrevBlock) -- [blockchain_swarm:pubkey_bin()],
     Index = rand:uniform(length(Signatures)),
     {Signer, _} = lists:nth(Index, Signatures),
