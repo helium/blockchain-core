@@ -17,27 +17,22 @@
     transaction_fee/1, update_transaction_fee/1,
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
-    active_gateways/1,
-    entries/1,
-    htlcs/1,
 
-    find_gateway_info/2,
+    active_gateways/1, find_gateway_info/2,
     add_gateway/3, add_gateway/6,
     add_gateway_location/4,
-
     update_gateway_score/3,
 
     find_poc/2,
     request_poc/4,
     delete_poc/3, delete_pocs/2,
 
-    find_entry/2,
+    entries/1, find_entry/2,
     credit_account/3, debit_account/4,
     debit_fee/3,
     check_balance/3,
 
-    securities/1,
-    find_security_entry/2,
+    securities/1, find_security_entry/2,
     credit_security/3, debit_security/4,
     check_security_balance/3,
 
@@ -45,9 +40,8 @@
     credit_data_credits/3, debit_data_credits/4,
     check_data_credits_balance/3,
 
-    find_htlc/2,
-    add_htlc/7,
-    redeem_htlc/3,
+    htlcs/1, find_htlc/2,
+    add_htlc/7, redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/1,
     find_ouis/2, add_oui/3,
@@ -160,46 +154,6 @@ dir(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
-new_snapshot(#ledger_v1{db=DB,
-                        snapshot=undefined,
-                        active=#sub_ledger_v1{context=undefined, cache=undefined},
-                        delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
-    case rocksdb:snapshot(DB) of
-        {ok, SnapshotHandle} ->
-            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
-        {error, Reason}=Error ->
-            lager:error("Error creating new snapshot, reason: ~p", [Reason]),
-            Error
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec release_snapshot(ledger()) -> ok | {error, any()}.
-release_snapshot(#ledger_v1{snapshot=undefined}) ->
-    {error, undefined_snapshot};
-release_snapshot(#ledger_v1{snapshot=Snapshot}) ->
-    rocksdb:release_snapshot(Snapshot).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec snapshot(ledger()) -> {ok, rocksdb:snapshot_handle()} | {error, undefined}.
-snapshot(Ledger) ->
-    case Ledger#ledger_v1.snapshot of
-        undefined ->
-            {error, undefined};
-        S ->
-            {ok, S}
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
     %% accumulate DB operations in a rocksdb batch
@@ -239,6 +193,46 @@ commit_context(#ledger_v1{db=DB}=Ledger) ->
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     delete_context(Ledger),
     ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
+new_snapshot(#ledger_v1{db=DB,
+                        snapshot=undefined,
+                        active=#sub_ledger_v1{context=undefined, cache=undefined},
+                        delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
+    case rocksdb:snapshot(DB) of
+        {ok, SnapshotHandle} ->
+            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
+        {error, Reason}=Error ->
+            lager:error("Error creating new snapshot, reason: ~p", [Reason]),
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec release_snapshot(ledger()) -> ok | {error, any()}.
+release_snapshot(#ledger_v1{snapshot=undefined}) ->
+    {error, undefined_snapshot};
+release_snapshot(#ledger_v1{snapshot=Snapshot}) ->
+    rocksdb:release_snapshot(Snapshot).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec snapshot(ledger()) -> {ok, rocksdb:snapshot_handle()} | {error, undefined}.
+snapshot(Ledger) ->
+    case Ledger#ledger_v1.snapshot of
+        undefined ->
+            {error, undefined};
+        S ->
+            {ok, S}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -332,6 +326,11 @@ consensus_members(Members, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_height(ledger()) ->  {ok, non_neg_integer()} | {error, any()}.
 election_height(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?ELECTION_HEIGHT, []) of
@@ -343,6 +342,11 @@ election_height(Ledger) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_height(non_neg_integer(), ledger()) ->  ok | {error, any()}.
 election_height(Height, Ledger) ->
     Bin = erlang:term_to_binary(Height),
     DefaultCF = default_cf(Ledger),
@@ -361,42 +365,6 @@ active_gateways(#ledger_v1{db=DB}=Ledger) ->
         fun({Address, Binary}, Acc) ->
             Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
             maps:put(Address, Gw, Acc)
-        end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
-    ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec entries(ledger()) -> entries().
-entries(#ledger_v1{db=DB}=Ledger) ->
-    EntriesCF = entries_cf(Ledger),
-    rocksdb:fold(
-        DB,
-        EntriesCF,
-        fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
-            maps:put(Address, Entry, Acc)
-        end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
-    ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec htlcs(ledger()) -> htlcs().
-htlcs(#ledger_v1{db=DB}=Ledger) ->
-    HTLCsCF = htlcs_cf(Ledger),
-    rocksdb:fold(
-        DB,
-        HTLCsCF,
-        fun({Address, Binary}, Acc) ->
-            Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
-            maps:put(Address, Entry, Acc)
         end,
         #{},
         maybe_use_snapshot(Ledger, [])
@@ -618,6 +586,24 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
 delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec entries(ledger()) -> entries().
+entries(#ledger_v1{db=DB}=Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    rocksdb:fold(
+        DB,
+        EntriesCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_entry_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{},
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -933,15 +919,19 @@ end.
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
-find_ouis(Owner, Ledger) ->
-    RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, Owner, []) of
-        {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
-        not_found -> {ok, []};
-        Error -> Error
-
-    end.
+-spec htlcs(ledger()) -> htlcs().
+htlcs(#ledger_v1{db=DB}=Ledger) ->
+    HTLCsCF = htlcs_cf(Ledger),
+    rocksdb:fold(
+        DB,
+        HTLCsCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{},
+        []
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -996,7 +986,6 @@ redeem_htlc(Address, Payee, Ledger) ->
             end
     end.
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -1027,6 +1016,20 @@ increment_oui_counter(Ledger) ->
             OUI = OUICounter + 1,
             ok = cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>),
             {ok, OUI}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+find_ouis(Owner, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    case cache_get(Ledger, RoutingCF, Owner, []) of
+        {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
+        not_found -> {ok, []};
+        Error -> Error
+
     end.
 
 %%--------------------------------------------------------------------
