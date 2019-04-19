@@ -141,7 +141,8 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error;
         ok ->
-            ok
+            Credits = Amount * 10000, % TODO: Calculate this
+            blockchain_ledger_v1:credit_data_credits(Payer, Credits, Ledger)
     end.
 
 %% ------------------------------------------------------------------
