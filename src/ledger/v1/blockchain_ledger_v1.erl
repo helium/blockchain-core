@@ -505,13 +505,19 @@ update_gateway_score(GatewayAddress, Score, Ledger) ->
 decay_gateway_scores(Ledger) ->
     ActiveGateways = ?MODULE:active_gateways(Ledger),
     {ok, Height} = ?MODULE:current_height(Ledger),
-    Decay = 0.1*Height/(Height + 1000),
+    Decay = decay(Height),
     ok = lists:foreach(fun(GatewayAddress) ->
                                case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
                                    {error, _}=Error ->
                                        Error;
                                    {ok, GwInfo0} ->
                                        PrevScore = blockchain_ledger_gateway_v1:score(GwInfo0),
+                                       NewScore = PrevScore - Decay,
+                                       {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddress))),
+                                       lager:info("Name: ~p,
+                                                  PrevScore: ~p,
+                                                  NewScore: ~p,
+                                                  Decay: ~p", [Name, PrevScore, NewScore, Decay]),
                                        GwInfo1 = blockchain_ledger_gateway_v1:score(PrevScore-Decay, GwInfo0),
                                        Bin = blockchain_ledger_gateway_v1:serialize(GwInfo1),
                                        AGwsCF = active_gateways_cf(Ledger),
@@ -519,6 +525,20 @@ decay_gateway_scores(Ledger) ->
                                end
                        end,
                        maps:keys(ActiveGateways)).
+
+decay(Height) ->
+    log_star(Height, 5)/10.
+
+base_log(X, Base) ->
+    math:log(X) / math:log(Base).
+
+log_star(Height, Base) ->
+    case Height > 1 of
+        true ->
+            1.0 + log_star(base_log(Height, Base), Base);
+        false ->
+            0.0
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
