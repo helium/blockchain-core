@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Data Credits State Channel ==
+%% == Blockchain Data Credits State Server ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_data_credits_channel).
+-module(blockchain_data_credits_server).
 
 -behavior(gen_server).
 
@@ -29,8 +29,21 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
+-define(DB_FILE, "data_credits.db").
 
--record(state, {}).
+% TODO:
+% - Add db to hold diff transactions
+% - create transaction ^
+% - Spawn this on chain startup (under main sup)
+% - Handle if someone want its money back
+
+-record(state, {
+    dir :: file:filename_all(),
+    db :: rocksdb:db_handle(),
+    default :: rocksdb:cf_handle(),
+    total :: non_neg_integer(),
+    nonce :: non_neg_integer()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -41,9 +54,14 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(Args) ->
+init([Dir]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    {ok, #state{}}.
+    {ok, DB, [DefaultCF]} = open_db(Dir),
+    {ok, #state{
+        dir=Dir,
+        db=DB,
+        default=DefaultCF
+    }}.
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -67,3 +85,33 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+open_db(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = filelib:ensure_dir(DBDir),
+    DBOptions = [{create_if_missing, true}],
+    DefaultCFs = ["default"],
+    ExistingCFs =
+        case rocksdb:list_column_families(DBDir, DBOptions) of
+            {ok, CFs0} ->
+                CFs0;
+            {error, _} ->
+                ["default"]
+        end,
+
+    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
+
+    L1 = lists:zip(ExistingCFs, OpenedCFs),
+    L2 = lists:map(
+        fun(CF) ->
+            {ok, CF1} = rocksdb:create_column_family(DB, CF, []),
+            {CF, CF1}
+        end,
+        DefaultCFs -- ExistingCFs
+    ),
+    L3 = L1 ++ L2,
+    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.

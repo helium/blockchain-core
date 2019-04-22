@@ -64,9 +64,10 @@ init(Args) ->
     application:ensure_all_started(clique),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
+    BaseDir = proplists:get_value(base_dir, Args, "data"),
     SwarmWorkerOpts = [
         {key, proplists:get_value(key, Args)},
-        {base_dir, proplists:get_value(base_dir, Args, "data")},
+        {base_dir, BaseDir},
         {libp2p_group_gossip, [
             {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
             {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
@@ -77,19 +78,21 @@ init(Args) ->
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {num_consensus_members, proplists:get_value(num_consensus_members, Args, 0)},
-        {base_dir, proplists:get_value(base_dir, Args, "data")},
+        {base_dir, BaseDir},
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
     BEventOpts = [],
     BTxnManagerOpts = [],
     BTxnMgrSupOpts = [],
+    DataCreditsServerOpts = [BaseDir],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
-        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts])
+        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
+        ?SUP(blockchain_data_credits_server, [DataCreditsServerOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
