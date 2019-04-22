@@ -3,7 +3,7 @@
 %% == Blockchain Data Credits Channel Handler ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_data_credits_channel_handler).
+-module(blockchain_data_credits_handler).
 
 -behavior(libp2p_framed_stream).
 

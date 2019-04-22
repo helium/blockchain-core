@@ -27,9 +27,10 @@
 ]).
 
 -include("blockchain.hrl").
+ -include("pb/blockchain_data_credits_handler_pb.hrl").
 
 -define(SERVER, ?MODULE).
--define(DB_FILE, "data_credits.db").
+-define(DB_FILE, "data_credits_server.db").
 
 % TODO:
 % - Add db to hold diff transactions
@@ -41,8 +42,7 @@
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
     default :: rocksdb:cf_handle(),
-    total :: non_neg_integer(),
-    nonce :: non_neg_integer()
+    total = 0 :: non_neg_integer()
 }).
 
 %% ------------------------------------------------------------------
@@ -67,6 +67,12 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({add, Txn}, #state{total=Total}=State) ->
+    Amount = blockchain_txn_data_credits_v1:amount(Txn),
+    {noreply, State#state{total=Total+Amount}};
+handle_cast({make_payment, Payee, Amount}, State) ->
+    % Broadcast payment to client
+    {noreply, State#state{total=Total-Amount}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
