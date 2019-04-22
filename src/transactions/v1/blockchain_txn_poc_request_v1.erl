@@ -20,7 +20,8 @@
     fee/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    challenge_interval/0
 ]).
 
 -ifdef(TEST).
@@ -188,6 +189,14 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec challenge_interval() -> ?CHALLENGE_INTERVAL.
+challenge_interval() ->
+    ?CHALLENGE_INTERVAL.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
