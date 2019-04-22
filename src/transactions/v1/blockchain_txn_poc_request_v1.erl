@@ -27,6 +27,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(CHALLENGE_INTERVAL, 10).
+
 -type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
 
@@ -140,7 +142,7 @@ is_valid(Txn, Chain) ->
                         _Location ->
                             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - 30) of
+                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - ?CHALLENGE_INTERVAL) of
                                 false ->
                                     {error, too_many_challenges};
                                 true ->
@@ -149,7 +151,7 @@ is_valid(Txn, Chain) ->
                                         {error, _}=Error ->
                                             Error;
                                         {ok, Block1} ->
-                                            case (blockchain_block:height(Block1) + 30) > (Height+1) of
+                                            case (blockchain_block:height(Block1) + ?CHALLENGE_INTERVAL) > (Height+1) of
                                                 false ->
                                                     {error, replaying_request};
                                                 true ->
