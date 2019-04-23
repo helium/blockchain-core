@@ -25,7 +25,7 @@
              | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
              | blockchain_txn_poc_request_v1:txn_poc_request()
              | blockchain_txn_poc_receipts_v1:txn_poc_receipts()
-             | blockchain_txn_data_credits_v1:txn_data_credits().
+             | blockchain_txn_data_credits_burn_v1:txn_data_credits_burn().
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
 
@@ -279,8 +279,8 @@ type(#blockchain_txn_oui_v1_pb{}) ->
     blockchain_txn_oui_v1;
 type(#blockchain_txn_routing_v1_pb{}) ->
     blockchain_txn_routing_v1;
-type(#blockchain_txn_data_credits_v1_pb{}) ->
-    blockchain_txn_data_credits_v1.
+type(#blockchain_txn_data_credits_burn_v1_pb{}) ->
+    blockchain_txn_data_credits_burn_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -363,8 +363,8 @@ nonce(Txn) ->
             blockchain_txn_payment_v1:nonce(Txn);
         blockchain_txn_security_exchange_v1 ->
             blockchain_txn_security_exchange_v1:nonce(Txn);
-        blockchain_txn_data_credits_v1 ->
-            blockchain_txn_data_credits_v1:nonce(Txn);
+        blockchain_txn_data_credits_burn_v1 ->
+            blockchain_txn_data_credits_burn_v1:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -400,8 +400,8 @@ actor(Txn) ->
             blockchain_txn_oui_v1:owner(Txn);
         blockchain_txn_routing_v1 ->
             blockchain_txn_routing_v1:owner(Txn);
-        blockchain_txn_data_credits_v1 ->
-            blockchain_txn_data_credits_v1:payer(Txn);
+        blockchain_txn_data_credits_burn_v1 ->
+            blockchain_txn_data_credits_burn_v1:payer(Txn);
         _ ->
             <<>>
     end.

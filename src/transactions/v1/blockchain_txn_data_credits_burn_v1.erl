@@ -3,11 +3,11 @@
 %% == Blockchain Data Credits ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_txn_data_credits_v1).
+-module(blockchain_txn_data_credits_burn_v1).
 
  -behavior(blockchain_txn).
 
- -include("pb/blockchain_txn_data_credits_v1_pb.hrl").
+ -include("pb/blockchain_txn_data_credits_burn_v1_pb.hrl").
 
  -export([
     new/4,
@@ -26,16 +26,16 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
- -type txn_data_credits() :: #blockchain_txn_data_credits_v1_pb{}.
--export_type([txn_data_credits/0]).
+ -type txn_data_credits_burn() :: #blockchain_txn_data_credits_burn_v1_pb{}.
+-export_type([txn_data_credits_burn/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_data_credits().
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_data_credits_burn().
 new(Payer, Amount, Fee, Nonce) ->
-    #blockchain_txn_data_credits_v1_pb{
+    #blockchain_txn_data_credits_burn_v1_pb{
         payer=Payer,
         amount=Amount,
         fee=Fee,
@@ -47,51 +47,51 @@ new(Payer, Amount, Fee, Nonce) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec hash(txn_data_credits()) -> blockchain_txn:hash().
+-spec hash(txn_data_credits_burn()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#blockchain_txn_data_credits_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_data_credits_v1_pb:encode_msg(BaseTxn),
+    BaseTxn = Txn#blockchain_txn_data_credits_burn_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_data_credits_burn_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec payer(txn_data_credits()) -> libp2p_crypto:pubkey_bin().
+-spec payer(txn_data_credits_burn()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
-    Txn#blockchain_txn_data_credits_v1_pb.payer.
+    Txn#blockchain_txn_data_credits_burn_v1_pb.payer.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_data_credits()) -> pos_integer().
+-spec amount(txn_data_credits_burn()) -> pos_integer().
 amount(Txn) ->
-    Txn#blockchain_txn_data_credits_v1_pb.amount.
+    Txn#blockchain_txn_data_credits_burn_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec fee(txn_data_credits()) -> non_neg_integer().
+-spec fee(txn_data_credits_burn()) -> non_neg_integer().
 fee(Txn) ->
-    Txn#blockchain_txn_data_credits_v1_pb.fee.
+    Txn#blockchain_txn_data_credits_burn_v1_pb.fee.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec nonce(txn_data_credits()) -> non_neg_integer().
+-spec nonce(txn_data_credits_burn()) -> non_neg_integer().
 nonce(Txn) ->
-    Txn#blockchain_txn_data_credits_v1_pb.nonce.
+    Txn#blockchain_txn_data_credits_burn_v1_pb.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec signature(txn_data_credits()) -> binary().
+-spec signature(txn_data_credits_burn()) -> binary().
 signature(Txn) ->
-    Txn#blockchain_txn_data_credits_v1_pb.signature.
+    Txn#blockchain_txn_data_credits_burn_v1_pb.signature.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -100,23 +100,23 @@ signature(Txn) ->
 %% payment transaction.
 %% @end
 %%--------------------------------------------------------------------
--spec sign(txn_data_credits(), libp2p_crypto:sig_fun()) -> txn_data_credits().
+-spec sign(txn_data_credits_burn(), libp2p_crypto:sig_fun()) -> txn_data_credits_burn().
 sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_data_credits_v1_pb:encode_msg(Txn),
-    Txn#blockchain_txn_data_credits_v1_pb{signature=SigFun(EncodedTxn)}.
+    EncodedTxn = blockchain_txn_data_credits_burn_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_data_credits_burn_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_data_credits(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_data_credits_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
-    BaseTxn = Txn#blockchain_txn_data_credits_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_data_credits_v1_pb:encode_msg(BaseTxn),
+    BaseTxn = Txn#blockchain_txn_data_credits_burn_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_data_credits_burn_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
@@ -130,7 +130,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_data_credits(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_data_credits_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),
@@ -151,7 +151,7 @@ absorb(Txn, Chain) ->
 -ifdef(TEST).
 
  new_test() ->
-    Tx = #blockchain_txn_data_credits_v1_pb{
+    Tx = #blockchain_txn_data_credits_burn_v1_pb{
         payer= <<"payer">>,
         amount=666,
         fee=1,
@@ -182,7 +182,7 @@ absorb(Txn, Chain) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    EncodedTx1 = blockchain_txn_data_credits_v1_pb:encode_msg(Tx1#blockchain_txn_data_credits_v1_pb{signature = <<>>}),
+    EncodedTx1 = blockchain_txn_data_credits_burn_v1_pb:encode_msg(Tx1#blockchain_txn_data_credits_burn_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
  -endif.
