@@ -371,14 +371,14 @@ add_block_(Block, Blockchain, Syncing) ->
                                                         lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                                                         Error;
                                                     {ok, NewLedger} ->
-                                                        ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
-                                                        case blockchain_ledger_v1:release_snapshot(NewLedger) of
-                                                            {error, Reason}=Error ->
-                                                                lager:error("Error releasing snapshot, Reason: ~p", [Reason]),
-                                                                Error;
-                                                            ok ->
-                                                                ok
-                                                        end
+                                                        ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                                                        %% case blockchain_ledger_v1:release_snapshot(NewLedger) of
+                                                        %%     {error, Reason}=Error ->
+                                                        %%         lager:error("Error releasing snapshot, Reason: ~p", [Reason]),
+                                                        %%         Error;
+                                                        %%     ok ->
+                                                        %%         ok
+                                                        %% end
                                                 end
                                             end,
                                             case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
