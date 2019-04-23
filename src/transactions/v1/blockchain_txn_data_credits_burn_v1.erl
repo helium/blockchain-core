@@ -13,8 +13,8 @@
     new/4,
     hash/1,
     payer/1,
+    key/1,
     amount/1,
-    nonce/1,
     fee/1,
     signature/1,
     sign/2,
@@ -33,13 +33,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_data_credits_burn().
-new(Payer, Amount, Fee, Nonce) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
+          pos_integer(), non_neg_integer()) -> txn_data_credits_burn().
+new(Payer, Key, Amount, Fee) ->
     #blockchain_txn_data_credits_burn_v1_pb{
         payer=Payer,
+        key=Key,
         amount=Amount,
         fee=Fee,
-        nonce=Nonce,
         signature = <<>>
     }.
 
@@ -65,6 +66,14 @@ payer(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec key(txn_data_credits_burn()) -> libp2p_crypto:pubkey_bin().
+key(Txn) ->
+    Txn#blockchain_txn_data_credits_burn_v1_pb.key.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec amount(txn_data_credits_burn()) -> pos_integer().
 amount(Txn) ->
     Txn#blockchain_txn_data_credits_burn_v1_pb.amount.
@@ -76,14 +85,6 @@ amount(Txn) ->
 -spec fee(txn_data_credits_burn()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_data_credits_burn_v1_pb.fee.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec nonce(txn_data_credits_burn()) -> non_neg_integer().
-nonce(Txn) ->
-    Txn#blockchain_txn_data_credits_burn_v1_pb.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -136,14 +137,21 @@ absorb(Txn, Chain) ->
     Amount = ?MODULE:amount(Txn),
     Payer = ?MODULE:payer(Txn),
     Fee = ?MODULE:fee(Txn),
-    Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger) of
-        {error, _Reason}=Error ->
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _}=Error ->
             Error;
-        ok ->
-            Credits = Amount * 10000, % TODO: Calculate this
-            blockchain_ledger_v1:credit_data_credits(Payer, Credits, Ledger)
+        {ok, Entry} ->
+            Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+            case blockchain_ledger_v1:debit_account(Payer, Amount + Fee, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Credits = Amount * 10000, % TODO: Calculate this
+                    blockchain_ledger_v1:credit_data_credits(Payer, Payer, Credits, Ledger)
+            end
     end.
+
+    
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -153,32 +161,32 @@ absorb(Txn, Chain) ->
  new_test() ->
     Tx = #blockchain_txn_data_credits_burn_v1_pb{
         payer= <<"payer">>,
+        key = <<"key">>,
         amount=666,
         fee=1,
-        nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, 666, 1, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"key">>, 666, 1)).
 
  payer_test() ->
-    Tx = new(<<"payer">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"key">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
+key_test() ->
+    Tx = new(<<"payer">>, <<"key">>, 666, 1),
+    ?assertEqual(<<"key">>, key(Tx)).
+
  amount_test() ->
-    Tx = new(<<"payer">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"key">>, 666, 1),
     ?assertEqual(666, amount(Tx)).
 
- nonce_test() ->
-    Tx = new(<<"payer">>, 666, 1, 1),
-    ?assertEqual(1, nonce(Tx)).
-
  signature_test() ->
-    Tx = new(<<"payer">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"key">>, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
  sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, 666, 1, 1),
+    Tx0 = new(<<"payer">>, <<"key">>, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),

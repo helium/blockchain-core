@@ -2,8 +2,8 @@ syntax = "proto3";
 
  message txn_data_credits_burn_v1 {
     bytes payer = 1;
-    uint64 amount = 2;
-    uint64 fee = 3;
-    uint64 nonce = 4;
+    bytes key = 2;
+    uint64 amount = 3;
+    uint64 fee = 4;
     bytes signature = 5;
 } 

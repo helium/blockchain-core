@@ -363,8 +363,6 @@ nonce(Txn) ->
             blockchain_txn_payment_v1:nonce(Txn);
         blockchain_txn_security_exchange_v1 ->
             blockchain_txn_security_exchange_v1:nonce(Txn);
-        blockchain_txn_data_credits_burn_v1 ->
-            blockchain_txn_data_credits_burn_v1:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.

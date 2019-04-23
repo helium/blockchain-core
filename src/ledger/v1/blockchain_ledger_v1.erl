@@ -36,9 +36,8 @@
     credit_security/3, debit_security/4,
     check_security_balance/3,
 
-    find_data_credits_entry/2,
-    credit_data_credits/3, debit_data_credits/4,
-    check_data_credits_balance/3,
+    find_data_credits_entries/2,
+    credit_data_credits/4,
 
     htlcs/1, find_htlc/2,
     add_htlc/7, redeem_htlc/3,
@@ -830,13 +829,15 @@ check_security_balance(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_data_credits_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_data_credits_entry_v1:entry()}
-                                                                   | {error, any()}.
-find_data_credits_entry(Address, Ledger) ->
+-spec find_data_credits_entries(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, [blockchain_ledger_data_credits_entry_v1:entry()]}
+                                                                       | {error, any()}.
+find_data_credits_entries(Address, Ledger) ->
     DataCreditsCF = data_credits_cf(Ledger),
     case cache_get(Ledger, DataCreditsCF, Address, []) of
-        {ok, BinEntry} ->
-            {ok, blockchain_ledger_data_credits_entry_v1:deserialize(BinEntry)};
+        {ok, BinEntries0} ->
+            BinEntries1 = erlang:binary_to_term(BinEntries0),
+            Entries = lists:map(fun blockchain_ledger_data_credits_entry_v1:deserialize/1, BinEntries1),
+            {ok, Entries};
         not_found ->
             {error, not_found};
         Error ->
@@ -847,73 +848,32 @@ find_data_credits_entry(Address, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec credit_data_credits(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-credit_data_credits(Address, Amount, Ledger) ->
+-spec credit_data_credits(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
+credit_data_credits(Address, Key, Amount, Ledger) ->
     DataCreditsCF = data_credits_cf(Ledger),
-    case ?MODULE:find_data_credits_entry(Address, Ledger) of
+    case ?MODULE:find_data_credits_entries(Address, Ledger) of
         {error, not_found} ->
-            Entry = blockchain_ledger_data_credits_entry_v1:new(0, Amount),
+            Entry = blockchain_ledger_data_credits_entry_v1:new(0, Amount, Key),
             Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry),
-            cache_put(Ledger, DataCreditsCF, Address, Bin);
-        {ok, Entry} ->
-            Entry1 = blockchain_ledger_data_credits_entry_v1:new(
-                blockchain_ledger_data_credits_entry_v1:nonce(Entry),
-                blockchain_ledger_data_credits_entry_v1:balance(Entry) + Amount
+            cache_put(Ledger, DataCreditsCF, Address, erlang:term_to_binary([Bin]));
+        {ok, Entries} ->
+            FilteredEntries = lists:filter(
+                fun(E) ->
+                    Key =:= blockchain_ledger_data_credits_entry_v1:balance(E)
+                end,
+                Entries
             ),
-            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-            cache_put(Ledger, DataCreditsCF, Address, Bin);
+            case FilteredEntries of
+                [] ->
+                    Entry = blockchain_ledger_data_credits_entry_v1:new(0, Amount, Key),
+                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry),
+                    cache_put(Ledger, DataCreditsCF, Address, erlang:term_to_binary([Bin] ++ Entries));
+                _ ->
+                    {error, already_exists}
+            end;
         {error, _}=Error ->
             Error
     end.
-
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec debit_data_credits(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
-debit_data_credits(Address, Amount, Nonce, Ledger) ->
-    case ?MODULE:find_data_credits_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
-                true ->
-                    Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-                    case (Balance - Amount) >= 0 of
-                        true ->
-                            Entry1 = blockchain_ledger_data_credits_entry_v1:new(
-                                Nonce,
-                                (Balance - Amount)
-                            ),
-                            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-                            DataCreditsCF = data_credits_cf(Ledger),
-                            cache_put(Ledger, DataCreditsCF, Address, Bin);
-                        false ->
-                            {error, {insufficient_balance, Amount, Balance}}
-                    end;
-                false ->
-                    {error, {bad_nonce, {payment, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}}
-            end
-    end.
-
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec check_data_credits_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-check_data_credits_balance(Address, Amount, Ledger) ->
-    case ?MODULE:find_data_credits_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-            case (Balance - Amount) >= 0 of
-                false ->
-                    {error, {insufficient_balance, Amount, Balance}};
-                true ->
-                    ok
-            end
-end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1446,34 +1406,13 @@ credit_data_credits_test() ->
     Ledger = new(BaseDir),
     commit(
         fun(L) ->
-            ok = credit_data_credits(<<"address">>, 1000, L)
+            ok = credit_data_credits(<<"address">>, <<"key">>, 1000, L)
         end,
         Ledger
     ),
-    {ok, Entry} = find_data_credits_entry(<<"address">>, Ledger),
-    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)).
-
- debit_data_credits_test() ->
-    BaseDir = test_utils:tmp_dir("debit_data_credits_test"),
-    Ledger = new(BaseDir),
-    commit(
-        fun(L) ->
-            ok = credit_data_credits(<<"address">>, 1000, L)
-        end,
-        Ledger
-    ),
-    ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_data_credits(<<"address">>, 1000, 0, Ledger)),
-    ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_data_credits(<<"address">>, 1000, 12, Ledger)),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_data_credits(<<"address">>, 9999, 1, Ledger)),
-    commit(
-        fun(L) ->
-            ok = debit_data_credits(<<"address">>, 500, 1, L)
-        end,
-        Ledger
-    ),
-    {ok, Entry} = find_data_credits_entry(<<"address">>, Ledger),
-    ?assertEqual(500, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
-    ?assertEqual(1, blockchain_ledger_data_credits_entry_v1:nonce(Entry)).
+    {ok, [Entry]} = find_data_credits_entries(<<"address">>, Ledger),
+    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
+    ?assertEqual(<<"key">>, blockchain_ledger_data_credits_entry_v1:key(Entry)).
 
 poc_test() ->
     BaseDir = test_utils:tmp_dir("poc_test"),
