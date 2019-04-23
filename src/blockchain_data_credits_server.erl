@@ -39,8 +39,8 @@
     default :: rocksdb:cf_handle(),
     server :: rocksdb:cf_handle(),
     client :: rocksdb:cf_handle(),
-    total = 0 :: non_neg_integer(),
-    swarm :: undefined | pid()
+    swarm :: undefined | pid(),
+    pids = #{} :: #{pid() => libp2p_crypto:pubkey_bin()}
 }).
 
 %% ------------------------------------------------------------------
@@ -56,6 +56,7 @@ burn(Keys, Amount) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Dir]=Args) ->
+    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, DB, [DefaultCF, ServerCF, ClientCF]} = open_db(Dir),
     Swarm = blockchain_swarm:swarm(),
@@ -77,19 +78,26 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF}=State) ->
+handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF, pids=Pids}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     % TODO: Replace this by real channel
-    _Pid = erlang:spawn_link(fun() -> receive _ -> ok end end),
+    Pid = erlang:spawn_link(fun() -> receive _ -> ok end end),
     {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
-    {noreply, State};
+    {noreply, State#state{pids=maps:put(Pid, PubKeyBin, Pids)}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+
+handle_info({'EXIT', _Pid, normal}, State) ->
+    % TODO
+    {noreply, State};
+handle_info({'EXIT', _Pid, _Reason}, State) ->
+    % TODO
+    {noreply, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
