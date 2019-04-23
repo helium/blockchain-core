@@ -11,10 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1,
-    total/0,
-    add/1,
-    payment_req/2
+    start_link/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -44,7 +41,8 @@
 -record(state, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
-    default :: rocksdb:cf_handle(),
+    server :: rocksdb:cf_handle(),
+    client :: rocksdb:cf_handle(),
     total = 0 :: non_neg_integer(),
     swarm :: undefined | pid()
 }).
@@ -55,21 +53,13 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
-total() ->
-    gen_statem:call(?SERVER, total).
-
-add(Txn) ->
-    gen_statem:cast(?SERVER, {add, Txn}).
-
-payment_req(Payee, Amount) ->
-    gen_statem:cast(?SERVER, {payment_req, Payee, Amount}).
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Dir]=Args) ->
+    % TODO: This should init with right amount somehow]
     lager:info("~p init with ~p", [?SERVER, Args]),
-    {ok, DB, [DefaultCF]} = open_db(Dir),
+    {ok, DB, [_DefaultCF, ServerCF, ClientCF]} = open_db(Dir),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
@@ -79,23 +69,18 @@ init([Dir]=Args) ->
     {ok, #state{
         dir=Dir,
         db=DB,
-        default=DefaultCF,
+        server=ServerCF,
+        client=ClientCF,
         swarm=Swarm
     }}.
 
 
-handle_call(total, _From, #state{total=Total}=State) ->
-    {reply, {ok, Total}, State};
+
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({add, Txn}, #state{total=Total}=State) ->
-    Amount = blockchain_txn_data_credits_v1:amount(Txn),
-    {noreply, State#state{total=Total+Amount}};
-handle_cast({payment_req, _Payee, Amount}, #state{total=Total}=State) ->
-    % Broadcast payment to client
-    {noreply, State#state{total=Total-Amount}};
+ 
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -123,7 +108,7 @@ open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default"],
+    DefaultCFs = ["default", "server", "client"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
