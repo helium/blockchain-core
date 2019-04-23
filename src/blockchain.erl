@@ -13,7 +13,7 @@
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
     blocks/1, get_block/2,
-    add_blocks/2, add_block/2, add_block/3, 
+    add_blocks/2, add_block/2, add_block/3,
     delete_block/2,
     fees_since/2,
     build/3,
@@ -366,7 +366,20 @@ add_block_(Block, Blockchain, Syncing) ->
                                             BeforeCommit = fun() ->
                                                 lager:info("adding block ~p", [Height]),
                                                 ok = ?save_block(Block, Blockchain),
-                                                ok = blockchain_worker:notify({add_block, Hash, Syncing})
+                                                case blockchain_ledger_v1:new_snapshot(Ledger) of
+                                                    {error, Reason}=Error ->
+                                                        lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                                        Error;
+                                                    {ok, NewLedger} ->
+                                                        ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
+                                                        case blockchain_ledger_v1:release_snapshot(NewLedger) of
+                                                            {error, Reason}=Error ->
+                                                                lager:error("Error releasing snapshot, Reason: ~p", [Reason]),
+                                                                Error;
+                                                            ok ->
+                                                                ok
+                                                        end
+                                                end
                                             end,
                                             case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
                                                 {error, Reason}=Error ->

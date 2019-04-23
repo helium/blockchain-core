@@ -11,6 +11,7 @@
     dir/1,
 
     new_context/1, delete_context/1, commit_context/1, context_cache/1,
+    new_snapshot/1, release_snapshot/1,
 
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
@@ -62,7 +63,8 @@
     db :: rocksdb:db_handle(),
     mode = active :: active | delayed,
     active :: sub_ledger(),
-    delayed :: sub_ledger()
+    delayed :: sub_ledger(),
+    snapshot :: undefined | rocksdb:snapshot_handle()
 }).
 
 -record(sub_ledger_v1, {
@@ -146,6 +148,30 @@ mode(Mode, Ledger) ->
 -spec dir(ledger()) -> file:filename_all().
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
+new_snapshot(#ledger_v1{db=DB}=Ledger) ->
+    case rocksdb:snapshot(DB) of
+        {ok, SnapshotHandle} ->
+            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
+        {error, Reason}=Error ->
+            lager:error("Error creating new snapshot, reason: ~p", [Reason]),
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec release_snapshot(ledger()) -> ok | {error, any()}.
+release_snapshot(#ledger_v1{snapshot=undefined}) ->
+    {error, undefined_snapshot};
+release_snapshot(#ledger_v1{snapshot=Snapshot}) ->
+    rocksdb:release_snapshot(Snapshot).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -513,7 +539,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
             BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v1:serialize/1, PoCs)]),
             PoCsCF = pocs_cf(Ledger),
             cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs);
-        LastOnionKeyHash  ->  
+        LastOnionKeyHash  ->
             case delete_poc(LastOnionKeyHash, Challenger, Ledger) of
                 {error, _}=Error ->
                     Error;
@@ -1058,10 +1084,16 @@ cache_put(Ledger, CF, Key, Value) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
-cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
+cache_get(#ledger_v1{db=DB, snapshot=Snapshot}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
         {_, undefined} ->
-            rocksdb:get(DB, CF, Key, Options);
+            Opts = case Snapshot of
+                       undefined ->
+                           Options;
+                       S ->
+                           [{snapshot, S} | Options]
+                   end,
+            rocksdb:get(DB, CF, Key, Opts);
         {Context, Cache} ->
             case ets:lookup(Cache, CF) of
                 [] ->
