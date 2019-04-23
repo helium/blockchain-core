@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
+    start_link/1,
+    burn/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -30,17 +31,12 @@
 -include("pb/blockchain_data_credits_handler_pb.hrl").
 
 -define(SERVER, ?MODULE).
--define(DB_FILE, "data_credits_server.db").
-
-% TODO:
-% - Add db to hold diff transactions
-% - create transaction ^
-% - Spawn this on chain startup (under main sup)
-% - Handle if someone want its money back
+-define(DB_FILE, "data_credits.db").
 
 -record(state, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
+    default :: rocksdb:cf_handle(),
     server :: rocksdb:cf_handle(),
     client :: rocksdb:cf_handle(),
     total = 0 :: non_neg_integer(),
@@ -53,13 +49,15 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+burn(Keys, Amount) ->
+    gen_statem:cast(?SERVER, {burn, Keys, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Dir]=Args) ->
-    % TODO: This should init with right amount somehow]
     lager:info("~p init with ~p", [?SERVER, Args]),
-    {ok, DB, [_DefaultCF, ServerCF, ClientCF]} = open_db(Dir),
+    {ok, DB, [DefaultCF, ServerCF, ClientCF]} = open_db(Dir),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
@@ -69,18 +67,25 @@ init([Dir]=Args) ->
     {ok, #state{
         dir=Dir,
         db=DB,
+        default=DefaultCF,
         server=ServerCF,
         client=ClientCF,
         swarm=Swarm
     }}.
 
-
-
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
- 
+handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF}=State) ->
+    KeysBin = libp2p_crypto:keys_to_bin(Keys),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    % TODO: Replace this by real channel
+    _Pid = erlang:spawn_link(fun() -> receive _ -> ok end end),
+    {ok, Batch} = rocksdb:batch(),
+    ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
