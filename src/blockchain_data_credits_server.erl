@@ -11,7 +11,10 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
+    start_link/1,
+    total/0,
+    add/1,
+    payment_req/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -27,7 +30,7 @@
 ]).
 
 -include("blockchain.hrl").
- -include("pb/blockchain_data_credits_handler_pb.hrl").
+-include("pb/blockchain_data_credits_handler_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(DB_FILE, "data_credits_server.db").
@@ -42,7 +45,8 @@
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
     default :: rocksdb:cf_handle(),
-    total = 0 :: non_neg_integer()
+    total = 0 :: non_neg_integer(),
+    swarm :: undefined | pid()
 }).
 
 %% ------------------------------------------------------------------
@@ -51,18 +55,37 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+total() ->
+    gen_statem:call(?SERVER, total).
+
+add(Txn) ->
+    gen_statem:cast(?SERVER, {add, Txn}).
+
+payment_req(Payee, Amount) ->
+    gen_statem:cast(?SERVER, {payment_req, Payee, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Dir]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, DB, [DefaultCF]} = open_db(Dir),
+    Swarm = blockchain_swarm:swarm(),
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm,
+        ?DATA_CREDITS_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_data_credits_handler]}
+    ),
     {ok, #state{
         dir=Dir,
         db=DB,
-        default=DefaultCF
+        default=DefaultCF,
+        swarm=Swarm
     }}.
 
+
+handle_call(total, _From, #state{total=Total}=State) ->
+    {reply, {ok, Total}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -70,7 +93,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({add, Txn}, #state{total=Total}=State) ->
     Amount = blockchain_txn_data_credits_v1:amount(Txn),
     {noreply, State#state{total=Total+Amount}};
-handle_cast({make_payment, Payee, Amount}, State) ->
+handle_cast({payment_req, _Payee, Amount}, #state{total=Total}=State) ->
     % Broadcast payment to client
     {noreply, State#state{total=Total-Amount}};
 handle_cast(_Msg, State) ->

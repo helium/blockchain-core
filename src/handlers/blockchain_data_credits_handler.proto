@@ -1,8 +1,6 @@
 syntax = "proto3";
 
-message data_credits_payment {
-    bytes payer = 1;
-    bytes payee = 2;
-    uint64 amount = 3;
-    bytes signature = 4;
+message data_credits_payment_req {
+    bytes payee = 1;
+    uint64 amount = 2;
 }

@@ -25,6 +25,8 @@
     handle_data/3
 ]).
 
+-include("pb/blockchain_data_credits_handler_pb.hrl").
+
 -record(state, {}).
 
 client(Connection, Args) ->
@@ -41,8 +43,25 @@ init(client, _Conn, _Args) ->
 init(server, _Conn, _Args) ->
     {ok, #state{}}.
 
-handle_info(_Type, _Msg, State) ->
+handle_data(server, Data, State) ->
+    Msg = blockchain_data_credits_handler_pb:decode_msg(Data, blockchain_data_credits_payment_req_pb),
+    Payee = Msg#blockchain_data_credits_payment_req_pb.payee,
+    Amount = Msg#blockchain_data_credits_payment_req_pb.amount,
+    blockchain_data_credits_server:payment_req(Payee, Amount),
+    {noreply, State};
+handle_data(_Type, _Data, State) ->
+    lager:warning("unknown ~p data message ~p", [_Type, _Data]),
     {noreply, State}.
 
-handle_data(_Type, _Msg, State) ->
+handle_info(client, {payment_req, Amount}, State) ->
+    PubKeyBin = blockchain_swarm:pubkey_bin(),
+    Msg = #blockchain_data_credits_payment_req_pb{
+        payee=PubKeyBin,
+        amount=Amount
+    },
+    Encoded = blockchain_data_credits_handler_pb:encode_msg(Msg),
+    {noreply, State, Encoded};
+handle_info(_Type, _Msg, State) ->
+    lager:warning("unknown ~p info message ~p", [_Type, _Msg]),
     {noreply, State}.
+

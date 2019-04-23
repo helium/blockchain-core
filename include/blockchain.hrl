@@ -3,6 +3,7 @@
 -define(SYNC_PROTOCOL, "blockchain_sync/1.0.0").
 -define(TX_PROTOCOL, "blockchain_txn/1.0.0").
 -define(LOC_ASSERTION_PROTOCOL, "loc_assertion/1.0.0").
+-define(DATA_CREDITS_PROTOCOL, "data_credits/1.0.0").
 
 % B58 Address Versions
 -define(B58_MAINNET_VER, 0).
