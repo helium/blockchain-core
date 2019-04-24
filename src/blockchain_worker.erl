@@ -173,7 +173,7 @@ peer_height(Height, Head, Sender) ->
 %%--------------------------------------------------------------------
 -spec notify(any()) -> ok.
 notify(Msg) ->
-    ok = gen_event:sync_notify(?EVT_MGR, Msg).
+    ok = gen_event:notify(?EVT_MGR, Msg).
 
 %%--------------------------------------------------------------------
 %% @doc
