@@ -86,10 +86,8 @@ end_per_testcase(_, Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic_test(_Config) ->
-    % Swarm = proplists:get_value(swarm, Config),
-
-    Keys = libp2p_crypto:generate_keys(ecc_compact),
+basic_test(Config) ->
+   Keys = libp2p_crypto:generate_keys(ecc_compact),
 
     blockchain_data_credits_server:burn(Keys, 100),
 
@@ -99,23 +97,23 @@ basic_test(_Config) ->
 
     ?assertEqual({ok, 100}, blockchain_data_credits_channel_server:credits(ChannelServer)),
 
-
     % Txn = blockchain_txn_data_credits_v1:new(<<"payer">>, libp2p_crypto:pubkey_to_bin(PubKey), 1000, 1),
-    % {ok, TmpSwarm} = libp2p_swarm:start(data_credits_basic_test, [{libp2p_nat, [{enabled, false}]}]),
-    % [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
+     Swarm = proplists:get_value(swarm, Config),
+    {ok, TmpSwarm} = libp2p_swarm:start(data_credits_basic_test, [{libp2p_nat, [{enabled, false}]}]),
+    [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
 
-    % case libp2p_swarm:dial_framed_stream(TmpSwarm,
-    %                                      Addr,
-    %                                      ?DATA_CREDITS_PROTOCOL,
-    %                                      blockchain_data_credits_handler,
-    %                                      [])
-    % of
-    %     {ok, Stream} ->
-    %         Stream ! {payment_req, 500},
-    %         timer:sleep(1000),
-    %         ?assertEqual({ok, 500}, blockchain_data_credits_server:total());
-    %     Error ->
-    %         ct:fail(Error)
-    % end,
-    % libp2p_swarm:stop(TmpSwarm),
+    case libp2p_swarm:dial_framed_stream(TmpSwarm,
+                                         Addr,
+                                         ?DATA_CREDITS_PROTOCOL,
+                                         blockchain_data_credits_handler,
+                                         [])
+    of
+        {ok, Stream} ->
+            Stream ! {payment_req, 50},
+            timer:sleep(1000),
+            ?assertEqual({ok, 50}, blockchain_data_credits_channel_server:credits(ChannelServer));
+        Error ->
+            ct:fail(Error)
+    end,
+    libp2p_swarm:stop(TmpSwarm),
     ok.

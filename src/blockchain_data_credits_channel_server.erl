@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    credits/1
+    credits/1,
+    payment_req/3
 ]).
 
 %% ------------------------------------------------------------------
@@ -48,6 +49,9 @@ start_link(Args) ->
 credits(Pid) ->
     gen_statem:call(Pid, credits).
 
+payment_req(Pid, Payee, Amount) ->
+    gen_statem:cast(Pid, {payment_req, Payee, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -66,6 +70,9 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({payment_req, _Payee, Amount}, #state{credits=Credits}=State) ->
+    % TODO: Store and boradcast this
+    {noreply, State#state{credits=Credits-Amount}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

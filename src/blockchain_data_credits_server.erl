@@ -13,7 +13,8 @@
 -export([
     start_link/1,
     burn/2,
-    channel_server/1
+    channel_server/1,
+    payment_req/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -56,6 +57,9 @@ burn(Keys, Amount) ->
 channel_server(PubKeyBin) ->
     gen_statem:call(?SERVER, {channel_server, PubKeyBin}).
 
+payment_req(Payee, Amount) ->
+    gen_statem:cast(?SERVER, {payment_req, Payee, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -97,6 +101,10 @@ handle_cast({burn, #{public := PubKey}=Keys, Amount}, #state{db=DB, default=Defa
     ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     {noreply, State#state{pids=maps:put(Pid, PubKeyBin, Pids)}};
+handle_cast({payment_req, Payee, Amount}, #state{pids=Pids}=State) ->
+    ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, maps:keys(Pids)),
+    ok = try_payment_req(ShuffledPids, Payee, Amount),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -121,6 +129,15 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+try_payment_req([Pid|ShuffledPids], Payee, Amount) ->
+    case blockchain_data_credits_channel_server:credits(Pid) of
+        {ok, Credits} when Credits >= Amount ->
+            blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount);
+        _ ->
+            try_payment_req(ShuffledPids, Payee, Amount)
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
