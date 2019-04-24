@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Data Credits State Server ==
+%% == Blockchain Data Credits Server ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_data_credits_server).
@@ -78,11 +78,11 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF, pids=Pids}=State) ->
+handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF,
+                                                              server=ServerCF, pids=Pids}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    % TODO: Replace this by real channel
-    Pid = erlang:spawn_link(fun() -> receive _ -> ok end end),
+    {ok, Pid} = blockchain_data_credits_channel_server:start_link([Keys, DB, ServerCF]),
     {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),

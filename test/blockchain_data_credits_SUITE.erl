@@ -89,10 +89,15 @@ end_per_testcase(_, Config) ->
 basic_test(_Config) ->
     % Swarm = proplists:get_value(swarm, Config),
 
-    % Txn = blockchain_txn_data_credits_v1:new(<<>>, 1000, 1, 1),
-    % blockchain_data_credits_server:add(Txn),
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    % #{public := PubKey, secret := PrivKey} = Keys,
 
-    % ?assertEqual({ok, 1000}, blockchain_data_credits_server:total()),
+    % Txn = blockchain_txn_data_credits_v1:new(<<"payer">>, libp2p_crypto:pubkey_to_bin(PubKey), 1000, 1),
+    blockchain_data_credits_server:burn(Keys, 100),
+
+
+
+
 
     % {ok, TmpSwarm} = libp2p_swarm:start(data_credits_basic_test, [{libp2p_nat, [{enabled, false}]}]),
     % [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
