@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
+    start_link/1,
+    credits/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -31,23 +32,36 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {
+    keys :: libp2p_crypto:key_map(),
+    db :: rocksdb:db_handle(),
+    cf :: rocksdb:cf_handle(),
+    credits = 0 :: non_neg_integer()
+}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
+    gen_server:start_link(?SERVER, Args, []).
 
+credits(Pid) ->
+    gen_statem:call(Pid, credits).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(Args) ->
-    erlang:process_flag(trap_exit, true),
+init([Keys, DB, CF, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    {ok, #state{}}.
+    {ok, #state{
+        keys=Keys,
+        db=DB,
+        cf=CF,
+        credits=Credits
+    }}.
 
+handle_call(credits, _From, #state{credits=Credits}=State) ->
+    {reply, {ok, Credits}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.

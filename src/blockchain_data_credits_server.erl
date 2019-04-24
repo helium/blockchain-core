@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    burn/2
+    burn/2,
+    channel_server/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -52,6 +53,9 @@ start_link(Args) ->
 burn(Keys, Amount) ->
     gen_statem:cast(?SERVER, {burn, Keys, Amount}).
 
+channel_server(PubKeyBin) ->
+    gen_statem:call(?SERVER, {channel_server, PubKeyBin}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -74,15 +78,21 @@ init([Dir]=Args) ->
         swarm=Swarm
     }}.
 
+handle_call({channel_server, PubKeyBin}, _From, #state{pids=Pids0}=State) ->
+    [Pid] = maps:keys(maps:filter(
+        fun(_K, V) -> V =:= PubKeyBin end,
+        Pids0
+    )),
+    {reply, {ok, Pid}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, #{public := PubKey}=Keys, _Amount}, #state{db=DB, default=DefaultCF,
+handle_cast({burn, #{public := PubKey}=Keys, Amount}, #state{db=DB, default=DefaultCF,
                                                               server=ServerCF, pids=Pids}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {ok, Pid} = blockchain_data_credits_channel_server:start_link([Keys, DB, ServerCF]),
+    {ok, Pid} = blockchain_data_credits_channel_server:start_link([Keys, DB, ServerCF, Amount]),
     {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),

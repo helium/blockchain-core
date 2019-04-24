@@ -90,15 +90,17 @@ basic_test(_Config) ->
     % Swarm = proplists:get_value(swarm, Config),
 
     Keys = libp2p_crypto:generate_keys(ecc_compact),
-    % #{public := PubKey, secret := PrivKey} = Keys,
 
-    % Txn = blockchain_txn_data_credits_v1:new(<<"payer">>, libp2p_crypto:pubkey_to_bin(PubKey), 1000, 1),
     blockchain_data_credits_server:burn(Keys, 100),
 
+    #{public := PubKey} = Keys,
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    {ok, ChannelServer} = blockchain_data_credits_server:channel_server(PubKeyBin),
+
+    ?assertEqual({ok, 100}, blockchain_data_credits_channel_server:credits(ChannelServer)),
 
 
-
-
+    % Txn = blockchain_txn_data_credits_v1:new(<<"payer">>, libp2p_crypto:pubkey_to_bin(PubKey), 1000, 1),
     % {ok, TmpSwarm} = libp2p_swarm:start(data_credits_basic_test, [{libp2p_nat, [{enabled, false}]}]),
     % [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
 
