@@ -30,52 +30,14 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 
-init_per_testcase(TestCase, Config) ->
-    BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
-    Balance = 5000,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
-    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
-
-    Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
-    N = length(ConsensusMembers),
-
-    % Check ledger to make sure everyone has the right balance
-    Ledger = blockchain:ledger(Chain),
-    Entries = blockchain_ledger_v1:entries(Ledger),
-    _ = lists:foreach(fun(Entry) ->
-        Balance = blockchain_ledger_entry_v1:balance(Entry),
-        0 = blockchain_ledger_entry_v1:nonce(Entry)
-    end, maps:values(Entries)),
-
-
-    [
-        {basedir, BaseDir},
-        {balance, Balance},
-        {sup, Sup},
-        {pubkey, PubKey},
-        {privkey, PrivKey},
-        {opts, Opts},
-        {chain, Chain},
-        {swarm, Swarm},
-        {n, N},
-        {consensus_members, ConsensusMembers} | Config
-    ].
+init_per_testcase(_TestCase, Config0) ->
+    blockchain_ct_utils:init_per_testcase(_TestCase, [{"T", 2}, {"N", 1}|Config0]).
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(_, Config) ->
-    Sup = proplists:get_value(sup, Config),
-    % Make sure blockchain saved on file = in memory
-    case erlang:is_process_alive(Sup) of
-        true ->
-            true = erlang:exit(Sup, normal),
-            ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end);
-        false ->
-            ok
-    end,
-    ok.
+end_per_testcase(_TestCase, Config) ->
+    blockchain_ct_utils:end_per_testcase(_TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% TEST CASES
