@@ -59,7 +59,6 @@ payment_req(Payee, Amount) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([DB, DefaultCF, ServerCF]=Args) ->
-    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(

@@ -29,7 +29,6 @@
 ]).
 
 -include("blockchain.hrl").
--include("pb/blockchain_data_credits_handler_pb.hrl").
 
 -define(SERVER, ?MODULE).
 

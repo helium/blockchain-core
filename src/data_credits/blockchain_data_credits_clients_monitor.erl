@@ -28,7 +28,6 @@
 ]).
 
 -include("blockchain.hrl").
--include("pb/blockchain_data_credits_handler_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(DB_FILE, "data_credits.db").
@@ -53,7 +52,6 @@ payment_req(Payer, Amount) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([DB, DefaultCF, ClientCF]=Args) ->
-    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, #state{
         db=DB,
