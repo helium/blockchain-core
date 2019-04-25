@@ -130,6 +130,13 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec try_payment_req([pid()], libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
+try_payment_req([], _Payee, _Amount)->
+    ok;
 try_payment_req([Pid|ShuffledPids], Payee, Amount) ->
     case blockchain_data_credits_channel_server:credits(Pid) of
         {ok, Credits} when Credits >= Amount ->
