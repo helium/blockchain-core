@@ -11,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1,
+    start/1,
     credits/1,
     payment_req/3
 ]).
@@ -43,8 +43,8 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link(?SERVER, Args, []).
+start(Args) ->
+    gen_server:start(?SERVER, Args, []).
 
 credits(Pid) ->
     gen_statem:call(Pid, credits).

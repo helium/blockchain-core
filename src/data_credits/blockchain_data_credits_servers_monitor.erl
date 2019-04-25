@@ -89,7 +89,8 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, de
                                                                        cf=ServerCF, monitored=Pids}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {ok, Pid} = blockchain_data_credits_channel_server:start_link([DB, ServerCF, Keys, Amount]),
+    {ok, Pid} = blockchain_data_credits_channel_server:start([DB, ServerCF, Keys, Amount]),
+    _Ref = erlang:monitor(process, Pid),
     {ok, Batch} = rocksdb:batch(),
     ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
@@ -102,10 +103,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({'EXIT', _Pid, normal}, State) ->
-    % TODO
-    {noreply, State};
-handle_info({'EXIT', _Pid, _Reason}, State) ->
+handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
     % TODO
     {noreply, State};
 handle_info(_Msg, State) ->
