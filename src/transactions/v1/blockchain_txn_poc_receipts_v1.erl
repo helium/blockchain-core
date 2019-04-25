@@ -20,7 +20,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    create_secret_hash/2
+    create_secret_hash/2,
+    connections/1
 ]).
 
 -ifdef(TEST).
@@ -173,13 +174,39 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec connections(Txn :: txn_poc_receipts()) -> [{Transmitter :: libp2p_crypto:pubkey_bin(), Receiver :: libp2p_crypto:pubkey_bin(),
+                                                  RSSI :: integer(), Timestamp :: non_neg_integer()}].
+connections(Txn) ->
+    Paths = ?MODULE:path(Txn),
+    TaggedPaths = lists:zip(lists:seq(1, length(Paths)), Paths),
+    lists:foldl(fun({PathPos, PathElement}, Acc) ->
+                        case blockchain_poc_path_element_v1:receipt(PathElement) of
+                            undefined -> [];
+                            Receipt ->
+                                case blockchain_poc_receipt_v1:origin(Receipt) of
+                                    radio ->
+                                        {_, PrevElem} = lists:keyfind(PathPos - 1, 1, TaggedPaths),
+                                        [{blockchain_poc_path_element_v1:challengee(PrevElem), blockchain_poc_receipt_v1:gateway(Receipt),
+                                          blockchain_poc_receipt_v1:signal(Receipt), blockchain_poc_receipt_v1:timestamp(Receipt)}];
+                                    _ ->
+                                        []
+                                end
+                        end ++
+                        lists:map(fun(Witness) ->
+                                          {blockchain_poc_path_element_v1:challengee(PathElement),
+                                          blockchain_poc_witness_v1:gateway(Witness),
+                                          blockchain_poc_witness_v1:signal(Witness),
+                                          blockchain_poc_witness_v1:timestamp(Witness)}
+                                  end, blockchain_poc_path_element_v1:witnesses(PathElement)) ++ Acc
+                end, [], TaggedPaths).
+
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
- absorb(Txn, Chain) ->
+absorb(Txn, Chain) ->
      LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
      Challenger = ?MODULE:challenger(Txn),
      Ledger = blockchain:ledger(Chain),
