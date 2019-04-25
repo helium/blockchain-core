@@ -96,6 +96,7 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, de
     {noreply, State#state{monitored=maps:put(Pid, PubKeyBin, Pids)}};
 handle_cast({payment_req, Payee, Amount}, #state{monitored=Pids}=State) ->
     ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, maps:keys(Pids)),
+    lager:info("got payment request for ~p from ~p", [Amount, Payee]),
     ok = try_payment_req(ShuffledPids, Payee, Amount),
     {noreply, State};
 handle_cast(_Msg, State) ->
@@ -129,6 +130,7 @@ try_payment_req([], _Payee, _Amount)->
 try_payment_req([Pid|ShuffledPids], Payee, Amount) ->
     case blockchain_data_credits_channel_server:credits(Pid) of
         {ok, Credits} when Credits >= Amount ->
+            lager:info("transfering payment request to ~p", [Pid]),
             blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount);
         _ ->
             try_payment_req(ShuffledPids, Payee, Amount)

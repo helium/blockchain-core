@@ -72,6 +72,7 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
                                          [])
     of
         {ok, Stream} ->
+            lager:info("sending payment request (~p) to ~p", [Amount, Payer]),
             Stream ! {payment_req, Amount};
         Error ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error])

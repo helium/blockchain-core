@@ -45,6 +45,7 @@ init(server, _Conn, _Args) ->
 
 handle_data(server, Data, State) ->	
     Msg = blockchain_data_credits_handler_pb:decode_msg(Data, blockchain_data_credits_payment_req_pb),	
+    lager:info("got payment request ~p", [Msg]),
     Payee = Msg#blockchain_data_credits_payment_req_pb.payee,	
     Amount = Msg#blockchain_data_credits_payment_req_pb.amount,	
     blockchain_data_credits_servers_monitor:payment_req(Payee, Amount),	
@@ -59,7 +60,8 @@ handle_info(client, {payment_req, Amount}, State) ->
         payee=PubKeyBin,	
         amount=Amount	
     },	
-    Encoded = blockchain_data_credits_handler_pb:encode_msg(Msg),	
+    Encoded = blockchain_data_credits_handler_pb:encode_msg(Msg),
+    lager:info("sending payment request ~p", [Msg]),
     {noreply, State, Encoded};
 handle_info(_Type, _Msg, State) ->
     lager:warning("unknown ~p info message ~p", [_Type, _Msg]),

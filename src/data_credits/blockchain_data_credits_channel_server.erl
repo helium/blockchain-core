@@ -71,6 +71,7 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({payment_req, _Payee, Amount}, #state{credits=Credits}=State) ->
     % TODO: Store and boradcast this
+    lager:info("got payment request from ~p for ~p (leftover: ~p)", [_Payee, Amount, Credits-Amount]),
     {noreply, State#state{credits=Credits-Amount}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
