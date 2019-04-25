@@ -47,7 +47,7 @@ handle_data(server, Data, State) ->
     Msg = blockchain_data_credits_handler_pb:decode_msg(Data, blockchain_data_credits_payment_req_pb),	
     Payee = Msg#blockchain_data_credits_payment_req_pb.payee,	
     Amount = Msg#blockchain_data_credits_payment_req_pb.amount,	
-    blockchain_data_credits_server:payment_req(Payee, Amount),	
+    blockchain_data_credits_servers_monitor:payment_req(Payee, Amount),	
     {noreply, State};
 handle_data(_Type, _Data, State) ->
     lager:warning("unknown ~p data message ~p", [_Type, _Data]),

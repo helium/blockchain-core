@@ -34,9 +34,9 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-    keys :: libp2p_crypto:key_map(),
     db :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
+    keys :: libp2p_crypto:key_map(),
     credits = 0 :: non_neg_integer()
 }).
 
@@ -55,12 +55,12 @@ payment_req(Pid, Payee, Amount) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Keys, DB, CF, Credits]=Args) ->
+init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, #state{
-        keys=Keys,
         db=DB,
         cf=CF,
+        keys=Keys,
         credits=Credits
     }}.
 

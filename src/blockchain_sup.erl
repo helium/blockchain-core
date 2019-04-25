@@ -84,7 +84,7 @@ init(Args) ->
     BEventOpts = [],
     BTxnManagerOpts = [],
     BTxnMgrSupOpts = [],
-    DataCreditsServerOpts = [BaseDir],
+    DataCreditsSupOpts = [BaseDir],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
@@ -92,7 +92,7 @@ init(Args) ->
         ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
-        ?SUP(blockchain_data_credits_server, [DataCreditsServerOpts])
+        ?SUP(blockchain_data_credits_sup, [DataCreditsSupOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
