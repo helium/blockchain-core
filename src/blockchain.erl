@@ -365,21 +365,20 @@ add_block_(Block, Blockchain, Syncing) ->
                                         {true, _} ->
                                             BeforeCommit = fun() ->
                                                 lager:info("adding block ~p", [Height]),
-                                                ok = ?save_block(Block, Blockchain),
-                                                case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                                    {error, Reason}=Error ->
-                                                        lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                                        Error;
-                                                    {ok, NewLedger} ->
-                                                        ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
-                                                end
+                                                ok = ?save_block(Block, Blockchain)
                                             end,
                                             case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
                                                 {error, Reason}=Error ->
                                                     lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                                                     Error;
                                                 ok ->
-                                                    ok
+                                                    case blockchain_ledger_v1:new_snapshot(Ledger) of
+                                                        {error, Reason}=Error ->
+                                                            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                                            Error;
+                                                        {ok, NewLedger} ->
+                                                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                                                    end
                                             end
                                     end
                             end
