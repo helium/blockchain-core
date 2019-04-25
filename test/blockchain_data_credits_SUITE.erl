@@ -48,34 +48,23 @@ end_per_testcase(_TestCase, Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic_test(_Config) ->
-    % Keys = libp2p_crypto:generate_keys(ecc_compact),
+basic_test(Config) ->
+    [RouterNode, GatewayNode] = proplists:get_value(nodes, Config, []),
 
-    % ok = blockchain_data_credits_server_monitor:channel_server(Keys, 100),
+    ct:pal("RouterNode: ~p GatewayNode: ~p", [RouterNode, GatewayNode]),
 
-    % #{public := PubKey} = Keys,
-    % PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    % {ok, ChannelServer} = blockchain_data_credits_server_monitor:channel_server(PubKeyBin),
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    ok = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [Keys, 100]),
 
-    % ?assertEqual({ok, 100}, blockchain_data_credits_channel_server:credits(ChannelServer)),
+    #{public := PubKey} = Keys,
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    {ok, ChannelServer} = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]),
+    ?assertEqual({ok, 100}, ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])),
 
-    % % Txn = blockchain_txn_data_credits_v1:new(<<"payer">>, libp2p_crypto:pubkey_to_bin(PubKey), 1000, 1),
-    % %  Swarm = proplists:get_value(swarm, Config),
-    % % {ok, TmpSwarm} = libp2p_swarm:start(data_credits_basic_test, [{libp2p_nat, [{enabled, false}]}]),
-    % % [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
+    RouterPubKeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ok = ct_rpc:call(GatewayNode, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
 
-    % % case libp2p_swarm:dial_framed_stream(TmpSwarm,
-    % %                                      Addr,
-    % %                                      ?DATA_CREDITS_PROTOCOL,
-    % %                                      blockchain_data_credits_handler,
-    % %                                      [])
-    % % of
-    % %     {ok, Stream} ->
-    % %         Stream ! {payment_req, 50},
-    % %         timer:sleep(1000),
-    % %         ?assertEqual({ok, 50}, blockchain_data_credits_channel_server:credits(ChannelServer));
-    % %     Error ->
-    % %         ct:fail(Error)
-    % % end,
-    % % libp2p_swarm:stop(TmpSwarm),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 90} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
+    end, 10, 500),
     ok.
