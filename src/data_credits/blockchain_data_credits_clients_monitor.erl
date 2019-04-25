@@ -34,8 +34,6 @@
 
 -record(state, {
     db :: rocksdb:db_handle(),
-    default :: rocksdb:cf_handle(),
-    cf :: rocksdb:cf_handle(),
     monitored = #{} :: #{pid() => libp2p_crypto:pubkey_bin()}
 }).
 
@@ -51,19 +49,19 @@ payment_req(Payer, Amount) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([DB, DefaultCF, ClientCF]=Args) ->
+init([DB]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, #state{
-        db=DB,
-        default=DefaultCF,
-        cf=ClientCF
+        db=DB
     }}.
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({payment_req, Payer, Amount}, #state{db=DB, cf=CF, monitored=Pids}=State) ->
+handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Pids}=State) ->
+    CFName = erlang:binary_to_list(Payer),
+    {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
     {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
     _Ref = erlang:monitor(process, Pid),
     {noreply, State#state{monitored=maps:put(Pid, {Payer, Amount}, Pids)}};

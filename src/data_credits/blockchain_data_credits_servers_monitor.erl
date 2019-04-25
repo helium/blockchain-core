@@ -34,8 +34,6 @@
 
 -record(state, {
     db :: rocksdb:db_handle(),
-    default :: rocksdb:cf_handle(),
-    cf :: rocksdb:cf_handle(),
     swarm :: undefined | pid(),
     monitored = #{} :: #{pid() => libp2p_crypto:pubkey_bin()}
 }).
@@ -58,7 +56,7 @@ payment_req(Payee, Amount) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([DB, DefaultCF, ServerCF]=Args) ->
+init([DB]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(
@@ -68,8 +66,6 @@ init([DB, DefaultCF, ServerCF]=Args) ->
     ),
     {ok, #state{
         db=DB,
-        default=DefaultCF,
-        cf=ServerCF,
         swarm=Swarm
     }}.
 
@@ -84,15 +80,14 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, default=DefaultCF,
-                                                                       cf=ServerCF, monitored=Pids}=State) ->
+handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Pids}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {ok, Pid} = blockchain_data_credits_channel_server:start([DB, ServerCF, Keys, Amount]),
+    CFName = erlang:binary_to_list(PubKeyBin),
+    {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
+    {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, Amount]),
     _Ref = erlang:monitor(process, Pid),
-    {ok, Batch} = rocksdb:batch(),
-    ok = rocksdb:batch_put(Batch, DefaultCF, PubKeyBin, KeysBin),
-    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
     {noreply, State#state{monitored=maps:put(Pid, PubKeyBin, Pids)}};
 handle_cast({payment_req, Payee, Amount}, #state{monitored=Pids}=State) ->
     ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, maps:keys(Pids)),

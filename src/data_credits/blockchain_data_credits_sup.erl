@@ -41,9 +41,9 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
-    {ok, DB, [DefaultCF, ServerCF, ClientCF]} = open_db(BaseDir),
-    ServersOpts = [DB, DefaultCF, ServerCF],
-    ClientsOpts = [DB, DefaultCF, ClientCF],
+    {ok, DB} = open_db(BaseDir),
+    ServersOpts = [DB],
+    ClientsOpts = [DB],
     ChildSpecs = [
         ?WORKER(blockchain_data_credits_servers_monitor, [ServersOpts]),
         ?WORKER(blockchain_data_credits_clients_monitor, [ClientsOpts])
@@ -58,29 +58,11 @@ init([BaseDir]) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} | {error, any()}.
+-spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle()} | {error, any()}.
 open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
     DBOptions = [{create_if_missing, true}],
-    DefaultCFs = ["default", "server", "client"],
-    ExistingCFs =
-        case rocksdb:list_column_families(DBDir, DBOptions) of
-            {ok, CFs0} ->
-                CFs0;
-            {error, _} ->
-                ["default"]
-        end,
+    rocksdb:open(DBDir, DBOptions).
 
-    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
 
-    L1 = lists:zip(ExistingCFs, OpenedCFs),
-    L2 = lists:map(
-        fun(CF) ->
-            {ok, CF1} = rocksdb:create_column_family(DB, CF, []),
-            {CF, CF1}
-        end,
-        DefaultCFs -- ExistingCFs
-    ),
-    L3 = L1 ++ L2,
-    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
