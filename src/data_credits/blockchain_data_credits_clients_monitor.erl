@@ -64,7 +64,7 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({payment_req, Payer, Amount}, #state{db=DB, cf=CF, monitored=Pids}=State) ->
-    {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Payer, Amount]),
+    {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
     _Ref = erlang:monitor(process, Pid),
     {noreply, State#state{monitored=maps:put(Pid, {Payer, Amount}, Pids)}};
 handle_cast(_Msg, State) ->
