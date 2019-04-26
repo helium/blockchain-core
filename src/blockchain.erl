@@ -377,7 +377,7 @@ add_block_(Block, Blockchain, Syncing) ->
                                                             lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                                                             Error;
                                                         {ok, NewLedger} ->
-                                                            lager:info("Notifying for new block"),
+                                                            lager:info("Notifying new block ~p", [Height]),
                                                             ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
                                                     end
                                             end

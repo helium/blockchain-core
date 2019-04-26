@@ -15,15 +15,13 @@
         ]).
 
 -export([
-         gossip_test/1,
-         snapshot_test/1
+         gossip_test/1
         ]).
 
 %% common test callbacks
 
 all() -> [
-          gossip_test,
-          snapshot_test
+          gossip_test
          ].
 
 init_per_suite(Config) ->
@@ -114,55 +112,6 @@ gossip_test(Config) ->
             C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
             {ok, 2} == ct_rpc:call(Node, blockchain, height, [C])
         end, 100, timer:seconds(1))
-    end, Nodes),
-
-    Chain2 = ct_rpc:call(FirstNode, blockchain_worker, blockchain, []),
-    ct:pal("FirstNode Chain2: ~p", [Chain2]),
-
-    Heights = lists:foldl(fun(Node, Acc) ->
-        C2 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-        {ok, H} = ct_rpc:call(Node, blockchain, height, [C2]),
-        [{Node, H} | Acc]
-    end, [], Nodes),
-
-    ct:comment("Heights: ~p", [Heights]),
-    ok.
-
-snapshot_test(Config) ->
-    Nodes = proplists:get_value(nodes, Config),
-    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
-
-    %% let each node start a snapshot_test_handler as well
-    ok = lists:foreach(fun(Node) ->
-                               {ok, Pid} = ct_rpc:call(Node, blockchain_event_handler, start_link, [[]]),
-                               ct:pal("Node: ~p, Event handler PID: ~p", [Node, Pid])
-                       end, Nodes),
-
-    %% let these two serve as dummys
-    [FirstNode | _Rest] = Nodes,
-
-    Chain = ct_rpc:call(FirstNode, blockchain_worker, blockchain, []),
-    ct:pal("FirstNode Chain: ~p", [Chain]),
-    Swarm = ct_rpc:call(FirstNode, blockchain_swarm, swarm, []),
-    ct:pal("FirstNode Swarm: ~p", [Swarm]),
-    N = length(Nodes),
-    ct:pal("N: ~p", [N]),
-
-    ok = lists:foreach(fun(_) ->
-                               Block = ct_rpc:call(FirstNode, test_utils, create_block, [ConsensusMembers, []]),
-                               _ = ct_rpc:call(FirstNode, blockchain_gossip_handler, add_block, [Swarm, Block, Chain, N, self()])
-                       end,
-                       lists:seq(2, 100)),
-
-    ok = lists:foreach(fun(Node) ->
-        ok = blockchain_ct_utils:wait_until(fun() ->
-            C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-            {ok, 100} == ct_rpc:call(Node, blockchain, height, [C])
-        end, 100, timer:seconds(1)),
-
-        TempChain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-        Ledger = ct_rpc:call(Node, blockchain, ledger, [TempChain]),
-        {ok, 100} = ct_rpc:call(Node, blockchain_ledger_v1, current_height, [Ledger])
     end, Nodes),
 
     Chain2 = ct_rpc:call(FirstNode, blockchain_worker, blockchain, []),
