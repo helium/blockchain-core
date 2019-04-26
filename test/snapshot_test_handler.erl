@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Core Swarm ==
+%% == Snapshot Test Handler ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(snapshot_test_handler).
@@ -38,7 +38,6 @@ start_link(Args) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?MODULE, Args]),
     {ok, []}.
 
