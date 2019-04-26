@@ -134,8 +134,8 @@ snapshot_test(Config) ->
 
     %% let each node start a snapshot_test_handler as well
     ok = lists:foreach(fun(Node) ->
-                               {ok, Pid} = ct_rpc:call(Node, snapshot_test_handler, start_link, [[]]),
-                               ct:pal("Node: ~p, Snapshot handler PID: ~p", [Node, Pid])
+                               {ok, Pid} = ct_rpc:call(Node, blockchain_event_handler, start_link, [[]]),
+                               ct:pal("Node: ~p, Event handler PID: ~p", [Node, Pid])
                        end, Nodes),
 
     %% let these two serve as dummys

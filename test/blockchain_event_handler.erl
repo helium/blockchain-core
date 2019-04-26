@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Snapshot Test Handler ==
+%% == Test Blockchain Event Handler ==
 %% @end
 %%%-------------------------------------------------------------------
--module(snapshot_test_handler).
+-module(blockchain_event_handler).
 
 -behavior(gen_server).
 
