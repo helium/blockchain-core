@@ -14,7 +14,7 @@ test: compile
 ci:
 	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct,cover
 	$(REBAR) covertool generate
-	codecov -f _build/test/covertool/libp2p.covertool.xml
+	codecov -f _build/test/covertool/blockchain.covertool.xml
 
 typecheck:
 	$(REBAR) dialyzer
