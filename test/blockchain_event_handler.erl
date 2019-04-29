@@ -38,7 +38,7 @@ start_link(Args) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    lager:info("~p init with ~p", [?MODULE, Args]),
+    lager:info("~p init with ~p, pid: ~p", [?MODULE, Args, self()]),
     {ok, []}.
 
 handle_call(_Msg, _From, State) ->

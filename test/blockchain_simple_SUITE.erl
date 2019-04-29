@@ -65,6 +65,7 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, EventHandler} = blockchain_event_handler:start_link([]),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -89,7 +90,9 @@ init_per_testcase(TestCase, Config) ->
         {chain, Chain},
         {swarm, Swarm},
         {n, N},
-        {consensus_members, ConsensusMembers} | Config
+        {consensus_members, ConsensusMembers},
+        {event_handler, EventHandler}
+        | Config
     ].
 
 %%--------------------------------------------------------------------
@@ -970,9 +973,8 @@ snapshot_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
+    EventHandler = proplists:get_value(event_handler, Config),
     N = proplists:get_value(n, Config),
-    {ok, EventHandler} = blockchain_event_handler:start_link([]),
-    ct:pal("EventHandler: ~p", [EventHandler]),
     % Add some blocks
     lists:foreach(
         fun(_) ->
@@ -981,5 +983,6 @@ snapshot_test(Config) ->
         end,
         lists:seq(1, 10)
     ),
+    ct:pal("EventHandler: ~p", [EventHandler]),
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
     ok.
