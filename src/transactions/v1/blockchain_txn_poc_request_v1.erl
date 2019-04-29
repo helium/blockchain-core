@@ -28,7 +28,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(CHALLENGE_INTERVAL, 10).
+-define(CHALLENGE_INTERVAL, 30).
 
 -type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
