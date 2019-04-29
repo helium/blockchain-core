@@ -31,13 +31,13 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    ok = blockchain_event:add_handler(self()),
     gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
+    ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p, pid: ~p", [?MODULE, Args, self()]),
     {ok, []}.
 
