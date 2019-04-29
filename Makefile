@@ -1,4 +1,4 @@
-.PHONY: compile test typecheck
+.PHONY: compile test typecheck ci
 
 REBAR=./rebar3
 
@@ -11,8 +11,10 @@ clean:
 test: compile
 	$(REBAR) as test do eunit, ct,xref && $(REBAR) dialyzer
 
-ci: compile
-	$(REBAR) do dialyzer,xref && $(REBAR) as test do eunit,ct
+ci:
+	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct,cover
+	$(REBAR) covertool generate
+	codecov -f _build/test/covertool/libp2p.covertool.xml
 
 typecheck:
 	$(REBAR) dialyzer
