@@ -27,7 +27,7 @@
 % KRing of 2
 %     Scale 5.42
 %     Max distance 1.564 miles @ resolution 8
-%     Max distance 0.59 miles @ resolution 9  <----
+%     Max distance 0.59 miles @ resolution 9 <---
 
 -type graph() :: #{any() => [{number(), any()}]}.
 
