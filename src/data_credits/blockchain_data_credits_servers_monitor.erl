@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     channel_server/1, channel_server/2,
-    payment_req/2
+    payment_req/2, payment_req/3
 ]).
 
 %% ------------------------------------------------------------------
@@ -35,7 +35,7 @@
 -record(state, {
     db :: rocksdb:db_handle(),
     swarm :: undefined | pid(),
-    monitored = #{} :: #{pid() => libp2p_crypto:pubkey_bin()}
+    monitored = #{} :: #{pid() | libp2p_crypto:pubkey_bin() => libp2p_crypto:pubkey_bin() | pid()}
 }).
 
 %% ------------------------------------------------------------------
@@ -53,6 +53,9 @@ channel_server(Keys, Amount) ->
 payment_req(Payee, Amount) ->
     gen_statem:cast(?SERVER, {payment_req, Payee, Amount}).
 
+payment_req(PubKeyBin, Payee, Amount) ->
+    gen_statem:cast(?SERVER, {payment_req, PubKeyBin, Payee, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -69,13 +72,13 @@ init([DB]=Args) ->
         swarm=Swarm
     }}.
 
-handle_call({channel_server, PubKeyBin}, _From, #state{monitored=Pids0}=State) ->
-    % TODO: Maybe return error also here?
-    [Pid] = maps:keys(maps:filter(
-        fun(_K, V) -> V =:= PubKeyBin end,
-        Pids0
-    )),
-    {reply, {ok, Pid}, State};
+handle_call({channel_server, PubKeyBin}, _From, #state{monitored=Monitored}=State) ->
+    case maps:get(PubKeyBin, Monitored, not_found) of
+        not_found ->
+            {reply, {error, not_found}, State};
+        Pid ->
+            {reply, {ok, Pid}, State}
+    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -89,10 +92,19 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, mo
     _Ref = erlang:monitor(process, Pid),
     ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
     {noreply, State#state{monitored=maps:put(Pid, PubKeyBin, Pids)}};
-handle_cast({payment_req, Payee, Amount}, #state{monitored=Pids}=State) ->
-    ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, maps:keys(Pids)),
+handle_cast({payment_req, Payee, Amount}, #state{monitored=Monitored}=State) ->
+    Pids = lists:filter(fun erlang:is_pid/1, maps:keys(Monitored)),
+    ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, Pids),
     lager:info("got payment request for ~p from ~p", [Amount, Payee]),
     ok = try_payment_req(ShuffledPids, Payee, Amount),
+    {noreply, State};
+handle_cast({payment_req, PubKeyBin, Payee, Amount}, #state{monitored=Monitored}=State) ->
+    case maps:get(PubKeyBin, Monitored, undefined) of
+        undefined ->
+            ok;
+        Pid ->
+            blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount)
+    end,
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
