@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Data Credits Channel Handler ==
+%% == Blockchain Data Credits Payment Stream ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_data_credits_handler).
+-module(blockchain_data_credits_payment_stream).
 
 -behavior(libp2p_framed_stream).
 
@@ -25,7 +25,7 @@
     handle_data/3
 ]).
 
--include("pb/blockchain_data_credits_handler_pb.hrl").
+-include("pb/blockchain_data_credits_pb.hrl").
 
 -record(state, {}).
 
@@ -44,7 +44,7 @@ init(server, _Conn, _Args) ->
     {ok, #state{}}.
 
 handle_data(server, Data, State) ->	
-    Msg = blockchain_data_credits_handler_pb:decode_msg(Data, blockchain_data_credits_payment_req_pb),	
+    Msg = blockchain_data_credits_pb:decode_msg(Data, blockchain_data_credits_payment_req_pb),	
     lager:info("got payment request ~p", [Msg]),
     Payee = Msg#blockchain_data_credits_payment_req_pb.payee,	
     Amount = Msg#blockchain_data_credits_payment_req_pb.amount,	
@@ -60,7 +60,7 @@ handle_info(client, {payment_req, Amount}, State) ->
         payee=PubKeyBin,	
         amount=Amount	
     },	
-    Encoded = blockchain_data_credits_handler_pb:encode_msg(Msg),
+    Encoded = blockchain_data_credits_pb:encode_msg(Msg),
     lager:info("sending payment request ~p", [Msg]),
     {stop, normal, State, Encoded};
 handle_info(_Type, _Msg, State) ->

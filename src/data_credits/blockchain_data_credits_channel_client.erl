@@ -69,7 +69,7 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
     case libp2p_swarm:dial_framed_stream(Swarm,
                                          P2PAddr,
                                          ?DATA_CREDITS_PROTOCOL,
-                                         blockchain_data_credits_handler,
+                                         blockchain_data_credits_payment_stream,
                                          [])
     of
         {ok, Stream} ->
