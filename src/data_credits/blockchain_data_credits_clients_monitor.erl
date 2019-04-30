@@ -51,6 +51,12 @@ payment_req(Payer, Amount) ->
 %% ------------------------------------------------------------------
 init([DB]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
+    Swarm = blockchain_swarm:swarm(),
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm,
+        ?DATA_CREDITS_CHANNEL_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_data_credits_channel_stream]}
+    ),
     {ok, #state{
         db=DB
     }}.

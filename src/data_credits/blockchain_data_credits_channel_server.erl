@@ -37,7 +37,8 @@
     db :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     keys :: libp2p_crypto:key_map(),
-    credits = 0 :: non_neg_integer()
+    credits = 0 :: non_neg_integer(),
+    followers = [] :: [pid()]
 }).
 
 %% ------------------------------------------------------------------

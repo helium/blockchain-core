@@ -68,7 +68,7 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
     P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(Payer),
     case libp2p_swarm:dial_framed_stream(Swarm,
                                          P2PAddr,
-                                         ?DATA_CREDITS_PROTOCOL,
+                                         ?DATA_CREDITS_PAYMENT_PROTOCOL,
                                          blockchain_data_credits_payment_stream,
                                          [])
     of
