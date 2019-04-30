@@ -110,6 +110,14 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=State) ->
+    case maps:get(Pid, Monitored0, undefined) of
+        undefined ->
+            {noreply, State};
+        PubKeyBin ->
+            Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
+            {noreply, State#state{monitored=Monitored1}}
+    end;
 handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
     % TODO
     {noreply, State};
