@@ -11,7 +11,7 @@
     dir/1,
 
     new_context/1, delete_context/1, commit_context/1, context_cache/1,
-    new_snapshot/1, release_snapshot/1,
+    new_snapshot/1, release_snapshot/1, snapshot/1,
 
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
@@ -154,7 +154,10 @@ dir(Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
-new_snapshot(#ledger_v1{db=DB}=Ledger) ->
+new_snapshot(#ledger_v1{db=DB,
+                        snapshot=undefined,
+                        active=#sub_ledger_v1{context=undefined, cache=undefined},
+                        delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
     case rocksdb:snapshot(DB) of
         {ok, SnapshotHandle} ->
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
@@ -172,6 +175,19 @@ release_snapshot(#ledger_v1{snapshot=undefined}) ->
     {error, undefined_snapshot};
 release_snapshot(#ledger_v1{snapshot=Snapshot}) ->
     rocksdb:release_snapshot(Snapshot).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec snapshot(ledger()) -> {ok, rocksdb:snapshot_handle()} | {error, undefined}.
+snapshot(Ledger) ->
+    case Ledger#ledger_v1.snapshot of
+        undefined ->
+            {error, undefined};
+        S ->
+            {ok, S}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
