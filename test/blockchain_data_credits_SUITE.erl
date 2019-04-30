@@ -67,4 +67,11 @@ basic_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 90} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
     end, 10, 500),
+
+    ok = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, payment_req, [PubKeyBin, RouterPubKeyBin, 10]),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 80} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
+    end, 10, 500),
+
     ok.

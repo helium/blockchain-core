@@ -83,7 +83,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Pids}=State) ->
+handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     CFName = erlang:binary_to_list(PubKeyBin),
@@ -91,7 +91,8 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, mo
     {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, Amount]),
     _Ref = erlang:monitor(process, Pid),
     ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
-    {noreply, State#state{monitored=maps:put(Pid, PubKeyBin, Pids)}};
+    Monitored1 = maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored0)),
+    {noreply, State#state{monitored=Monitored1}};
 handle_cast({payment_req, Payee, Amount}, #state{monitored=Monitored}=State) ->
     Pids = lists:filter(fun erlang:is_pid/1, maps:keys(Monitored)),
     ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, Pids),
@@ -99,9 +100,10 @@ handle_cast({payment_req, Payee, Amount}, #state{monitored=Monitored}=State) ->
     ok = try_payment_req(ShuffledPids, Payee, Amount),
     {noreply, State};
 handle_cast({payment_req, PubKeyBin, Payee, Amount}, #state{monitored=Monitored}=State) ->
+    lager:info("got payment request for ~p from ~p", [{PubKeyBin, Amount}, Payee]),
     case maps:get(PubKeyBin, Monitored, undefined) of
         undefined ->
-            ok;
+            lager:warning("could not find pid for ~p", [PubKeyBin]);
         Pid ->
             blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount)
     end,
