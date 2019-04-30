@@ -145,19 +145,18 @@ is_valid(Txn, Chain) ->
                                 {error, _} ->
                                     {error, poc_not_found};
                                 {ok, _PoC} ->
-                                    Blockchain = blockchain_worker:blockchain(),
                                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                                         {error, _Reason}=Error ->
                                             Error;
                                         {ok, GwInfo} ->
                                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo),
-                                            case blockchain:get_block(LastChallenge, Blockchain) of
+                                            case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, _}=Error ->
                                                     Error;
                                                 {ok, Block1} ->
                                                     BlockHash = blockchain_block:hash_block(Block1),
                                                     Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
-                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Blockchain),
+                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                     {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways),
                                                     N = erlang:length(Path),
