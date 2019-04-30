@@ -49,7 +49,7 @@ handle_data(server, Data, State) ->
     Payee = Msg#blockchain_data_credits_payment_req_pb.payee,	
     Amount = Msg#blockchain_data_credits_payment_req_pb.amount,	
     blockchain_data_credits_servers_monitor:payment_req(Payee, Amount),	
-    {noreply, State};
+    {stop, normal, State};
 handle_data(_Type, _Data, State) ->
     lager:warning("unknown ~p data message ~p", [_Type, _Data]),
     {noreply, State}.
@@ -62,7 +62,7 @@ handle_info(client, {payment_req, Amount}, State) ->
     },	
     Encoded = blockchain_data_credits_handler_pb:encode_msg(Msg),
     lager:info("sending payment request ~p", [Msg]),
-    {noreply, State, Encoded};
+    {stop, normal, State, Encoded};
 handle_info(_Type, _Msg, State) ->
     lager:warning("unknown ~p info message ~p", [_Type, _Msg]),
     {noreply, State}.

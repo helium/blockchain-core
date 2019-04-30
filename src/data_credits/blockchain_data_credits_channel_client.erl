@@ -33,7 +33,8 @@
 -record(state, {
     db :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
-    payer :: libp2p_crypto:pubkey_bin()
+    payer :: libp2p_crypto:pubkey_bin(),
+    stream :: undefined | pid()
 }).
 
 %% ------------------------------------------------------------------
@@ -73,11 +74,12 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
     of
         {ok, Stream} ->
             lager:info("sending payment request (~p) to ~p", [Amount, Payer]),
-            Stream ! {payment_req, Amount};
+            Stream ! {payment_req, Amount},
+            {noreply, State};
         Error ->
-            lager:error("failed to dial ~p ~p", [P2PAddr, Error])
-    end,
-    {noreply, State};
+            lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
+            {stop, dial_error, State}
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
