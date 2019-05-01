@@ -63,7 +63,6 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
-    {ok, EventHandler} = blockchain_event_handler:start_link([]),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -88,8 +87,7 @@ init_per_testcase(TestCase, Config) ->
         {chain, Chain},
         {swarm, Swarm},
         {n, N},
-        {consensus_members, ConsensusMembers},
-        {event_handler, EventHandler}
+        {consensus_members, ConsensusMembers}
         | Config
     ].
 
