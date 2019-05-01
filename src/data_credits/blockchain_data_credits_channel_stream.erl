@@ -43,10 +43,17 @@ init(client, _Conn, _Args) ->
 init(server, _Conn, _Args) ->
     {ok, #state{}}.
 
+handle_data(server, Data, State) ->	
+    Msg = blockchain_data_credits_pb:decode_msg(Data, blockchain_data_credits_payment_pb),	
+    lager:info("got payment update ~p", [Msg]),
+    % Key = Msg#blockchain_data_credits_payment_pb.key,	
+    {stop, normal, State};
 handle_data(_Type, _Data, State) ->
     lager:warning("unknown ~p data message ~p", [_Type, _Data]),
     {noreply, State}.
 
+handle_info(client, {update, EncodedPayment}, State) ->
+    {stop, normal, State, EncodedPayment};
 handle_info(_Type, _Msg, State) ->
     lager:warning("unknown ~p info message ~p", [_Type, _Msg]),
     {noreply, State}.

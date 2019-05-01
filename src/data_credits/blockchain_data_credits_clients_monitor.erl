@@ -34,7 +34,7 @@
 
 -record(state, {
     db :: rocksdb:db_handle(),
-    monitored = #{} :: #{pid() => libp2p_crypto:pubkey_bin()}
+    monitored = #{} :: #{pid() | libp2p_crypto:pubkey_bin() => libp2p_crypto:pubkey_bin() | pid()}
 }).
 
 %% ------------------------------------------------------------------
@@ -65,12 +65,13 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Pids}=State) ->
+handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     CFName = erlang:binary_to_list(Payer),
     {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
     {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
     _Ref = erlang:monitor(process, Pid),
-    {noreply, State#state{monitored=maps:put(Pid, {Payer, Amount}, Pids)}};
+    Monitored1 = maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored0)),
+    {noreply, State#state{monitored=Monitored1}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

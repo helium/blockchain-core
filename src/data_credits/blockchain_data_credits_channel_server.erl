@@ -38,7 +38,7 @@
     cf :: rocksdb:cf_handle(),
     keys :: libp2p_crypto:key_map(),
     credits = 0 :: non_neg_integer(),
-    followers = [] :: [pid()]
+    channel_clients = #{} :: #{libp2p_crypto:pubkey_bin() => any()}
 }).
 
 %% ------------------------------------------------------------------
@@ -71,23 +71,16 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=#{secret := PrivKey, public := PubKey},
-                                                 credits=Credits}=State) ->
+handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
+                                                 credits=Credits, channel_clients=Clients0}=State) ->
     % TODO: Broadcast this
-    Payment0 = #blockchain_data_credits_payment_pb{
-        key=libp2p_crypto:pubkey_to_bin(PubKey) ,
-        payer=blockchain_swarm:pubkey_bin(),
-        payee=Payee,
-        amount=Amount
-    },
-    EncodedPayment0 = blockchain_data_credits_pb:encode_msg(Payment0),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Signature = SigFun(EncodedPayment0),
-    Payment1 = Payment0#blockchain_data_credits_payment_pb{signature=Signature},
-    EncodedPayment1 = blockchain_data_credits_pb:encode_msg(Payment1),
-    ok = rocksdb:put(DB, CF, Signature, EncodedPayment1, []),
+    {Signature, Payment} = create_payment(Keys, Payee, Amount),
+    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
+    ok = rocksdb:put(DB, CF, Signature, EncodedPayment, []),
     lager:info("got payment request from ~p for ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
-    {noreply, State#state{credits=Credits-Amount}};
+    Clients1 = maps:put(Payee, <<>>, Clients0),
+    ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
+    {noreply, State#state{credits=Credits-Amount, channel_clients=Clients1}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -105,3 +98,33 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+create_payment(#{secret := PrivKey, public := PubKey}, Payee, Amount) -> 
+    Payment = #blockchain_data_credits_payment_pb{
+        key=libp2p_crypto:pubkey_to_bin(PubKey),
+        payer=blockchain_swarm:pubkey_bin(),
+        payee=Payee,
+        amount=Amount
+    },
+    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Signature = SigFun(EncodedPayment),
+    {Signature, Payment#blockchain_data_credits_payment_pb{signature=Signature}}.
+
+broacast_payment([], _EncodedPayment) ->
+    ok;
+broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
+    Swarm = blockchain_swarm:swarm(),
+    P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    case libp2p_swarm:dial_framed_stream(Swarm,
+                                         P2PAddr,
+                                         ?DATA_CREDITS_CHANNEL_PROTOCOL,
+                                         blockchain_data_credits_channel_stream,
+                                         [])
+    of
+        {ok, _Stream} ->
+            _Stream ! {update, EncodedPayment},
+            broacast_payment(Clients, EncodedPayment);
+        _Error ->
+            broacast_payment(Clients, EncodedPayment)
+    end.
