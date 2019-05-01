@@ -356,7 +356,7 @@ active_gateways(#ledger_v1{db=DB}=Ledger) ->
             maps:put(Address, Gw, Acc)
         end,
         #{},
-        []
+        maybe_use_snapshot(Ledger, [])
     ).
 
 %%--------------------------------------------------------------------
@@ -374,7 +374,7 @@ entries(#ledger_v1{db=DB}=Ledger) ->
             maps:put(Address, Entry, Acc)
         end,
         #{},
-        []
+        maybe_use_snapshot(Ledger, [])
     ).
 
 %%--------------------------------------------------------------------
@@ -392,7 +392,7 @@ htlcs(#ledger_v1{db=DB}=Ledger) ->
             maps:put(Address, Entry, Acc)
         end,
         #{},
-        []
+        maybe_use_snapshot(Ledger, [])
     ).
 
 %%--------------------------------------------------------------------
@@ -741,7 +741,7 @@ securities(#ledger_v1{db=DB}=Ledger) ->
             maps:put(Address, Entry, Acc)
         end,
         #{},
-        []
+        maybe_use_snapshot(Ledger, [])
     ).
 
 %%--------------------------------------------------------------------
@@ -1100,16 +1100,10 @@ cache_put(Ledger, CF, Key, Value) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
-cache_get(#ledger_v1{db=DB, snapshot=Snapshot}=Ledger, CF, Key, Options) ->
+cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
         {_, undefined} ->
-            Opts = case Snapshot of
-                       undefined ->
-                           Options;
-                       S ->
-                           [{snapshot, S} | Options]
-                   end,
-            rocksdb:get(DB, CF, Key, Opts);
+            rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
         {Context, Cache} ->
             case ets:lookup(Cache, CF) of
                 [] ->
@@ -1172,6 +1166,15 @@ open_db(Dir) ->
     ),
     L3 = L1 ++ L2,
     {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+
+-spec maybe_use_snapshot(ledger(), list()) -> list().
+maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
+    case Snapshot of
+        undefined ->
+            Options;
+        S ->
+            [{snapshot, S} | Options]
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
