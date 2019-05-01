@@ -22,8 +22,7 @@
     security_token_test/1,
     routing_test/1,
     block_save_failed_test/1,
-    absorb_failed_test/1,
-    snapshot_test/1
+    absorb_failed_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -52,8 +51,7 @@ all() ->
         security_token_test,
         routing_test,
         block_save_failed_test,
-        absorb_failed_test,
-        snapshot_test
+        absorb_failed_test
     ].
 
 %%--------------------------------------------------------------------
@@ -962,27 +960,4 @@ absorb_failed_test(Config) ->
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
-    ok.
-
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-snapshot_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    EventHandler = proplists:get_value(event_handler, Config),
-    N = proplists:get_value(n, Config),
-    % Add some blocks
-    lists:foreach(
-        fun(_) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
-        end,
-        lists:seq(1, 10)
-    ),
-    ct:pal("EventHandler: ~p", [EventHandler]),
-    ?assertEqual({ok, 11}, blockchain:height(Chain)),
     ok.
