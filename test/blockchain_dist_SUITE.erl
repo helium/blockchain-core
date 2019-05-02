@@ -30,16 +30,15 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     Config.
 
+%% ------------------------------------------------------------------
+%% Configurations
+%% ------------------------------------------------------------------
+
 init_per_testcase(_TestCase, Config0) ->
-    blockchain_ct_utils:init_per_testcase(_TestCase, Config0).
-
-end_per_testcase(_TestCase, Config) ->
-    blockchain_ct_utils:end_per_testcase(_TestCase, Config).
-
-gossip_test(Config) ->
-    Nodes = proplists:get_value(nodes, Config),
+    InitConfig = blockchain_ct_utils:init_per_testcase(_TestCase, Config0),
+    Nodes = proplists:get_value(nodes, InitConfig),
     Balance = 5000,
-    NumConsensusMembers = proplists:get_value(num_consensus_members, Config),
+    NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
 
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
@@ -68,27 +67,20 @@ gossip_test(Config) ->
                                                                    end, 120, 500)
                        end, Nodes),
 
-    %% FIXME: should do this for each test case presumably
-    lists:foreach(fun(Node) ->
-                          Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                          {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
-                          {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
-                          {ok, Height} = ct_rpc:call(Node, blockchain, height, [Blockchain]),
-                          ?assertEqual(GenesisBlock, HeadBlock),
-                          ?assertEqual(GenesisBlock, WorkerGenesisBlock),
-                          ?assertEqual(1, Height)
-                  end, Nodes),
+    ok = check_genesis_block(InitConfig, GenesisBlock),
+    ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
+    [{consensus_memebers, ConsensusMembers} | InitConfig].
 
-    %% FIXME: move this elsewhere
-    ConsensusMembers = lists:keysort(1, lists:foldl(fun(Node, Acc) ->
-                                                            Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                                            case lists:member(Addr, ConsensusAddrs) of
-                                                                false -> Acc;
-                                                                true ->
-                                                                    {ok, Pubkey, SigFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
-                                                                    [{Addr, Pubkey, SigFun} | Acc]
-                                                            end
-                                                    end, [], Nodes)),
+end_per_testcase(_TestCase, Config) ->
+    blockchain_ct_utils:end_per_testcase(_TestCase, Config).
+
+%% ------------------------------------------------------------------
+%% Test Cases
+%% ------------------------------------------------------------------
+
+gossip_test(Config) ->
+    Nodes = proplists:get_value(nodes, Config),
+    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
 
     %% let these two serve as dummys
     [FirstNode, SecondNode | _Rest] = Nodes,
@@ -133,3 +125,31 @@ gossip_test(Config) ->
 
     ct:comment("Heights: ~p", [Heights]),
     ok.
+
+%% ------------------------------------------------------------------
+%% Helper functions
+%% ------------------------------------------------------------------
+
+check_genesis_block(Config, GenesisBlock) ->
+    Nodes = proplists:get_value(nodes, Config),
+    lists:foreach(fun(Node) ->
+                          Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                          {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
+                          {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
+                          {ok, Height} = ct_rpc:call(Node, blockchain, height, [Blockchain]),
+                          ?assertEqual(GenesisBlock, HeadBlock),
+                          ?assertEqual(GenesisBlock, WorkerGenesisBlock),
+                          ?assertEqual(1, Height)
+                  end, Nodes).
+
+get_consensus_members(Config, ConsensusAddrs) ->
+    Nodes = proplists:get_value(nodes, Config),
+    lists:keysort(1, lists:foldl(fun(Node, Acc) ->
+                                         Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
+                                         case lists:member(Addr, ConsensusAddrs) of
+                                             false -> Acc;
+                                             true ->
+                                                 {ok, Pubkey, SigFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
+                                                 [{Addr, Pubkey, SigFun} | Acc]
+                                         end
+                                 end, [], Nodes)).

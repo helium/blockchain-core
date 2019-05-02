@@ -87,7 +87,8 @@ init_per_testcase(TestCase, Config) ->
         {chain, Chain},
         {swarm, Swarm},
         {n, N},
-        {consensus_members, ConsensusMembers} | Config
+        {consensus_members, ConsensusMembers}
+        | Config
     ].
 
 %%--------------------------------------------------------------------
@@ -449,7 +450,6 @@ poc_request_test(Config) ->
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
-    
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
@@ -474,7 +474,6 @@ poc_request_test(Config) ->
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
-    
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 5} =:= blockchain:height(Chain) end),
 
     Block40 = lists:foldl(
@@ -935,7 +934,7 @@ absorb_failed_test(Config) ->
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
-    
+
     ct:pal("Try to re-add block 1 will cause the mismatch"),
     ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
 
@@ -960,4 +959,3 @@ absorb_failed_test(Config) ->
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
-
