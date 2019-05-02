@@ -73,11 +73,11 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
                                                  credits=Credits, channel_clients=Clients0}=State) ->
-    % TODO: Broadcast this
     {Signature, Payment} = create_payment(Keys, Payee, Amount),
     EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
     ok = rocksdb:put(DB, CF, Signature, EncodedPayment, []),
     lager:info("got payment request from ~p for ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
+    % TODO: If Payee is not part of current clients we should send all previous payments
     Clients1 = maps:put(Payee, <<>>, Clients0),
     ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
     {noreply, State#state{credits=Credits-Amount, channel_clients=Clients1}};

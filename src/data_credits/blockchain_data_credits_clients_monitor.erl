@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    payment_req/2
+    payment_req/2,
+    channel_client/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -46,6 +47,9 @@ start_link(Args) ->
 payment_req(Payer, Amount) ->
     gen_statem:cast(?SERVER, {payment_req, Payer, Amount}).
 
+channel_client(Payer) ->
+    gen_statem:call(?SERVER, {channel_client, Payer}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -61,6 +65,15 @@ init([DB]=Args) ->
         db=DB
     }}.
 
+handle_call({channel_client, Payer}, _From, #state{monitored=Monitored}=State) ->
+    lager:info("got channel_client request for ~p from ~p", [Payer, _From]),
+    case maps:get(Payer, Monitored, undefined) of
+        undefined ->
+            lager:warning("could not find pid for ~p", [Payer]),
+            {reply, {error, not_found}, State};
+        Pid ->
+            {reply, {ok, Pid}, State}
+    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
