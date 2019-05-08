@@ -527,7 +527,8 @@ load_genesis(Dir) ->
 open_db(Dir) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = filelib:ensure_dir(DBDir),
-    DBOptions = [{create_if_missing, true}],
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
     DefaultCFs = ["default", "blocks", "heights"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
@@ -537,12 +538,14 @@ open_db(Dir) ->
                 ["default"]
         end,
 
-    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, []} || CF <- ExistingCFs]),
+    CFOpts = GlobalOpts,
+
+    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]),
 
     L1 = lists:zip(ExistingCFs, OpenedCFs),
     L2 = lists:map(
         fun(CF) ->
-            {ok, CF1} = rocksdb:create_column_family(DB, CF, []),
+            {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
             {CF, CF1}
         end,
         DefaultCFs -- ExistingCFs
