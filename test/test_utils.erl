@@ -17,8 +17,9 @@
 init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    ECDHFun = libp2p_crypto:mk_ecdh_fun(PrivKey),
     Opts = [
-        {key, {PubKey, SigFun}},
+        {key, {PubKey, SigFun, ECDHFun}},
         {seed_nodes, []},
         {port, 0},
         {num_consensus_members, 7},

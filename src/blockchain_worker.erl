@@ -259,7 +259,7 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry),
             PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce + 1),
-            {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+            {ok, _PubKey, SigFun, _ECDHFun} = libp2p_swarm:keys(Swarm),
             SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
             ok = send_txn(SignedPaymentTxn)
     end,
@@ -267,7 +267,7 @@ handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chai
 handle_cast({spend, Recipient, Amount, Fee, Nonce}, #state{swarm=Swarm}=State) ->
     PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PaymentTxn = blockchain_txn_payment_v1:new(PubkeyBin, Recipient, Amount, Fee, Nonce),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    {ok, _PubKey, SigFun, _ECDHFun} = libp2p_swarm:keys(Swarm),
     SignedPaymentTxn = blockchain_txn_payment_v1:sign(PaymentTxn, SigFun),
     ok = send_txn(SignedPaymentTxn),
     {noreply, State};
@@ -297,14 +297,14 @@ handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #st
 handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
     CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    {ok, _PubKey, SigFun, _ECDHFun} = libp2p_swarm:keys(Swarm),
     SignedCreateHTLCTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     ok = send_txn(SignedCreateHTLCTxn),
     {noreply, State};
 handle_cast({redeem_htlc_txn, PubkeyBin, Preimage, Fee}, #state{swarm=Swarm}=State) ->
     Payee = libp2p_swarm:pubkey_bin(Swarm),
     RedeemTxn = blockchain_txn_redeem_htlc_v1:new(Payee, PubkeyBin, Preimage, Fee),
-    {ok, _PubKey, SigFun} = libp2p_swarm:keys(Swarm),
+    {ok, _PubKey, SigFun, _ECDHFun} = libp2p_swarm:keys(Swarm),
     SignedRedeemHTLCTxn = blockchain_txn_redeem_htlc_v1:sign(RedeemTxn, SigFun),
     ok = send_txn(SignedRedeemHTLCTxn),
     {noreply, State};

@@ -184,7 +184,7 @@ init_per_testcase(TestCase, Config) ->
 
                                 %% set blockchain configuration
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-                                Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)},
+                                Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
                                 BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
