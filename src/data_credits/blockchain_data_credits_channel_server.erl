@@ -38,6 +38,7 @@
     cf :: rocksdb:cf_handle(),
     keys :: libp2p_crypto:key_map(),
     credits = 0 :: non_neg_integer(),
+    height = 0 :: non_neg_integer(),
     channel_clients = #{} :: #{libp2p_crypto:pubkey_bin() => any()}
 }).
 
@@ -72,7 +73,8 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
-                                                 credits=Credits, channel_clients=Clients0}=State) ->
+                                                 credits=Credits, height=Height,
+                                                 channel_clients=Clients0}=State) ->
     {Signature, Payment} = create_payment(Keys, Payee, Amount),
     EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
     ok = rocksdb:put(DB, CF, Signature, EncodedPayment, []),
@@ -80,7 +82,7 @@ handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
     % TODO: If Payee is not part of current clients we should send all previous payments
     Clients1 = maps:put(Payee, <<>>, Clients0),
     ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
-    {noreply, State#state{credits=Credits-Amount, channel_clients=Clients1}};
+    {noreply, State#state{credits=Credits-Amount, height=Height+1, channel_clients=Clients1}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
