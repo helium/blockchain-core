@@ -34,7 +34,8 @@
     db :: rocksdb:db_handle(),
     cf :: rocksdb:cf_handle(),
     payer :: libp2p_crypto:pubkey_bin(),
-    credits = 0 :: non_neg_integer()
+    credits = 0 :: non_neg_integer(),
+    height = 0 :: non_neg_integer()
 }).
 
 %% ------------------------------------------------------------------
@@ -80,9 +81,9 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
             {stop, dial_error, State}
     end;
-handle_info({update, Payment}, State) ->
+handle_info({update, Payment}, #state{height=Height}=State) ->
     lager:info("got payment update ~p", [Payment]),
-    {noreply, State};
+    {noreply, State#state{height=Height+1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
