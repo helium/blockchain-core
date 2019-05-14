@@ -62,7 +62,7 @@ swarm() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()} | {error, term()}.
+-spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
 keys() ->
     gen_server:call(?MODULE, key, infinity).
 

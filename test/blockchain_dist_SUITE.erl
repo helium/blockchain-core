@@ -87,7 +87,7 @@ gossip_test(Config) ->
 
     %% First node creates a payment transaction for the second node
     Payer = ct_rpc:call(FirstNode, blockchain_swarm, pubkey_bin, []),
-    {ok, _Pubkey, SigFun} = ct_rpc:call(FirstNode, blockchain_swarm, keys, []),
+    {ok, _Pubkey, SigFun, _ECDHFun} = ct_rpc:call(FirstNode, blockchain_swarm, keys, []),
     Recipient = ct_rpc:call(SecondNode, blockchain_swarm, pubkey_bin, []),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
@@ -149,7 +149,7 @@ get_consensus_members(Config, ConsensusAddrs) ->
                                          case lists:member(Addr, ConsensusAddrs) of
                                              false -> Acc;
                                              true ->
-                                                 {ok, Pubkey, SigFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
+                                                 {ok, Pubkey, SigFun, _ECDHFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
                                                  [{Addr, Pubkey, SigFun} | Acc]
                                          end
                                  end, [], Nodes)).
