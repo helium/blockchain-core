@@ -52,14 +52,16 @@ handle_data(server, Data, State) ->
             {stop, Reason, State};
         {ok, Pid} ->
             Pid ! {update, Payment},
-            {stop, normal, State}
+            {noreply, State}
     end;
 handle_data(_Type, _Data, State) ->
     lager:warning("unknown ~p data message ~p", [_Type, _Data]),
     {noreply, State}.
 
 handle_info(client, {update, EncodedPayment}, State) ->
-    {stop, normal, State, EncodedPayment};
+    {noreply, State, EncodedPayment};
+handle_info(_Type, stop, State) ->
+    {stop, normal, State};
 handle_info(_Type, _Msg, State) ->
     lager:warning("unknown ~p info message ~p", [_Type, _Msg]),
     {noreply, State}.

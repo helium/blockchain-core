@@ -140,6 +140,7 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
     of
         {ok, Stream} ->
             Stream ! {update, EncodedPayment},
+            Stream ! stop,
             broacast_payment(Clients, EncodedPayment);
         _Error ->
             broacast_payment(Clients, EncodedPayment)
@@ -160,7 +161,13 @@ update_client(DB, CF, PubKeyBin, Height) ->
     of
         {ok, Stream} ->
             Payments = get_all_payments(DB, CF, Height),
-            Stream ! {updates, Payments};
+            lists:foreach(
+                fun(Payment) ->
+                    Stream ! {update, Payment}
+                end,
+                Payments
+            ),
+            Stream ! stop;
         _Error ->
             lager:error("failed to dial ~p (~p): ~p", [P2PAddr, PubKeyBin, _Error])
     end.
