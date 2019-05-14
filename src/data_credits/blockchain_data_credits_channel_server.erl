@@ -73,16 +73,22 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
-                                                 credits=Credits, height=Height,
+                                                 credits=Credits, height=Height0,
                                                  channel_clients=Clients0}=State) ->
-    {Signature, Payment} = create_payment(Keys, Payee, Amount),
-    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
-    ok = rocksdb:put(DB, CF, Signature, EncodedPayment, []),
+    Height1 = Height0+1,
+    EncodedPayment = create_payment(Keys, Payee, Amount),
+    ok = rocksdb:put(DB, CF, <<Height1>>, EncodedPayment, [{sync, true}]),
     lager:info("got payment request from ~p for ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
-    % TODO: If Payee is not part of current clients we should send all previous payments
-    Clients1 = maps:put(Payee, <<>>, Clients0),
-    ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
-    {noreply, State#state{credits=Credits-Amount, height=Height+1, channel_clients=Clients1}};
+    case maps:is_key(Payee, Clients0) of
+        true ->
+            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+            {noreply, State#state{credits=Credits-Amount, height=Height1}};
+        false ->
+            ok = update_client(DB, CF, Payee, Height1),
+            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+            Clients1 = maps:put(Payee, <<>>, Clients0),
+            {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -101,6 +107,10 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 create_payment(#{secret := PrivKey, public := PubKey}, Payee, Amount) -> 
     Payment = #blockchain_data_credits_payment_pb{
         key=libp2p_crypto:pubkey_to_bin(PubKey),
@@ -111,8 +121,12 @@ create_payment(#{secret := PrivKey, public := PubKey}, Payee, Amount) ->
     EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Signature = SigFun(EncodedPayment),
-    {Signature, Payment#blockchain_data_credits_payment_pb{signature=Signature}}.
+    blockchain_data_credits_pb:encode_msg(Payment#blockchain_data_credits_payment_pb{signature=Signature}).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 broacast_payment([], _EncodedPayment) ->
     ok;
 broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
@@ -124,9 +138,47 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
                                          blockchain_data_credits_channel_stream,
                                          [])
     of
-        {ok, _Stream} ->
-            _Stream ! {update, EncodedPayment},
+        {ok, Stream} ->
+            Stream ! {update, EncodedPayment},
             broacast_payment(Clients, EncodedPayment);
         _Error ->
             broacast_payment(Clients, EncodedPayment)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+update_client(DB, CF, PubKeyBin, Height) ->
+    Swarm = blockchain_swarm:swarm(),
+    P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    case libp2p_swarm:dial_framed_stream(Swarm,
+                                         P2PAddr,
+                                         ?DATA_CREDITS_CHANNEL_PROTOCOL,
+                                         blockchain_data_credits_channel_stream,
+                                         [])
+    of
+        {ok, Stream} ->
+            Payments = get_all_payments(DB, CF, Height),
+            Stream ! {updates, Payments};
+        _Error ->
+            lager:error("failed to dial ~p (~p): ~p", [P2PAddr, PubKeyBin, _Error])
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_all_payments(DB, CF, Height) ->
+    get_all_payments(DB, CF, Height, 1, []).
+
+get_all_payments(_DB, _CF, Height, Height, Payments) ->
+    lists:reverse(Payments);
+get_all_payments(DB, CF, Height, I, Payments) ->
+    case rocksdb:get(DB, CF, <<Height>>, []) of
+        {ok, Payment} ->
+            get_all_payments(DB, CF, Height, I+1, [Payment|Payments]);
+        _ ->
+            get_all_payments(DB, CF, Height, I+1, Payments)
+    end.
+    
