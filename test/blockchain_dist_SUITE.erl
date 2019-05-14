@@ -149,7 +149,7 @@ get_consensus_members(Config, ConsensusAddrs) ->
                                          case lists:member(Addr, ConsensusAddrs) of
                                              false -> Acc;
                                              true ->
-                                                 {ok, Pubkey, SigFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
+                                                 {ok, Pubkey, SigFun, _ECDHFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
                                                  [{Addr, Pubkey, SigFun} | Acc]
                                          end
                                  end, [], Nodes)).
