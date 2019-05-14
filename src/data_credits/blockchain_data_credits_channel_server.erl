@@ -167,7 +167,8 @@ update_client(DB, CF, PubKeyBin, Height) ->
                 end,
                 Payments
             ),
-            Stream ! stop;
+            Stream ! stop,
+            ok;
         _Error ->
             lager:error("failed to dial ~p (~p): ~p", [P2PAddr, PubKeyBin, _Error])
     end.
