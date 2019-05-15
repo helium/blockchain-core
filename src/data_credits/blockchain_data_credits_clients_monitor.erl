@@ -79,12 +79,18 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
-    CFName = erlang:binary_to_list(Payer),
-    {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
-    {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
-    _Ref = erlang:monitor(process, Pid),
-    Monitored1 = maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored0)),
-    {noreply, State#state{monitored=Monitored1}};
+    case maps:get(Payer, Monitored0, undefined) of
+        undefined ->
+            CFName = erlang:binary_to_list(Payer),
+            {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
+            {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
+            _Ref = erlang:monitor(process, Pid),
+            Monitored1 = maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored0)),
+            {noreply, State#state{monitored=Monitored1}};
+        Pid ->
+            Pid ! {send_payment_req, Amount},
+            {noreply, State}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

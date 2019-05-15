@@ -72,20 +72,30 @@ basic_test(Config) ->
         {ok, 90} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
     end, 10, 500),
 
-    % Make another DIRECT payment request from RouterNode of 10 credits (we use the PubKeyBin as an ID)
-    ok = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, payment_req, [PubKeyBin, RouterPubKeyBin, 10]),
+    % Make a payment request from GatewayNode1 of 10 credits
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
 
     % Checking that we have 80 credits now
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 80} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
     end, 10, 500),
 
-    % Make a payment request from GatewayNode2 of 10 credits
+    % Make a payment request from GatewayNode2 of 10 credits (to make sure it got the history)
     ok = ct_rpc:call(GatewayNode2, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
 
     % Checking that we have 70 credits now
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 70} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
+    end, 10, 500),
+
+    {ok, GatewayNode1Client} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 3} = ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client])
+    end, 10, 500),
+
+    {ok, GatewayNode2Client} = ct_rpc:call(GatewayNode2, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 3} = ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, height, [GatewayNode2Client])
     end, 10, 500),
 
     ok.

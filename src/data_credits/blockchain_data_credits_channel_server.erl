@@ -84,10 +84,17 @@ handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
             ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
             {noreply, State#state{credits=Credits-Amount, height=Height1}};
         false ->
-            ok = update_client(DB, CF, Payee, Height1),
-            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-            Clients1 = maps:put(Payee, <<>>, Clients0),
-            {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
+            case Height1 == 1 of
+                true ->
+                    Clients1 = maps:put(Payee, <<>>, Clients0),
+                    ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
+                    {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}};
+                false ->
+                    ok = update_client(DB, CF, Payee, Height1),
+                    ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+                    Clients1 = maps:put(Payee, <<>>, Clients0),
+                    {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
+            end
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -139,8 +146,9 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
                                          [])
     of
         {ok, Stream} ->
+            lager:info("broadcasting payment update to ~p", [PubKeyBin]),
             Stream ! {update, EncodedPayment},
-            Stream ! stop,
+            _ = erlang:send_after(2000, Stream, stop),
             broacast_payment(Clients, EncodedPayment);
         _Error ->
             broacast_payment(Clients, EncodedPayment)
@@ -163,11 +171,12 @@ update_client(DB, CF, PubKeyBin, Height) ->
             Payments = get_all_payments(DB, CF, Height),
             lists:foreach(
                 fun(Payment) ->
+                    lager:info("sending payment update to client: ~p", [PubKeyBin]),
                     Stream ! {update, Payment}
                 end,
                 Payments
             ),
-            Stream ! stop,
+            _ = erlang:send_after(2000, Stream, stop),
             ok;
         _Error ->
             lager:error("failed to dial ~p (~p): ~p", [P2PAddr, PubKeyBin, _Error])
@@ -180,13 +189,14 @@ update_client(DB, CF, PubKeyBin, Height) ->
 get_all_payments(DB, CF, Height) ->
     get_all_payments(DB, CF, Height, 1, []).
 
-get_all_payments(_DB, _CF, Height, Height, Payments) ->
+get_all_payments(_DB, _CF, Height, I, Payments) when Height < I ->
     lists:reverse(Payments);
 get_all_payments(DB, CF, Height, I, Payments) ->
-    case rocksdb:get(DB, CF, <<Height>>, []) of
+    case rocksdb:get(DB, CF, <<I>>, [{sync, true}]) of
         {ok, Payment} ->
             get_all_payments(DB, CF, Height, I+1, [Payment|Payments]);
-        _ ->
+        _Error ->
+            lager:error("failed to get ~p: ~p", [<<Height>>, _Error]),
             get_all_payments(DB, CF, Height, I+1, Payments)
     end.
     
