@@ -21,7 +21,8 @@
     is_valid/2,
     absorb/2,
     create_secret_hash/2,
-    connections/1
+    connections/1,
+    deltas/1
 ]).
 
 -ifdef(TEST).
@@ -199,6 +200,51 @@ connections(Txn) ->
                                   end, blockchain_poc_path_element_v1:witnesses(PathElement)) ++ Acc
                 end, [], TaggedPaths).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec deltas(txn_poc_receipts()) -> map().
+deltas(Txn) ->
+    Path = blockchain_txn_poc_receipts_v1:path(Txn),
+    Length = length(Path),
+    lists:foldl(fun({N, Element}, Acc) ->
+                        Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                        Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                        Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                        NextElements = lists:sublist(Path, N+1, Length),
+
+                        HasContinued = lists:any(fun(E) ->
+                                                         blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
+                                                         blockchain_poc_path_element_v1:witnesses(E) /= []
+                                                 end,
+                                                 NextElements),
+
+                        Val = case {HasContinued, Receipt, Witnesses} of
+                                  {true, undefined, _} ->
+                                      %% path continued, no receipt, don't care about witnesses
+                                      {0.8, 0};
+                                  {true, Receipt, _} when Receipt /= undefined ->
+                                      %% path continued, receipt, don't care about witnesses
+                                      {1, 0};
+                                  {false, undefined, Wxs} when length(Wxs) > 0 ->
+                                      %% path broke, no receipt, witnesses
+                                      {0.9, 0};
+                                  {false, Receipt, []} when Receipt /= undefined ->
+                                      %% path broke, receipt, no witnesses
+                                      %% not enough information
+                                      {0.6, 0.4};
+                                  {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+                                      %% path broke, receipt, witnesses
+                                      {0.9, 0};
+                                  {false, _, _} ->
+                                      %% path broke, you fucked up
+                                      {0, 1}
+                              end,
+                        maps:put(Challengee, Val, Acc)
+                end,
+                #{},
+                lists:zip(lists:seq(1, Length), Path)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -228,7 +274,7 @@ absorb(Txn, Chain) ->
      end.
 
 
-% % TEMPORARY UPDATE / REMOVE THIS 
+% % TEMPORARY UPDATE / REMOVE THIS
 % calculate_score(PoCResults) ->
 %     calculate_score(PoCResults, 0).
 
