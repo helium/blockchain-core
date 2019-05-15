@@ -49,8 +49,10 @@ handle_data(server, Data, State) ->
     Payer = Payment#blockchain_data_credits_payment_pb.payer,
     case blockchain_data_credits_clients_monitor:channel_client(Payer) of
         {error, Reason} ->
+            lager:error("got unkown payment update ~p", [Payment]),
             {stop, Reason, State};
         {ok, Pid} ->
+            lager:debug("transfering to ~p", [Pid]),
             Pid ! {update, Payment},
             {noreply, State}
     end;
@@ -59,6 +61,7 @@ handle_data(_Type, _Data, State) ->
     {noreply, State}.
 
 handle_info(client, {update, EncodedPayment}, State) ->
+    lager:debug("sending payment update ~p", [EncodedPayment]),
     {noreply, State, EncodedPayment};
 handle_info(_Type, stop, State) ->
     {stop, normal, State};
