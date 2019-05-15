@@ -13,7 +13,8 @@
 
 -export([
     server/4,
-    client/2
+    client/2,
+    send_update/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -34,6 +35,9 @@ client(Connection, Args) ->
 
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
+
+send_update(Pid, Payment) ->
+    Pid ! {update, Payment}.
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions

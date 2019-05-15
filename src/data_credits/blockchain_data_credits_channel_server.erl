@@ -147,7 +147,7 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
     of
         {ok, Stream} ->
             lager:info("broadcasting payment update to ~p", [PubKeyBin]),
-            Stream ! {update, EncodedPayment},
+            blockchain_data_credits_channel_stream:send_update(Stream, EncodedPayment),
             _ = erlang:send_after(2000, Stream, stop),
             broacast_payment(Clients, EncodedPayment);
         _Error ->
@@ -168,13 +168,12 @@ update_client(DB, CF, PubKeyBin, Height) ->
                                          [])
     of
         {ok, Stream} ->
-            Payments = get_all_payments(DB, CF, Height),
             lists:foreach(
-                fun(Payment) ->
+                fun(EncodedPayment) ->
                     lager:info("sending payment update to client: ~p", [PubKeyBin]),
-                    Stream ! {update, Payment}
+                    blockchain_data_credits_channel_stream:send_update(Stream, EncodedPayment)
                 end,
-                Payments
+                get_all_payments(DB, CF, Height)
             ),
             _ = erlang:send_after(2000, Stream, stop),
             ok;
