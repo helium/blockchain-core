@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start/1
+    start/1,
+    height/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -44,6 +45,9 @@
 start(Args) ->
     gen_server:start(?SERVER, Args, []).
 
+height(Pid) ->
+    gen_statem:call(Pid, height).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -56,6 +60,8 @@ init([DB, CF, Payer, Amount]=Args) ->
         payer=Payer
     }}.
 
+handle_call(height, _From, #state{height=Height}=State) ->
+    {reply, {ok, Height}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
