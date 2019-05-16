@@ -204,7 +204,7 @@ connections(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec deltas(txn_poc_receipts()) -> map().
+-spec deltas(txn_poc_receipts()) -> #{libp2p_crypto:pubkey_bin() => {float(), float()}}.
 deltas(Txn) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
@@ -259,35 +259,12 @@ absorb(Txn, Chain) ->
          {error, _}=Error ->
              Error;
          ok ->
-%             Path = ?MODULE:path(Txn),
-%             ResultsMap0 = #{},
-%             ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
-%             ResultsMap2 = get_challengees_results(Path, ResultsMap1),
-%             maps:fold(
-%                 fun(K, V, _) ->
-%                     blockchain_ledger_v1:update_gateway_score(K, calculate_score(V), Ledger)
-%                 end,
-%                 ok,
-%                 ResultsMap2
-%             ),
-             ok
+             maps:fold(fun(Gateway, Delta, _Acc) ->
+                               blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
+                       end,
+                       ok,
+                       ?MODULE:deltas(Txn))
      end.
-
-
-% % TEMPORARY UPDATE / REMOVE THIS
-% calculate_score(PoCResults) ->
-%     calculate_score(PoCResults, 0).
-
-% calculate_score([], Score) ->
-%     Score;
-% calculate_score([rxtx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 1.0);
-% calculate_score([rx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 0.5);
-% calculate_score([tx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 0.5);
-% calculate_score([fail|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + -1.0).
 
 %%--------------------------------------------------------------------
 %% @doc

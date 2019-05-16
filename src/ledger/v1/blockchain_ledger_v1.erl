@@ -85,6 +85,7 @@
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
+-define(DECAY, 0.001).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -488,14 +489,29 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec update_gateway_score(libp2p_crypto:pubkey_bin(), float(), ledger()) -> ok | {error, any()}.
-update_gateway_score(GatewayAddress, Score, Ledger) ->
+-spec update_gateway_score(libp2p_crypto:pubkey_bin(), {float(), float()}, ledger()) -> ok | {error, any()}.
+update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
             Error;
-        {ok, GwInfo0} ->
-            GwInfo1 = blockchain_ledger_gateway_v1:score(Score, GwInfo0),
-            Bin = blockchain_ledger_gateway_v1:serialize(GwInfo1),
+        {ok, Gw} ->
+            Height = blockchain_ledger_v1:current_height(Ledger),
+            LastDeltaUpdate0 = blockchain_ledger_gateway_v1:last_delta_update(Gw),
+            Alpha0 = blockchain_ledger_gateway_v1:alpha(Gw),
+            Beta0 = blockchain_ledger_gateway_v1:beta(Gw),
+
+            NewGw = case {LastDeltaUpdate0, Alpha0, Beta0} of
+                        {undefined, A, B} ->
+                            NewGw0 = blockchain_ledger_gateway_v1:last_delta_update(Height, Gw),
+                            NewGw1 = blockchain_ledger_gateway_v1:alpha(A+Alpha, NewGw0),
+                            blockchain_ledger_gateway_v1:beta(B+Beta, NewGw1);
+                        {L, A, B} ->
+                            NewGw0 = blockchain_ledger_gateway_v1:last_delta_update(Height, Gw),
+                            NewGw1 = blockchain_ledger_gateway_v1:alpha(A+Alpha-?DECAY*(Height-L), NewGw0),
+                            blockchain_ledger_gateway_v1:beta(B+Beta-?DECAY*(Height-L), NewGw1)
+                    end,
+
+            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.

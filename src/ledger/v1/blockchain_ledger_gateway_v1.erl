@@ -9,12 +9,15 @@
     new/2, new/4,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/1, score/2,
+    score/1, score/2, bayes_score/1,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
     print/1,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    alpha/1, alpha/2,
+    beta/1, beta/2,
+    last_delta_update/1, last_delta_update/2
 ]).
 
 -include("blockchain.hrl").
@@ -26,7 +29,10 @@
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
+    alpha = 1.0 :: float(),
+    beta = 1.0 :: float(),
     score = 0.0 :: float(),
+    last_delta_update :: undefined | non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer()
@@ -107,6 +113,66 @@ score(Gateway) ->
 -spec score(Score :: float(), Gateway :: gateway()) -> gateway().
 score(Score, Gateway) ->
     Gateway#gateway_v1{score=Score}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec bayes_score(Gateway :: gateway()) -> float().
+bayes_score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
+    RV1 = erlang_stats:qbeta(0.25, Alpha, Beta),
+    RV2 = erlang_stats:qbeta(0.75, Alpha, Beta),
+    IQR = RV2 - RV1,
+    Mean = 1 / (1 + Beta/Alpha),
+    Mean * (1 - IQR).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec alpha(Gateway :: gateway()) -> float().
+alpha(Gateway) ->
+    Gateway#gateway_v1.alpha.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec alpha(Alpha :: float(), Gateway :: gateway()) -> gateway().
+alpha(Alpha, Gateway) ->
+    Gateway#gateway_v1{alpha=Alpha}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec beta(Beta :: float(), Gateway :: gateway()) -> float().
+beta(Beta, Gateway) ->
+    Gateway#gateway_v1{beta=Beta}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec beta(Gateway :: gateway()) -> float().
+beta(Gateway) ->
+    Gateway#gateway_v1.beta.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_delta_update(Gateway :: gateway()) -> non_neg_integer().
+last_delta_update(Gateway) ->
+    Gateway#gateway_v1.last_delta_update.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_delta_update(LastDeltaUpdate :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+last_delta_update(LastDeltaUpdate, Gateway) ->
+    Gateway#gateway_v1{last_delta_update=LastDeltaUpdate}.
 
 %%--------------------------------------------------------------------
 %% @doc
