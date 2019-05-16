@@ -120,8 +120,8 @@ score(Score, Gateway) ->
 %%--------------------------------------------------------------------
 -spec bayes_score(Gateway :: gateway()) -> float().
 bayes_score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
-    RV1 = erlang_stats:qbeta(0.25, Alpha, Beta),
-    RV2 = erlang_stats:qbeta(0.75, Alpha, Beta),
+    RV1 = stats:qbeta(0.25, Alpha, Beta),
+    RV2 = stats:qbeta(0.75, Alpha, Beta),
     IQR = RV2 - RV1,
     Mean = 1 / (1 + Beta/Alpha),
     Mean * (1 - IQR).
