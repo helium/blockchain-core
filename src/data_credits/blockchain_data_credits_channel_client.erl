@@ -87,8 +87,9 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
             {stop, dial_error, State}
     end;
-handle_info({update, Payment}, #state{height=Height}=State) ->
+handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height}=State) ->
     lager:info("got payment update ~p", [Payment]),
+    ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
     {noreply, State#state{height=Height+1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
