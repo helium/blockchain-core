@@ -88,14 +88,20 @@ basic_test(Config) ->
         {ok, 70} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
     end, 10, 500),
 
+    % Checking clients states (height and credits)
     {ok, GatewayNode1Client} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    {ok, GatewayNode2Client} = ct_rpc:call(GatewayNode2, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 3} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client])
     end, 10, 500),
-
-    {ok, GatewayNode2Client} = ct_rpc:call(GatewayNode2, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 3} == ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, height, [GatewayNode2Client])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, -30} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, -30} == ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, credits, [GatewayNode2Client])
     end, 10, 500),
 
     ok.

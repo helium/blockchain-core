@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start/1,
-    height/1
+    height/1,
+    credits/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -28,6 +29,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("../pb/blockchain_data_credits_pb.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -48,6 +50,9 @@ start(Args) ->
 height(Pid) ->
     gen_statem:call(Pid, height).
 
+credits(Pid) ->
+    gen_statem:call(Pid, credits).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -62,6 +67,8 @@ init([DB, CF, Payer, Amount]=Args) ->
 
 handle_call(height, _From, #state{height=Height}=State) ->
     {reply, {ok, Height}, State};
+handle_call(credits, _From, #state{credits=Credits}=State) ->
+    {reply, {ok, Credits}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -87,10 +94,11 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer}=State) ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
             {stop, dial_error, State}
     end;
-handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height}=State) ->
+handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height, credits=Credits}=State) ->
     lager:info("got payment update ~p", [Payment]),
+    Amount = Payment#blockchain_data_credits_payment_pb.amount,
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
-    {noreply, State#state{height=Height+1}};
+    {noreply, State#state{height=Height+1, credits=Credits-Amount}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
