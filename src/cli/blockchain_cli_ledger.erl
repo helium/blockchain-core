@@ -12,8 +12,8 @@
 -include("blockchain.hrl").
 
 register_cli() ->
-    register_all_usage()
-    ,register_all_cmds().
+    register_all_usage(),
+    register_all_cmds().
 
 register_all_usage() ->
     lists:foreach(fun(Args) ->
