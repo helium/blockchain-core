@@ -76,9 +76,16 @@ handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
                                                  credits=Credits, height=Height0,
                                                  channel_clients=Clients0}=State) ->
     Height1 = Height0+1,
-    EncodedPayment = create_payment(Keys, Payee, Amount),
-    ok = rocksdb:put(DB, CF, <<Height1>>, EncodedPayment, [{sync, true}]),
+    Payment = blockchain_data_credits_utils:new_payment(
+        Keys,
+        Height1,
+        blockchain_swarm:pubkey_bin(),
+        Payee,
+        Amount
+    ),
+    ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
     lager:info("got payment request from ~p for ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
+    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
     case maps:is_key(Payee, Clients0) of
         true ->
             ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
@@ -113,22 +120,6 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-create_payment(#{secret := PrivKey, public := PubKey}, Payee, Amount) -> 
-    Payment = #blockchain_data_credits_payment_pb{
-        key=libp2p_crypto:pubkey_to_bin(PubKey),
-        payer=blockchain_swarm:pubkey_bin(),
-        payee=Payee,
-        amount=Amount
-    },
-    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Signature = SigFun(EncodedPayment),
-    blockchain_data_credits_pb:encode_msg(Payment#blockchain_data_credits_payment_pb{signature=Signature}).
 
 %%--------------------------------------------------------------------
 %% @doc
