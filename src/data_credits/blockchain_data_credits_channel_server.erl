@@ -59,6 +59,14 @@ payment_req(Pid, Payee, Amount) ->
 %% ------------------------------------------------------------------
 init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
+    Payment = blockchain_data_credits_utils:new_payment(
+        Keys,
+        0,
+        blockchain_swarm:pubkey_bin(),
+        blockchain_swarm:pubkey_bin(),
+        Credits
+    ),
+    ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
     {ok, #state{
         db=DB,
         cf=CF,
@@ -91,17 +99,10 @@ handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
             ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
             {noreply, State#state{credits=Credits-Amount, height=Height1}};
         false ->
-            case Height1 == 1 of
-                true ->
-                    Clients1 = maps:put(Payee, <<>>, Clients0),
-                    ok = broacast_payment(maps:keys(Clients1), EncodedPayment),
-                    {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}};
-                false ->
-                    ok = update_client(DB, CF, Payee, Height1),
-                    ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-                    Clients1 = maps:put(Payee, <<>>, Clients0),
-                    {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
-            end
+            ok = update_client(DB, CF, Payee, Height1),
+            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+            Clients1 = maps:put(Payee, <<>>, Clients0),
+            {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -177,7 +178,7 @@ update_client(DB, CF, PubKeyBin, Height) ->
 %% @end
 %%--------------------------------------------------------------------
 get_all_payments(DB, CF, Height) ->
-    get_all_payments(DB, CF, Height, 1, []).
+    get_all_payments(DB, CF, Height, 0, []).
 
 get_all_payments(_DB, _CF, Height, I, Payments) when Height < I ->
     lists:reverse(Payments);

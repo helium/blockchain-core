@@ -98,10 +98,10 @@ basic_test(Config) ->
         {ok, 3} == ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, height, [GatewayNode2Client])
     end, 10, 500),
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, -30} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client])
+        {ok, 70} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client])
     end, 10, 500),
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, -30} == ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, credits, [GatewayNode2Client])
+        {ok, 70} == ct_rpc:call(GatewayNode2, blockchain_data_credits_channel_client, credits, [GatewayNode2Client])
     end, 10, 500),
 
     ok.

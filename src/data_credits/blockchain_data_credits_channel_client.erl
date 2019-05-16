@@ -98,7 +98,12 @@ handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height, credits=Credi
     lager:info("got payment update ~p", [Payment]),
     Amount = Payment#blockchain_data_credits_payment_pb.amount,
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
-    {noreply, State#state{height=Height+1, credits=Credits-Amount}};
+    case Payment#blockchain_data_credits_payment_pb.height == 0 of
+        true ->
+            {noreply, State#state{height=0, credits=Amount}};
+        false ->
+            {noreply, State#state{height=Height+1, credits=Credits-Amount}}
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
