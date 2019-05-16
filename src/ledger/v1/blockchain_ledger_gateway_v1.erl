@@ -119,6 +119,8 @@ score(Score, Gateway) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec bayes_score(Gateway :: gateway()) -> float().
+bayes_score(#gateway_v1{alpha=1.0, beta=1.0}) ->
+    0.5;
 bayes_score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
     RV1 = stats:qbeta(0.25, Alpha, Beta),
     RV2 = stats:qbeta(0.75, Alpha, Beta),
@@ -146,7 +148,7 @@ alpha(Alpha, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec beta(Beta :: float(), Gateway :: gateway()) -> float().
+-spec beta(Beta :: float(), Gateway :: gateway()) -> gateway().
 beta(Beta, Gateway) ->
     Gateway#gateway_v1{beta=Beta}.
 
@@ -162,7 +164,7 @@ beta(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_delta_update(Gateway :: gateway()) -> non_neg_integer().
+-spec last_delta_update(Gateway :: gateway()) -> undefined | non_neg_integer().
 last_delta_update(Gateway) ->
     Gateway#gateway_v1.last_delta_update.
 

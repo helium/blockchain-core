@@ -495,7 +495,7 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
         {error, _}=Error ->
             Error;
         {ok, Gw} ->
-            Height = blockchain_ledger_v1:current_height(Ledger),
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             LastDeltaUpdate0 = blockchain_ledger_gateway_v1:last_delta_update(Gw),
             Alpha0 = blockchain_ledger_gateway_v1:alpha(Gw),
             Beta0 = blockchain_ledger_gateway_v1:beta(Gw),
