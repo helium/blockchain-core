@@ -486,10 +486,21 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     end.
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Update the score of a hotspot by looking at the updated alpha/beta values.
+%% In order to ensure that old POCs don't have a drastic effect on the eventual score
+%% for a gateway, we apply a constant scaled decay dependent on the last delta update for the hotspot.
+%%
+%% Furthermore, since we don't allow scores to go negative, we scale alpha and beta values
+%% back to 1.0 each, if it dips below 0 after the decay has been applied
+%%
+%% At the end of it, we just supply the new alpha, beta and last_delta_update values and store
+%% only those in the ledger.
+%%
 %% @end
 %%--------------------------------------------------------------------
--spec update_gateway_score(libp2p_crypto:pubkey_bin(), {float(), float()}, ledger()) -> ok | {error, any()}.
+-spec update_gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(),
+                           {Alpha :: float(), Beta :: float()},
+                           Leger :: ledger()) -> ok | {error, any()}.
 update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->

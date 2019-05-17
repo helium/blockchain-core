@@ -115,7 +115,17 @@ score(Score, Gateway) ->
     Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc The bayes_score corresponds to the P(claim_of_location).
+%% We look at the 1st and 3rd quartile values in the beta distribution
+%% which we calculate using Alpha/Beta (shape parameters).
+%%
+%% The IQR essentially is a measure of the spread of the peak probability distribution
+%% function, it boils down to the amount of "confidence" we have in that particular value.
+%% The steeper the peak, the lower the IQR and hence the more confidence we have in that hotpot's score.
+%%
+%% Mean is the expected score without accounting for IQR. Since we _know_ that a lower IQR implies
+%% more confidence, we simply do Mean * (1 - IQR) as the eventual score.
+%%
 %% @end
 %%--------------------------------------------------------------------
 -spec bayes_score(Gateway :: gateway()) -> float().
