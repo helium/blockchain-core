@@ -14,7 +14,8 @@
          get_config/2,
          random_n/2,
          init_per_testcase/2,
-         end_per_testcase/2
+         end_per_testcase/2,
+         create_vars/0, create_vars/1
         ]).
 
 pmap(F, L) ->
@@ -229,8 +230,13 @@ init_per_testcase(TestCase, Config) ->
                           Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                           Sessions = ct_rpc:call(Node, libp2p_swarm, sessions, [Swarm]),
                           GossipGroup = ct_rpc:call(Node, libp2p_swarm, gossip_group, [Swarm]),
-                          ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip, connected_addrs, [GossipGroup, all]),
-                          ?assertNotEqual(0, length(ConnectedAddrs)),
+                          wait_until(fun() ->
+                                             ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
+                                                                          connected_addrs, [GossipGroup, all]),
+                                             TotalNodes == length(ConnectedAddrs)
+                                     end, 250, 20),
+                          ConnectedAddrs = ct_rpc:call(Node, libp2p_group_gossip,
+                                                       connected_addrs, [GossipGroup, all]),
                           ct:pal("Node: ~p~nAddr: ~p~nP2PAddr: ~p~nSessions : ~p~nGossipGroup:"
                                  " ~p~nConnectedAddrs: ~p~nSwarm:~p~nSwarmID: ~p",
                                  [Node,
@@ -251,3 +257,25 @@ end_per_testcase(_TestCase, Config) ->
     Nodes = proplists:get_value(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
     ok.
+
+create_vars() ->
+    create_vars(#{}).
+
+create_vars(Vars) ->
+    #{secret := Priv, public := Pub} =
+        libp2p_crypto:generate_keys(ecc_compact),
+
+    DefVars = #{vars_commit_interval => 2,
+                block_version => v1,
+                proposal_threshold => 0.85},
+
+    Vars1 = maps:merge(DefVars, Vars),
+
+    ct:pal("vars ~p", [Vars1]),
+
+    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+    KeyProof = blockchain_txn_vars_v1:create_proof(Priv, Vars1),
+
+    Txn = blockchain_txn_vars_v1:new(Vars1, <<>>, #{master_key => BinPub,
+                                                    key_proof => KeyProof}),
+    {Txn, {master_key, {Priv, Pub}}}.

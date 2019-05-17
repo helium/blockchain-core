@@ -175,11 +175,15 @@ reload_test(Config) ->
     true = erlang:exit(Sup, normal),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
+    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => N0}),
+
+    InitialVars = [ VTxn ],
+
     % Create new genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
                      || {Addr, _} <- ConsensusMembers],
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
-    Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
+    Txs = InitialVars ++ GenPaymentTxs ++ [GenConsensusGroupTx],
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
     GenDir = "data/test_SUITE/reload2",
     File = filename:join(GenDir, "genesis"),

@@ -36,6 +36,7 @@ all() ->
 keys_test(_Config) ->
     BaseDir = "data/test_SUITE/keys_test",
     Balance = 5000,
+    NumConsensusMembers = 7,
 
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -44,7 +45,7 @@ keys_test(_Config) ->
         {key, {PubKey, SigFun, ECDHFun}},
         {seed_nodes, []},
         {port, 0},
-        {num_consensus_members, 7},
+        {num_consensus_members, NumConsensusMembers},
         {base_dir, BaseDir}
     ],
     {ok, Sup} = blockchain_sup:start_link(Opts),
@@ -61,10 +62,13 @@ keys_test(_Config) ->
 
 
     % Create genesis block
+    {VTxn, _Cfg} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+
+    InitialVars = [ VTxn ],
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
     ConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
-    Txs = GenPaymentTxs ++ [ConsensusGroupTx],
+    Txs = InitialVars ++ GenPaymentTxs ++ [ConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
