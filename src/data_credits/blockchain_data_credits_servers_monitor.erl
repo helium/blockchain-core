@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     channel_server/1, channel_server/2,
-    payment_req/2, payment_req/3
+    payment_req/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -29,6 +29,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("../pb/blockchain_data_credits_pb.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -50,11 +51,8 @@ channel_server(PubKeyBin) ->
 channel_server(Keys, Amount) ->
     gen_statem:cast(?SERVER, {channel_server, Keys, Amount}).
 
-payment_req(Payee, Amount) ->
-    gen_statem:cast(?SERVER, {payment_req, Payee, Amount}).
-
-payment_req(PubKeyBin, Payee, Amount) ->
-    gen_statem:cast(?SERVER, {payment_req, PubKeyBin, Payee, Amount}).
+payment_req(PaymentReq) ->
+    gen_statem:cast(?SERVER, {payment_req, PaymentReq}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -93,20 +91,12 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, mo
     ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
     Monitored1 = maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored0)),
     {noreply, State#state{monitored=Monitored1}};
-handle_cast({payment_req, Payee, Amount}, #state{monitored=Monitored}=State) ->
+handle_cast({payment_req, PaymentReq}, #state{monitored=Monitored}=State) ->
+    ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
     Pids = lists:filter(fun erlang:is_pid/1, maps:keys(Monitored)),
-    ShuffledPids = blockchain_utils:shuffle_from_hash(Payee, Pids),
-    lager:info("got payment request for ~p from ~p", [Amount, Payee]),
-    ok = try_payment_req(ShuffledPids, Payee, Amount),
-    {noreply, State};
-handle_cast({payment_req, PubKeyBin, Payee, Amount}, #state{monitored=Monitored}=State) ->
-    lager:info("got payment request for ~p from ~p", [{PubKeyBin, Amount}, Payee]),
-    case maps:get(PubKeyBin, Monitored, undefined) of
-        undefined ->
-            lager:warning("could not find pid for ~p", [PubKeyBin]);
-        Pid ->
-            blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount)
-    end,
+    ShuffledPids = blockchain_utils:shuffle_from_hash(ID, Pids),
+    lager:info("got payment request ~p", [PaymentReq]),
+    ok = try_payment_req(ShuffledPids, PaymentReq),
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -141,14 +131,15 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec try_payment_req([pid()], libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
-try_payment_req([], _Payee, _Amount)->
+-spec try_payment_req([pid()], libp2p_crypto:pubkey_bin()) -> ok.
+try_payment_req([], _Payee)->
     ok;
-try_payment_req([Pid|ShuffledPids], Payee, Amount) ->
+try_payment_req([Pid|ShuffledPids], PaymentReq) ->
+    Amount = PaymentReq#blockchain_data_credits_payment_req_pb.amount,
     case blockchain_data_credits_channel_server:credits(Pid) of
         {ok, Credits} when Credits >= Amount ->
             lager:info("transfering payment request to ~p", [Pid]),
-            blockchain_data_credits_channel_server:payment_req(Pid, Payee, Amount);
+            blockchain_data_credits_channel_server:payment_req(Pid, PaymentReq);
         _ ->
-            try_payment_req(ShuffledPids, Payee, Amount)
+            try_payment_req(ShuffledPids, PaymentReq)
     end.

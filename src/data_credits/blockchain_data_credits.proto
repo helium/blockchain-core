@@ -2,15 +2,17 @@ syntax = "proto3";
 
 // TODO: this is probably temporary should we use the gateway protocols here?
 message data_credits_payment_req {
-    bytes payee = 1;
-    uint64 amount = 2;
+    bytes id = 1;
+    bytes payee = 2;
+    uint64 amount = 3;
 }
 
 message data_credits_payment {
-    bytes key = 1;
-    uint64 height = 2;
-    bytes payer = 3;
-    bytes payee = 4;
-    uint64 amount = 5;
+    bytes id = 1;
+    bytes key = 2;
+    uint64 height = 3;
+    bytes payer = 4;
+    bytes payee = 5;
+    uint64 amount = 6;
     bytes signature = 6;
 }

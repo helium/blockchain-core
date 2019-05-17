@@ -13,7 +13,7 @@
 -export([
     start/1,
     credits/1,
-    payment_req/3
+    payment_req/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -29,7 +29,7 @@
 ]).
 
 -include("blockchain.hrl").
--include("pb/blockchain_data_credits_pb.hrl").
+-include("../pb/blockchain_data_credits_pb.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -51,8 +51,8 @@ start(Args) ->
 credits(Pid) ->
     gen_statem:call(Pid, credits).
 
-payment_req(Pid, Payee, Amount) ->
-    gen_statem:cast(Pid, {payment_req, Payee, Amount}).
+payment_req(Pid, PaymentReq) ->
+    gen_statem:cast(Pid, {payment_req, PaymentReq}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -60,6 +60,7 @@ payment_req(Pid, Payee, Amount) ->
 init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Payment = blockchain_data_credits_utils:new_payment(
+        <<>>,
         Keys,
         0,
         blockchain_swarm:pubkey_bin(),
@@ -80,11 +81,15 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
+handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
                                                  credits=Credits, height=Height0,
                                                  channel_clients=Clients0}=State) ->
     Height1 = Height0+1,
+    ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
+    Payee = PaymentReq#blockchain_data_credits_payment_req_pb.payee,
+    Amount = PaymentReq#blockchain_data_credits_payment_req_pb.amount,
     Payment = blockchain_data_credits_utils:new_payment(
+        ID,
         Keys,
         Height1,
         blockchain_swarm:pubkey_bin(),
@@ -92,8 +97,8 @@ handle_cast({payment_req, Payee, Amount}, #state{db=DB, cf=CF, keys=Keys,
         Amount
     ),
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
-    lager:info("got payment request from ~p for ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
-    EncodedPayment = blockchain_data_credits_pb:encode_msg(Payment),
+    lager:info("got payment request ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
+    EncodedPayment = blockchain_data_credits_utils:encode_payment(Payment),
     case maps:is_key(Payee, Clients0) of
         true ->
             ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
