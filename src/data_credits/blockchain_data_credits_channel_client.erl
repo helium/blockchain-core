@@ -39,7 +39,7 @@
     payer :: libp2p_crypto:pubkey_bin(),
     credits = 0 :: non_neg_integer(),
     height = 0 :: non_neg_integer(),
-    pending = [] :: [non_neg_integer()]
+    pending = #{} :: #{binary() => non_neg_integer()}
 }).
 
 %% ------------------------------------------------------------------
@@ -63,8 +63,7 @@ init([DB, CF, Payer, Amount]=Args) ->
     {ok, #state{
         db=DB,
         cf=CF,
-        payer=Payer,
-        pending=[Amount]
+        payer=Payer
     }}.
 
 handle_call(height, _From, #state{height=Height}=State) ->
@@ -79,7 +78,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({send_payment_req, Amount}, #state{payer=Payer, pending=Pending}=State) ->
+handle_info({send_payment_req, Amount}, #state{payer=Payer, pending=Pending0}=State) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(Payer),
     case libp2p_swarm:dial_framed_stream(Swarm,
@@ -95,23 +94,45 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer, pending=Pending}=Sta
             lager:info("sending payment request (~p) to ~p", [Amount, Payer]),
             Stream ! {payment_req, EncodedPaymentReq},
             ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
-            {noreply, State#state{pending=[{ID, Amount}|Pending]}};
+            TimeRef = erlang:send_after(timer:seconds(60), self(), {payment_req_expired, PaymentReq}),
+            Pending1 = maps:put(ID, TimeRef, Pending0),
+            {noreply, State#state{pending=Pending1}};
         Error ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
             {stop, dial_error, State}
     end;
 handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height,
-                                      credits=Credits, pending=_Pending}=State) ->
+                                      credits=Credits, pending=Pending0}=State) ->
     lager:info("got payment update ~p", [Payment]),
     Amount = Payment#blockchain_data_credits_payment_pb.amount,
-    _Payee = Payment#blockchain_data_credits_payment_pb.payee,
+    Payee = Payment#blockchain_data_credits_payment_pb.payee,
+    Pending1 = case Payee == blockchain_swarm:pubkey_bin() of
+        false ->
+            Pending0;
+        true ->
+            ID = Payment#blockchain_data_credits_payment_pb.id,
+            case maps:get(ID, Pending0, undefined) of
+                undefined ->
+                    Pending0; 
+                TimeRef ->
+                    _ = erlang:cancel_timer(TimeRef),
+                    maps:remove(ID, Pending0)
+            end
+    end,
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
     case Payment#blockchain_data_credits_payment_pb.height == 0 of
         true ->
-            {noreply, State#state{height=0, credits=Amount}};
+            {noreply, State#state{height=0, credits=Amount, pending=Pending1}};
         false ->
-            {noreply, State#state{height=Height+1, credits=Credits-Amount}}
+            {noreply, State#state{height=Height+1, credits=Credits-Amount, pending=Pending1}}
     end;
+handle_info({payment_req_expired, PaymentReq}, #state{payer=Payer, pending=Pending0}=State) ->
+    ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
+    Amount = PaymentReq#blockchain_data_credits_payment_req_pb.amount,
+    lager:warning("Payment Req ~p for ~p (payer ~p) expired retrying...", [ID, Amount, Payer]),
+    Pending1 = maps:remove(ID, Pending0),
+    self() ! {send_payment_req, Amount},
+    {noreply, State#state{pending=Pending1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
