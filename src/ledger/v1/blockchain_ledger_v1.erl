@@ -507,12 +507,12 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
                             blockchain_ledger_gateway_v1:beta(B+Beta, NewGw1);
                         {L, A, B} ->
                             NewAlpha0 = A+Alpha-?DECAY*(Height-L),
-                            NewAlpha = case NewAlpha0 < 0 of
+                            NewAlpha = case NewAlpha0 =< 0.0 of
                                            true -> 1.0;
                                            false -> NewAlpha0
                                        end,
                             NewBeta0 = B+Beta-?DECAY*(Height-L),
-                            NewBeta = case NewBeta0 < 0 of
+                            NewBeta = case NewBeta0 =< 0.0 of
                                            true -> 1.0;
                                            false -> NewBeta0
                                        end,
