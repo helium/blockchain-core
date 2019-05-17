@@ -97,7 +97,7 @@ handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
         Amount
     ),
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
-    lager:info("got payment request ~p (leftover: ~p)", [Payee, Amount, Credits-Amount]),
+    lager:info("got payment request ~p (leftover: ~p)", [PaymentReq, Credits-Amount]),
     EncodedPayment = blockchain_data_credits_utils:encode_payment(Payment),
     case maps:is_key(Payee, Clients0) of
         true ->

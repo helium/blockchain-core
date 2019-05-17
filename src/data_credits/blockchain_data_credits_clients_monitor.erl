@@ -88,7 +88,7 @@ handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=St
             Monitored1 = maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored0)),
             {noreply, State#state{monitored=Monitored1}};
         Pid ->
-            Pid ! {send_payment_req, Amount},
+            ok = blockchain_data_credits_channel_client:payment_req(Pid, Amount),
             {noreply, State}
     end;
 handle_cast(_Msg, State) ->

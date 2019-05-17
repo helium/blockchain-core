@@ -13,7 +13,8 @@
 -export([
     start/1,
     height/1,
-    credits/1
+    credits/1,
+    payment_req/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -32,6 +33,7 @@
 -include("../pb/blockchain_data_credits_pb.hrl").
 
 -define(SERVER, ?MODULE).
+-define(PAYMENT_RERTY, timer:seconds(60)).
 
 -record(state, {
     db :: rocksdb:db_handle(),
@@ -54,12 +56,15 @@ height(Pid) ->
 credits(Pid) ->
     gen_statem:call(Pid, credits).
 
+payment_req(Pid, Amount) ->
+    gen_statem:cast(Pid, {payment_req, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([DB, CF, Payer, Amount]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    self() ! {send_payment_req, Amount},
+    ok = ?MODULE:payment_req(self(), Amount),
     {ok, #state{
         db=DB,
         cf=CF,
@@ -74,11 +79,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast(_Msg, State) ->
-    lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
-    {noreply, State}.
-
-handle_info({send_payment_req, Amount}, #state{payer=Payer, pending=Pending0}=State) ->
+handle_cast({payment_req, Amount}, #state{payer=Payer, pending=Pending0}=State) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(Payer),
     case libp2p_swarm:dial_framed_stream(Swarm,
@@ -94,13 +95,17 @@ handle_info({send_payment_req, Amount}, #state{payer=Payer, pending=Pending0}=St
             lager:info("sending payment request (~p) to ~p", [Amount, Payer]),
             Stream ! {payment_req, EncodedPaymentReq},
             ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
-            TimeRef = erlang:send_after(timer:seconds(60), self(), {payment_req_expired, PaymentReq}),
+            TimeRef = erlang:send_after(?PAYMENT_RERTY, self(), {payment_req_expired, PaymentReq}),
             Pending1 = maps:put(ID, TimeRef, Pending0),
             {noreply, State#state{pending=Pending1}};
         Error ->
             lager:error("failed to dial ~p ~p", [P2PAddr, Error]),
             {stop, dial_error, State}
     end;
+handle_cast(_Msg, State) ->
+    lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
+    {noreply, State}.
+
 handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height,
                                       credits=Credits, pending=Pending0}=State) ->
     lager:info("got payment update ~p", [Payment]),
@@ -131,7 +136,7 @@ handle_info({payment_req_expired, PaymentReq}, #state{payer=Payer, pending=Pendi
     Amount = PaymentReq#blockchain_data_credits_payment_req_pb.amount,
     lager:warning("Payment Req ~p for ~p (payer ~p) expired retrying...", [ID, Amount, Payer]),
     Pending1 = maps:remove(ID, Pending0),
-    self() ! {send_payment_req, Amount},
+    ok = ?MODULE:payment_req(self(), Amount),
     {noreply, State#state{pending=Pending1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
