@@ -131,7 +131,6 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec try_payment_req([pid()], libp2p_crypto:pubkey_bin()) -> ok.
 try_payment_req([], _Payee)->
     ok;
 try_payment_req([Pid|ShuffledPids], PaymentReq) ->
