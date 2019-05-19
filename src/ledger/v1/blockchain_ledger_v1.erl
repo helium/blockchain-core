@@ -25,7 +25,7 @@
     add_gateway/3, add_gateway/6,
     add_gateway_location/4,
 
-    update_gateway_score/3,
+    update_gateway_score/3, gateway_score/2,
 
     find_poc/2,
     request_poc/4,
@@ -500,7 +500,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %%--------------------------------------------------------------------
 -spec update_gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                            {Alpha :: float(), Beta :: float()},
-                           Leger :: ledger()) -> ok | {error, any()}.
+                           Ledger :: ledger()) -> ok | {error, any()}.
 update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
@@ -517,16 +517,8 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
                             NewGw1 = blockchain_ledger_gateway_v1:alpha(A+Alpha, NewGw0),
                             blockchain_ledger_gateway_v1:beta(B+Beta, NewGw1);
                         {L, A, B} ->
-                            NewAlpha0 = A+Alpha-?DECAY*(Height-L),
-                            NewAlpha = case NewAlpha0 =< 0.0 of
-                                           true -> 1.0;
-                                           false -> NewAlpha0
-                                       end,
-                            NewBeta0 = B+Beta-?DECAY*(Height-L),
-                            NewBeta = case NewBeta0 =< 0.0 of
-                                           true -> 1.0;
-                                           false -> NewBeta0
-                                       end,
+                            NewAlpha = scale_shape_param(A+Alpha-?DECAY*(Height-L)),
+                            NewBeta = scale_shape_param(B+Beta-?DECAY*(Height-L)),
                             NewGw0 = blockchain_ledger_gateway_v1:last_delta_update(Height, Gw),
                             NewGw1 = blockchain_ledger_gateway_v1:alpha(NewAlpha, NewGw0),
                             blockchain_ledger_gateway_v1:beta(NewBeta, NewGw1)
@@ -536,6 +528,33 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> {ok, float()} | {error, any()}.
+gateway_score(GatewayAddress, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Gw} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
+            case LastDeltaUpdate of
+                undefined ->
+                    {ok, blockchain_ledger_gateway_v1:bayes_score(Gw)};
+                L ->
+                    Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
+                    Beta = blockchain_ledger_gateway_v1:beta(Gw),
+                    NewAlpha = scale_shape_param(Alpha-?DECAY*(Height-L)),
+                    NewBeta = scale_shape_param(Beta-?DECAY*(Height-L)),
+                    NewGw0 = blockchain_ledger_gateway_v1:alpha(NewAlpha, Gw),
+                    NewGw1 = blockchain_ledger_gateway_v1:beta(NewBeta, NewGw0),
+                    {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw1)}
+            end
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1216,6 +1235,13 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
             Options;
         S ->
             [{snapshot, S} | Options]
+    end.
+
+-spec scale_shape_param(float()) -> float().
+scale_shape_param(ShapeParam) ->
+    case ShapeParam =< 0.0 of
+        true -> 1.0;
+        false -> ShapeParam
     end.
 
 %% ------------------------------------------------------------------
