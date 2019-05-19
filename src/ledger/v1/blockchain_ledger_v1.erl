@@ -547,7 +547,8 @@ gateway_score(GatewayAddress, Ledger) ->
                 L ->
                     Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
                     Beta = blockchain_ledger_gateway_v1:beta(Gw),
-                    NewAlpha = scale_shape_param(Alpha-?DECAY*(Height-L)),
+                    %% Decrement alpha twice as fast as beta
+                    NewAlpha = scale_shape_param(Alpha-2*?DECAY*(Height-L)),
                     NewBeta = scale_shape_param(Beta-?DECAY*(Height-L)),
                     NewGw0 = blockchain_ledger_gateway_v1:alpha(NewAlpha, Gw),
                     NewGw1 = blockchain_ledger_gateway_v1:beta(NewBeta, NewGw0),
