@@ -86,7 +86,7 @@
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(DECAY, 0.001).
--define(ROLLOVER, 50).
+-define(ROLLOVER, 100).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
