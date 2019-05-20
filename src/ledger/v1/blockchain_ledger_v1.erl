@@ -1240,7 +1240,7 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
 
 -spec scale_shape_param(float()) -> float().
 scale_shape_param(ShapeParam) ->
-    case ShapeParam =< 0.0 of
+    case ShapeParam =< 1.0 of
         true -> 1.0;
         false -> ShapeParam
     end.
