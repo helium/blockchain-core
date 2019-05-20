@@ -249,6 +249,8 @@ print(Gateway) ->
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {nonce, nonce(Gateway)},
         {score, score(Gateway)},
+        {alpha, alpha(Gateway)},
+        {beta, beta(Gateway)},
         {bayes_score, bayes_score(Gateway)}
     ].
 
