@@ -86,6 +86,7 @@
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(DECAY, 0.001).
+-define(ROLLOVER, 50).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -548,14 +549,17 @@ gateway_score(GatewayAddress, Ledger) ->
                     Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
                     Beta = blockchain_ledger_gateway_v1:beta(Gw),
                     %% Decrement alpha twice as fast as beta
-                    NewAlpha = scale_shape_param(Alpha-2*?DECAY*(Height-L)),
-                    NewBeta = scale_shape_param(Beta+?DECAY*(Height-L)),
+                    NewAlpha = scale_shape_param(Alpha-2*decay(Height-L)),
+                    NewBeta = scale_shape_param(Beta-decay(Height-L)),
                     NewGw0 = blockchain_ledger_gateway_v1:alpha(NewAlpha, Gw),
                     NewGw1 = blockchain_ledger_gateway_v1:beta(NewBeta, NewGw0),
                     {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw1)}
             end
     end.
 
+-spec decay(float()) -> float().
+decay(Staleness) ->
+    math:exp(Staleness/?ROLLOVER).
 
 %%--------------------------------------------------------------------
 %% @doc
