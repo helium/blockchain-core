@@ -57,6 +57,28 @@ payment_req(Pid, PaymentReq) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+init([DB, CF, Keys, 0]=Args) ->
+    lager:info("~p init with ~p", [?SERVER, Args]),
+    Height = rocksdb:count(DB, CF),
+    Credits = lists:foldl(
+        fun(EncodedPayment, Acc) ->
+            Payment = blockchain_data_credits_utils:decode_payment(EncodedPayment),
+            Amount = Payment#blockchain_data_credits_payment_pb.amount,
+            case Payment#blockchain_data_credits_payment_pb.height of
+                0 -> Amount;
+                _ -> Acc-Amount
+            end
+        end,
+        0,
+        get_all_payments(DB, CF, Height)
+    ),
+    {ok, #state{
+        db=DB,
+        cf=CF,
+        keys=Keys,
+        credits=Credits,
+        height=Height
+    }};
 init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Payment = blockchain_data_credits_utils:new_payment(

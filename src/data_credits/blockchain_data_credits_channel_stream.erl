@@ -48,7 +48,7 @@ init(server, _Conn, _Args) ->
     {ok, #state{}}.
 
 handle_data(server, Data, State) ->	
-    Payment = blockchain_data_credits_pb:decode_msg(Data, blockchain_data_credits_payment_pb),	
+    Payment = blockchain_data_credits_utils:decode_payment(Data),	
     lager:debug("got payment update ~p", [Payment]),
     Payer = Payment#blockchain_data_credits_payment_pb.payer,
     case blockchain_data_credits_clients_monitor:channel_client(Payer) of

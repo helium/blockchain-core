@@ -6,7 +6,7 @@
 -module(blockchain_data_credits_utils).
 
 -export([
-    new_payment/6, store_payment/3, encode_payment/1,
+    new_payment/6, store_payment/3, encode_payment/1, decode_payment/1,
     new_payment_req/2, decode_payment_req/1, encode_payment_req/1
 ]).
 
@@ -50,6 +50,13 @@ store_payment(DB, CF, #blockchain_data_credits_payment_pb{height=Height}=Payment
 %%--------------------------------------------------------------------
 encode_payment(Payment) ->
     blockchain_data_credits_pb:encode_msg(Payment).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+decode_payment(EncodedPayment) ->
+    blockchain_data_credits_pb:decode_msg(EncodedPayment, blockchain_data_credits_payment_pb).
 
 %%--------------------------------------------------------------------
 %% @doc

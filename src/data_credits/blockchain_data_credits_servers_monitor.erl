@@ -89,7 +89,7 @@ handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, mo
     {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, Amount]),
     _Ref = erlang:monitor(process, Pid),
     ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
-    Monitored1 = maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored0)),
+    Monitored1 = maps:put(Pid, {PubKeyBin, CF}, maps:put(PubKeyBin, Pid, Monitored0)),
     {noreply, State#state{monitored=Monitored1}};
 handle_cast({payment_req, PaymentReq}, #state{monitored=Monitored}=State) ->
     ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
@@ -106,13 +106,31 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
             {noreply, State};
-        PubKeyBin ->
+        {PubKeyBin, _CF} ->
+            % TODO: destroy CF here
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;
-handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
-    % TODO
-    {noreply, State};
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) ->
+    lager:warning("~p went down ~p, trying to restart", [Pid, _Reason]),
+    case maps:get(Pid, Monitored0, undefined) of
+        undefined ->
+            lager:error("could not restart ~p", [Pid]),
+            {noreply, State};
+        {PubKeyBin, CF} ->
+            Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
+            case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
+                {ok, KeysBin} ->
+                    Keys = libp2p_crypto:keys_from_bin(KeysBin),
+                    {ok, NewPid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, 0]),
+                    _ = erlang:monitor(process, NewPid),
+                    Monitored2 = maps:put(NewPid, {PubKeyBin, CF}, maps:put(PubKeyBin, NewPid, Monitored1)),
+                    {noreply, State#state{monitored=Monitored2}};
+                _Error ->
+                    lager:error("failed to get keys for ~p: ~p", [PubKeyBin, _Error]),
+                    {noreply, State#state{monitored=Monitored1}}
+            end
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
