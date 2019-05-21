@@ -59,7 +59,7 @@ payment_req(Pid, PaymentReq) ->
 %% ------------------------------------------------------------------
 init([DB, CF, Keys, 0]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    Height = rocksdb:count(DB, CF),
+    {ok, Height} = blockchain_data_credits_utils:get_height(DB, CF),
     Credits = lists:foldl(
         fun(EncodedPayment, Acc) ->
             Payment = blockchain_data_credits_utils:decode_payment(EncodedPayment),

@@ -7,7 +7,8 @@
 
 -export([
     new_payment/6, store_payment/3, encode_payment/1, decode_payment/1,
-    new_payment_req/2, decode_payment_req/1, encode_payment_req/1
+    new_payment_req/2, decode_payment_req/1, encode_payment_req/1,
+    get_height/2
 ]).
 
 
@@ -17,6 +18,8 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-define(HEIGHT_KEY, <<"height">>).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -42,7 +45,11 @@ new_payment(ID, #{secret := PrivKey, public := PubKey}, Height, Payer, Payee, Am
 %%--------------------------------------------------------------------
 store_payment(DB, CF, #blockchain_data_credits_payment_pb{height=Height}=Payment) ->
     Encoded = blockchain_data_credits_pb:encode_msg(Payment),
-    ok = rocksdb:put(DB, CF, <<Height>>, Encoded, [{sync, true}]).
+    {ok, Batch} = rocksdb:batch(),
+    ok = rocksdb:batch_put(Batch, CF, <<Height>>, Encoded),
+    ok = rocksdb:batch_put(Batch, CF, ?HEIGHT_KEY, <<Height>>),
+    ok = rocksdb:write_batch(DB, Batch, []).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -82,6 +89,20 @@ decode_payment_req(EncodedPaymentReq) ->
 %%--------------------------------------------------------------------
 encode_payment_req(PaymentReq) ->
     blockchain_data_credits_pb:encode_msg(PaymentReq).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_height(DB, CF) ->
+    case rocksdb:get(DB, CF, ?HEIGHT_KEY, [{sync, true}]) of
+        {ok, <<Height/integer>>} ->
+            {ok, Height};
+        not_found ->
+            {error, not_found};
+        _Error ->
+            _Error
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

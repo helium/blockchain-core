@@ -83,9 +83,7 @@ handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=St
         undefined ->
             CFName = erlang:binary_to_list(Payer),
             {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
-            {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
-            _Ref = erlang:monitor(process, Pid),
-            Monitored1 = maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored0)),
+            Monitored1 = start_channel_client(DB, CF, Payer, Amount, Monitored0),
             {noreply, State#state{monitored=Monitored1}};
         Pid ->
             ok = blockchain_data_credits_channel_client:payment_req(Pid, Amount),
@@ -95,9 +93,26 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
-    % TODO
-    {noreply, State};
+handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=State) ->
+    case maps:get(Pid, Monitored0, undefined) of
+        undefined ->
+            {noreply, State};
+        {Payer, _CF} ->
+            % TODO: destroy CF here
+            Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
+            {noreply, State#state{monitored=Monitored1}}
+    end;
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) ->
+    lager:warning("~p went down ~p, trying to restart", [Pid, _Reason]),
+    case maps:get(Pid, Monitored0, undefined) of
+        undefined ->
+            lager:error("could not restart ~p", [Pid]),
+            {noreply, State};
+        {Payer, CF} ->
+            Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
+            Monitored2 = start_channel_client(DB, CF, Payer, 0, Monitored1),
+            {noreply, State#state{monitored=Monitored2}}
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -111,3 +126,12 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+start_channel_client(DB, CF, Payer, Amount, Monitored) ->
+    {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
+    _Ref = erlang:monitor(process, Pid),
+    maps:put(Pid, {Payer, CF}, maps:put(Payer, Pid, Monitored)).
