@@ -65,18 +65,7 @@ payment_req(Pid, Amount) ->
 init([DB, CF, Payer, 0]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Height} = blockchain_data_credits_utils:get_height(DB, CF),
-    Credits = lists:foldl(
-        fun(EncodedPayment, Acc) ->
-            Payment = blockchain_data_credits_utils:decode_payment(EncodedPayment),
-            Amount = Payment#blockchain_data_credits_payment_pb.amount,
-            case Payment#blockchain_data_credits_payment_pb.height of
-                0 -> Amount;
-                _ -> Acc-Amount
-            end
-        end,
-        0,
-        get_all_payments(DB, CF, Height)
-    ),
+    {ok, Credits} = blockchain_data_credits_utils:get_credits(DB, CF),
     {ok, #state{
         db=DB,
         cf=CF,
@@ -173,22 +162,4 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-get_all_payments(DB, CF, Height) ->
-    get_all_payments(DB, CF, Height, 0, []).
-
-get_all_payments(_DB, _CF, Height, I, Payments) when Height < I ->
-    lists:reverse(Payments);
-get_all_payments(DB, CF, Height, I, Payments) ->
-    case rocksdb:get(DB, CF, <<I>>, [{sync, true}]) of
-        {ok, Payment} ->
-            get_all_payments(DB, CF, Height, I+1, [Payment|Payments]);
-        _Error ->
-            lager:error("failed to get ~p: ~p", [<<Height>>, _Error]),
-            get_all_payments(DB, CF, Height, I+1, Payments)
-    end.
     
