@@ -83,12 +83,10 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
-    KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
     Monitored1 = start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored0),
-    % TODO: Make this a priv fun
-    ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
+    ok = store_keys(DB, Keys),
     {noreply, State#state{monitored=Monitored1}};
 handle_cast({payment_req, PaymentReq}, #state{monitored=Monitored}=State) ->
     ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
@@ -106,7 +104,7 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
         undefined ->
             {noreply, State};
         PubKeyBin ->
-            % TODO: destroy CF here (call blockchain_data_credits_db)
+            ok = blockchain_data_credits_db:destroy_cf(PubKeyBin),
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;
@@ -118,10 +116,8 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monit
             {noreply, State};
         PubKeyBin->
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
-            % TODO: Make this a priv fun
-            case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
-                {ok, KeysBin} ->
-                    Keys = libp2p_crypto:keys_from_bin(KeysBin),
+            case get_keys(DB, PubKeyBin) of
+                {ok, Keys} ->
                     {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
                     Monitored2 = start_channel_server(DB, CF, Keys, 0, PubKeyBin, Monitored1),
                     {noreply, State#state{monitored=Monitored2}};
@@ -143,6 +139,28 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+store_keys(DB, #{public := PubKey}=Keys) ->
+    KeysBin = libp2p_crypto:keys_to_bin(Keys),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    ok = rocksdb:put(DB, PubKeyBin, KeysBin, []).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_keys(DB, PubKeyBin) ->
+   case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
+        {ok, KeysBin} ->
+            Keys = libp2p_crypto:keys_from_bin(KeysBin),
+            {ok, Keys};
+        _Error ->
+            _Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

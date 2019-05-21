@@ -98,7 +98,7 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
         undefined ->
             {noreply, State};
         Payer ->
-            % TODO: destroy CF here
+            ok = blockchain_data_credits_db:destroy_cf(Payer),
             Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;

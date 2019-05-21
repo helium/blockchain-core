@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     get_db/0,
-    get_cf/1
+    get_cf/1, destroy_cf/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -50,6 +50,9 @@ get_db() ->
 get_cf(PubKeyBin) ->
     gen_statem:call(?SERVER, {get_cf, PubKeyBin}).
 
+destroy_cf(PubKeyBin) ->
+    gen_statem:call(?SERVER, {destroy_cf, PubKeyBin}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -72,6 +75,20 @@ handle_call({get_cf, PubKeyBin}, _From, #state{db=DB, cfs=CFs0}=State) ->
             {reply, {ok, CF}, State#state{cfs=CFs1}};
         CF ->
             {reply, {ok, CF}, State}
+    end;
+handle_call({destroy_cf, PubKeyBin}, _From, #state{db=DB, cfs=CFs0}=State) ->
+    CFName = erlang:binary_to_list(PubKeyBin),
+    case maps:get(CFName, CFs0, undefined) of
+        undefined ->
+            {reply, {error, not_found}, State};
+        CF ->
+            case rocksdb:destroy_column_family(DB, CF) of
+                ok ->
+                    CFs1 = maps:remove(CFName, CFs0),
+                    {reply, ok, State#state{cfs=CFs1}};
+                {error, Reason} ->
+                    {reply, {error, Reason}, State}
+            end
     end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
