@@ -520,9 +520,7 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
                         {L, A, B} ->
                             NewAlpha = scale_shape_param(A+Alpha-?DECAY*(Height-L)),
                             NewBeta = scale_shape_param(B+Beta-?DECAY*(Height-L)),
-                            NewGw0 = blockchain_ledger_gateway_v1:last_delta_update(Height, Gw),
-                            NewGw1 = blockchain_ledger_gateway_v1:alpha(NewAlpha, NewGw0),
-                            blockchain_ledger_gateway_v1:beta(NewBeta, NewGw1)
+                            blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw)
                     end,
 
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
@@ -551,13 +549,12 @@ gateway_score(GatewayAddress, Ledger) ->
                     %% Decrement alpha twice as fast as beta
                     NewAlpha = scale_shape_param(Alpha-2*decay(Height-L)),
                     NewBeta = scale_shape_param(Beta-decay(Height-L)),
-                    NewGw0 = blockchain_ledger_gateway_v1:alpha(NewAlpha, Gw),
-                    NewGw1 = blockchain_ledger_gateway_v1:beta(NewBeta, NewGw0),
-                    {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw1)}
+                    NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
+                    {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw)}
             end
     end.
 
--spec decay(float()) -> float().
+-spec decay(pos_integer()) -> float().
 decay(Staleness) ->
     math:exp(Staleness/?ROLLOVER).
 

@@ -17,7 +17,9 @@
     serialize/1, deserialize/1,
     alpha/1, alpha/2,
     beta/1, beta/2,
-    last_delta_update/1, last_delta_update/2
+    last_delta_update/1, last_delta_update/2,
+    set_alpha_beta/3,
+    set_alpha_beta_delta/4
 ]).
 
 -include("blockchain.hrl").
@@ -183,6 +185,24 @@ last_delta_update(Gateway) ->
 -spec last_delta_update(LastDeltaUpdate :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_delta_update(LastDeltaUpdate, Gateway) ->
     Gateway#gateway_v1{last_delta_update=LastDeltaUpdate}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
+set_alpha_beta(Alpha, Beta, Gateway) ->
+    Gateway#gateway_v1{alpha=Alpha, beta=Beta}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
+    Gateway#gateway_v1{alpha=Alpha,
+                       beta=Beta,
+                       last_delta_update=Delta}.
 
 %%--------------------------------------------------------------------
 %% @doc
