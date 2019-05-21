@@ -32,6 +32,7 @@
 -include("../pb/blockchain_data_credits_pb.hrl").
 
 -define(SERVER, ?MODULE).
+-define(CLIENTS, <<"channel_clients">>).
 
 -record(state, {
     db :: rocksdb:db_handle(),
@@ -61,12 +62,14 @@ init([DB, CF, Keys, 0]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Height} = blockchain_data_credits_utils:get_height(DB, CF),
     {ok, Credits} = blockchain_data_credits_utils:get_credits(DB, CF),
+    {ok, Clients} = channel_clients(DB, CF),
     {ok, #state{
         db=DB,
         cf=CF,
         keys=Keys,
         credits=Credits,
-        height=Height
+        height=Height,
+        channel_clients=Clients
     }};
 init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
@@ -118,6 +121,7 @@ handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
             ok = update_client(DB, CF, Payee, Height1),
             ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
             Clients1 = maps:put(Payee, <<>>, Clients0),
+            ok = channel_clients(DB, CF, Payee),
             {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
     end;
 handle_cast(_Msg, State) ->
@@ -137,6 +141,30 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+channel_clients(DB, CF) ->
+    case rocksdb:get(DB, CF, ?CLIENTS, [{sync, true}]) of
+        {ok, Bin} ->
+            {ok, erlang:binary_to_term(Bin)};
+        not_found ->
+            {ok, #{}};
+        _Error ->
+            lager:error("failed to get ~p: ~p", [?CLIENTS, _Error]),
+            _Error
+    end.
+
+channel_clients(DB, CF, PubKeyBin) ->
+    case channel_clients(DB, CF) of
+        {ok, Map0} ->
+            Map1 = maps:put(PubKeyBin, <<>>, Map0),
+            rocksdb:put(DB, CF, ?CLIENTS, erlang:term_to_binary(Map1), []);
+        _Error ->
+            _Error
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
