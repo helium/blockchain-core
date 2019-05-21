@@ -53,8 +53,9 @@ channel_client(Payer) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([DB]=Args) ->
-    lager:info("~p init with ~p", [?SERVER, Args]),
+init(_Args) ->
+    lager:info("~p init with ~p", [?SERVER, _Args]),
+    {ok, DB} = blockchain_data_credits_db:get_db(),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
@@ -81,8 +82,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     case maps:get(Payer, Monitored0, undefined) of
         undefined ->
-            CFName = erlang:binary_to_list(Payer),
-            {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
+            {ok, CF} = blockchain_data_credits_db:get_cf(Payer),
             Monitored1 = start_channel_client(DB, CF, Payer, Amount, Monitored0),
             {noreply, State#state{monitored=Monitored1}};
         Pid ->
@@ -97,7 +97,7 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
             {noreply, State};
-        {Payer, _CF} ->
+        Payer ->
             % TODO: destroy CF here
             Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
@@ -108,7 +108,8 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monit
         undefined ->
             lager:error("could not restart ~p", [Pid]),
             {noreply, State};
-        {Payer, CF} ->
+        Payer ->
+            {ok, CF} = blockchain_data_credits_db:get_cf(Payer),
             Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
             Monitored2 = start_channel_client(DB, CF, Payer, 0, Monitored1),
             {noreply, State#state{monitored=Monitored2}}
@@ -134,4 +135,4 @@ terminate(_Reason, _State) ->
 start_channel_client(DB, CF, Payer, Amount, Monitored) ->
     {ok, Pid} = blockchain_data_credits_channel_client:start([DB, CF, Payer, Amount]),
     _Ref = erlang:monitor(process, Pid),
-    maps:put(Pid, {Payer, CF}, maps:put(Payer, Pid, Monitored)).
+    maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored)).

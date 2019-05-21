@@ -57,8 +57,9 @@ payment_req(PaymentReq) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([DB]=Args) ->
-    lager:info("~p init with ~p", [?SERVER, Args]),
+init(_Args) ->
+    lager:info("~p init with ~p", [?SERVER, _Args]),
+    {ok, DB} = blockchain_data_credits_db:get_db(),
     Swarm = blockchain_swarm:swarm(),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
@@ -84,9 +85,9 @@ handle_call(_Msg, _From, State) ->
 handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    CFName = erlang:binary_to_list(PubKeyBin),
-    {ok, CF} = rocksdb:create_column_family(DB, CFName, []),
+    {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
     Monitored1 = start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored0),
+    % TODO: Make this a priv fun
     ok = rocksdb:put(DB, PubKeyBin, KeysBin, []),
     {noreply, State#state{monitored=Monitored1}};
 handle_cast({payment_req, PaymentReq}, #state{monitored=Monitored}=State) ->
@@ -104,8 +105,8 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
             {noreply, State};
-        {PubKeyBin, _CF} ->
-            % TODO: destroy CF here
+        PubKeyBin ->
+            % TODO: destroy CF here (call blockchain_data_credits_db)
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;
@@ -115,11 +116,13 @@ handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monit
         undefined ->
             lager:error("could not restart ~p", [Pid]),
             {noreply, State};
-        {PubKeyBin, CF} ->
+        PubKeyBin->
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
+            % TODO: Make this a priv fun
             case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
                 {ok, KeysBin} ->
                     Keys = libp2p_crypto:keys_from_bin(KeysBin),
+                    {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
                     Monitored2 = start_channel_server(DB, CF, Keys, 0, PubKeyBin, Monitored1),
                     {noreply, State#state{monitored=Monitored2}};
                 _Error ->
@@ -148,7 +151,7 @@ terminate(_Reason, _State) ->
 start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored) ->
     {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, Amount]),
     _ = erlang:monitor(process, Pid),
-    maps:put(Pid, {PubKeyBin, CF}, maps:put(PubKeyBin, Pid, Monitored)).
+    maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored)).
 
 %%--------------------------------------------------------------------
 %% @doc

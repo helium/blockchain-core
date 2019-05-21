@@ -22,7 +22,7 @@
     modules => [I]
 }).
 -define(FLAGS, #{
-    strategy => one_for_one,
+    strategy => rest_for_one,
     intensity => 1,
     period => 5
 }).
@@ -41,10 +41,11 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
-    {ok, DB} = open_db(BaseDir),
-    ServersOpts = [DB],
-    ClientsOpts = [DB],
+    DBOpts = [BaseDir],
+    ServersOpts = [],
+    ClientsOpts = [],
     ChildSpecs = [
+        ?WORKER(blockchain_data_credits_db, [DBOpts]),
         ?WORKER(blockchain_data_credits_servers_monitor, [ServersOpts]),
         ?WORKER(blockchain_data_credits_clients_monitor, [ClientsOpts])
     ],
@@ -53,16 +54,4 @@ init([BaseDir]) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle()} | {error, any()}.
-open_db(Dir) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
-    ok = filelib:ensure_dir(DBDir),
-    DBOptions = [{create_if_missing, true}],
-    rocksdb:open(DBDir, DBOptions).
-
 
