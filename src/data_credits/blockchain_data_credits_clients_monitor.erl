@@ -63,8 +63,27 @@ init(_Args) ->
         ?DATA_CREDITS_CHANNEL_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_data_credits_channel_stream]}
     ),
+    {ok, CFs} = blockchain_data_credits_db:get_cfs(),
+    FilteredCFs = maps:filter(
+        fun(CFName, _CF) ->
+            case erlang:list_to_binary(CFName) of
+                <<"C_", _/binary>> -> true;
+                _ -> false
+            end
+        end,
+        CFs
+    ),
+    Monitored = maps:fold(
+        fun(CFName, CF, Acc) ->
+            <<"C_", Payer/binary>> = erlang:list_to_binary(CFName),
+            start_channel_client(DB, CF, Payer, 0, Acc)
+        end,
+        #{},
+        FilteredCFs
+    ),
     {ok, #state{
-        db=DB
+        db=DB,
+        monitored=Monitored
     }}.
 
 handle_call({channel_client, Payer}, _From, #state{monitored=Monitored}=State) ->
@@ -83,7 +102,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({payment_req, Payer, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     case maps:get(Payer, Monitored0, undefined) of
         undefined ->
-            {ok, CF} = blockchain_data_credits_db:get_cf(Payer),
+            {ok, CF} = blockchain_data_credits_db:get_cf(add_prefix(Payer)),
             Monitored1 = start_channel_client(DB, CF, Payer, Amount, Monitored0),
             {noreply, State#state{monitored=Monitored1}};
         Pid ->
@@ -110,7 +129,7 @@ handle_info({'EXIT', Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) -
             lager:error("could not restart ~p", [Pid]),
             {noreply, State};
         Payer ->
-            {ok, CF} = blockchain_data_credits_db:get_cf(Payer),
+            {ok, CF} = blockchain_data_credits_db:get_cf(add_prefix(Payer)),
             Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
             Monitored2 = start_channel_client(DB, CF, Payer, 0, Monitored1),
             {noreply, State#state{monitored=Monitored2}}
@@ -128,6 +147,13 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+add_prefix(PubKeyBin) ->
+    <<"C_", PubKeyBin/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc

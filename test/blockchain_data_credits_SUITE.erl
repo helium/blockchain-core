@@ -8,7 +8,8 @@
 -export([
     basic_test/1,
     retry_test/1,
-    restart_test/1
+    restart_channel_test/1,
+    restart_monitor_test/1
 ]).
 
 -include("blockchain.hrl").
@@ -27,7 +28,8 @@ all() ->
     [
         basic_test,
         retry_test,
-        restart_test
+        restart_channel_test,
+        restart_monitor_test
     ].
 
 %%--------------------------------------------------------------------
@@ -167,7 +169,7 @@ retry_test(Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-restart_test(Config) ->
+restart_channel_test(Config) ->
     [RouterNode, GatewayNode1, GatewayNode2] = proplists:get_value(nodes, Config, []),
 
     ct:pal("RouterNode: ~p GatewayNode1: ~p GatewayNode2: ~p", [RouterNode, GatewayNode1, GatewayNode2]),
@@ -202,7 +204,6 @@ restart_test(Config) ->
 
    % Kill channel client and let it restart
     {ok, GatewayNode1Client0} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
-    {ok, GatewayNode1Client0} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 1} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client0])
     end, 10, 500),
@@ -220,14 +221,65 @@ restart_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 90} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client1])
     end, 10, 500),
+    ok.
 
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+restart_monitor_test(Config) ->
+    [RouterNode, GatewayNode1, GatewayNode2] = proplists:get_value(nodes, Config, []),
 
-    % PART 3
+    ct:pal("RouterNode: ~p GatewayNode1: ~p GatewayNode2: ~p", [RouterNode, GatewayNode1, GatewayNode2]),
 
-    % ok = ct_rpc:call(GatewayNode1, gen_server, stop, [blockchain_data_credits_clients_monitor, crash, 5000]),
-    % timer:sleep(5000),
+    % Simulate Atom burn to Data Credits
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    ok = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [Keys, 100]),
 
-    % ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
+    % Check that 100 credits was added
+    #{public := PubKey} = Keys,
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    {ok, ChannelServer0} = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]),
+    ?assertEqual({ok, 100}, ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer0])),
 
-    % ct:fail(done),
+    % Make a payment request from GatewayNode1 of 10 credits
+    RouterPubKeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
+
+    % Checking that we have 90 credits now
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 90} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer0])
+    end, 10, 500),
+
+    {ok, GatewayNode1Client0} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 1} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client0])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 90} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client0])
+    end, 10, 500),
+
+    % Kill monitor client and let it restart
+    ok = ct_rpc:call(GatewayNode1, gen_server, stop, [blockchain_data_credits_clients_monitor, crash, 5000]),
+    timer:sleep(5000),
+    
+    {ok, GatewayNode1Client1} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 1} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client1])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 90} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client1])
+    end, 10, 500),
+
+    % Make another payment to see if client is still working
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 2} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client1])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 80} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client1])
+    end, 10, 500),
+
     ok.

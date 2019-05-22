@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     get_db/0,
-    get_cf/1, destroy_cf/1
+    get_cfs/0, get_cf/1, destroy_cf/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -47,6 +47,9 @@ start_link(Args) ->
 get_db() ->
     gen_statem:call(?SERVER, get_db).
 
+get_cfs() ->
+    gen_statem:call(?SERVER, get_cfs).
+
 get_cf(PubKeyBin) ->
     gen_statem:call(?SERVER, {get_cf, PubKeyBin}).
 
@@ -66,6 +69,8 @@ init([Dir]=Args) ->
 
 handle_call(get_db, _From, #state{db=DB}=State) ->
     {reply, {ok, DB}, State};
+handle_call(get_cfs, _From, #state{cfs=CFs0}=State) ->
+    {reply, {ok, CFs0}, State};
 handle_call({get_cf, PubKeyBin}, _From, #state{db=DB, cfs=CFs0}=State) ->
     CFName = erlang:binary_to_list(PubKeyBin),
     case maps:get(CFName, CFs0, undefined) of
