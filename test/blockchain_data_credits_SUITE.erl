@@ -142,14 +142,13 @@ retry_test(Config) ->
     end, 10, 500),
 
     ok = ct_rpc:call(RouterNode, meck, new, [blockchain_data_credits_channel_server, [passthrough]]),
-    timer:sleep(1000),
+    % Needed for meck, don't ask me why...
+    timer:sleep(1),
     ok = ct_rpc:call(RouterNode, meck, expect, [blockchain_data_credits_channel_server, payment_req, fun(_A, _B) ->
         ok
     end]),
-    timer:sleep(1000),
 
     ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
-    timer:sleep(5000),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 90} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
