@@ -11,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start/1,
+    start_link/1,
     height/1,
     credits/1,
     payment_req/2
@@ -47,8 +47,8 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start(Args) ->
-    gen_server:start(?SERVER, Args, []).
+start_link(Args) ->
+    gen_server:start_link(?SERVER, Args, []).
 
 height(Pid) ->
     gen_statem:call(Pid, height).
@@ -66,6 +66,7 @@ init([DB, CF, Payer, 0]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Height} = blockchain_data_credits_utils:get_height(DB, CF),
     {ok, Credits} = blockchain_data_credits_utils:get_credits(DB, CF),
+    lager:info("started with height ~p credits ~p", [Height, Credits]),
     {ok, #state{
         db=DB,
         cf=CF,

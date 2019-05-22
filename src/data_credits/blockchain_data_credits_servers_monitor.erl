@@ -58,6 +58,7 @@ payment_req(PaymentReq) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
+    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, _Args]),
     {ok, DB} = blockchain_data_credits_db:get_db(),
     Swarm = blockchain_swarm:swarm(),
@@ -99,7 +100,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=State) ->
+handle_info({'EXIT', Pid, normal}, #state{monitored=Monitored0}=State) ->
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
             {noreply, State};
@@ -108,7 +109,7 @@ handle_info({'DOWN', _Ref, process, Pid, normal}, #state{monitored=Monitored0}=S
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) ->
+handle_info({'EXIT', Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) ->
     lager:warning("~p went down ~p, trying to restart", [Pid, _Reason]),
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
@@ -167,8 +168,7 @@ get_keys(DB, PubKeyBin) ->
 %% @end
 %%--------------------------------------------------------------------
 start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored) ->
-    {ok, Pid} = blockchain_data_credits_channel_server:start([DB, CF, Keys, Amount]),
-    _ = erlang:monitor(process, Pid),
+    {ok, Pid} = blockchain_data_credits_channel_server:start_link([DB, CF, Keys, Amount]),
     maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored)).
 
 %%--------------------------------------------------------------------
