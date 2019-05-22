@@ -31,7 +31,6 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
--define(DB_FILE, "data_credits.db").
 
 -record(state, {
     db :: rocksdb:db_handle(),
@@ -65,17 +64,12 @@ init(_Args) ->
     ),
     {ok, CFs} = blockchain_data_credits_db:get_cfs(),
     FilteredCFs = maps:filter(
-        fun(CFName, _CF) ->
-            case erlang:list_to_binary(CFName) of
-                <<"C_", _/binary>> -> true;
-                _ -> false
-            end
-        end,
+        fun(CFName, _CF) -> is_prefixed(CFName) end,
         CFs
     ),
     Monitored = maps:fold(
         fun(CFName, CF, Acc) ->
-            <<"C_", Payer/binary>> = erlang:list_to_binary(CFName),
+            Payer = remove_prefix(CFName),
             start_channel_client(DB, CF, Payer, 0, Acc)
         end,
         #{},
@@ -154,6 +148,26 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 add_prefix(PubKeyBin) ->
     <<"C_", PubKeyBin/binary>>.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+remove_prefix(CFName) when is_list(CFName) ->
+    remove_prefix(erlang:list_to_binary(CFName));
+remove_prefix(<<"C_", PubKeyBin/binary>>) ->
+    PubKeyBin.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+is_prefixed(CFName) when is_list(CFName) -> 
+    is_prefixed(erlang:list_to_binary(CFName));
+is_prefixed(<<"C_", _/binary>>) -> 
+    true;
+is_prefixed(_) -> 
+    false.
 
 %%--------------------------------------------------------------------
 %% @doc
