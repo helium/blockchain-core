@@ -282,4 +282,29 @@ restart_monitor_test(Config) ->
         {ok, 80} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client1])
     end, 10, 500),
 
+    % Kill monitor server and let it restart
+    ok = ct_rpc:call(RouterNode, gen_server, stop, [blockchain_data_credits_servers_monitor, crash, 5000]),
+    timer:sleep(5000),
+
+    {ok, ChannelServer1} = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]),
+
+    % Checking that we still have 80 credits
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 80} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer1])
+    end, 10, 500),
+
+    % Make another payment to see if client is still working
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 3} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client1])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 70} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client1])
+    end, 10, 500),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 70} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer1])
+    end, 10, 500),
+
     ok.

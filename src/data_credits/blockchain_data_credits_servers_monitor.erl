@@ -67,9 +67,28 @@ init(_Args) ->
         ?DATA_CREDITS_PAYMENT_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_data_credits_payment_stream]}
     ),
+    {ok, CFs} = blockchain_data_credits_db:get_cfs(),
+    FilteredCFs = maps:filter(
+        fun(CFName, _CF) -> is_prefixed(CFName) end,
+        CFs
+    ),
+    Monitored = maps:fold(
+        fun(CFName, CF, Acc) ->
+            PubKeyBin = remove_prefix(CFName),
+            case get_keys(DB, PubKeyBin) of
+                {ok, Keys} ->
+                     start_channel_server(DB, CF, Keys, 0, PubKeyBin, Acc);
+                _Error ->
+                    Acc
+            end
+        end,
+        #{},
+        FilteredCFs
+    ),
     {ok, #state{
         db=DB,
-        swarm=Swarm
+        swarm=Swarm,
+        monitored=Monitored
     }}.
 
 handle_call({channel_server, PubKeyBin}, _From, #state{monitored=Monitored}=State) ->
@@ -85,7 +104,7 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({channel_server, #{public := PubKey}=Keys, Amount}, #state{db=DB, monitored=Monitored0}=State) ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
+    {ok, CF} = blockchain_data_credits_db:get_cf(add_prefix(PubKeyBin)),
     Monitored1 = start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored0),
     ok = store_keys(DB, Keys),
     {noreply, State#state{monitored=Monitored1}};
@@ -119,7 +138,7 @@ handle_info({'EXIT', Pid, _Reason}, #state{db=DB, monitored=Monitored0}=State) -
             Monitored1 = maps:remove(Pid, maps:remove(PubKeyBin, Monitored0)),
             case get_keys(DB, PubKeyBin) of
                 {ok, Keys} ->
-                    {ok, CF} = blockchain_data_credits_db:get_cf(PubKeyBin),
+                    {ok, CF} = blockchain_data_credits_db:get_cf(add_prefix(PubKeyBin)),
                     Monitored2 = start_channel_server(DB, CF, Keys, 0, PubKeyBin, Monitored1),
                     {noreply, State#state{monitored=Monitored2}};
                 _Error ->
@@ -186,3 +205,30 @@ try_payment_req([Pid|ShuffledPids], PaymentReq) ->
         _ ->
             try_payment_req(ShuffledPids, PaymentReq)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+add_prefix(PubKeyBin) ->
+    <<"S_", PubKeyBin/binary>>.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+remove_prefix(CFName) when is_list(CFName) ->
+    remove_prefix(erlang:list_to_binary(CFName));
+remove_prefix(<<"S_", PubKeyBin/binary>>) ->
+    PubKeyBin.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+is_prefixed(CFName) when is_list(CFName) -> 
+    is_prefixed(erlang:list_to_binary(CFName));
+is_prefixed(<<"S_", _/binary>>) -> 
+    true;
+is_prefixed(_) -> 
+    false.
