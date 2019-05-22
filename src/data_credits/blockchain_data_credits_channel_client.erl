@@ -119,29 +119,38 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({update, Payment}, #state{db=DB, cf=CF, height=Height,
-                                      credits=Credits, pending=Pending0}=State) ->
+                                      credits=Credits, pending=Pending0}=State0) ->
     lager:info("got payment update ~p", [Payment]),
     Amount = Payment#blockchain_data_credits_payment_pb.amount,
     Payee = Payment#blockchain_data_credits_payment_pb.payee,
-    Pending1 = case Payee == blockchain_swarm:pubkey_bin() of
-        false ->
-            Pending0;
-        true ->
-            ID = Payment#blockchain_data_credits_payment_pb.id,
-            case maps:get(ID, Pending0, undefined) of
-                undefined ->
-                    Pending0; 
-                TimeRef ->
-                    _ = erlang:cancel_timer(TimeRef),
-                    maps:remove(ID, Pending0)
-            end
-    end,
+    Pending1 =
+        case Payee == blockchain_swarm:pubkey_bin() of
+            false ->
+                Pending0;
+            true ->
+                ID = Payment#blockchain_data_credits_payment_pb.id,
+                case maps:get(ID, Pending0, undefined) of
+                    undefined ->
+                        Pending0; 
+                    TimeRef ->
+                        _ = erlang:cancel_timer(TimeRef),
+                        maps:remove(ID, Pending0)
+                end
+        end,
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
-    case Payment#blockchain_data_credits_payment_pb.height == 0 of
-        true ->
-            {noreply, State#state{height=0, credits=Amount, pending=Pending1}};
+    State1 =
+        case Payment#blockchain_data_credits_payment_pb.height == 0 of
+            true ->
+                State0#state{height=0, credits=Amount, pending=Pending1};
+            false ->
+                State0#state{height=Height+1, credits=Credits-Amount, pending=Pending1}
+        end,
+    case Credits-Amount == 0 of
         false ->
-            {noreply, State#state{height=Height+1, credits=Credits-Amount, pending=Pending1}}
+            {noreply, State1};
+        true ->
+            % Should settle right her
+            {stop, normal, State1}
     end;
 handle_info({payment_req_expired, PaymentReq}, #state{payer=Payer, pending=Pending0}=State) ->
     ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,

@@ -97,7 +97,7 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
                                                  credits=Credits, height=Height0,
-                                                 channel_clients=Clients0}=State) ->
+                                                 channel_clients=Clients0}=State0) ->
     Height1 = Height0+1,
     ID = PaymentReq#blockchain_data_credits_payment_req_pb.id,
     Payee = PaymentReq#blockchain_data_credits_payment_req_pb.payee,
@@ -113,16 +113,24 @@ handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
     ok = blockchain_data_credits_utils:store_payment(DB, CF, Payment),
     lager:info("got payment request ~p (leftover: ~p)", [PaymentReq, Credits-Amount]),
     EncodedPayment = blockchain_data_credits_utils:encode_payment(Payment),
-    case maps:is_key(Payee, Clients0) of
-        true ->
-            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-            {noreply, State#state{credits=Credits-Amount, height=Height1}};
+    State1 = 
+        case maps:is_key(Payee, Clients0) of
+            true ->
+                ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+                State0#state{credits=Credits-Amount, height=Height1};
+            false ->
+                ok = update_client(DB, CF, Payee, Height1),
+                ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
+                Clients1 = maps:put(Payee, <<>>, Clients0),
+                ok = channel_clients(DB, CF, Payee),
+                State0#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}
+        end,
+    case Credits-Amount == 0 of
         false ->
-            ok = update_client(DB, CF, Payee, Height1),
-            ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-            Clients1 = maps:put(Payee, <<>>, Clients0),
-            ok = channel_clients(DB, CF, Payee),
-            {noreply, State#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}}
+            {noreply, State1};
+        true ->
+            % Should settle right her
+            {stop, normal, State1}
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
