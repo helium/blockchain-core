@@ -276,7 +276,13 @@ restart_monitor_test(Config) ->
 
     % Kill monitor client and let it restart
     ok = ct_rpc:call(GatewayNode1, gen_server, stop, [blockchain_data_credits_clients_monitor, crash, 5000]),
-    timer:sleep(5000),
+    
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        case ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]) of
+            {ok, _} -> true;
+            _ -> false
+        end
+    end, 10, 500),
     
     {ok, GatewayNode1Client1} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -298,7 +304,13 @@ restart_monitor_test(Config) ->
 
     % Kill monitor server and let it restart
     ok = ct_rpc:call(RouterNode, gen_server, stop, [blockchain_data_credits_servers_monitor, crash, 5000]),
-    timer:sleep(5000),
+    
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        case ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]) of
+            {ok, _} -> true;
+            _ -> false
+        end
+    end, 10, 500),
 
     {ok, ChannelServer1} = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]),
 
