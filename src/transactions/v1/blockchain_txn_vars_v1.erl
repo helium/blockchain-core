@@ -18,6 +18,7 @@
          key_proof/1,
          proof/1,
          vars/1,
+         version_predicate/1,
          unsets/1,
          cancels/1,
          absorb/2,
@@ -26,7 +27,8 @@
 
 %% helper API
 -export([
-         create_proof/2
+         create_proof/2,
+         delayed_absorb/2
         ]).
 
 -ifdef(TEST).
@@ -62,6 +64,7 @@ new(Vars, Proof, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
     KeyProof = maps:get(key_proof, Optional, <<>>),
+    Unsets = maps:get(unsets, Optional, []),
     Cancels = maps:get(cancels, Optional, []),
     %% note that string inputs are normalized on creation, which has
     %% an effect on proof encoding :/
@@ -70,6 +73,7 @@ new(Vars, Proof, Optional) ->
                                version_predicate = VersionP,
                                master_key = MasterKey,
                                key_proof = KeyProof,
+                               unsets = encode_unsets(Unsets),
                                cancels = Cancels}.
 
 encode_vars(Vars) ->
@@ -77,6 +81,9 @@ encode_vars(Vars) ->
     lists:map(fun({K, Val}) ->
                       to_var(atom_to_list(K), Val)
               end,V).
+
+encode_unsets(Unsets) ->
+    lists:map(fun(U) -> atom_to_binary(U, utf8) end, Unsets).
 
 to_var(Name, V) when is_list(V) orelse is_binary(V) ->
     #blockchain_var_v1_pb{name = Name, type = "string", value = iolist_to_binary(V)};
@@ -137,6 +144,9 @@ proof(Txn) ->
 vars(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.vars.
 
+version_predicate(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb.version_predicate.
+
 unsets(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.unsets.
 
@@ -155,7 +165,7 @@ is_valid(Txn, Chain) ->
                 {ok, 0} ->
                     true;
                 _ ->
-                    false %% unreachable
+                    false
             end,
         %% here we can accept a valid master key
         case master_key(Txn) of
@@ -192,17 +202,42 @@ is_valid(Txn, Chain) ->
                     _ ->
                         throw({error, bad_block_proof})
                 end
-        end
-        %% TODO: validate that all vars referred to by unsets are
-        %% actually set
+        end,
+        lists:foreach(
+          fun(VarName) ->
+                  case blockchain:config(VarName, Ledger) of
+                      {ok, _} -> ok;
+                      {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
+                  end
+          end,
+          decode_unsets(unsets(Txn))),
 
         %% TODO: validate that a cancelled transaction is actually on
         %% the chain
 
-        %% TODO: validate the version predicate.  it must either be
-        %% missing or in the past.  there is a potential here for a
-        %% chain fork if someone were to mis-issue a predicate during
-        %% a version transitions.  we need to think about this
+        case Gen of
+            false ->
+                try
+                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+                    Curr = Mod:Fun(),
+                    case version_predicate(Txn) of
+                        %% not required, commit.
+                        0 ->
+                            ok;
+                        V when V < (Curr + 1) ->
+                            throw({error, predicate_too_low});
+                        _ -> ok
+                    end
+                catch throw:E ->
+                        %% rethrow validation errors
+                        throw(E);
+                      _:_ ->
+                        %% assume anything else is a bad function specification
+                        throw({error, bad_predicate_fun})
+                end;
+            _ -> ok
+        end
     catch throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
             false
@@ -211,15 +246,51 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Vars = decode_vars(vars(Txn)),
-    ok = blockchain_ledger_v1:vars(Vars, unsets(Txn), Ledger),
 
+    %% the sorting order makes sure that this txn will be sorted after
+    %% any epoch change so this will result in deterministic delay
+    case blockchain_ledger_v1:current_height(Ledger) of
+        %% genesis block is never delayed
+        {ok, 0} ->
+            delayed_absorb(Txn, Ledger);
+        _ ->
+            {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
+            %% So we'll be in block Current + 1
+            %% {ok, Current} = blockchain:height(Chain),
+            {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
+            Effective = Delay + Epoch,
+            case version_predicate(Txn) of
+                0 ->
+                    lager:info("delaying var application until ~p", [Effective]),
+                    ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+                V ->
+                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+                    Curr = Mod:Fun(),
+                    case V >= Curr of
+                        true ->
+                            lager:info("delaying var application until ~p", [Effective]),
+                            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+                        false ->
+                            %% TODO: this requires more work on the threshold side.
+                            ok
+                    end
+            end
+    end.
+
+delayed_absorb(Txn, Ledger) ->
+    Vars = decode_vars(vars(Txn)),
+    Unsets = decode_unsets(unsets(Txn)),
+    ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
     case master_key(Txn) of
         <<>> ->
             ok;
         Key ->
             ok = blockchain_ledger_v1:master_key(Key, Ledger)
     end.
+
+decode_unsets(Unsets) ->
+    lists:map(fun(U) -> binary_to_atom(U, utf8) end, Unsets).
 
 %%%
 %%% Helper API
