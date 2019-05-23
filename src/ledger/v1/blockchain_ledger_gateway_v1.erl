@@ -271,6 +271,7 @@ print(Gateway) ->
         {score, score(Gateway)},
         {alpha, alpha(Gateway)},
         {beta, beta(Gateway)},
+        {delta, last_delta_update(Gateway)},
         {bayes_score, bayes_score(Gateway)}
     ].
 

@@ -85,8 +85,8 @@
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
--define(DECAY, 0.001).
--define(ROLLOVER, 100).
+-define(ALPHA_DECAY, 0.007).
+-define(BETA_DECAY, 0.0005).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -518,8 +518,9 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
                             NewGw1 = blockchain_ledger_gateway_v1:alpha(A+Alpha, NewGw0),
                             blockchain_ledger_gateway_v1:beta(B+Beta, NewGw1);
                         {L, A, B} ->
-                            NewAlpha = scale_shape_param(A+Alpha-?DECAY*(Height-L)),
-                            NewBeta = scale_shape_param(B+Beta-?DECAY*(Height-L)),
+                            %% Decay both with the same constant
+                            NewAlpha = scale_shape_param(A+Alpha-decay(?ALPHA_DECAY, Height-L)),
+                            NewBeta = scale_shape_param(B+Beta-decay(?ALPHA_DECAY, Height-L)),
                             blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw)
                     end,
 
@@ -547,16 +548,23 @@ gateway_score(GatewayAddress, Ledger) ->
                     Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
                     Beta = blockchain_ledger_gateway_v1:beta(Gw),
                     %% Decrement alpha twice as fast as beta
-                    NewAlpha = scale_shape_param(Alpha-2*decay(Height-L)),
-                    NewBeta = scale_shape_param(Beta-decay(Height-L)),
+                    %% and a _much_ slower decay for beta
+                    NewAlpha = scale_shape_param(Alpha-2*decay(?ALPHA_DECAY, Height-L)),
+                    NewBeta = scale_shape_param(Beta-decay(?BETA_DECAY, Height-L)),
                     NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
                     {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw)}
             end
     end.
 
--spec decay(pos_integer()) -> float().
-decay(Staleness) ->
-    math:exp(Staleness/?ROLLOVER).
+%%--------------------------------------------------------------------
+%% @doc
+%% K: constant decay factor, calculated empirically (for now)
+%% Staleness: current_ledger_height - last_delta_update
+%% @end
+%%--------------------------------------------------------------------
+-spec decay(float(), pos_integer()) -> float().
+decay(K, Staleness) ->
+    math:exp(K * Staleness) - 1.
 
 %%--------------------------------------------------------------------
 %% @doc
