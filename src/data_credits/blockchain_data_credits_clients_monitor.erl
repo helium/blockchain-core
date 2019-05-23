@@ -110,9 +110,11 @@ handle_cast(_Msg, State) ->
 handle_info({'EXIT', Pid, normal}, #state{monitored=Monitored0}=State) ->
     case maps:get(Pid, Monitored0, undefined) of
         undefined ->
+            lager:warning("unknown pid ~p died", [Pid]),
             {noreply, State};
         Payer ->
-            ok = blockchain_data_credits_db:destroy_cf(Payer),
+            lager:info("~p ~p settled", [Pid, Payer]),
+            ok = blockchain_data_credits_db:destroy_cf(add_prefix(Payer)),
             Monitored1 = maps:remove(Pid, maps:remove(Payer, Monitored0)),
             {noreply, State#state{monitored=Monitored1}}
     end;

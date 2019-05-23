@@ -9,7 +9,8 @@
     basic_test/1,
     retry_test/1,
     restart_channel_test/1,
-    restart_monitor_test/1
+    restart_monitor_test/1,
+    settle_test/1
 ]).
 
 -include("blockchain.hrl").
@@ -29,7 +30,8 @@ all() ->
         basic_test,
         retry_test,
         restart_channel_test,
-        restart_monitor_test
+        restart_monitor_test,
+        settle_test
     ].
 
 %%--------------------------------------------------------------------
@@ -333,4 +335,53 @@ restart_monitor_test(Config) ->
         {ok, 70} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer1])
     end, 10, 500),
 
+    ok.
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+settle_test(Config) ->
+    [RouterNode, GatewayNode1, GatewayNode2] = proplists:get_value(nodes, Config, []),
+
+    ct:pal("RouterNode: ~p GatewayNode1: ~p GatewayNode2: ~p", [RouterNode, GatewayNode1, GatewayNode2]),
+
+    % Simulate Atom burn to Data Credits
+    Keys = libp2p_crypto:generate_keys(ecc_compact),
+    ok = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [Keys, 100]),
+
+    % Check that 100 credits was added
+    #{public := PubKey} = Keys,
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    {ok, ChannelServer} = ct_rpc:call(RouterNode, blockchain_data_credits_servers_monitor, channel_server, [PubKeyBin]),
+    ?assertEqual({ok, 100}, ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])),
+
+    % Make a payment request from GatewayNode1 of 10 credits
+    RouterPubKeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 90]),
+
+    % Checking that we have 90 credits now
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 10} == ct_rpc:call(RouterNode, blockchain_data_credits_channel_server, credits, [ChannelServer])
+    end, 10, 500),
+
+    {ok, GatewayNode1Client} = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, channel_client, [RouterPubKeyBin]),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 1} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, height, [GatewayNode1Client])
+    end, 10, 500),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 10} == ct_rpc:call(GatewayNode1, blockchain_data_credits_channel_client, credits, [GatewayNode1Client])
+    end, 10, 500),
+
+    % Make a payment request from GatewayNode1 of 10 credits
+    ok = ct_rpc:call(GatewayNode1, blockchain_data_credits_clients_monitor, payment_req, [RouterPubKeyBin, 10]),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        false == ct_rpc:call(RouterNode, erlang, is_process_alive, [ChannelServer])
+    end, 10, 500),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        false == ct_rpc:call(GatewayNode1, erlang, is_process_alive, [GatewayNode1Client])
+    end, 10, 500),
     ok.
