@@ -49,9 +49,11 @@
 start_link(Args) ->
     gen_server:start_link(?SERVER, Args, []).
 
+-spec credits(pid()) -> {ok, non_neg_integer()}.
 credits(Pid) ->
     gen_statem:call(Pid, credits).
 
+-spec payment_req(pid(), #blockchain_data_credits_payment_req_pb{}) -> ok.
 payment_req(Pid, PaymentReq) ->
     gen_statem:cast(Pid, {payment_req, PaymentReq}).
 
@@ -154,6 +156,7 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec channel_clients(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, map()} | {error, any()}.
 channel_clients(DB, CF) ->
     case rocksdb:get(DB, CF, ?CLIENTS, [{sync, true}]) of
         {ok, Bin} ->
@@ -165,6 +168,8 @@ channel_clients(DB, CF) ->
             _Error
     end.
 
+-spec channel_clients(rocksdb:db_handle(), rocksdb:cf_handle(),
+                      libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
 channel_clients(DB, CF, PubKeyBin) ->
     case channel_clients(DB, CF) of
         {ok, Map0} ->
@@ -178,6 +183,7 @@ channel_clients(DB, CF, PubKeyBin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec broacast_payment([libp2p_crypto:pubkey_bin()], binary()) -> ok.
 broacast_payment([], _EncodedPayment) ->
     ok;
 broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
@@ -202,6 +208,8 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec update_client(rocksdb:db_handle(), rocksdb:cf_handle(),
+                    libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
 update_client(DB, CF, PubKeyBin, Height) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),

@@ -43,9 +43,11 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec payment_req(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
 payment_req(Payer, Amount) ->
     gen_statem:cast(?SERVER, {payment_req, Payer, Amount}).
 
+-spec channel_client(libp2p_crypto:pubkey_bin()) -> {ok, pid()} | {error, any()}.
 channel_client(Payer) ->
     gen_statem:call(?SERVER, {channel_client, Payer}).
 
@@ -148,6 +150,7 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_prefix(libp2p_crypto:pubkey_bin()) -> binary().
 add_prefix(PubKeyBin) ->
     <<"C_", PubKeyBin/binary>>.
 
@@ -155,6 +158,7 @@ add_prefix(PubKeyBin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec remove_prefix(binary() | string()) -> libp2p_crypto:pubkey_bin().
 remove_prefix(CFName) when is_list(CFName) ->
     remove_prefix(erlang:list_to_binary(CFName));
 remove_prefix(<<"C_", PubKeyBin/binary>>) ->
@@ -164,6 +168,7 @@ remove_prefix(<<"C_", PubKeyBin/binary>>) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec is_prefixed(binary() | string()) -> boolean().
 is_prefixed(CFName) when is_list(CFName) -> 
     is_prefixed(erlang:list_to_binary(CFName));
 is_prefixed(<<"C_", _/binary>>) -> 
@@ -175,6 +180,8 @@ is_prefixed(_) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec start_channel_client(rocksdb:db_handle(), rocksdb:cf_handle(),
+                           libp2p_crypto:pubkey_bin(), non_neg_integer(), map()) -> map().
 start_channel_client(DB, CF, Payer, Amount, Monitored) ->
     {ok, Pid} = blockchain_data_credits_channel_client:start_link([DB, CF, Payer, Amount]),
     maps:put(Pid, Payer, maps:put(Payer, Pid, Monitored)).

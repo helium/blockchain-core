@@ -45,12 +45,15 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec channel_server(libp2p_crypto:pubkey_bin()) -> {ok, pid()} | {error, any()}.
 channel_server(PubKeyBin) ->
     gen_statem:call(?SERVER, {channel_server, PubKeyBin}).
 
+-spec channel_server(map(), non_neg_integer()) -> ok.
 channel_server(Keys, Amount) ->
     gen_statem:cast(?SERVER, {channel_server, Keys, Amount}).
 
+-spec payment_req(#blockchain_data_credits_payment_req_pb{}) -> ok.
 payment_req(PaymentReq) ->
     gen_statem:cast(?SERVER, {payment_req, PaymentReq}).
 
@@ -77,7 +80,7 @@ init(_Args) ->
             PubKeyBin = remove_prefix(CFName),
             case get_keys(DB, PubKeyBin) of
                 {ok, Keys} ->
-                     start_channel_server(DB, CF, Keys, 0, PubKeyBin, Acc);
+                    start_channel_server(DB, CF, Keys, 0, PubKeyBin, Acc);
                 _Error ->
                     Acc
             end
@@ -166,6 +169,7 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec store_keys(rocksdb:db_handle(), map()) -> ok.
 store_keys(DB, #{public := PubKey}=Keys) ->
     KeysBin = libp2p_crypto:keys_to_bin(Keys),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -175,6 +179,7 @@ store_keys(DB, #{public := PubKey}=Keys) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_keys(rocksdb:db_handle(), libp2p_crypto:pubkey_bin()) -> {ok, map()} | {error, any()}.
 get_keys(DB, PubKeyBin) ->
    case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
         {ok, KeysBin} ->
@@ -188,6 +193,8 @@ get_keys(DB, PubKeyBin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec start_channel_server(rocksdb:db_handle(), rocksdb:cf_handle(), map(),
+                           non_neg_integer(), libp2p_crypto:pubkey_bin(), map()) -> map().
 start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored) ->
     {ok, Pid} = blockchain_data_credits_channel_server:start_link([DB, CF, Keys, Amount]),
     maps:put(Pid, PubKeyBin, maps:put(PubKeyBin, Pid, Monitored)).
@@ -196,7 +203,8 @@ start_channel_server(DB, CF, Keys, Amount, PubKeyBin, Monitored) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-try_payment_req([], _Payee)->
+-spec try_payment_req([pid()], #blockchain_data_credits_payment_req_pb{}) -> ok.
+try_payment_req([], _PaymentReq)->
     ok;
 try_payment_req([Pid|ShuffledPids], PaymentReq) ->
     Amount = PaymentReq#blockchain_data_credits_payment_req_pb.amount,
@@ -212,6 +220,7 @@ try_payment_req([Pid|ShuffledPids], PaymentReq) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec add_prefix(libp2p_crypto:pubkey_bin()) -> binary().
 add_prefix(PubKeyBin) ->
     <<"S_", PubKeyBin/binary>>.
 
@@ -219,6 +228,7 @@ add_prefix(PubKeyBin) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec remove_prefix(binary() | string()) -> libp2p_crypto:pubkey_bin().
 remove_prefix(CFName) when is_list(CFName) ->
     remove_prefix(erlang:list_to_binary(CFName));
 remove_prefix(<<"S_", PubKeyBin/binary>>) ->
@@ -228,6 +238,7 @@ remove_prefix(<<"S_", PubKeyBin/binary>>) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec is_prefixed(binary() | string()) -> boolean().
 is_prefixed(CFName) when is_list(CFName) -> 
     is_prefixed(erlang:list_to_binary(CFName));
 is_prefixed(<<"S_", _/binary>>) -> 

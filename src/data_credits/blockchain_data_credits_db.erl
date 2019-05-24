@@ -44,15 +44,19 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec get_db() -> {ok, rocksdb:db_handle()}.
 get_db() ->
     gen_statem:call(?SERVER, get_db).
 
+-spec get_cfs() -> {ok, #{string() => rocksdb:cf_handle()}}.
 get_cfs() ->
     gen_statem:call(?SERVER, get_cfs).
 
+-spec get_cf(libp2p_crypto:pubkey_bin()) -> {ok, rocksdb:cf_handle()}.
 get_cf(PubKeyBin) ->
     gen_statem:call(?SERVER, {get_cf, PubKeyBin}).
 
+-spec destroy_cf(libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
 destroy_cf(PubKeyBin) ->
     gen_statem:call(?SERVER, {destroy_cf, PubKeyBin}).
 

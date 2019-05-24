@@ -7,7 +7,7 @@
 
 -export([
     new_payment/6, store_payment/3, encode_payment/1, decode_payment/1, get_payments/3,
-    new_payment_req/2, decode_payment_req/1, encode_payment_req/1,
+    new_payment_req/2, encode_payment_req/1, decode_payment_req/1,
     get_height/2, get_credits/2
 ]).
 
@@ -26,6 +26,8 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec new_payment(binary(), map(), non_neg_integer(), libp2p_crypto:pubkey_bin(),
+                  libp2p_crypto:pubkey_bin(), non_neg_integer()) -> #blockchain_data_credits_payment_pb{}.
 new_payment(ID, #{secret := PrivKey, public := PubKey}, Height, Payer, Payee, Amount) -> 
     Payment = #blockchain_data_credits_payment_pb{
         id=ID,
@@ -44,6 +46,7 @@ new_payment(ID, #{secret := PrivKey, public := PubKey}, Height, Payer, Payee, Am
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec store_payment(rocksdb:db_handle(), rocksdb:cf_handle(), #blockchain_data_credits_payment_pb{}) -> ok | {error, any()}.
 store_payment(DB, CF, #blockchain_data_credits_payment_pb{height=Height, amount=Amount}=Payment) ->
     Encoded = blockchain_data_credits_pb:encode_msg(Payment),
     {ok, Batch} = rocksdb:batch(),
@@ -64,11 +67,11 @@ store_payment(DB, CF, #blockchain_data_credits_payment_pb{height=Height, amount=
     end,
     ok = rocksdb:write_batch(DB, Batch, []).
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec encode_payment(#blockchain_data_credits_payment_pb{}) -> binary().
 encode_payment(Payment) ->
     blockchain_data_credits_pb:encode_msg(Payment).
 
@@ -76,6 +79,7 @@ encode_payment(Payment) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec decode_payment(binary()) -> #blockchain_data_credits_payment_pb{}.
 decode_payment(EncodedPayment) ->
     blockchain_data_credits_pb:decode_msg(EncodedPayment, blockchain_data_credits_payment_pb).
 
@@ -83,9 +87,12 @@ decode_payment(EncodedPayment) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_payments(rocksdb:db_handle(), rocksdb:cf_handle(), non_neg_integer()) -> [binary()].
 get_payments(DB, CF, Height) ->
     get_payments(DB, CF, Height, 0, []).
 
+-spec get_payments(rocksdb:db_handle(), rocksdb:cf_handle(), non_neg_integer(),
+                   non_neg_integer(), [binary()]) -> [binary()].
 get_payments(_DB, _CF, Height, I, Payments) when Height < I ->
     lists:reverse(Payments);
 get_payments(DB, CF, Height, I, Payments) ->
@@ -101,6 +108,7 @@ get_payments(DB, CF, Height, I, Payments) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec new_payment_req(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> #blockchain_data_credits_payment_req_pb{}.
 new_payment_req(PubKeyBin, Amount) -> 
     #blockchain_data_credits_payment_req_pb{
         id=crypto:strong_rand_bytes(32),
@@ -112,13 +120,7 @@ new_payment_req(PubKeyBin, Amount) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-decode_payment_req(EncodedPaymentReq) ->
-    blockchain_data_credits_pb:decode_msg(EncodedPaymentReq, blockchain_data_credits_payment_req_pb).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec encode_payment_req(#blockchain_data_credits_payment_req_pb{}) -> binary().
 encode_payment_req(PaymentReq) ->
     blockchain_data_credits_pb:encode_msg(PaymentReq).
 
@@ -126,6 +128,15 @@ encode_payment_req(PaymentReq) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec decode_payment_req(binary()) -> #blockchain_data_credits_payment_req_pb{}.
+decode_payment_req(EncodedPaymentReq) ->
+    blockchain_data_credits_pb:decode_msg(EncodedPaymentReq, blockchain_data_credits_payment_req_pb).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec get_height(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, non_neg_integer()} | {error, any()}.
 get_height(DB, CF) ->
     case rocksdb:get(DB, CF, ?HEIGHT_KEY, [{sync, true}]) of
         {ok, <<Height/integer>>} ->
@@ -140,6 +151,7 @@ get_height(DB, CF) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_credits(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, non_neg_integer()} | {error, any()}.
 get_credits(DB, CF) ->
     case rocksdb:get(DB, CF, ?CREDITS_KEY, [{sync, true}]) of
         {ok, <<Credits/integer>>} ->

@@ -50,12 +50,15 @@
 start_link(Args) ->
     gen_server:start_link(?SERVER, Args, []).
 
+-spec height(pid()) -> {ok, non_neg_integer()}.
 height(Pid) ->
     gen_statem:call(Pid, height).
 
+-spec credits(pid()) -> {ok, non_neg_integer()}.
 credits(Pid) ->
     gen_statem:call(Pid, credits).
 
+-spec payment_req(pid(), non_neg_integer()) -> ok.
 payment_req(Pid, Amount) ->
     gen_statem:cast(Pid, {payment_req, Amount}).
 
