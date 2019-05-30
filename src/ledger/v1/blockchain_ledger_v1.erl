@@ -87,6 +87,7 @@
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(ALPHA_DECAY, 0.007).
 -define(BETA_DECAY, 0.0005).
+-define(MAX_STALENESS, 100000).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -563,8 +564,11 @@ gateway_score(GatewayAddress, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec decay(float(), pos_integer()) -> float().
-decay(K, Staleness) ->
-    math:exp(K * Staleness) - 1.
+decay(K, Staleness) when Staleness =< ?MAX_STALENESS ->
+    math:exp(K * Staleness) - 1;
+decay(_, _) ->
+    %% Basically infinite decay at this point
+    math:exp(709).
 
 %%--------------------------------------------------------------------
 %% @doc
