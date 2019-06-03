@@ -177,7 +177,8 @@ poc_challengees_rewards(Transactions, Chain) ->
     maps:fold(
         fun(Challengee, Challanged, _Acc) ->
             PercentofReward = Challanged*100/TotalChallanged,
-            Amount = PercentofReward*ChallengeesReward,
+            % TODO: Not sure about he all round thing...
+            Amount = erlang:round(PercentofReward*ChallengeesReward),
             blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
         end,
         ok,
@@ -209,7 +210,7 @@ poc_challengers_rewards(Transactions, Chain) ->
     maps:fold(
         fun(Challenger, Challanged, _Acc) ->
             PercentofReward = Challanged*100/TotalChallanged,
-            Amount = PercentofReward*ChallengersReward,
+            Amount = erlang:round(PercentofReward*ChallengersReward),
             blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
         end,
         ok,
@@ -236,7 +237,7 @@ securities_rewards(Blockchain) ->
         fun(Key, Entry, _Acc) ->
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = Balance*100/TotalSecurities,
-            Amount = PercentofReward*SecuritiesReward,
+            Amount = erlang:round(PercentofReward*SecuritiesReward),
             blockchain_ledger_v1:credit_account(Key, Amount, Ledger)
         end,
         ok,
