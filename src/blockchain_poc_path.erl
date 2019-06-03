@@ -47,7 +47,7 @@ build(Hash, Target, Gateways) ->
                     Acc;
                 false ->
                     G = maps:get(Addr, Gateways),
-                    Score = blockchain_ledger_gateway_v1:score(G),
+                    Score = blockchain_ledger_gateway_v1:bayes_score(G),
                     [{Score, Addr}|Acc]
             end
         end,
@@ -193,7 +193,7 @@ neighbors(Address, Gateways) ->
 %% @end
 %%--------------------------------------------------------------------
 edge_weight(Gw1, Gw2) ->
-    1 - abs(blockchain_ledger_gateway_v1:score(Gw1) -  blockchain_ledger_gateway_v1:score(Gw2)).
+    1 - abs(blockchain_ledger_gateway_v1:bayes_score(Gw1) -  blockchain_ledger_gateway_v1:bayes_score(Gw2)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -215,7 +215,7 @@ target(Hash, Ledger, Challenger) ->
 %%--------------------------------------------------------------------
 -spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
-    GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
+    GwScores = [{A, blockchain_ledger_gateway_v1:bayes_score(G)} || {A, G} <- maps:to_list(Gateways)],
     Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
     SumGwScores = lists:sum(Scores),
@@ -512,7 +512,7 @@ build_prob_test() ->
     ),
 
     ?assertEqual(Size, maps:size(Starters)),
-    
+
     maps:fold(
         fun(_, V, _) ->
             ?assert(V >= Av-(Av/10) orelse V =< Av+(Av/10))
