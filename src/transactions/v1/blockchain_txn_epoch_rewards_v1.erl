@@ -28,6 +28,8 @@
 % TODO: Make this chain vars
 -define(TOTAL_REWARD, 50000).
 -define(SECURITIES_PERCENT, 0.35).
+-define(POC_CHALLENGERS_PERCENT, 0.10).
+-define(POC_CHALLENGEES_PERCENT, 0.20).
 
 -type txn_epoch_rewards() :: #blockchain_txn_epoch_rewards_v1_pb{}.
 -export_type([txn_epoch_rewards/0]).
@@ -104,9 +106,14 @@ is_valid(_Txn, _Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_epoch_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(_Txn, Chain) ->
-    % TODO: Maybe git ledger from ledger_at here?
+absorb(Txn, Chain) ->
+    % TODO: Maybe get ledger from ledger_at here?
+    Start = ?MODULE:start_of_epoch(Txn),
+    End = ?MODULE:end_of_epoch(Txn),
+    Transactions = get_txns_for_epoch(Start, End, Chain),
     ok = securities_rewards(Chain),
+    ok = poc_challengers_rewards(Transactions, Chain),
+    ok = poc_challengees_rewards(Transactions, Chain),
     ok.
 
 %% ------------------------------------------------------------------
@@ -117,11 +124,107 @@ absorb(_Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+get_txns_for_epoch(Start, End, Chain) ->
+    get_txns_for_epoch(Start, End, Chain, []).
+    
+get_txns_for_epoch(Start, Start, _Chain, Txns) ->
+    Txns;
+get_txns_for_epoch(Start, Current, Chain, Txns) ->
+    case blockchain:get_block(Current, Chain) of
+        {error, _Reason} ->
+            lager:error("failed to get block ~p ~p", [_Reason, Current]),
+            % TODO: Should we error out here?
+            Txns;
+        {ok, Block} ->
+            PrevHash = blockchain_block:prev_hash(Block),
+            Transactions = blockchain_block:transactions(Block),
+            get_txns_for_epoch(Start, PrevHash, Chain, Txns ++ Transactions)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+poc_challengees_rewards(Transactions, Chain) ->
+    ChallengeesReward = ?TOTAL_REWARD * ?POC_CHALLENGEES_PERCENT,
+    {Challengees, TotalChallanged} = lists:foldl(
+        fun(Txn, Acc0) ->
+            case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
+                false ->
+                    Acc0;
+                true ->
+                    Path = blockchain_txn_poc_receipts_v1:path(Txn),
+                    lists:foldl(
+                        fun(Elem, {Map, Total}=Acc1) ->
+                            case blockchain_poc_path_element_v1:receipt(Elem) =/= undefined of
+                                false ->
+                                    Acc1;
+                                true ->
+                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+                                    I = maps:get(Challengee, Map, 0),
+                                    {maps:put(Challengee, I+1, Map), Total+1}
+                            end
+                        end,
+                        Acc0,
+                        Path
+                    )
+            end
+        end,
+        {#{}, 0},
+        Transactions
+    ),
+    Ledger = blockchain:ledger(Chain),
+    maps:fold(
+        fun(Challengee, Challanged, _Acc) ->
+            PercentofReward = Challanged*100/TotalChallanged,
+            Amount = PercentofReward*ChallengeesReward,
+            blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
+        end,
+        ok,
+        Challengees
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+poc_challengers_rewards(Transactions, Chain) ->
+    ChallengersReward = ?TOTAL_REWARD * ?POC_CHALLENGERS_PERCENT,
+    {Challengers, TotalChallanged} = lists:foldl(
+        fun(Txn, {Map, Total}=Acc) ->
+            case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
+                false ->
+                    Acc;
+                true ->
+                    Challenger = blockchain_txn_poc_receipts_v1:challenger(Txn),
+                    I = maps:get(Challenger, Map, 0),
+                    {maps:put(Challenger, I+1, Map), Total+1}
+            end
+        end,
+        {#{}, 0},
+        Transactions
+    ),
+    Ledger = blockchain:ledger(Chain),
+    maps:fold(
+        fun(Challenger, Challanged, _Acc) ->
+            PercentofReward = Challanged*100/TotalChallanged,
+            Amount = PercentofReward*ChallengersReward,
+            blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
+        end,
+        ok,
+        Challengers
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 securities_rewards(Blockchain) ->
-    Ledger0 = ?MODULE:ledger(Blockchain),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+    Ledger = blockchain:ledger(Blockchain),
     SecuritiesReward = ?TOTAL_REWARD * ?SECURITIES_PERCENT,
-    Securities = blockchain_ledger_v1:securities(Ledger1),
+    Securities = blockchain_ledger_v1:securities(Ledger),
     TotalSecurities = maps:fold(
         fun(_, Entry, Acc) ->
             Acc + blockchain_ledger_security_entry_v1:balance(Entry)
@@ -134,12 +237,11 @@ securities_rewards(Blockchain) ->
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = Balance*100/TotalSecurities,
             Amount = PercentofReward*SecuritiesReward,
-            blockchain_ledger_v1:credit_account(Key, Amount, Ledger1)
+            blockchain_ledger_v1:credit_account(Key, Amount, Ledger)
         end,
         ok,
         Securities
     ),
-    blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
 %% ------------------------------------------------------------------
