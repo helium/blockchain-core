@@ -25,6 +25,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+% TODO: Make this chain vars
+-define(TOTAL_REWARD, 50000).
+-define(SECURITIES_PERCENT, 0.35).
+
 -type txn_epoch_rewards() :: #blockchain_txn_epoch_rewards_v1_pb{}.
 -export_type([txn_epoch_rewards/0]).
 
@@ -100,7 +104,42 @@ is_valid(_Txn, _Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_epoch_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(_Txn, _Chain) ->
+absorb(_Txn, Chain) ->
+    % TODO: Maybe git ledger from ledger_at here?
+    ok = securities_rewards(Chain),
+    ok.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+securities_rewards(Blockchain) ->
+    Ledger0 = ?MODULE:ledger(Blockchain),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+    SecuritiesReward = ?TOTAL_REWARD * ?SECURITIES_PERCENT,
+    Securities = blockchain_ledger_v1:securities(Ledger1),
+    TotalSecurities = maps:fold(
+        fun(_, Entry, Acc) ->
+            Acc + blockchain_ledger_security_entry_v1:balance(Entry)
+        end,
+        0,
+        Securities
+    ),
+    maps:fold(
+        fun(Key, Entry, _Acc) ->
+            Balance = blockchain_ledger_security_entry_v1:balance(Entry),
+            PercentofReward = Balance*100/TotalSecurities,
+            Amount = PercentofReward*SecuritiesReward,
+            blockchain_ledger_v1:credit_account(Key, Amount, Ledger1)
+        end,
+        ok,
+        Securities
+    ),
+    blockchain_ledger_v1:commit_context(Ledger1),
     ok.
 
 %% ------------------------------------------------------------------
