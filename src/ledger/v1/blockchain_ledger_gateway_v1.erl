@@ -193,7 +193,7 @@ last_delta_update(LastDeltaUpdate, Gateway) ->
 -spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
 set_alpha_beta(Alpha, Beta, Gateway) ->
     G0 = Gateway#gateway_v1{alpha=Alpha, beta=Beta},
-    Score = ?MODULE:bayes_score(G0),
+    Score = bayes_score(G0),
     Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
@@ -205,7 +205,7 @@ set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
     G0 = Gateway#gateway_v1{alpha=Alpha,
                             beta=Beta,
                             last_delta_update=Delta},
-    Score = ?MODULE:bayes_score(G0),
+    Score = bayes_score(G0),
     Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
@@ -275,8 +275,7 @@ print(Gateway) ->
         {score, score(Gateway)},
         {alpha, alpha(Gateway)},
         {beta, beta(Gateway)},
-        {delta, last_delta_update(Gateway)},
-        {bayes_score, bayes_score(Gateway)}
+        {delta, last_delta_update(Gateway)}
     ].
 
 %%--------------------------------------------------------------------
