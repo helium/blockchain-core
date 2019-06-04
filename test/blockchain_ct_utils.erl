@@ -177,6 +177,7 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, load, [lager]),
                                 ct_rpc:call(Node, application, load, [blockchain]),
                                 ct_rpc:call(Node, application, load, [libp2p]),
+                                ct_rpc:call(Node, application, load, [erlang_stats]),
                                 %% give each node its own log directory
                                 LogRoot = "log/" ++ atom_to_list(TestCase) ++ "/" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),

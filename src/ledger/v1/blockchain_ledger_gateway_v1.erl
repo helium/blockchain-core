@@ -14,7 +14,12 @@
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
     print/1,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    alpha/1, alpha/2,
+    beta/1, beta/2,
+    last_delta_update/1, last_delta_update/2,
+    set_alpha_beta/3,
+    set_alpha_beta_delta/4
 ]).
 
 -include("blockchain.hrl").
@@ -26,7 +31,10 @@
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
-    score = 0.0 :: float(),
+    alpha = 1.0 :: float(),
+    beta = 1.0 :: float(),
+    score = 0.25 :: float(),
+    last_delta_update :: undefined | non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer()
@@ -109,6 +117,98 @@ score(Score, Gateway) ->
     Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
+%% @doc The bayes_score corresponds to the P(claim_of_location).
+%% We look at the 1st and 3rd quartile values in the beta distribution
+%% which we calculate using Alpha/Beta (shape parameters).
+%%
+%% The IQR essentially is a measure of the spread of the peak probability distribution
+%% function, it boils down to the amount of "confidence" we have in that particular value.
+%% The steeper the peak, the lower the IQR and hence the more confidence we have in that hotpot's score.
+%%
+%% Mean is the expected score without accounting for IQR. Since we _know_ that a lower IQR implies
+%% more confidence, we simply do Mean * (1 - IQR) as the eventual score.
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec bayes_score(Gateway :: gateway()) -> float().
+bayes_score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
+    RV1 = erlang_stats:qbeta(0.25, Alpha, Beta),
+    RV2 = erlang_stats:qbeta(0.75, Alpha, Beta),
+    IQR = RV2 - RV1,
+    Mean = 1 / (1 + Beta/Alpha),
+    Mean * (1 - IQR).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec alpha(Gateway :: gateway()) -> float().
+alpha(Gateway) ->
+    Gateway#gateway_v1.alpha.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec alpha(Alpha :: float(), Gateway :: gateway()) -> gateway().
+alpha(Alpha, Gateway) ->
+    Gateway#gateway_v1{alpha=Alpha}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec beta(Beta :: float(), Gateway :: gateway()) -> gateway().
+beta(Beta, Gateway) ->
+    Gateway#gateway_v1{beta=Beta}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec beta(Gateway :: gateway()) -> float().
+beta(Gateway) ->
+    Gateway#gateway_v1.beta.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_delta_update(Gateway :: gateway()) -> undefined | non_neg_integer().
+last_delta_update(Gateway) ->
+    Gateway#gateway_v1.last_delta_update.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec last_delta_update(LastDeltaUpdate :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+last_delta_update(LastDeltaUpdate, Gateway) ->
+    Gateway#gateway_v1{last_delta_update=LastDeltaUpdate}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
+set_alpha_beta(Alpha, Beta, Gateway) ->
+    G0 = Gateway#gateway_v1{alpha=Alpha, beta=Beta},
+    Score = bayes_score(G0),
+    Gateway#gateway_v1{score=Score}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
+    G0 = Gateway#gateway_v1{alpha=Alpha,
+                            beta=Beta,
+                            last_delta_update=Delta},
+    Score = bayes_score(G0),
+    Gateway#gateway_v1{score=Score}.
+
+%%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
@@ -172,7 +272,10 @@ print(Gateway) ->
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {nonce, nonce(Gateway)},
-        {score, score(Gateway)}
+        {score, score(Gateway)},
+        {alpha, alpha(Gateway)},
+        {beta, beta(Gateway)},
+        {delta, last_delta_update(Gateway)}
     ].
 
 %%--------------------------------------------------------------------
@@ -202,7 +305,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
-        score = 0.0,
+        score = 0.25,
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
@@ -222,7 +325,7 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.0, score(Gw)),
+    ?assertEqual(0.25, score(Gw)),
     ?assertEqual(1.0, score(score(1.0, Gw))).
 
 last_poc_challenge_test() ->

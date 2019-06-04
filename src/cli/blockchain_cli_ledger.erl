@@ -12,8 +12,8 @@
 -include("blockchain.hrl").
 
 register_cli() ->
-    register_all_usage()
-    ,register_all_cmds().
+    register_all_usage(),
+    register_all_cmds().
 
 register_all_usage() ->
     lists:foreach(fun(Args) ->
@@ -317,14 +317,17 @@ ledger_gateways_usage() ->
     ].
 
 ledger_gateways(_CmdBase, [], []) ->
-    Gateways = blockchain_ledger_v1:active_gateways(get_ledger()),
-    R = [format_ledger_gateway_entry(G) || G <- maps:to_list(Gateways)],
+    Ledger = get_ledger(),
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    R = [format_ledger_gateway_entry(G, Ledger) || G <- maps:to_list(Gateways)],
     [clique_status:table(R)].
 
-format_ledger_gateway_entry({GatewayAddr, Gateway}) ->
+format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:pubkey_to_b58(libp2p_crypto:bin_to_pubkey(GatewayAddr))),
+    {ok, Score} = blockchain_ledger_v1:gateway_score(GatewayAddr, Ledger),
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
-     {name, Name} |
+     {name, Name},
+     {effective_score, Score} |
      blockchain_ledger_gateway_v1:print(Gateway)].
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="

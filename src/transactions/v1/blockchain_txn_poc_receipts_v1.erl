@@ -21,7 +21,8 @@
     is_valid/2,
     absorb/2,
     create_secret_hash/2,
-    connections/1
+    connections/1,
+    deltas/1
 ]).
 
 -ifdef(TEST).
@@ -199,6 +200,63 @@ connections(Txn) ->
                                   end, blockchain_poc_path_element_v1:witnesses(PathElement)) ++ Acc
                 end, [], TaggedPaths).
 
+%%--------------------------------------------------------------------
+%% @doc Return a gateway => {alpha, beta} map after looking at a single poc rx txn.
+%% Alpha and Beta are the shaping parameters for
+%% the beta distribution curve.
+%%
+%% An increment in alpha implies that we have gained more confidence in a hotspot
+%% being active and has succesffully either been a witness or sent a receipt. The
+%% actual increment values are debatable and have been put here for testing, although
+%% they do seem to behave well.
+%%
+%% An increment in beta implies we gain confidence in a hotspot not doing it's job correctly.
+%% This should be rare and only happen when we are certain that a particular hotspot in the path
+%% has not done it's job.
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec deltas(txn_poc_receipts()) -> #{libp2p_crypto:pubkey_bin() => {float(), float()}}.
+deltas(Txn) ->
+    Path = blockchain_txn_poc_receipts_v1:path(Txn),
+    Length = length(Path),
+    lists:foldl(fun({N, Element}, Acc) ->
+                        Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                        Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                        Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                        NextElements = lists:sublist(Path, N+1, Length),
+
+                        HasContinued = lists:any(fun(E) ->
+                                                         blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
+                                                         blockchain_poc_path_element_v1:witnesses(E) /= []
+                                                 end,
+                                                 NextElements),
+
+                        Val = case {HasContinued, Receipt, Witnesses} of
+                                  {true, undefined, _} ->
+                                      %% path continued, no receipt, don't care about witnesses
+                                      {0.8, 0};
+                                  {true, Receipt, _} when Receipt /= undefined ->
+                                      %% path continued, receipt, don't care about witnesses
+                                      {1, 0};
+                                  {false, undefined, Wxs} when length(Wxs) > 0 ->
+                                      %% path broke, no receipt, witnesses
+                                      {0.9, 0};
+                                  {false, Receipt, []} when Receipt /= undefined ->
+                                      %% path broke, receipt, no witnesses
+                                      %% not enough information
+                                      {0.6, 0.4};
+                                  {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+                                      %% path broke, receipt, witnesses
+                                      {0.9, 0};
+                                  {false, _, _} ->
+                                      %% path broke, you fucked up
+                                      {0, 1}
+                              end,
+                        maps:put(Challengee, Val, Acc)
+                end,
+                #{},
+                lists:zip(lists:seq(1, Length), Path)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -213,35 +271,12 @@ absorb(Txn, Chain) ->
          {error, _}=Error ->
              Error;
          ok ->
-%             Path = ?MODULE:path(Txn),
-%             ResultsMap0 = #{},
-%             ResultsMap1 = get_witnesses_results(Path, ResultsMap0),
-%             ResultsMap2 = get_challengees_results(Path, ResultsMap1),
-%             maps:fold(
-%                 fun(K, V, _) ->
-%                     blockchain_ledger_v1:update_gateway_score(K, calculate_score(V), Ledger)
-%                 end,
-%                 ok,
-%                 ResultsMap2
-%             ),
-             ok
+             maps:fold(fun(Gateway, Delta, _Acc) ->
+                               blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
+                       end,
+                       ok,
+                       ?MODULE:deltas(Txn))
      end.
-
-
-% % TEMPORARY UPDATE / REMOVE THIS 
-% calculate_score(PoCResults) ->
-%     calculate_score(PoCResults, 0).
-
-% calculate_score([], Score) ->
-%     Score;
-% calculate_score([rxtx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 1.0);
-% calculate_score([rx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 0.5);
-% calculate_score([tx|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + 0.5);
-% calculate_score([fail|PoCResults], Score) ->
-%     calculate_score(PoCResults, Score + -1.0).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -343,78 +378,6 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
         lists:zip3(?MODULE:path(Txn), Path, lists:zip(LayerData, LayerHashes))
     ).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-% get_challengees_results(Path, ResultsMap) ->
-%     N = erlang:length(Path),
-%     ZippedPath = lists:zip(lists:seq(1, N), Path),
-%     lists:foldl(
-%         fun({I, Elem}, Acc) ->
-%             Elem1 = proplists:get_value(I+1, ZippedPath, undefined),
-%             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-%             Results = maps:get(Challengee, Acc, []),
-%             case elem_receipt(Elem) == undefined of
-%                 true ->
-%                     case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
-%                         true ->
-%                             case elem_receipt(Elem1) == undefined of
-%                                 true ->
-%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:fail()|Results], Acc);
-%                                 false ->
-%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
-%                             end;
-%                         false ->
-%                             maps:put(Challengee, [blockchain_ledger_poc_v1:tx()|Results], Acc)
-%                     end;
-%                 false ->
-%                     case  blockchain_poc_path_element_v1:witnesses(Elem) == [] of
-%                         true ->
-%                             case elem_receipt(Elem1) == undefined of
-%                                 true ->
-%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:rx()|Results], Acc);
-%                                 false ->
-%                                     maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
-%                             end;
-%                         false ->
-%                             maps:put(Challengee, [blockchain_ledger_poc_v1:rxtx()|Results], Acc)
-%                     end
-%             end
-%         end,
-%         ResultsMap,
-%         ZippedPath
-%     ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-% get_witnesses_results(Path, ResultsMap) ->
-%     lists:foldl(
-%         fun(Elem, Acc0) ->
-%             lists:foldl(
-%                 fun(Witness, Acc1) ->
-%                     G = blockchain_poc_witness_v1:gateway(Witness),
-%                     Results = maps:get(G, Acc1, []),
-%                     maps:put(G, [blockchain_ledger_poc_v1:rx()|Results], Acc1)
-%                 end,
-%                 Acc0,
-%                 blockchain_poc_path_element_v1:witnesses(Elem)
-%             )
-%         end,
-%         ResultsMap,
-%         Path
-%     ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-% elem_receipt(undefined) ->
-%     undefined;
-% elem_receipt(Elem) ->
-%     blockchain_poc_path_element_v1:receipt(Elem).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

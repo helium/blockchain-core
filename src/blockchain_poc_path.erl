@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(RESOLUTION, 9).
+-define(RESOLUTION, 8).
 -define(RING_SIZE, 2).
 % KRing of 1
 %     Scale 3.57
@@ -26,8 +26,8 @@
 
 % KRing of 2
 %     Scale 5.42
-%     Max distance 1.564 miles @ resolution 8
-%     Max distance 0.59 miles @ resolution 9 <---
+%     Max distance 1.564 miles @ resolution 8 <---
+%     Max distance 0.59 miles @ resolution 9
 
 -type graph() :: #{any() => [{number(), any()}]}.
 
@@ -215,7 +215,7 @@ target(Hash, Ledger, Challenger) ->
 %%--------------------------------------------------------------------
 -spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
-    GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
+    GwScores = [{A, prob_fun(blockchain_ledger_gateway_v1:score(G))} || {A, G} <- maps:to_list(Gateways)],
     Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
     SumGwScores = lists:sum(Scores),
@@ -302,8 +302,18 @@ select_target([{Prob1, _GwAddr1} | Tail], Rnd) ->
 -spec prob(Score :: float(),
            LenScores :: pos_integer(),
            SumScores :: float()) -> float().
-prob(Score, LenScores, SumScores) ->
-    (1.0 - Score) / (LenScores - SumScores).
+prob(Score, _LenScores, SumScores) ->
+    Score / SumScores.
+
+%%--------------------------------------------------------------------
+%% @doc An adjustment curve which favors hotspots closer to a score of 0.25,
+%% when selecting a target
+%% @end
+%%--------------------------------------------------------------------
+prob_fun(Score) when Score =< 0.25 ->
+    -16 * math:pow((Score - 0.25), 2) + 1;
+prob_fun(Score) ->
+    -1.77 * math:pow((Score - 0.25), 2) + 1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -323,7 +333,7 @@ target_test() ->
     Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
 
     lists:map(fun({Owner, Gw}) ->
-                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.0, Ledger1)
+                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.000001, Ledger1)
               end, Gateways),
     blockchain_ledger_v1:commit_context(Ledger1),
 
@@ -511,8 +521,10 @@ build_prob_test() ->
         lists:seq(1, Iteration)
     ),
 
+    io:format("Starters: ~p~n", [Starters]),
+
     ?assertEqual(Size, maps:size(Starters)),
-    
+
     maps:fold(
         fun(_, V, _) ->
             ?assert(V >= Av-(Av/10) orelse V =< Av+(Av/10))
