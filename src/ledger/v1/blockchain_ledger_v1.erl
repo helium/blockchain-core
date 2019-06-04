@@ -544,7 +544,7 @@ gateway_score(GatewayAddress, Ledger) ->
             LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
             case LastDeltaUpdate of
                 undefined ->
-                    {ok, blockchain_ledger_gateway_v1:bayes_score(Gw)};
+                    {ok, blockchain_ledger_gateway_v1:score(Gw)};
                 L ->
                     Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
                     Beta = blockchain_ledger_gateway_v1:beta(Gw),
@@ -553,7 +553,7 @@ gateway_score(GatewayAddress, Ledger) ->
                     NewAlpha = scale_shape_param(Alpha-2*decay(?ALPHA_DECAY, Height-L)),
                     NewBeta = scale_shape_param(Beta-decay(?BETA_DECAY, Height-L)),
                     NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
-                    {ok, blockchain_ledger_gateway_v1:bayes_score(NewGw)}
+                    {ok, blockchain_ledger_gateway_v1:score(NewGw)}
             end
     end.
 

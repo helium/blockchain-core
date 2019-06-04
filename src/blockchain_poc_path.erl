@@ -47,7 +47,7 @@ build(Hash, Target, Gateways) ->
                     Acc;
                 false ->
                     G = maps:get(Addr, Gateways),
-                    Score = blockchain_ledger_gateway_v1:bayes_score(G),
+                    Score = blockchain_ledger_gateway_v1:score(G),
                     [{Score, Addr}|Acc]
             end
         end,
@@ -193,7 +193,7 @@ neighbors(Address, Gateways) ->
 %% @end
 %%--------------------------------------------------------------------
 edge_weight(Gw1, Gw2) ->
-    1 - abs(blockchain_ledger_gateway_v1:bayes_score(Gw1) -  blockchain_ledger_gateway_v1:bayes_score(Gw2)).
+    1 - abs(blockchain_ledger_gateway_v1:score(Gw1) -  blockchain_ledger_gateway_v1:score(Gw2)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -215,7 +215,7 @@ target(Hash, Ledger, Challenger) ->
 %%--------------------------------------------------------------------
 -spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways) ->
-    GwScores = [{A, blockchain_ledger_gateway_v1:bayes_score(G)} || {A, G} <- maps:to_list(Gateways)],
+    GwScores = [{A, blockchain_ledger_gateway_v1:score(G)} || {A, G} <- maps:to_list(Gateways)],
     Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
     SumGwScores = lists:sum(Scores),
@@ -323,7 +323,7 @@ target_test() ->
     Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
 
     lists:map(fun({Owner, Gw}) ->
-                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.0, Ledger1)
+                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.25, Ledger1)
               end, Gateways),
     blockchain_ledger_v1:commit_context(Ledger1),
 
@@ -510,6 +510,8 @@ build_prob_test() ->
         #{},
         lists:seq(1, Iteration)
     ),
+
+    io:format("Starters: ~p~n", [Starters]),
 
     ?assertEqual(Size, maps:size(Starters)),
 

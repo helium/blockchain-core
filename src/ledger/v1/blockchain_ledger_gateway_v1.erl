@@ -9,7 +9,7 @@
     new/2, new/4,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/1, score/2, bayes_score/1,
+    score/1, score/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -33,7 +33,7 @@
     location :: undefined | pos_integer(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
-    score = 0.0 :: float(),
+    score = 0.25 :: float(),
     last_delta_update :: undefined | non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
@@ -192,7 +192,9 @@ last_delta_update(LastDeltaUpdate, Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
 set_alpha_beta(Alpha, Beta, Gateway) ->
-    Gateway#gateway_v1{alpha=Alpha, beta=Beta}.
+    G0 = Gateway#gateway_v1{alpha=Alpha, beta=Beta},
+    Score = ?MODULE:bayes_score(G0),
+    Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -200,9 +202,11 @@ set_alpha_beta(Alpha, Beta, Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v1{alpha=Alpha,
-                       beta=Beta,
-                       last_delta_update=Delta}.
+    G0 = Gateway#gateway_v1{alpha=Alpha,
+                            beta=Beta,
+                            last_delta_update=Delta},
+    Score = ?MODULE:bayes_score(G0),
+    Gateway#gateway_v1{score=Score}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -302,7 +306,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
-        score = 0.0,
+        score = 0.25,
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
@@ -322,7 +326,7 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.0, score(Gw)),
+    ?assertEqual(0.25, score(Gw)),
     ?assertEqual(1.0, score(score(1.0, Gw))).
 
 last_poc_challenge_test() ->
