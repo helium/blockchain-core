@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("../../pb/blockchain_txn_epoch_rewards_v1_pb.hrl").
+-include("pb/blockchain_txn_epoch_rewards_v1_pb.hrl").
 
 -export([
     new/2,
@@ -30,6 +30,7 @@
 -define(SECURITIES_PERCENT, 0.35).
 -define(POC_CHALLENGERS_PERCENT, 0.10).
 -define(POC_CHALLENGEES_PERCENT, 0.20).
+-define(CONSENSUS_PERCENT, 0.10).
 
 -type txn_epoch_rewards() :: #blockchain_txn_epoch_rewards_v1_pb{}.
 -export_type([txn_epoch_rewards/0]).
@@ -111,6 +112,7 @@ absorb(Txn, Chain) ->
     Start = ?MODULE:start_of_epoch(Txn),
     End = ?MODULE:end_of_epoch(Txn),
     Transactions = get_txns_for_epoch(Start, End, Chain),
+    ok = consensus_members_rewards(Txn, Chain),
     ok = securities_rewards(Chain),
     ok = poc_challengers_rewards(Transactions, Chain),
     ok = poc_challengees_rewards(Transactions, Chain),
@@ -119,6 +121,30 @@ absorb(Txn, Chain) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+consensus_members_rewards(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:consensus_members(Ledger) of
+        {error, _Reason} ->
+            lager:error("failed to get consensus_members ~p", [_Reason]);
+            % TODO: Should we error out here?
+        {ok, ConsensusMembers} ->
+            ConsensusReward = ?TOTAL_REWARD * ?CONSENSUS_PERCENT,
+            Total = erlang:length(ConsensusMembers),
+            lists:foreach(
+                fun(Member) ->
+                    PercentofReward = 100/Total,
+                    Amount = erlang:round(PercentofReward*ConsensusReward),
+                    blockchain_ledger_v1:credit_account(Member, Amount, Ledger)
+                end,
+                ConsensusMembers
+            ),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
