@@ -10,14 +10,13 @@
 -include("pb/blockchain_txn_gen_gateway_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/4,
     hash/1,
     sign/2,
     gateway/1,
     owner/1,
     location/1,
     nonce/1,
-    score/1,
     fee/1,
     is_valid/2,
     absorb/2
@@ -37,9 +36,8 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: undefined | h3:h3index(),
-          Nonce :: non_neg_integer(),
-          Score :: float()) -> txn_genesis_gateway().
-new(Gateway, Owner, Location, Nonce, Score) ->
+          Nonce :: non_neg_integer()) -> txn_genesis_gateway().
+new(Gateway, Owner, Location, Nonce) ->
     L = case Location of
             undefined -> undefined;
             _ -> h3:to_string(Location)
@@ -47,8 +45,7 @@ new(Gateway, Owner, Location, Nonce, Score) ->
     #blockchain_txn_gen_gateway_v1_pb{gateway=Gateway,
                                       owner=Owner,
                                       location=L,
-                                      nonce=Nonce,
-                                      score=Score}.
+                                      nonce=Nonce}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -101,13 +98,6 @@ location(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_gen_gateway_v1_pb.nonce.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(txn_genesis_gateway()) -> float().
-score(Txn) ->
-    Txn#blockchain_txn_gen_gateway_v1_pb.score.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -143,12 +133,10 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    Score = ?MODULE:score(Txn),
     blockchain_ledger_v1:add_gateway(Owner,
                                      Gateway,
                                      Location,
                                      Nonce,
-                                     Score,
                                      Ledger).
 
 %% ------------------------------------------------------------------
@@ -162,28 +150,23 @@ new_test() ->
     Tx = #blockchain_txn_gen_gateway_v1_pb{gateway = <<"0">>,
                                            owner = <<"1">>,
                                            location = h3:to_string(?TEST_LOCATION),
-                                           nonce=10,
-                                           score=0.8},
-    ?assertEqual(Tx, new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8)).
+                                           nonce=10},
+    ?assertEqual(Tx, new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10)).
 
 gateway_test() ->
-    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     ?assertEqual(<<"0">>, gateway(Tx)).
 
 owner_test() ->
-    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     ?assertEqual(<<"1">>, owner(Tx)).
 
 location_test() ->
-    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     ?assertEqual(?TEST_LOCATION, location(Tx)).
 
 nonce_test() ->
-    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8),
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     ?assertEqual(10, nonce(Tx)).
-
-score_test() ->
-    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10, 0.8),
-    ?assertEqual(0.8, score(Tx)).
 
 -endif.

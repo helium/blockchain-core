@@ -321,60 +321,69 @@ prob_fun(Score) ->
 -ifdef(TEST).
 
 target_test() ->
-    BaseDir = test_utils:tmp_dir("target_test"),
-    Ledger = blockchain_ledger_v1:new(BaseDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    {timeout,
+     60000,
+     fun() ->
+             io:format("Target test~n"),
+             BaseDir = test_utils:tmp_dir("target_test"),
+             io:format("BaseDir: ~p~n", [BaseDir]),
+             Ledger = blockchain_ledger_v1:new(BaseDir),
+             io:format("Ledger: ~p~n", [Ledger]),
+             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+             io:format("Ledger1: ~p~n", [Ledger1]),
 
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
-        <<"yolo">>
-    end),
+             meck:new(blockchain_swarm, [passthrough]),
+             meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+                                                               <<"yolo">>
+                                                       end),
 
-    Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
+             Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
+             io:format("Gateways: ~p~n", [Gateways]),
 
-    lists:map(fun({Owner, Gw}) ->
-                      blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, 0.000001, Ledger1)
-              end, Gateways),
-    blockchain_ledger_v1:commit_context(Ledger1),
+             lists:map(fun({Owner, Gw}) ->
+                               blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, Ledger1)
+                       end, Gateways),
+             blockchain_ledger_v1:commit_context(Ledger1),
 
-    Iterations = 10000,
-    Results = dict:to_list(lists:foldl(fun(_, Acc) ->
-                                               {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1, <<>>),
-                                               dict:update_counter(Target, 1, Acc)
-                                       end,
-                                       dict:new(),
-                                       lists:seq(1, Iterations))),
+             Iterations = 500,
+             Results = dict:to_list(lists:foldl(fun(_, Acc) ->
+                                                        {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1, <<>>),
+                                                        dict:update_counter(Target, 1, Acc)
+                                                end,
+                                                dict:new(),
+                                                lists:seq(1, Iterations))),
 
-    lists:foreach(
-        fun({_Gw, Count}) ->
-            Prob = Count/Iterations,
-            ?assert(Prob < 0.27),
-            ?assert(Prob > 0.23)
-        end,
-        Results
-    ),
+             lists:foreach(
+               fun({_Gw, Count}) ->
+                       Prob = Count/Iterations,
+                       ?assert(Prob < 0.27),
+                       ?assert(Prob > 0.23)
+               end,
+               Results
+              ),
 
-    ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm),
-    ok.
+             ?assert(meck:validate(blockchain_swarm)),
+             meck:unload(blockchain_swarm),
+             ok
+     end}.
 
 neighbors_test() ->
     LatLongs = [
-        {{37.782061, -122.446167}, 0.1}, % This should be excluded cause target
-        {{37.782604, -122.447857}, 0.99},
-        {{37.782074, -122.448528}, 0.99},
-        {{37.782002, -122.44826}, 0.99},
-        {{37.78207, -122.44613}, 0.99},
-        {{37.781909, -122.445411}, 0.99},
-        {{37.783371, -122.447879}, 0.99},
-        {{37.780827, -122.44716}, 0.99},
-        {{38.897675, -77.036530}, 0.12} % This should be excluded cause too far
+        {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
+        {{37.782604, -122.447857}, 1000.0, 0.1},
+        {{37.782074, -122.448528}, 1000.0, 0.1},
+        {{37.782002, -122.44826}, 1000.0, 0.1},
+        {{37.78207, -122.44613}, 1000.0, 0.1},
+        {{37.781909, -122.445411}, 1000.0, 0.1},
+        {{37.783371, -122.447879}, 1000.0, 0.1},
+        {{37.780827, -122.44716}, 1000.0, 0.1},
+        {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
     Neighbors = neighbors(Target, Gateways),
 
     ?assertEqual(erlang:length(maps:keys(Gateways)) - 3, erlang:length(Neighbors)),
-    {LL1, _} =  lists:last(LatLongs),
+    {LL1, _, _} = lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     lists:foreach(
         fun({_, Address}) ->
@@ -387,22 +396,22 @@ neighbors_test() ->
 
 build_graph_test() ->
     LatLongs = [
-        {{37.782061, -122.446167}, 0.1},
-        {{37.782604, -122.447857}, 0.99},
-        {{37.782074, -122.448528}, 0.99},
-        {{37.782002, -122.44826}, 0.99},
-        {{37.78207, -122.44613}, 0.99},
-        {{37.781909, -122.445411}, 0.99},
-        {{37.783371, -122.447879}, 0.99},
-        {{37.780827, -122.44716}, 0.99},
-        {{38.897675, -77.036530}, 0.12} % This should be excluded cause too far
+        {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
+        {{37.782604, -122.447857}, 1000.0, 0.1},
+        {{37.782074, -122.448528}, 1000.0, 0.1},
+        {{37.782002, -122.44826}, 1000.0, 0.1},
+        {{37.78207, -122.44613}, 1000.0, 0.1},
+        {{37.781909, -122.445411}, 1000.0, 0.1},
+        {{37.783371, -122.447879}, 1000.0, 0.1},
+        {{37.780827, -122.44716}, 1000.0, 0.1},
+        {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
     Graph = build_graph(Target, Gateways),
     ?assertEqual(8, maps:size(Graph)),
 
-    {LL1, _} = lists:last(LatLongs),
+    {LL1, _, _} = lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
     ok.
@@ -411,26 +420,26 @@ build_graph_test() ->
 build_graph_in_line_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
-        {{37.780586, -122.469471}, 0.1},
-        {{37.780959, -122.467496}, 0.99},
-        {{37.78101, -122.465372}, 0.98},
-        {{37.781179, -122.463226}, 0.97},
-        {{37.781281, -122.461038}, 0.96},
-        {{37.781349, -122.458892}, 0.95},
-        {{37.781468, -122.456617}, 0.94},
-        {{37.781637, -122.4543}, 0.93},
-        {{38.897675, -77.036530}, 0.12} % This should be excluded cause too far
+        {{37.780586, -122.469471}, 1.0, 1.0},
+        {{37.780959, -122.467496}, 1000.0, 0.1},
+        {{37.78101, -122.465372}, 1000.0, 0.1},
+        {{37.781179, -122.463226}, 1000.0, 0.1},
+        {{37.781281, -122.461038}, 1000.0, 0.1},
+        {{37.781349, -122.458892}, 1000.0, 0.1},
+        {{37.781468, -122.456617}, 1000.0, 0.1},
+        {{37.781637, -122.4543}, 1000.0, 0.1},
+        {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
     Graph = build_graph(Target, Gateways),
     ?assertEqual(8, maps:size(Graph)),
 
-    {LL1, _} = lists:last(LatLongs),
+    {LL1, _, _} = lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
 
-    Addresses = lists:droplast([crypto:hash(sha256, erlang:term_to_binary(X)) || {X, _} <- LatLongs]),
+    Addresses = lists:droplast([crypto:hash(sha256, erlang:term_to_binary(X)) || {X, _, _} <- LatLongs]),
     Size = erlang:length(Addresses),
 
     lists:foldl(
@@ -461,15 +470,15 @@ build_graph_in_line_test() ->
 build_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
-        {{37.780959, -122.467496}, 0.65},
-        {{37.78101, -122.465372}, 0.75},
-        {{37.780586, -122.469471}, 0.99},
-        {{37.781179, -122.463226}, 0.75},
-        {{37.781281, -122.461038}, 0.1},
-        {{37.781349, -122.458892}, 0.75},
-        {{37.781468, -122.456617}, 0.75},
-        {{37.781637, -122.4543}, 0.95},
-        {{38.897675, -77.036530}, 0.12} % This should be excluded cause too far
+        {{37.780959, -122.467496}, 200.0, 10.0},
+        {{37.78101, -122.465372}, 300.0, 10.0},
+        {{37.780586, -122.469471}, 1000.0, 10.0},
+        {{37.781179, -122.463226}, 1000.0, 500.0},
+        {{37.781281, -122.461038}, 10.0, 1000.0},
+        {{37.781349, -122.458892}, 100.0, 50.0},
+        {{37.781468, -122.456617}, 100.0, 40.0},
+        {{37.781637, -122.4543}, 1000.0, 20.0},
+        {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
@@ -483,9 +492,9 @@ build_test() ->
 build_only_2_test() ->
     % All these point are in a line one after the other
     LatLongs = [
-        {{37.780959, -122.467496}, 0.90},
-        {{37.78101, -122.465372}, 0.1},
-        {{37.780586, -122.469471}, 0.90}
+        {{37.780959, -122.467496}, 1000.0, 100.0},
+        {{37.78101, -122.465372}, 10.0, 1000.0},
+        {{37.780586, -122.469471}, 100.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
@@ -496,50 +505,54 @@ build_only_2_test() ->
     ?assertNotEqual(Target, lists:last(Path)),
     ok.
 
-build_prob_test() ->
-    LatLongs = [
-        {{37.780586, -122.469471}, 0.0},
-        {{37.780959, -122.467496}, 0.0},
-        {{37.78101, -122.465372}, 0.0},
-        {{37.78102, -122.465372}, 0.0},
-        {{37.78103, -122.465372}, 0.0},
-        {{37.78104, -122.465372}, 0.0}
-    ],
-    {Target, Gateways} = build_gateways(LatLongs),
+build_prob_test_() ->
+    {timeout,
+     60000,
+     fun() ->
+             LatLongs = [
+                         {{37.780586, -122.469471}, 1.0, 1.0},
+                         {{37.780959, -122.467496}, 1.0, 1.0},
+                         {{37.78101, -122.465372}, 1.0, 1.0},
+                         {{37.78102, -122.465372}, 1.0, 1.0},
+                         {{37.78103, -122.465372}, 1.0, 1.0},
+                         {{37.78104, -122.465372}, 1.0, 1.0}
+                        ],
+             {Target, Gateways} = build_gateways(LatLongs),
 
-    Iteration = 1000,
-    Size = erlang:length(LatLongs)-1,
-    Av = Iteration / Size,
+             Iteration = 1000,
+             Size = erlang:length(LatLongs)-1,
+             Av = Iteration / Size,
 
-    Starters = lists:foldl(
-        fun(_, Acc) ->
-            {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways),
-            V = maps:get(P1, Acc, 0),
-            maps:put(P1, V+1, Acc)
-        end,
-        #{},
-        lists:seq(1, Iteration)
-    ),
+             Starters = lists:foldl(
+                          fun(_, Acc) ->
+                                  {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways),
+                                  V = maps:get(P1, Acc, 0),
+                                  maps:put(P1, V+1, Acc)
+                          end,
+                          #{},
+                          lists:seq(1, Iteration)
+                         ),
 
-    io:format("Starters: ~p~n", [Starters]),
+             io:format("Starters: ~p~n", [Starters]),
 
-    ?assertEqual(Size, maps:size(Starters)),
+             ?assertEqual(Size, maps:size(Starters)),
 
-    maps:fold(
-        fun(_, V, _) ->
-            ?assert(V >= Av-(Av/10) orelse V =< Av+(Av/10))
-        end,
-        ok,
-        Starters
-    ),
-    ok.
+             maps:fold(
+               fun(_, V, _) ->
+                       ?assert(V >= Av-(Av/10) orelse V =< Av+(Av/10))
+               end,
+               ok,
+               Starters
+              ),
+             ok
+     end}.
 
 build_failed_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
-        {{37.780959, -122.467496}, 0.90},
-        {{37.78101, -122.465372}, 0.1},
-        {{12.780586, -122.469471}, 0.90}
+        {{37.780959, -122.467496}, 1000.0, 10.0},
+        {{37.78101, -122.465372}, 10.0, 1000.0},
+        {{12.780586, -122.469471}, 1000.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways)),
@@ -548,15 +561,15 @@ build_failed_test() ->
 build_with_zero_score_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
-        {{37.780586, -122.469471}, 0.0},
-        {{37.780959, -122.467496}, 0.0},
-        {{37.78101, -122.465372}, 0.0},
-        {{37.781179, -122.463226}, 0.0},
-        {{37.781281, -122.461038}, 0.0},
-        {{37.781349, -122.458892}, 0.0},
-        {{37.781468, -122.456617}, 0.0},
-        {{37.781637, -122.4543}, 0.0},
-        {{38.897675, -77.036530}, 0.0} % This should be excluded cause too far
+        {{37.780586, -122.469471}, 1.0, 1.0},
+        {{37.780959, -122.467496}, 1.0, 1.0},
+        {{37.78101, -122.465372}, 1.0, 1.0},
+        {{37.781179, -122.463226}, 1.0, 1.0},
+        {{37.781281, -122.461038}, 1.0, 1.0},
+        {{37.781349, -122.458892}, 1.0, 1.0},
+        {{37.781468, -122.456617}, 1.0, 1.0},
+        {{37.781637, -122.4543}, 1.0, 1.0},
+        {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
@@ -566,12 +579,12 @@ build_with_zero_score_test() ->
 build_with_zero_score_2_test() ->
     % All these point are together
     LatLongs = [
-        {{48.854918, 2.345903}, 0},
-        {{48.854918, 2.345902}, 0},
-        {{48.852969, 2.349872}, 0},
-        {{48.855425, 2.344980}, 0},
-        {{48.854127, 2.344637}, 0},
-        {{48.855228, 2.347126}, 0}
+        {{48.854918, 2.345903}, 1.0, 1.0},
+        {{48.854918, 2.345902}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
@@ -583,12 +596,12 @@ build_with_zero_score_2_test() ->
 active_gateways_test() ->
     % 2 First points are grouped together and next ones form a group also
     LatLongs = [
-        {{48.858391, 2.294469}, 1.1},
-        {{48.856696, 2.293997}, 1.2},
-        {{48.852969, 2.349872}, 2.1},
-        {{48.855425, 2.344980}, 2.2},
-        {{48.854127, 2.344637}, 2.3},
-        {{48.855228, 2.347126}, 2.4}
+        {{48.858391, 2.294469}, 1.0, 1.0},
+        {{48.856696, 2.293997}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
     ],
     {_Target0, Gateways} = build_gateways(LatLongs),
 
@@ -597,7 +610,7 @@ active_gateways_test() ->
         Gateways
     end),
 
-    [{LL0, _}, {LL1, _}, {LL2, _}|_] = LatLongs,
+    [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
     ActiveGateways = active_gateways(fake_ledger, Challenger),
 
@@ -612,20 +625,20 @@ active_gateways_test() ->
 
 build_gateways(LatLongs) ->
     Gateways = lists:foldl(
-        fun({LatLong, Score}, Acc) ->
+        fun({LatLong, Alpha, Beta}, Acc) ->
             Owner = <<"test">>,
             Address = crypto:hash(sha256, erlang:term_to_binary(LatLong)),
             Res = rand:uniform(7) + 8,
             Index = h3:from_geo(LatLong, Res),
             G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
-            G1 = blockchain_ledger_gateway_v1:score(Score, G0),
+            G1 = blockchain_ledger_gateway_v1:set_alpha_beta(Alpha, Beta, G0),
             maps:put(Address, G1, Acc)
 
         end,
         maps:new(),
         LatLongs
     ),
-    [{LL, _}|_] = LatLongs,
+    [{LL, _, _}|_] = LatLongs,
     Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
     {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
 

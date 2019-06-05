@@ -22,7 +22,7 @@
     htlcs/1,
 
     find_gateway_info/2,
-    add_gateway/3, add_gateway/6,
+    add_gateway/3, add_gateway/5,
     add_gateway_location/4,
 
     update_gateway_score/3, gateway_score/2,
@@ -442,23 +442,22 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
                   Nonce :: non_neg_integer(),
-                  Score :: float(),
                   Ledger :: ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr,
             GatewayAddress,
             Location,
             Nonce,
-            Score,
             Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
+            {ok, Height} = ?MODULE:current_height(Ledger),
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
                                                        Location,
-                                                       Nonce,
-                                                       Score),
-            Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
+                                                       Nonce),
+            NewGw = blockchain_ledger_gateway_v1:last_delta_update(Height, Gateway),
+            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
@@ -473,14 +472,18 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
         {error, _} ->
             {error, no_active_gateway};
         {ok, Gw} ->
+            {ok, Height} = ?MODULE:current_height(Ledger),
             NewGw = case blockchain_ledger_gateway_v1:location(Gw) of
                 undefined ->
                     Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                    blockchain_ledger_gateway_v1:nonce(Nonce, Gw1);
+                    Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
+                    blockchain_ledger_gateway_v1:last_delta_update(Height, Gw2);
                 _Loc ->
-                    %%XXX: this gw already had a location asserted, do something about it here
+                    %% XXX: this gw already had a location asserted, do something about it here
                     Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                    blockchain_ledger_gateway_v1:nonce(Nonce, Gw1)
+                    Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
+                    %% If the hotspot moved, reset alpha/beta
+                    blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gw2)
             end,
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
@@ -509,22 +512,12 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            LastDeltaUpdate0 = blockchain_ledger_gateway_v1:last_delta_update(Gw),
-            Alpha0 = blockchain_ledger_gateway_v1:alpha(Gw),
-            Beta0 = blockchain_ledger_gateway_v1:beta(Gw),
-
-            NewGw = case {LastDeltaUpdate0, Alpha0, Beta0} of
-                        {undefined, A, B} ->
-                            NewGw0 = blockchain_ledger_gateway_v1:last_delta_update(Height, Gw),
-                            NewGw1 = blockchain_ledger_gateway_v1:alpha(A+Alpha, NewGw0),
-                            blockchain_ledger_gateway_v1:beta(B+Beta, NewGw1);
-                        {L, A, B} ->
-                            %% Decay both with the same constant
-                            NewAlpha = scale_shape_param(A+Alpha-decay(?ALPHA_DECAY, Height-L)),
-                            NewBeta = scale_shape_param(B+Beta-decay(?ALPHA_DECAY, Height-L)),
-                            blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw)
-                    end,
-
+            LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
+            Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
+            Beta = blockchain_ledger_gateway_v1:beta(Gw),
+            NewAlpha = scale_shape_param(Alpha-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
+            NewBeta = scale_shape_param(Beta-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
+            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw),
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
@@ -542,19 +535,14 @@ gateway_score(GatewayAddress, Ledger) ->
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
-            case LastDeltaUpdate of
-                undefined ->
-                    {ok, blockchain_ledger_gateway_v1:score(Gw)};
-                L ->
-                    Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
-                    Beta = blockchain_ledger_gateway_v1:beta(Gw),
-                    %% Decrement alpha twice as fast as beta
-                    %% and a _much_ slower decay for beta
-                    NewAlpha = scale_shape_param(Alpha-2*decay(?ALPHA_DECAY, Height-L)),
-                    NewBeta = scale_shape_param(Beta-decay(?BETA_DECAY, Height-L)),
-                    NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
-                    {ok, blockchain_ledger_gateway_v1:score(NewGw)}
-            end
+            Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
+            Beta = blockchain_ledger_gateway_v1:beta(Gw),
+            %% Decrement alpha twice as fast as beta
+            %% and a _much_ slower decay for beta
+            NewAlpha = scale_shape_param(Alpha-2*decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
+            NewBeta = scale_shape_param(Beta-decay(?BETA_DECAY, Height-LastDeltaUpdate)),
+            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
+            {ok, blockchain_ledger_gateway_v1:score(NewGw)}
     end.
 
 %%--------------------------------------------------------------------
@@ -1414,7 +1402,6 @@ poc_test() ->
     OwnerAddr = <<"owner_address">>,
     Location = 123456789,
     Nonce = 1,
-    Score = 0.1,
 
     SecretHash = <<"secret_hash">>,
 
@@ -1422,8 +1409,8 @@ poc_test() ->
 
     commit(
         fun(L) ->
-            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, Score, L),
-            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, Score, L),
+            ok = add_gateway(OwnerAddr, Challenger0, Location, Nonce, L),
+            ok = add_gateway(OwnerAddr, Challenger1, Location, Nonce, L),
             ok = request_poc(OnionKeyHash0, SecretHash, Challenger0, L)
         end,
         Ledger

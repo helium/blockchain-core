@@ -6,10 +6,10 @@
 -module(blockchain_ledger_gateway_v1).
 
 -export([
-    new/2, new/4,
+    new/2, new/3,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/1, score/2,
+    score/1,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -33,8 +33,7 @@
     location :: undefined | pos_integer(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
-    score = 0.25 :: float(),
-    last_delta_update :: undefined | non_neg_integer(),
+    last_delta_update :: non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer()
@@ -52,19 +51,19 @@
 new(OwnerAddress, Location) ->
     #gateway_v1{
         owner_address=OwnerAddress,
-        location=Location
+        location=Location,
+        last_delta_update=1
     }.
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined,
-          Nonce :: non_neg_integer(),
-          Score :: float()) -> gateway().
-new(OwnerAddress, Location, Nonce, Score) ->
+          Nonce :: non_neg_integer()) -> gateway().
+new(OwnerAddress, Location, Nonce) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location,
-        score=Score,
-        nonce=Nonce
+        nonce=Nonce,
+        last_delta_update=1
     }.
 
 %%--------------------------------------------------------------------
@@ -101,23 +100,7 @@ location(Location, Gateway) ->
     Gateway#gateway_v1{location=Location}.
 
 %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(Gateway :: gateway()) -> float().
-score(Gateway) ->
-    Gateway#gateway_v1.score.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec score(Score :: float(), Gateway :: gateway()) -> gateway().
-score(Score, Gateway) ->
-    Gateway#gateway_v1{score=Score}.
-
-%%--------------------------------------------------------------------
-%% @doc The bayes_score corresponds to the P(claim_of_location).
+%% @doc The score corresponds to the P(claim_of_location).
 %% We look at the 1st and 3rd quartile values in the beta distribution
 %% which we calculate using Alpha/Beta (shape parameters).
 %%
@@ -130,8 +113,8 @@ score(Score, Gateway) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec bayes_score(Gateway :: gateway()) -> float().
-bayes_score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
+-spec score(Gateway :: gateway()) -> float().
+score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
     RV1 = erlang_stats:qbeta(0.25, Alpha, Beta),
     RV2 = erlang_stats:qbeta(0.75, Alpha, Beta),
     IQR = RV2 - RV1,
@@ -192,9 +175,7 @@ last_delta_update(LastDeltaUpdate, Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
 set_alpha_beta(Alpha, Beta, Gateway) ->
-    G0 = Gateway#gateway_v1{alpha=Alpha, beta=Beta},
-    Score = bayes_score(G0),
-    Gateway#gateway_v1{score=Score}.
+    Gateway#gateway_v1{alpha=Alpha, beta=Beta}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -202,11 +183,9 @@ set_alpha_beta(Alpha, Beta, Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    G0 = Gateway#gateway_v1{alpha=Alpha,
-                            beta=Beta,
-                            last_delta_update=Delta},
-    Score = bayes_score(G0),
-    Gateway#gateway_v1{score=Score}.
+    Gateway#gateway_v1{alpha=Alpha,
+                       beta=Beta,
+                       last_delta_update=Delta}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -305,11 +284,11 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 new_test() ->
     Gw = #gateway_v1{
         owner_address = <<"owner_address">>,
-        score = 0.25,
         location = 12,
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
-        nonce = 0
+        nonce = 0,
+        last_delta_update=1
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -325,8 +304,7 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.25, score(Gw)),
-    ?assertEqual(1.0, score(score(1.0, Gw))).
+    ?assertEqual(0.25000000000000006, score(Gw)).
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
