@@ -615,8 +615,7 @@ export_test(Config) ->
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,?TEST_LOCATION},
-                   {nonce,1},
-                   {score,0.25000000000000006}]], Gateways),
+                   {nonce,1}]], Gateways),
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
                                                    AccontAddress = proplists:get_value(address, Account),

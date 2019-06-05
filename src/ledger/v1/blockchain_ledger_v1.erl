@@ -506,17 +506,17 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 -spec update_gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(),
                            {Alpha :: float(), Beta :: float()},
                            Ledger :: ledger()) -> ok | {error, any()}.
-update_gateway_score(GatewayAddress, {Alpha, Beta}=_Delta, Ledger) ->
+update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
-            Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
-            Beta = blockchain_ledger_gateway_v1:beta(Gw),
-            NewAlpha = scale_shape_param(Alpha-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
-            NewBeta = scale_shape_param(Beta-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
+            Alpha0 = blockchain_ledger_gateway_v1:alpha(Gw),
+            Beta0 = blockchain_ledger_gateway_v1:beta(Gw),
+            NewAlpha = scale_shape_param(Alpha0+Alpha-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
+            NewBeta = scale_shape_param(Beta0+Beta-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
             NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw),
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
