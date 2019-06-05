@@ -13,7 +13,7 @@
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
-    print/1,
+    print/2,
     serialize/1, deserialize/1,
     alpha/1, alpha/2,
     beta/1, beta/2,
@@ -239,13 +239,14 @@ nonce(Nonce, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec print(Gateway :: gateway()) -> list().
-print(Gateway) ->
+-spec print(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
+print(Gateway, Ledger) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
     UndefinedHandleFunc =
         fun(undefined) -> "undefined";
            (I) -> I
         end,
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     [
         {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
@@ -254,7 +255,7 @@ print(Gateway) ->
         {score, score(Gateway)},
         {alpha, alpha(Gateway)},
         {beta, beta(Gateway)},
-        {delta, last_delta_update(Gateway)}
+        {delta, Height - last_delta_update(Gateway)}
     ].
 
 %%--------------------------------------------------------------------
