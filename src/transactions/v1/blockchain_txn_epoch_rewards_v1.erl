@@ -91,7 +91,7 @@ fee(_Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_epoch_rewards(), libp2p_crypto:sig_fun()) -> txn_epoch_rewards().
 sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_epoch_rewards_v1_pb:encode_msg(Txn),
+    EncodedTxn = blockchain_txn_epoch_rewards_v1_pb:encode_msg(Txn#blockchain_txn_epoch_rewards_v1_pb{signature = <<>>}),
     Txn#blockchain_txn_epoch_rewards_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
@@ -100,6 +100,7 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_epoch_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(_Txn, _Chain) ->
+    % TODO: Check if start and end are ok
     ok.
 
 %%--------------------------------------------------------------------
@@ -111,6 +112,7 @@ absorb(Txn, Chain) ->
     % TODO: Maybe get ledger from ledger_at here?
     Start = ?MODULE:start_of_epoch(Txn),
     End = ?MODULE:end_of_epoch(Txn),
+    lager:info("calculating reward start at ~p ending at ~p", [Start, End]),
     Transactions = get_txns_for_epoch(Start, End, Chain),
     ok = consensus_members_rewards(Txn, Chain),
     ok = securities_rewards(Chain),
@@ -137,7 +139,7 @@ consensus_members_rewards(_Txn, Chain) ->
             Total = erlang:length(ConsensusMembers),
             lists:foreach(
                 fun(Member) ->
-                    PercentofReward = 100/Total,
+                    PercentofReward = Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
                     blockchain_ledger_v1:credit_account(Member, Amount, Ledger)
                 end,

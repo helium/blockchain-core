@@ -22,7 +22,8 @@
     security_token_test/1,
     routing_test/1,
     block_save_failed_test/1,
-    absorb_failed_test/1
+    absorb_failed_test/1,
+    epoch_reward_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -51,7 +52,8 @@ all() ->
         security_token_test,
         routing_test,
         block_save_failed_test,
-        absorb_failed_test
+        absorb_failed_test,
+        epoch_reward_test
     ].
 
 %%--------------------------------------------------------------------
@@ -972,3 +974,44 @@ absorb_failed_test(Config) ->
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
+
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+epoch_reward_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    [_, {PubKeyBin, {_, PrivKey, _}}|_] = ConsensusMembers,
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+
+    % Add 100 txns with 1 fee each
+    Blocks = lists:reverse(lists:foldl(
+        fun(_X, Acc) ->
+            B = test_utils:create_block(ConsensusMembers, []),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+            [B|Acc]
+        end,
+        [],
+        lists:seq(1, 30)
+    )),
+
+
+    Start = blockchain_block:hash_block(lists:nth(2, Blocks)),
+    End = blockchain_block:hash_block(lists:nth(29, Blocks)),
+    Tx = blockchain_txn_epoch_rewards_v1:new(Start, End),
+    SignedTx = blockchain_txn_epoch_rewards_v1:sign(Tx, SigFun),
+    B = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+
+    Ledger = blockchain:ledger(Chain),
+    ct:pal("MARKER ~p", [blockchain_ledger_v1:find_entry(PubKeyBin, Ledger)]),
+
+    ?assert(false).
