@@ -49,8 +49,7 @@ export_gateways(Ledger) ->
             [[{gateway_address, libp2p_crypto:bin_to_b58(GatewayAddress)},
               {owner_address, libp2p_crypto:bin_to_b58(blockchain_ledger_gateway_v1:owner_address(Gateway))},
               {location, blockchain_ledger_gateway_v1:location(Gateway)},
-              {nonce, blockchain_ledger_gateway_v1:nonce(Gateway)},
-              {score, blockchain_ledger_gateway_v1:score(Gateway)}] | Acc]
+              {nonce, blockchain_ledger_gateway_v1:nonce(Gateway)}] | Acc]
         end,
         [],
         maps:to_list(blockchain_ledger_v1:active_gateways(Ledger))
