@@ -31,6 +31,8 @@
 
 -type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
 
+-define(MAX_CHALLENGE_HEIGHT, 30).
+
 -export_type([txn_poc_receipts/0]).
 
 %%--------------------------------------------------------------------
@@ -129,6 +131,8 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
+    {ok, Height} = blockchain:height(Chain),
+    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
@@ -137,7 +141,7 @@ is_valid(Txn, Chain) ->
                 true ->
                     {error, empty_path};
                 false ->
-                    case blockchain_ledger_v1:find_poc(?MODULE:onion_key_hash(Txn), Ledger) of
+                    case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
                         {error, _}=Error ->
                             Error;
                         {ok, PoCs} ->
@@ -155,18 +159,33 @@ is_valid(Txn, Chain) ->
                                                 {error, _}=Error ->
                                                     Error;
                                                 {ok, Block1} ->
-                                                    BlockHash = blockchain_block:hash_block(Block1),
-                                                    Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
-                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
-                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
-                                                    {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways),
-                                                    N = erlang:length(Path),
-                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
-                                                    %% no witness will exist with the first layer hash
-                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                    case LastChallenge =< Height - ?MAX_CHALLENGE_HEIGHT of
+                                                        false ->
+                                                            {error, challenge_too_old};
+                                                        true ->
+
+                                                            case lists:any(fun(T) ->
+                                                                                   blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                                                                                   blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash
+                                                                           end,
+                                                                           blockchain_block:transactions(Block1)) of
+                                                                false ->
+                                                                    {error, onion_key_hash_mismatch};
+                                                                true ->
+                                                                    BlockHash = blockchain_block:hash_block(Block1),
+                                                                    Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
+                                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
+                                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
+                                                                    {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways),
+                                                                    N = erlang:length(Path),
+                                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList),
+                                                                    %% no witness will exist with the first layer hash
+                                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                            end
+                                                    end
                                             end
                                     end
                             end
