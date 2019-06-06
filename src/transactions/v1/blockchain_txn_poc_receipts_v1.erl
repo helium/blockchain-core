@@ -159,7 +159,7 @@ is_valid(Txn, Chain) ->
                                                 {error, _}=Error ->
                                                     Error;
                                                 {ok, Block1} ->
-                                                    case LastChallenge =< Height - ?MAX_CHALLENGE_HEIGHT of
+                                                    case LastChallenge + ?MAX_CHALLENGE_HEIGHT >= Height of
                                                         false ->
                                                             {error, challenge_too_old};
                                                         true ->
