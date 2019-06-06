@@ -327,7 +327,7 @@ format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger) ->
     {ok, Score} = blockchain_ledger_v1:gateway_score(GatewayAddr, Ledger),
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
      {name, Name},
-     {score, Score} |
+     {effective_score, Score} |
      blockchain_ledger_gateway_v1:print(Gateway, Ledger)].
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
