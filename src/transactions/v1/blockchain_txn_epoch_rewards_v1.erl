@@ -28,8 +28,9 @@
 % TODO: Make this chain vars
 -define(TOTAL_REWARD, 50000).
 -define(SECURITIES_PERCENT, 0.35).
--define(POC_CHALLENGERS_PERCENT, 0.10).
--define(POC_CHALLENGEES_PERCENT, 0.20).
+-define(POC_CHALLENGERS_PERCENT, 0.09).
+-define(POC_CHALLENGEES_PERCENT, 0.19).
+-define(POC_WITNESSES_PERCENT, 0.02).
 -define(CONSENSUS_PERCENT, 0.10).
 
 -type txn_epoch_rewards() :: #blockchain_txn_epoch_rewards_v1_pb{}.
