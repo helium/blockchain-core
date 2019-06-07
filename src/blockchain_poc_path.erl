@@ -193,7 +193,7 @@ neighbors(Address, Gateways) ->
 %% @end
 %%--------------------------------------------------------------------
 edge_weight(Gw1, Gw2) ->
-    1 - abs(blockchain_ledger_gateway_v1:score(Gw1) -  blockchain_ledger_gateway_v1:score(Gw2)).
+    1 - abs(prob_fun(blockchain_ledger_gateway_v1:score(Gw1)) -  prob_fun(blockchain_ledger_gateway_v1:score(Gw2))).
 
 %%--------------------------------------------------------------------
 %% @doc
