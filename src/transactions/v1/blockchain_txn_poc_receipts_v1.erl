@@ -464,4 +464,11 @@ create_secret_hash_test() ->
     ),
     ok.
 
+ensure_unique_layer_test() ->
+    Secret = crypto:strong_rand_bytes(8),
+    Members = create_secret_hash(Secret, 10),
+    ?assertEqual(10, erlang:length(Members)),
+    ?assertEqual(10, sets:size(sets:from_list(Members))),
+    ok.
+
 -endif.
