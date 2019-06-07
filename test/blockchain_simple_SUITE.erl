@@ -1015,4 +1015,5 @@ epoch_reward_test(Config) ->
 
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
+    % 5k base tokens + 1591 for consensus_members_rewards + 455 for securities_rewards
     ?assertEqual(7046, blockchain_ledger_entry_v1:balance(Entry)).
