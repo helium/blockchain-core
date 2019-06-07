@@ -313,8 +313,8 @@ create_secret_hash(Secret, X, []) ->
     <<Hash:4/binary, _/binary>> = Bin,
     create_secret_hash(Bin, X-1, [Hash]);
 create_secret_hash(Secret, X, Acc) ->
-    <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
-    create_secret_hash(Secret, X-1, [Hash|Acc]).
+    Bin = <<Hash:4/binary, _/binary>> = crypto:hash(sha256, Secret),
+    create_secret_hash(Bin, X-1, [Hash|Acc]).
 
 %% @doc Validate the proof of coverage receipt path.
 %%

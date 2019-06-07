@@ -61,7 +61,9 @@ decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binar
 %% The packets are encrypted for each layer's public key using an ECDH exchange with the private key of the ephemeral onion key.
 %% All the layer data should be the same size. The general overhead of the packet is 33+2 + (5 * LayerCount) in addition to the size of all the
 %% layer data fields. The IV should be a random 16 bit number. The IV will change for each layer (although this is not strictly necessary).
--spec build(OnionKey :: libp2p_crypto:key_map(), IV :: non_neg_integer(), KeysAndData :: [{libp2p_crypto:pubkey(), binary()}, ...]) -> {OuterLayer :: binary(), Layers :: [binary()]}.
+-spec build(OnionKey :: libp2p_crypto:key_map(),
+            IV :: non_neg_integer(),
+            KeysAndData :: [{libp2p_crypto:pubkey(), binary()}, ...]) -> {OuterLayer :: binary(), Layers :: [binary()]}.
 build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData) ->
     ECDHFun = libp2p_crypto:mk_ecdh_fun(OnionPrivKey),
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(OnionPubKey),
