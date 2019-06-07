@@ -239,43 +239,54 @@ connections(Txn) ->
 deltas(Txn) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
-    lists:foldl(fun({N, Element}, Acc) ->
-                        Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                        Receipt = blockchain_poc_path_element_v1:receipt(Element),
-                        Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-                        NextElements = lists:sublist(Path, N+1, Length),
+    element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
+                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                   Receipt = blockchain_poc_path_element_v1:receipt(Element),
+                                   Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                                   NextElements = lists:sublist(Path, N+1, Length),
 
-                        HasContinued = lists:any(fun(E) ->
-                                                         blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
-                                                         blockchain_poc_path_element_v1:witnesses(E) /= []
-                                                 end,
-                                                 NextElements),
+                                   HasContinued = lists:any(fun(E) ->
+                                                                    blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
+                                                                    blockchain_poc_path_element_v1:witnesses(E) /= []
+                                                            end,
+                                                            NextElements),
 
-                        Val = case {HasContinued, Receipt, Witnesses} of
-                                  {true, undefined, _} ->
-                                      %% path continued, no receipt, don't care about witnesses
-                                      {0.8, 0};
-                                  {true, Receipt, _} when Receipt /= undefined ->
-                                      %% path continued, receipt, don't care about witnesses
-                                      {1, 0};
-                                  {false, undefined, Wxs} when length(Wxs) > 0 ->
-                                      %% path broke, no receipt, witnesses
-                                      {0.9, 0};
-                                  {false, Receipt, []} when Receipt /= undefined ->
-                                      %% path broke, receipt, no witnesses
-                                      %% not enough information
-                                      {0.6, 0.4};
-                                  {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
-                                      %% path broke, receipt, witnesses
-                                      {0.9, 0};
-                                  {false, _, _} ->
-                                      %% path broke, you fucked up
-                                      {0, 1}
-                              end,
-                        maps:put(Challengee, Val, Acc)
-                end,
-                #{},
-                lists:zip(lists:seq(1, Length), Path)).
+                                   {Val, Continue} = case {HasContinued, Receipt, Witnesses} of
+                                                         {true, undefined, _} ->
+                                                             %% path continued, no receipt, don't care about witnesses
+                                                             {{0.8, 0}, true};
+                                                         {true, Receipt, _} when Receipt /= undefined ->
+                                                             %% path continued, receipt, don't care about witnesses
+                                                             {{1, 0}, true};
+                                                         {false, undefined, Wxs} when length(Wxs) > 0 ->
+                                                             %% path broke, no receipt, witnesses
+                                                             {{0.9, 0}, true};
+                                                         {false, Receipt, []} when Receipt /= undefined ->
+                                                             %% path broke, receipt, no witnesses
+                                                             case blockchain_poc_receipt_v1:origin(Receipt) of
+                                                                 p2p ->
+                                                                     %% you really did nothing here other than be online
+                                                                     {{0, 0}, false};
+                                                                 radio ->
+                                                                     %% not enough information to decide who screwed up
+                                                                     %% but you did receive a packet over the radio, so you
+                                                                     %% get partial credit
+                                                                     {{0.2, 0}, false}
+                                                             end;
+                                                         {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+                                                             %% path broke, receipt, witnesses
+                                                             %% likely the next hop broke the path
+                                                             {{0.9, 0}, true};
+                                                         {false, _, _} ->
+                                                             %% path broke, you killed it
+                                                             {{0, 1}, false}
+                                                     end,
+                                   {maps:put(Challengee, Val, Acc), Continue};
+                              (_, Acc) ->
+                                   Acc
+                           end,
+                           {#{}, true},
+                           lists:zip(lists:seq(1, Length), Path))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -470,5 +481,60 @@ ensure_unique_layer_test() ->
     ?assertEqual(10, erlang:length(Members)),
     ?assertEqual(10, sets:size(sets:from_list(Members))),
     ok.
+
+delta_test() ->
+    Txn1 = {blockchain_txn_poc_receipts_v1_pb,<<"a">>,<<"b">>,<<"c">>,
+                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
+                                                                       {blockchain_poc_receipt_v1_pb,<<"d">>,
+                                                                                                     123,0,<<"e">>,p2p,
+                                                                                                     <<"f">>},
+                                                                       [{blockchain_poc_witness_v1_pb,<<"g">>,
+                                                                                                      456,-100,
+                                                                                                      <<"h">>,
+                                                                                                      <<"i">>},
+                                                                        {blockchain_poc_witness_v1_pb,<<"j">>,
+                                                                                                      789,-114,
+                                                                                                      <<"k">>,
+                                                                                                      <<"l">>}]},
+                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"m">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"n">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"i">>,
+                                                                       undefined,[]}],
+                                   0,
+                                   <<"impala">>},
+    Deltas1 = deltas(Txn1),
+    ?assertEqual(2, maps:size(Deltas1)),
+    ?assertEqual({0.9, 0}, maps:get(<<"first">>, Deltas1)),
+    ?assertEqual({0, 1}, maps:get(<<"second">>, Deltas1)),
+
+    Txn2 = {blockchain_txn_poc_receipts_v1_pb,<<"foo">>,
+                                   <<"bar">>,
+                                   <<"baz">>,
+                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
+                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
+                                                                                                     123,0,
+                                                                                                     <<1,2,3,4>>,
+                                                                                                     p2p,
+                                                                                                     <<"b">>},
+                                                                       []},
+                                    {blockchain_poc_path_element_v1_pb,<<"c">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"d">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"e">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"f">>,
+                                                                       undefined,[]}],
+                                   0,
+                                   <<"g">>},
+    Deltas2 = deltas(Txn2),
+    ?assertEqual(1, maps:size(Deltas2)),
+    ?assertEqual({0, 0}, maps:get(<<"first">>, Deltas2)),
+    ok.
+
 
 -endif.
