@@ -128,30 +128,6 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-consensus_members_rewards(_Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:consensus_members(Ledger) of
-        {error, _Reason} ->
-            lager:error("failed to get consensus_members ~p", [_Reason]);
-            % TODO: Should we error out here?
-        {ok, ConsensusMembers} ->
-            ConsensusReward = ?TOTAL_REWARD * ?CONSENSUS_PERCENT,
-            Total = erlang:length(ConsensusMembers),
-            lists:foreach(
-                fun(Member) ->
-                    PercentofReward = Total/100,
-                    Amount = erlang:round(PercentofReward*ConsensusReward),
-                    blockchain_ledger_v1:credit_account(Member, Amount, Ledger)
-                end,
-                ConsensusMembers
-            ),
-            ok
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 get_txns_for_epoch(Start, End, Chain) ->
     get_txns_for_epoch(Start, End, Chain, []).
     
@@ -168,6 +144,57 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
             Transactions = blockchain_block:transactions(Block),
             get_txns_for_epoch(Start, PrevHash, Chain, Txns ++ Transactions)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+consensus_members_rewards(_Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:consensus_members(Ledger) of
+        {error, _Reason} ->
+            lager:error("failed to get consensus_members ~p", [_Reason]);
+            % TODO: Should we error out here?
+        {ok, ConsensusMembers} ->
+            ConsensusReward = ?TOTAL_REWARD * ?CONSENSUS_PERCENT,
+            Total = erlang:length(ConsensusMembers),
+            lists:foreach(
+                fun(Member) ->
+                    PercentofReward = 100/Total/100,
+                    Amount = erlang:round(PercentofReward*ConsensusReward),
+                    blockchain_ledger_v1:credit_account(Member, Amount, Ledger)
+                end,
+                ConsensusMembers
+            ),
+            ok
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+securities_rewards(Blockchain) ->
+    Ledger = blockchain:ledger(Blockchain),
+    SecuritiesReward = ?TOTAL_REWARD * ?SECURITIES_PERCENT,
+    Securities = blockchain_ledger_v1:securities(Ledger),
+    TotalSecurities = maps:fold(
+        fun(_, Entry, Acc) ->
+            Acc + blockchain_ledger_security_entry_v1:balance(Entry)
+        end,
+        0,
+        Securities
+    ),
+    maps:fold(
+        fun(Key, Entry, _Acc) ->
+            Balance = blockchain_ledger_security_entry_v1:balance(Entry),
+            PercentofReward = (Balance*100/TotalSecurities)/100,
+            Amount = erlang:round(PercentofReward*SecuritiesReward),
+            blockchain_ledger_v1:credit_account(Key, Amount, Ledger)
+        end,
+        ok,
+        Securities
+    ),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -204,7 +231,7 @@ poc_challengees_rewards(Transactions, Chain) ->
     Ledger = blockchain:ledger(Chain),
     maps:fold(
         fun(Challengee, Challanged, _Acc) ->
-            PercentofReward = Challanged*100/TotalChallanged,
+            PercentofReward = (Challanged*100/TotalChallanged)/100,
             % TODO: Not sure about he all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
             blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
@@ -237,39 +264,12 @@ poc_challengers_rewards(Transactions, Chain) ->
     Ledger = blockchain:ledger(Chain),
     maps:fold(
         fun(Challenger, Challanged, _Acc) ->
-            PercentofReward = Challanged*100/TotalChallanged,
+            PercentofReward = (Challanged*100/TotalChallanged)/100,
             Amount = erlang:round(PercentofReward*ChallengersReward),
             blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
         end,
         ok,
         Challengers
-    ),
-    ok.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-securities_rewards(Blockchain) ->
-    Ledger = blockchain:ledger(Blockchain),
-    SecuritiesReward = ?TOTAL_REWARD * ?SECURITIES_PERCENT,
-    Securities = blockchain_ledger_v1:securities(Ledger),
-    TotalSecurities = maps:fold(
-        fun(_, Entry, Acc) ->
-            Acc + blockchain_ledger_security_entry_v1:balance(Entry)
-        end,
-        0,
-        Securities
-    ),
-    maps:fold(
-        fun(Key, Entry, _Acc) ->
-            Balance = blockchain_ledger_security_entry_v1:balance(Entry),
-            PercentofReward = Balance*100/TotalSecurities,
-            Amount = erlang:round(PercentofReward*SecuritiesReward),
-            blockchain_ledger_v1:credit_account(Key, Amount, Ledger)
-        end,
-        ok,
-        Securities
     ),
     ok.
 

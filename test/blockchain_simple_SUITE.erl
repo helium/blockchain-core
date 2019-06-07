@@ -1012,6 +1012,7 @@ epoch_reward_test(Config) ->
     _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
 
     Ledger = blockchain:ledger(Chain),
-    ct:pal("MARKER ~p", [blockchain_ledger_v1:find_entry(PubKeyBin, Ledger)]),
 
-    ?assert(false).
+    {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
+
+    ?assertEqual(7046, blockchain_ledger_entry_v1:balance(Entry)).
