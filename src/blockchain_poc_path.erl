@@ -78,7 +78,13 @@ build(Hash, Target, Gateways) ->
                     lager:error("path: ~p", [Path3]),
                     {error, path_too_small};
                 true ->
-                    {ok, Path3}
+                    blockchain_utils:rand_from_hash(Hash),
+                    case rand:uniform(2) of
+                        1 ->
+                            {ok, Path3};
+                        2 ->
+                            {ok, lists:reverse(Path3)}
+                    end
             end
     end.
 
