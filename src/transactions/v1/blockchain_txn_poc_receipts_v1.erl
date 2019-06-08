@@ -281,12 +281,16 @@ deltas(Txn) ->
                                                              %% path broke, you killed it
                                                              {{0, 1}, false}
                                                      end,
-                                   {maps:put(Challengee, Val, Acc), Continue};
+                                   {increment_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
                            end,
                            {#{}, true},
                            lists:zip(lists:seq(1, Length), Path))).
+
+increment_deltas(Challengee, {A, B}, Map) ->
+    {A0, B0} = maps:get(Challengee, Map, {0, 0}),
+    maps:put(Challengee, {A0+A, B0+B}, Map).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -534,6 +538,45 @@ delta_test() ->
     Deltas2 = deltas(Txn2),
     ?assertEqual(1, maps:size(Deltas2)),
     ?assertEqual({0, 0}, maps:get(<<"first">>, Deltas2)),
+    ok.
+
+duplicate_delta_test() ->
+    Txn = {blockchain_txn_poc_receipts_v1_pb,<<"foo">>,
+                                   <<"bar">>,
+                                   <<"baz">>,
+                                   [{blockchain_poc_path_element_v1_pb,<<"first">>,
+                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
+                                                                                                     1559953989978238892,0,<<"§Úi½">>,p2p,
+                                                                                                     <<"b">>},
+                                                                       []},
+                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
+                                                                       undefined,
+                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
+                                                                                                      1559953991034558678,-100,
+                                                                                                      <<>>,
+                                                                                                      <<>>},
+                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
+                                                                                                      1559953991035078007,-72,
+                                                                                                      <<>>,
+                                                                                                      <<>>}]},
+                                    {blockchain_poc_path_element_v1_pb,<<"third">>,
+                                                                       undefined,[]},
+                                    {blockchain_poc_path_element_v1_pb,<<"second">>,
+                                                                       undefined,
+                                                                       [{blockchain_poc_witness_v1_pb,<<"fourth">>,
+                                                                                                      1559953992074400943,-100,
+                                                                                                      <<>>,
+                                                                                                      <<>>},
+                                                                        {blockchain_poc_witness_v1_pb,<<"first">>,
+                                                                                                      1559953992075156868,-84,
+                                                                                                      <<>>,
+                                                                                                      <<>>}]}],
+                                   0,
+                                   <<"gg">>},
+
+    Deltas = deltas(Txn),
+    ?assertEqual(3, maps:size(Deltas)),
+    ?assert(element(1, maps:get(<<"second">>, Deltas)) > 1.0),
     ok.
 
 
