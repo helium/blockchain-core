@@ -6,10 +6,10 @@
 -module(blockchain_poc_path).
 
 -export([
-    build/3,
+    build/4,
     shortest/3,
     length/3,
-    build_graph/2,
+    build_graph/3,
     target/3
 ]).
 
@@ -37,9 +37,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build(Hash :: binary(), Target :: binary(), Gateways :: map()) -> {ok, list()} | {error, any()}.
-build(Hash, Target, Gateways) ->
-    Graph = ?MODULE:build_graph(Target, Gateways),
+-spec build(Hash :: binary(),
+            Target :: binary(),
+            Gateways :: map(),
+            Height :: non_neg_integer()) -> {ok, list()} | {error, any()}.
+build(Hash, Target, Gateways, Height) ->
+    Graph = ?MODULE:build_graph(Target, Gateways, Height),
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
             case Addr == Target of
@@ -47,7 +50,7 @@ build(Hash, Target, Gateways) ->
                     Acc;
                 false ->
                     G = maps:get(Addr, Gateways),
-                    Score = blockchain_ledger_gateway_v1:score(G),
+                    {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
                     [{Score, Addr}|Acc]
             end
         end,
@@ -109,24 +112,24 @@ length(Graph, Start, End) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build_graph(Address :: binary(), Gateways :: map()) -> graph().
-build_graph(Address, Gateways) ->
-    build_graph([Address], Gateways, maps:new()).
+-spec build_graph(Address :: binary(), Gateways :: map(), Height :: non_neg_integer()) -> graph().
+build_graph(Address, Gateways, Height) ->
+    build_graph([Address], Gateways, Height, maps:new()).
 
--spec build_graph([binary()], Gateways :: map(), Graph :: graph()) -> graph().
-build_graph([], _Gateways, Graph) ->
+-spec build_graph([binary()], Gateways :: map(), Height :: non_neg_integer(), Graph :: graph()) -> graph().
+build_graph([], _Gateways, _Height, Graph) ->
     Graph;
-build_graph([Address0|Addresses], Gateways, Graph0) ->
-    Neighbors0 = neighbors(Address0, Gateways),
+build_graph([Address0|Addresses], Gateways, Height, Graph0) ->
+    Neighbors0 = neighbors(Address0, Gateways, Height),
     Graph1 = lists:foldl(
         fun({_W, Address1}, Acc) ->
             case maps:is_key(Address1, Acc) of
                 true ->
                     Acc;
                 false ->
-                    Neighbors1 = neighbors(Address1, Gateways),
+                    Neighbors1 = neighbors(Address1, Gateways, Height),
                     Graph1 = maps:put(Address1, Neighbors1, Acc),
-                    build_graph([A || {_, A} <- Neighbors1], Gateways, Graph1)
+                    build_graph([A || {_, A} <- Neighbors1], Gateways, Height, Graph1)
             end
         end,
         maps:put(Address0, Neighbors0, Graph0),
@@ -134,7 +137,7 @@ build_graph([Address0|Addresses], Gateways, Graph0) ->
     ),
     case maps:size(Graph1) > 100 of
         false ->
-            build_graph(Addresses, Gateways, Graph1);
+            build_graph(Addresses, Gateways, Height, Graph1);
         true ->
             Graph1
     end.
@@ -165,7 +168,7 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-neighbors(Address, Gateways) ->
+neighbors(Address, Gateways, Height) ->
     TargetGw = maps:get(Address, Gateways),
     Index = blockchain_ledger_gateway_v1:location(TargetGw),
     KRing = case h3:get_resolution(Index) of
@@ -192,14 +195,20 @@ neighbors(Address, Gateways) ->
         end,
         Gateways
     )),
-    [{edge_weight(TargetGw, G), A} || {A, G} <- GwInRing].
+    [{edge_weight(TargetGw, G, Height), A} || {A, G} <- GwInRing].
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-edge_weight(Gw1, Gw2) ->
-    1 - abs(prob_fun(blockchain_ledger_gateway_v1:score(Gw1)) -  prob_fun(blockchain_ledger_gateway_v1:score(Gw2))).
+-spec edge_weight(Gw1 :: blockchain_ledger_gateway_v1:gateway(),
+                  Gw2 :: blockchain_ledger_gateway_v1:gateway(),
+                  Height :: non_neg_integer()) -> float().
+edge_weight(Gw1, Gw2, Height) ->
+    io:format("Gw1: ~p~n", [Gw1]),
+    {_, _, S1} = blockchain_ledger_gateway_v1:score(Gw1, Height),
+    {_, _, S2} = blockchain_ledger_gateway_v1:score(Gw2, Height),
+    1 - abs(prob_fun(S1) -  prob_fun(S2)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -208,8 +217,9 @@ edge_weight(Gw1, Gw2) ->
 -spec target(Hash :: binary(),
              Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> {libp2p_crypto:pubkey_bin(), map()}.
 target(Hash, Ledger, Challenger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActiveGateways = active_gateways(Ledger, Challenger),
-    ProbsAndGatewayAddrs = create_probs(ActiveGateways),
+    ProbsAndGatewayAddrs = create_probs(ActiveGateways, Height),
     Entropy = entropy(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
     Target = select_target(ProbsAndGatewayAddrs, RandVal),
@@ -219,9 +229,15 @@ target(Hash, Ledger, Challenger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_probs(Gateways :: map()) -> [{float(), libp2p_crypto:pubkey_bin()}].
-create_probs(Gateways) ->
-    GwScores = [{A, prob_fun(blockchain_ledger_gateway_v1:score(G))} || {A, G} <- maps:to_list(Gateways)],
+-spec create_probs(Gateways :: map(), Height :: non_neg_integer()) -> [{float(), libp2p_crypto:pubkey_bin()}].
+create_probs(Gateways, Height) ->
+    %% GwScores = [{A, prob_fun(blockchain_ledger_gateway_v1:score(G))} || {A, G} <- maps:to_list(Gateways)],
+    GwScores = lists:foldl(fun({A, G}, Acc) ->
+                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
+                                   [{A, prob_fun(Score)} | Acc]
+                           end,
+                           [],
+                           maps:to_list(Gateways)),
     Scores = [S || {_A, S} <- GwScores],
     LenGwScores = erlang:length(GwScores),
     SumGwScores = lists:sum(Scores),
@@ -244,6 +260,7 @@ entropy(Entropy) ->
 -spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->  #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 active_gateways(Ledger, Challenger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     maps:fold(
         fun(PubkeyBin, Gateway, Acc0) ->
             % TODO: Maybe do some find of score check here
@@ -255,7 +272,7 @@ active_gateways(Ledger, Challenger) ->
                 true ->
                     Acc0;
                 false ->
-                    Graph = ?MODULE:build_graph(PubkeyBin, Gateways),
+                    Graph = ?MODULE:build_graph(PubkeyBin, Gateways, Height),
                     case maps:size(Graph) > 2 of
                         false ->
                             Acc0;
@@ -386,7 +403,7 @@ neighbors_test() ->
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Neighbors = neighbors(Target, Gateways),
+    Neighbors = neighbors(Target, Gateways, 1),
 
     ?assertEqual(erlang:length(maps:keys(Gateways)) - 3, erlang:length(Neighbors)),
     {LL1, _, _} = lists:last(LatLongs),
@@ -414,7 +431,7 @@ build_graph_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    Graph = build_graph(Target, Gateways),
+    Graph = build_graph(Target, Gateways, 1),
     ?assertEqual(8, maps:size(Graph)),
 
     {LL1, _, _} = lists:last(LatLongs),
@@ -438,7 +455,7 @@ build_graph_in_line_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    Graph = build_graph(Target, Gateways),
+    Graph = build_graph(Target, Gateways, 1),
     ?assertEqual(8, maps:size(Graph)),
 
     {LL1, _, _} = lists:last(LatLongs),
@@ -488,7 +505,7 @@ build_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1),
 
     ?assertNotEqual(Target, hd(Path)),
     ?assert(lists:member(Target, Path)),
@@ -504,7 +521,7 @@ build_only_2_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
 
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1),
 
     ?assertNotEqual(Target, hd(Path)),
     ?assert(lists:member(Target, Path)),
@@ -531,7 +548,7 @@ build_prob_test_() ->
 
              Starters = lists:foldl(
                           fun(_, Acc) ->
-                                  {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways),
+                                  {ok, [P1|_]} = blockchain_poc_path:build(crypto:strong_rand_bytes(64), Target, Gateways, 1),
                                   V = maps:get(P1, Acc, 0),
                                   maps:put(P1, V+1, Acc)
                           end,
@@ -561,7 +578,7 @@ build_failed_test() ->
         {{12.780586, -122.469471}, 1000.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways)),
+    ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1)),
     ok.
 
 build_with_zero_score_test() ->
@@ -578,7 +595,7 @@ build_with_zero_score_test() ->
         {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1),
     ?assert(lists:member(Target, Path)),
     ok.
 
@@ -593,7 +610,7 @@ build_with_zero_score_2_test() ->
         {{48.855228, 2.347126}, 1.0, 1.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1),
     ?assertEqual(3, erlang:length(Path)),
     [_P1, P2, _P3] = Path,
     ?assertEqual(Target, P2),
@@ -612,9 +629,16 @@ active_gateways_test() ->
     {_Target0, Gateways} = build_gateways(LatLongs),
 
     meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, active_gateways, fun(_) ->
-        Gateways
-    end),
+    meck:expect(blockchain_ledger_v1,
+                active_gateways,
+                fun(_) ->
+                        Gateways
+                end),
+    meck:expect(blockchain_ledger_v1,
+                current_height,
+                fun(_) ->
+                        {ok, 1}
+                end),
 
     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -637,7 +661,7 @@ build_gateways(LatLongs) ->
             Res = rand:uniform(7) + 8,
             Index = h3:from_geo(LatLong, Res),
             G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
-            G1 = blockchain_ledger_gateway_v1:set_alpha_beta(Alpha, Beta, G0),
+            G1 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, G0),
             maps:put(Address, G1, Acc)
 
         end,
