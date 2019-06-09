@@ -231,7 +231,6 @@ target(Hash, Ledger, Challenger) ->
 %%--------------------------------------------------------------------
 -spec create_probs(Gateways :: map(), Height :: non_neg_integer()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways, Height) ->
-    %% GwScores = [{A, prob_fun(blockchain_ledger_gateway_v1:score(G))} || {A, G} <- maps:to_list(Gateways)],
     GwScores = lists:foldl(fun({A, G}, Acc) ->
                                    {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
                                    [{A, prob_fun(Score)} | Acc]
