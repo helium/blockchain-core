@@ -25,7 +25,8 @@
     add_gateway/3, add_gateway/5,
     add_gateway_location/4,
 
-    update_gateway_score/3, gateway_score/2,
+    update_gateway_score/3,
+    gateway_score/2,
 
     find_poc/2,
     request_poc/4,
@@ -85,9 +86,6 @@
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
--define(ALPHA_DECAY, 0.007).
--define(BETA_DECAY, 0.0005).
--define(MAX_STALENESS, 100000).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -456,7 +454,7 @@ add_gateway(OwnerAddr,
             Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
                                                        Location,
                                                        Nonce),
-            NewGw = blockchain_ledger_gateway_v1:last_delta_update(Height, Gateway),
+            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
@@ -473,18 +471,9 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {error, no_active_gateway};
         {ok, Gw} ->
             {ok, Height} = ?MODULE:current_height(Ledger),
-            NewGw = case blockchain_ledger_gateway_v1:location(Gw) of
-                undefined ->
-                    Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                    Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
-                    blockchain_ledger_gateway_v1:last_delta_update(Height, Gw2);
-                _Loc ->
-                    %% XXX: this gw already had a location asserted, do something about it here
-                    Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-                    Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
-                    %% If the hotspot moved, reset alpha/beta
-                    blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gw2)
-            end,
+            Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
+            Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
+            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
@@ -493,12 +482,12 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
 %%--------------------------------------------------------------------
 %% @doc Update the score of a hotspot by looking at the updated alpha/beta values.
 %% In order to ensure that old POCs don't have a drastic effect on the eventual score
-%% for a gateway, we apply a constant scaled decay dependent on the last delta update for the hotspot.
+%% for a gateway, we apply a constant scaled decay dependent on the delta update for the hotspot.
 %%
 %% Furthermore, since we don't allow scores to go negative, we scale alpha and beta values
 %% back to 1.0 each, if it dips below 0 after the decay has been applied
 %%
-%% At the end of it, we just supply the new alpha, beta and last_delta_update values and store
+%% At the end of it, we just supply the new alpha, beta and delta values and store
 %% only those in the ledger.
 %%
 %% @end
@@ -512,12 +501,8 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
-            Alpha0 = blockchain_ledger_gateway_v1:alpha(Gw),
-            Beta0 = blockchain_ledger_gateway_v1:beta(Gw),
-            NewAlpha = scale_shape_param(Alpha0+Alpha-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
-            NewBeta = scale_shape_param(Beta0+Beta-decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
-            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(NewAlpha, NewBeta, Height, Gw),
+            {Alpha0, Beta0, _} = blockchain_ledger_gateway_v1:score(Gw, Height),
+            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha0 + Alpha, Beta0 + Beta, Height, Gw),
             Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
@@ -534,29 +519,9 @@ gateway_score(GatewayAddress, Ledger) ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            LastDeltaUpdate = blockchain_ledger_gateway_v1:last_delta_update(Gw),
-            Alpha = blockchain_ledger_gateway_v1:alpha(Gw),
-            Beta = blockchain_ledger_gateway_v1:beta(Gw),
-            %% Decrement alpha twice as fast as beta
-            %% and a _much_ slower decay for beta
-            NewAlpha = scale_shape_param(Alpha-2*decay(?ALPHA_DECAY, Height-LastDeltaUpdate)),
-            NewBeta = scale_shape_param(Beta-decay(?BETA_DECAY, Height-LastDeltaUpdate)),
-            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta(NewAlpha, NewBeta, Gw),
-            {ok, blockchain_ledger_gateway_v1:score(NewGw)}
+            {_Alpha, _Beta, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
+            {ok, Score}
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% K: constant decay factor, calculated empirically (for now)
-%% Staleness: current_ledger_height - last_delta_update
-%% @end
-%%--------------------------------------------------------------------
--spec decay(float(), pos_integer()) -> float().
-decay(K, Staleness) when Staleness =< ?MAX_STALENESS ->
-    math:exp(K * Staleness) - 1;
-decay(_, _) ->
-    %% Basically infinite decay at this point
-    math:exp(709).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1237,13 +1202,6 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
             Options;
         S ->
             [{snapshot, S} | Options]
-    end.
-
--spec scale_shape_param(float()) -> float().
-scale_shape_param(ShapeParam) ->
-    case ShapeParam =< 1.0 of
-        true -> 1.0;
-        false -> ShapeParam
     end.
 
 %% ------------------------------------------------------------------

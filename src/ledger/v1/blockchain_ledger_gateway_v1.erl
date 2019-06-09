@@ -9,16 +9,15 @@
     new/2, new/3,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/1,
+    score/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
     print/2,
     serialize/1, deserialize/1,
-    alpha/1, alpha/2,
-    beta/1, beta/2,
-    last_delta_update/1, last_delta_update/2,
-    set_alpha_beta/3,
+    alpha/1,
+    beta/1,
+    delta/1,
     set_alpha_beta_delta/4
 ]).
 
@@ -33,11 +32,15 @@
     location :: undefined | pos_integer(),
     alpha = 1.0 :: float(),
     beta = 1.0 :: float(),
-    last_delta_update :: non_neg_integer(),
+    delta :: non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer()
 }).
+
+-define(ALPHA_DECAY, 0.007).
+-define(BETA_DECAY, 0.0005).
+-define(MAX_STALENESS, 100000).
 
 -type gateway() :: #gateway_v1{}.
 -export_type([gateway/0]).
@@ -52,7 +55,7 @@ new(OwnerAddress, Location) ->
     #gateway_v1{
         owner_address=OwnerAddress,
         location=Location,
-        last_delta_update=1
+        delta=1
     }.
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -63,7 +66,7 @@ new(OwnerAddress, Location, Nonce) ->
         owner_address=OwnerAddress,
         location=Location,
         nonce=Nonce,
-        last_delta_update=1
+        delta=1
     }.
 
 %%--------------------------------------------------------------------
@@ -113,13 +116,35 @@ location(Location, Gateway) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec score(Gateway :: gateway()) -> float().
-score(#gateway_v1{alpha=Alpha, beta=Beta}) ->
-    RV1 = erlang_stats:qbeta(0.25, Alpha, Beta),
-    RV2 = erlang_stats:qbeta(0.75, Alpha, Beta),
+-spec score(Gateway :: gateway(), Height :: pos_integer()) -> {float(), float(), float()}.
+score(#gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
+    NewAlpha = scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta)),
+    NewBeta = scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta)),
+    RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
+    RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
     IQR = RV2 - RV1,
     Mean = 1 / (1 + Beta/Alpha),
-    Mean * (1 - IQR).
+    {NewAlpha, NewBeta, Mean * (1 - IQR)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% K: constant decay factor, calculated empirically (for now)
+%% Staleness: current_ledger_height - delta
+%% @end
+%%--------------------------------------------------------------------
+-spec decay(float(), pos_integer()) -> float().
+decay(K, Staleness) when Staleness =< ?MAX_STALENESS ->
+    math:exp(K * Staleness) - 1;
+decay(_, _) ->
+    %% Basically infinite decay at this point
+    math:exp(709).
+
+-spec scale_shape_param(float()) -> float().
+scale_shape_param(ShapeParam) ->
+    case ShapeParam =< 1.0 of
+        true -> 1.0;
+        false -> ShapeParam
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -133,22 +158,6 @@ alpha(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec alpha(Alpha :: float(), Gateway :: gateway()) -> gateway().
-alpha(Alpha, Gateway) ->
-    Gateway#gateway_v1{alpha=Alpha}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec beta(Beta :: float(), Gateway :: gateway()) -> gateway().
-beta(Beta, Gateway) ->
-    Gateway#gateway_v1{beta=Beta}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec beta(Gateway :: gateway()) -> float().
 beta(Gateway) ->
     Gateway#gateway_v1.beta.
@@ -157,25 +166,9 @@ beta(Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec last_delta_update(Gateway :: gateway()) -> undefined | non_neg_integer().
-last_delta_update(Gateway) ->
-    Gateway#gateway_v1.last_delta_update.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec last_delta_update(LastDeltaUpdate :: non_neg_integer(), Gateway :: gateway()) -> gateway().
-last_delta_update(LastDeltaUpdate, Gateway) ->
-    Gateway#gateway_v1{last_delta_update=LastDeltaUpdate}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec set_alpha_beta(Alpha :: float(), Beta :: float(), Gateway :: gateway()) -> gateway().
-set_alpha_beta(Alpha, Beta, Gateway) ->
-    Gateway#gateway_v1{alpha=Alpha, beta=Beta}.
+-spec delta(Gateway :: gateway()) -> undefined | non_neg_integer().
+delta(Gateway) ->
+    Gateway#gateway_v1.delta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -183,9 +176,9 @@ set_alpha_beta(Alpha, Beta, Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v1{alpha=Alpha,
-                       beta=Beta,
-                       last_delta_update=Delta}.
+    Gateway#gateway_v1{alpha=scale_shape_param(Alpha),
+                       beta=scale_shape_param(Beta),
+                       delta=Delta}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -248,14 +241,14 @@ print(Gateway, Ledger) ->
         end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     [
-        {score, score(Gateway)},
+        {score, score(Gateway, Height)},
         {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {nonce, nonce(Gateway)},
         {alpha, alpha(Gateway)},
         {beta, beta(Gateway)},
-        {delta, Height - last_delta_update(Gateway)}
+        {delta, Height - delta(Gateway)}
     ].
 
 %%--------------------------------------------------------------------
@@ -289,7 +282,7 @@ new_test() ->
         last_poc_challenge = undefined,
         last_poc_onion_key_hash = undefined,
         nonce = 0,
-        last_delta_update=1
+        delta=1
     },
     ?assertEqual(Gw, new(<<"owner_address">>, 12)).
 
@@ -305,7 +298,7 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual(0.25000000000000006, score(Gw)).
+    ?assertEqual({1.0, 1.0, 0.25000000000000006}, score(Gw, 12)).
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
