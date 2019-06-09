@@ -43,18 +43,23 @@
 %% If the decryption fails, return `error'.
 -spec decrypt(Packet :: binary(), ECDHFun :: libp2p_crypto:ecdh_fun()) -> error | {Payload :: binary(), NextLayer :: binary()}.
 decrypt(<<IV0:16/integer-unsigned-little, OnionCompactKey:33/binary, Tag:4/binary, CipherText/binary>>, ECDHFun) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(OnionCompactKey),
-    SharedKey = ECDHFun(PubKey),
-    IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
-    case crypto:block_decrypt(aes_gcm, SharedKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
-                                                       CipherText, Tag}) of
-        <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
-            PaddingSize = DataSize +5,
-            <<Padding:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
-            NextIV = <<((IV0 bxor Xor) band 16#ffff):16/integer-unsigned-little>>,
-            {<<Data/binary>>, <<NextIV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
-        _ ->
-            error
+    try libp2p_crypto:bin_to_pubkey(OnionCompactKey) of
+        PubKey ->
+            SharedKey = ECDHFun(PubKey),
+            IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
+            case crypto:block_decrypt(aes_gcm, SharedKey, IV, {<<IV/binary, OnionCompactKey/binary>>,
+                                                               CipherText, Tag}) of
+                <<DataSize:8/integer, Data:DataSize/binary, Rest/binary>> ->
+                    PaddingSize = DataSize +5,
+                    <<Padding:PaddingSize/binary, Xor:16/integer-unsigned-little, _/binary>> = crypto:hash(sha512, Data),
+                    NextIV = <<((IV0 bxor Xor) band 16#ffff):16/integer-unsigned-little>>,
+                    {<<Data/binary>>, <<NextIV/binary, OnionCompactKey/binary, Rest/binary, Padding/binary>>};
+                _ ->
+                    error
+            end
+    catch error:enotsup ->
+              %% corrupted or invalid key
+              error
     end.
 
 %% @doc Construct a PoC onion packet.
