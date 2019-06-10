@@ -100,9 +100,10 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_epoch_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(_Txn, _Chain) ->
-    % TODO: Check if start and end are ok
-    ok.
+is_valid(Txn, Chain) ->
+    Start = ?MODULE:start_of_epoch(Txn),
+    End = ?MODULE:end_of_epoch(Txn),
+    valite_epoch(Start, End, Chain).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -110,7 +111,6 @@ is_valid(_Txn, _Chain) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_epoch_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-    % TODO: Maybe get ledger from ledger_at here?
     Start = ?MODULE:start_of_epoch(Txn),
     End = ?MODULE:end_of_epoch(Txn),
     lager:info("calculating reward start at ~p ending at ~p", [Start, End]),
@@ -125,6 +125,26 @@ absorb(Txn, Chain) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+valite_epoch(Start, End, Chain) ->
+    valite_epoch(Start, End, Chain, 30).
+    
+valite_epoch(Start, Start, _Chain, _Size) ->
+    ok;
+valite_epoch(_Start, _Current, _Chain, 0) ->
+    {error, epoch_size};
+valite_epoch(Start, Current, Chain, Size) ->
+    case blockchain:get_block(Current, Chain) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Block} ->
+            PrevHash = blockchain_block:prev_hash(Block),
+            valite_epoch(Start, PrevHash, Chain, Size-1)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

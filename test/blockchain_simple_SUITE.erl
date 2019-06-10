@@ -1001,7 +1001,7 @@ epoch_reward_test(Config) ->
         fun(X, Acc) ->
             Txns = case X =:= 15 of
                 false ->
-                    z
+                    [];
                 true ->
                     POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
                     [POCReceiptTxn]
