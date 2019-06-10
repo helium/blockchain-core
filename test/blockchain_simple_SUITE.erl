@@ -992,17 +992,27 @@ epoch_reward_test(Config) ->
     [_, {PubKeyBin, {_, PrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
 
-    % Add 100 txns with 1 fee each
+    meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_Txn, _Chain) -> ok end),
+
+    % Add few empty blocks to fake epoch
     Blocks = lists:reverse(lists:foldl(
-        fun(_X, Acc) ->
-            B = test_utils:create_block(ConsensusMembers, []),
+        fun(X, Acc) ->
+            Txns = case X =:= 15 of
+                false ->
+                    z
+                true ->
+                    POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
+                    [POCReceiptTxn]
+            end,
+            B = test_utils:create_block(ConsensusMembers, Txns),
             _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
             [B|Acc]
         end,
         [],
         lists:seq(1, 30)
     )),
-
 
     Start = blockchain_block:hash_block(lists:nth(2, Blocks)),
     End = blockchain_block:hash_block(lists:nth(29, Blocks)),
@@ -1015,5 +1025,8 @@ epoch_reward_test(Config) ->
 
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
-    % 5k base tokens + 1591 for consensus_members_rewards + 455 for securities_rewards
-    ?assertEqual(7046, blockchain_ledger_entry_v1:balance(Entry)).
+    % 5k base tokens + 1591 for consensus_members_rewards + 455 for securities_rewards + 4500 for being the only challenger
+    ?assertEqual(11546, blockchain_ledger_entry_v1:balance(Entry)),
+
+    ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1).
