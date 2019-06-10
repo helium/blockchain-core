@@ -119,6 +119,7 @@ absorb(Txn, Chain) ->
     ok = securities_rewards(Chain),
     ok = poc_challengers_rewards(Transactions, Chain),
     ok = poc_challengees_rewards(Transactions, Chain),
+    ok = poc_witnesses_rewards(Transactions, Chain),
     ok.
 
 %% ------------------------------------------------------------------
@@ -201,6 +202,38 @@ securities_rewards(Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+poc_challengers_rewards(Transactions, Chain) ->
+    ChallengersReward = ?TOTAL_REWARD * ?POC_CHALLENGERS_PERCENT,
+    {Challengers, TotalChallanged} = lists:foldl(
+        fun(Txn, {Map, Total}=Acc) ->
+            case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
+                false ->
+                    Acc;
+                true ->
+                    Challenger = blockchain_txn_poc_receipts_v1:challenger(Txn),
+                    I = maps:get(Challenger, Map, 0),
+                    {maps:put(Challenger, I+1, Map), Total+1}
+            end
+        end,
+        {#{}, 0},
+        Transactions
+    ),
+    Ledger = blockchain:ledger(Chain),
+    maps:fold(
+        fun(Challenger, Challanged, _Acc) ->
+            PercentofReward = (Challanged*100/TotalChallanged)/100,
+            Amount = erlang:round(PercentofReward*ChallengersReward),
+            blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
+        end,
+        ok,
+        Challengers
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 poc_challengees_rewards(Transactions, Chain) ->
     ChallengeesReward = ?TOTAL_REWARD * ?POC_CHALLENGEES_PERCENT,
     {Challengees, TotalChallanged} = lists:foldl(
@@ -233,7 +266,7 @@ poc_challengees_rewards(Transactions, Chain) ->
     maps:fold(
         fun(Challengee, Challanged, _Acc) ->
             PercentofReward = (Challanged*100/TotalChallanged)/100,
-            % TODO: Not sure about he all round thing...
+            % TODO: Not sure about the all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
             blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
         end,
@@ -246,17 +279,28 @@ poc_challengees_rewards(Transactions, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_challengers_rewards(Transactions, Chain) ->
-    ChallengersReward = ?TOTAL_REWARD * ?POC_CHALLENGERS_PERCENT,
-    {Challengers, TotalChallanged} = lists:foldl(
-        fun(Txn, {Map, Total}=Acc) ->
+poc_witnesses_rewards(Transactions, Chain) ->
+    WitnessesReward = ?TOTAL_REWARD * ?POC_WITNESSES_PERCENT,
+    {Witnesses, TotalWitnesses} = lists:foldl(
+        fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
                 false ->
-                    Acc;
+                    Acc0;
                 true ->
-                    Challenger = blockchain_txn_poc_receipts_v1:challenger(Txn),
-                    I = maps:get(Challenger, Map, 0),
-                    {maps:put(Challenger, I+1, Map), Total+1}
+                    lists:foldl(
+                        fun(Elem, Acc1) ->
+                            lists:foldl(
+                                fun(Witness, {Map, Total}) ->
+                                    I = maps:get(Witness, Map, 0),
+                                    {maps:put(Witness, I+1, Map), Total+1}
+                                end,
+                                Acc1,
+                                blockchain_poc_path_element_v1:witnesses(Elem)
+                            )
+                        end,
+                        Acc0,
+                        blockchain_txn_poc_receipts_v1:path(Txn)
+                    )
             end
         end,
         {#{}, 0},
@@ -264,13 +308,13 @@ poc_challengers_rewards(Transactions, Chain) ->
     ),
     Ledger = blockchain:ledger(Chain),
     maps:fold(
-        fun(Challenger, Challanged, _Acc) ->
-            PercentofReward = (Challanged*100/TotalChallanged)/100,
-            Amount = erlang:round(PercentofReward*ChallengersReward),
-            blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
+        fun(Witness, Witnessed, _Acc) ->
+            PercentofReward = (Witnessed*100/TotalWitnesses)/100,
+            Amount = erlang:round(PercentofReward*WitnessesReward),
+            blockchain_ledger_v1:credit_account(Witness, Amount, Ledger)
         end,
         ok,
-        Challengers
+        Witnesses
     ),
     ok.
 
