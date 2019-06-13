@@ -30,6 +30,7 @@
 -endif.
 
 -type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
+-type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
 
 -define(MAX_CHALLENGE_HEIGHT, 30).
 
@@ -220,8 +221,8 @@ connections(Txn) ->
                 end, [], TaggedPaths).
 
 %%--------------------------------------------------------------------
-%% @doc Return a gateway => {alpha, beta} map after looking at a single poc rx txn.
-%% Alpha and Beta are the shaping parameters for
+%% @doc Return a list of {gateway, {alpha, beta}} two tuples after
+%% looking at a single poc rx txn. Alpha and Beta are the shaping parameters for
 %% the beta distribution curve.
 %%
 %% An increment in alpha implies that we have gained more confidence in a hotspot
@@ -235,62 +236,72 @@ connections(Txn) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec deltas(txn_poc_receipts()) -> #{libp2p_crypto:pubkey_bin() => {float(), float()}}.
+-spec deltas(txn_poc_receipts()) -> deltas().
 deltas(Txn) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
-    element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
+    lists:reverse(element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
                                    Challengee = blockchain_poc_path_element_v1:challengee(Element),
                                    Receipt = blockchain_poc_path_element_v1:receipt(Element),
                                    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
                                    NextElements = lists:sublist(Path, N+1, Length),
-
-                                   HasContinued = lists:any(fun(E) ->
-                                                                    blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
-                                                                    blockchain_poc_path_element_v1:witnesses(E) /= []
-                                                            end,
-                                                            NextElements),
-
-                                   {Val, Continue} = case {HasContinued, Receipt, Witnesses} of
-                                                         {true, undefined, _} ->
-                                                             %% path continued, no receipt, don't care about witnesses
-                                                             {{0.8, 0}, true};
-                                                         {true, Receipt, _} when Receipt /= undefined ->
-                                                             %% path continued, receipt, don't care about witnesses
-                                                             {{1, 0}, true};
-                                                         {false, undefined, Wxs} when length(Wxs) > 0 ->
-                                                             %% path broke, no receipt, witnesses
-                                                             {{0.9, 0}, true};
-                                                         {false, Receipt, []} when Receipt /= undefined ->
-                                                             %% path broke, receipt, no witnesses
-                                                             case blockchain_poc_receipt_v1:origin(Receipt) of
-                                                                 p2p ->
-                                                                     %% you really did nothing here other than be online
-                                                                     {{0, 0}, false};
-                                                                 radio ->
-                                                                     %% not enough information to decide who screwed up
-                                                                     %% but you did receive a packet over the radio, so you
-                                                                     %% get partial credit
-                                                                     {{0.2, 0}, false}
-                                                             end;
-                                                         {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
-                                                             %% path broke, receipt, witnesses
-                                                             %% likely the next hop broke the path
-                                                             {{0.9, 0}, true};
-                                                         {false, _, _} ->
-                                                             %% path broke, you killed it
-                                                             {{0, 1}, false}
-                                                     end,
-                                   {increment_deltas(Challengee, Val, Acc), Continue};
+                                   HasContinued = check_path_continuation(NextElements),
+                                   {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
+                                   {set_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
                            end,
-                           {#{}, true},
-                           lists:zip(lists:seq(1, Length), Path))).
+                           {[], true},
+                           lists:zip(lists:seq(1, Length), Path)))).
 
-increment_deltas(Challengee, {A, B}, Map) ->
-    {A0, B0} = maps:get(Challengee, Map, {0, 0}),
-    maps:put(Challengee, {A0+A, B0+B}, Map).
+-spec check_path_continuation(Elements :: [blockchain_poc_path_element_v1:poc_element()]) -> boolean().
+check_path_continuation(Elements) ->
+    lists:any(fun(E) ->
+                      blockchain_poc_path_element_v1:receipt(E) /= undefined orelse
+                      blockchain_poc_path_element_v1:witnesses(E) /= []
+              end,
+              Elements).
+
+-spec assign_alpha_beta(HasContinued :: boolean(),
+                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
+assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
+    case {HasContinued, Receipt, Witnesses} of
+        {true, undefined, _} ->
+            %% path continued, no receipt, don't care about witnesses
+            {{0.8, 0}, true};
+        {true, Receipt, _} when Receipt /= undefined ->
+            %% path continued, receipt, don't care about witnesses
+            {{1, 0}, true};
+        {false, undefined, Wxs} when length(Wxs) > 0 ->
+            %% path broke, no receipt, witnesses
+            {{0.9, 0}, true};
+        {false, Receipt, []} when Receipt /= undefined ->
+            %% path broke, receipt, no witnesses
+            case blockchain_poc_receipt_v1:origin(Receipt) of
+                p2p ->
+                    %% you really did nothing here other than be online
+                    {{0, 0}, false};
+                radio ->
+                    %% not enough information to decide who screwed up
+                    %% but you did receive a packet over the radio, so you
+                    %% get partial credit
+                    {{0.2, 0}, false}
+            end;
+        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+            %% path broke, receipt, witnesses
+            %% likely the next hop broke the path
+            {{0.9, 0}, true};
+        {false, _, _} ->
+            %% path broke, you killed it
+            {{0, 1}, false}
+    end.
+
+-spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
+                       {A :: float(), B :: 0 | 1},
+                       Deltas :: deltas()) -> deltas().
+set_deltas(Challengee, {A, B}, Deltas) ->
+    [{Challengee, {A, B}} | Deltas].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -305,7 +316,7 @@ absorb(Txn, Chain) ->
          {error, _}=Error ->
              Error;
          ok ->
-             maps:fold(fun(Gateway, Delta, _Acc) ->
+             lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                        end,
                        ok,
@@ -511,9 +522,9 @@ delta_test() ->
                                    0,
                                    <<"impala">>},
     Deltas1 = deltas(Txn1),
-    ?assertEqual(2, maps:size(Deltas1)),
-    ?assertEqual({0.9, 0}, maps:get(<<"first">>, Deltas1)),
-    ?assertEqual({0, 1}, maps:get(<<"second">>, Deltas1)),
+    ?assertEqual(2, length(Deltas1)),
+    ?assertEqual({0.9, 0}, proplists:get_value(<<"first">>, Deltas1)),
+    ?assertEqual({0, 1}, proplists:get_value(<<"second">>, Deltas1)),
 
     Txn2 = {blockchain_txn_poc_receipts_v1_pb,<<"foo">>,
                                    <<"bar">>,
@@ -536,8 +547,8 @@ delta_test() ->
                                    0,
                                    <<"g">>},
     Deltas2 = deltas(Txn2),
-    ?assertEqual(1, maps:size(Deltas2)),
-    ?assertEqual({0, 0}, maps:get(<<"first">>, Deltas2)),
+    ?assertEqual(1, length(Deltas2)),
+    ?assertEqual({0, 0}, proplists:get_value(<<"first">>, Deltas2)),
     ok.
 
 duplicate_delta_test() ->
@@ -575,9 +586,11 @@ duplicate_delta_test() ->
                                    <<"gg">>},
 
     Deltas = deltas(Txn),
-    ?assertEqual(3, maps:size(Deltas)),
-    ?assert(element(1, maps:get(<<"second">>, Deltas)) > 1.0),
+    ?assertEqual(4, length(Deltas)),
+    SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
+    ?assertEqual(2, length(SecondDeltas)),
+    {SecondAlphas, _} = lists:unzip(SecondDeltas),
+    ?assert(lists:sum(SecondAlphas) > 1),
     ok.
-
 
 -endif.
