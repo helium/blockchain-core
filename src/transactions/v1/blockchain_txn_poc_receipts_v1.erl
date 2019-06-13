@@ -247,7 +247,7 @@ deltas(Txn) ->
                                    NextElements = lists:sublist(Path, N+1, Length),
                                    HasContinued = check_path_continuation(NextElements),
                                    {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
-                                   {increment_deltas(Challengee, Val, Acc), Continue};
+                                   {set_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
                            end,
@@ -297,12 +297,11 @@ assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
             {{0, 1}, false}
     end.
 
--spec increment_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
+-spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
                        {A :: float(), B :: 0 | 1},
                        Deltas :: deltas()) -> deltas().
-increment_deltas(Challengee, {A, B}, Deltas) ->
-    {A0, B0} = proplists:get_value(Challengee, Deltas, {0, 0}),
-    [{Challengee, {A0+A, B0+B}} | Deltas].
+set_deltas(Challengee, {A, B}, Deltas) ->
+    [{Challengee, {A, B}} | Deltas].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -588,7 +587,10 @@ duplicate_delta_test() ->
 
     Deltas = deltas(Txn),
     ?assertEqual(4, length(Deltas)),
-    ?assert(element(1, lists:nth(4, Deltas)) > 1),
+    SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
+    ?assertEqual(2, length(SecondDeltas)),
+    {SecondAlphas, _} = lists:unzip(SecondDeltas),
+    ?assert(lists:sum(SecondAlphas) > 1),
     ok.
 
 -endif.
