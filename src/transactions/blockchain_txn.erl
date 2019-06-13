@@ -73,7 +73,6 @@
     {blockchain_txn_poc_request_v1, 13},
     {blockchain_txn_poc_receipts_v1, 14},
     {blockchain_txn_vars_v1, 15}
-    {blockchain_txn_poc_receipts_v1, 15}
 ]).
 
 hash(Txn) ->

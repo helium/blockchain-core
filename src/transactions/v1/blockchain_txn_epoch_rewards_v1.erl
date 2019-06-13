@@ -27,6 +27,7 @@
 
 % TODO: Make this chain vars
 -define(TOTAL_REWARD, 50000).
+-define(EPOCH_REWARD, ?TOTAL_REWARD/30/24/2).
 -define(SECURITIES_PERCENT, 0.35).
 -define(POC_CHALLENGERS_PERCENT, 0.09).
 -define(POC_CHALLENGEES_PERCENT, 0.19).
@@ -103,7 +104,7 @@ sign(Txn, SigFun) ->
 is_valid(Txn, Chain) ->
     Start = ?MODULE:start_of_epoch(Txn),
     End = ?MODULE:end_of_epoch(Txn),
-    valite_epoch(Start, End, Chain).
+    validate_epoch(Start, End, Chain).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -130,20 +131,21 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-valite_epoch(Start, End, Chain) ->
-    valite_epoch(Start, End, Chain, 30).
+validate_epoch(Start, End, Chain) ->
+    % TODO: Grab this from chain vars
+    validate_epoch(Start, End, Chain, 30).
     
-valite_epoch(Start, Start, _Chain, _Size) ->
+validate_epoch(Start, Start, _Chain, _Size) ->
     ok;
-valite_epoch(_Start, _Current, _Chain, 0) ->
+validate_epoch(_Start, _Current, _Chain, 0) ->
     {error, epoch_size};
-valite_epoch(Start, Current, Chain, Size) ->
+validate_epoch(Start, Current, Chain, Size) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason}=Error ->
             Error;
         {ok, Block} ->
             PrevHash = blockchain_block:prev_hash(Block),
-            valite_epoch(Start, PrevHash, Chain, Size-1)
+            validate_epoch(Start, PrevHash, Chain, Size-1)
     end.
 
 %%--------------------------------------------------------------------
@@ -224,7 +226,7 @@ securities_rewards(Blockchain) ->
 %%--------------------------------------------------------------------
 poc_challengers_rewards(Transactions, Chain) ->
     ChallengersReward = ?TOTAL_REWARD * ?POC_CHALLENGERS_PERCENT,
-    {Challengers, TotalChallanged} = lists:foldl(
+    {Challengers, TotalChallenged} = lists:foldl(
         fun(Txn, {Map, Total}=Acc) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
                 false ->
@@ -240,8 +242,8 @@ poc_challengers_rewards(Transactions, Chain) ->
     ),
     Ledger = blockchain:ledger(Chain),
     maps:fold(
-        fun(Challenger, Challanged, _Acc) ->
-            PercentofReward = (Challanged*100/TotalChallanged)/100,
+        fun(Challenger, Challenged, _Acc) ->
+            PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward*ChallengersReward),
             blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
         end,
@@ -256,7 +258,7 @@ poc_challengers_rewards(Transactions, Chain) ->
 %%--------------------------------------------------------------------
 poc_challengees_rewards(Transactions, Chain) ->
     ChallengeesReward = ?TOTAL_REWARD * ?POC_CHALLENGEES_PERCENT,
-    {Challengees, TotalChallanged} = lists:foldl(
+    {Challengees, TotalChallenged} = lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
                 false ->
@@ -284,8 +286,8 @@ poc_challengees_rewards(Transactions, Chain) ->
     ),
     Ledger = blockchain:ledger(Chain),
     maps:fold(
-        fun(Challengee, Challanged, _Acc) ->
-            PercentofReward = (Challanged*100/TotalChallanged)/100,
+        fun(Challengee, Challenged, _Acc) ->
+            PercentofReward = (Challenged*100/TotalChallenged)/100,
             % TODO: Not sure about the all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
             blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
