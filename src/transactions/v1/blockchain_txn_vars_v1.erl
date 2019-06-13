@@ -10,7 +10,7 @@
 -include("pb/blockchain_txn_vars_v1_pb.hrl").
 
 -export([
-         new/2, new/3,
+         new/3, new/4,
          hash/1,
          fee/1,
          is_valid/2,
@@ -21,6 +21,7 @@
          version_predicate/1,
          unsets/1,
          cancels/1,
+         nonce/1,
          absorb/2,
          sign/2
 ]).
@@ -28,6 +29,7 @@
 %% helper API
 -export([
          create_proof/2,
+         maybe_absorb/2,
          delayed_absorb/2
         ]).
 
@@ -52,15 +54,16 @@
 %%     bytes key_proof = 5;
 %%     repeated bytes cancels = 6;
 %%     repeated bytes unsets = 7;
+%%     uint32 nonce = 8;
 %% }
 
 
--spec new(#{}, binary()) -> txn_vars().
-new(Vars, Proof) ->
-    new(Vars, Proof, #{}).
+-spec new(#{}, binary(), integer()) -> txn_vars().
+new(Vars, Proof, Nonce) ->
+    new(Vars, Proof, Nonce, #{}).
 
--spec new(#{atom() => any()}, binary(), #{atom() => any()}) -> txn_vars().
-new(Vars, Proof, Optional) ->
+-spec new(#{atom() => any()}, binary(), integer(), #{atom() => any()}) -> txn_vars().
+new(Vars, Proof, Nonce, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
     KeyProof = maps:get(key_proof, Optional, <<>>),
@@ -68,13 +71,15 @@ new(Vars, Proof, Optional) ->
     Cancels = maps:get(cancels, Optional, []),
     %% note that string inputs are normalized on creation, which has
     %% an effect on proof encoding :/
+
     #blockchain_txn_vars_v1_pb{vars = encode_vars(Vars),
                                proof = Proof,
                                version_predicate = VersionP,
                                master_key = MasterKey,
                                key_proof = KeyProof,
                                unsets = encode_unsets(Unsets),
-                               cancels = Cancels}.
+                               cancels = Cancels,
+                               nonce = Nonce}.
 
 encode_vars(Vars) ->
     V = maps:to_list(Vars),
@@ -153,6 +158,9 @@ unsets(Txn) ->
 cancels(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.cancels.
 
+nonce(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb.nonce.
+
 -spec is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -167,6 +175,17 @@ is_valid(Txn, Chain) ->
                 _ ->
                     false
             end,
+
+        Nonce = nonce(Txn),
+        case blockchain_ledger_v1:vars_nonce(Ledger) of
+            {ok, LedgerNonce} when Nonce > LedgerNonce ->
+                ok;
+            {error, not_found} when Gen == true ->
+                ok;
+            _ ->
+                throw({error, bad_nonce})
+        end,
+
         %% here we can accept a valid master key
         case master_key(Txn) of
             <<>> when Gen == true ->
@@ -253,36 +272,44 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
 
+    %% we absorb the nonce here to prevent replays of this txn, even
+    %% if we cannot absorb the full txn right now.
+    ok = blockchain_ledger_v1:vars_nonce(nonce(Txn), Ledger),
+
+    case maybe_absorb(Txn, Ledger) of
+        true ->
+            ok;
+        false ->
+            blockchain_ledger_v1:save_threshold_txn(Txn, Ledger)
+    end.
+
+maybe_absorb(Txn, Ledger) ->
     %% the sorting order makes sure that this txn will be sorted after
     %% any epoch change so this will result in deterministic delay
     case blockchain_ledger_v1:current_height(Ledger) of
         %% genesis block is never delayed
         {ok, 0} ->
-            delayed_absorb(Txn, Ledger);
+            delayed_absorb(Txn, Ledger),
+            true;
         _ ->
             {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
-            %% So we'll be in block Current + 1
-            %% {ok, Current} = blockchain:height(Chain),
             {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
             Effective = Delay + Epoch,
-            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger)
-            %% case version_predicate(Txn) of
-            %%     0 ->
-            %%         lager:info("delaying var application until ~p", [Effective]),
-            %%         ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-            %%     V ->
-            %%         {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-            %%         {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-            %%         Curr = Mod:Fun(),
-            %%         case V >= Curr of
-            %%             true ->
-            %%                 lager:info("delaying var application until ~p", [Effective]),
-            %%                 ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-            %%             false ->
-            %%                 %% TODO: this requires more work on the threshold side.
-            %%                 ok
-            %%         end
-            %% end
+            case version_predicate(Txn) of
+                0 ->
+                    ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
+                    true;
+                V ->
+                    {ok, Threshold} = blockchain:config(predicate_threshold, Ledger),
+                    Versions = blockchain_ledger_v1:gateway_versions(Ledger),
+                    case sum_higher(V, Versions) of
+                        Pct when Pct >= Threshold ->
+                            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
+                            true;
+                        _ ->
+                            false
+                    end
+            end
     end.
 
 delayed_absorb(Txn, Ledger) ->
@@ -294,6 +321,19 @@ delayed_absorb(Txn, Ledger) ->
             ok;
         Key ->
             ok = blockchain_ledger_v1:master_key(Key, Ledger)
+    end.
+
+sum_higher(Target, Proplist) ->
+    sum_higher(Target, Proplist, 0).
+
+sum_higher(_Target, [], Sum) ->
+    Sum;
+sum_higher(Target, [{Vers, Pct}| T], Sum) ->
+    case Vers >= Target of
+        true ->
+            sum_higher(Target, T, Sum + Pct);
+        false ->
+            sum_higher(Target, T, Sum)
     end.
 
 decode_unsets(Unsets) ->

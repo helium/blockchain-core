@@ -278,6 +278,6 @@ create_vars(Vars) ->
     BinPub = libp2p_crypto:pubkey_to_bin(Pub),
     KeyProof = blockchain_txn_vars_v1:create_proof(Priv, Vars1),
 
-    Txn = blockchain_txn_vars_v1:new(Vars1, <<>>, #{master_key => BinPub,
-                                                    key_proof => KeyProof}),
+    Txn = blockchain_txn_vars_v1:new(Vars1, <<>>, 1, #{master_key => BinPub,
+                                                       key_proof => KeyProof}),
     {Txn, {master_key, {Priv, Pub}}}.
