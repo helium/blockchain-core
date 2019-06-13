@@ -240,14 +240,17 @@ print(Gateway, Ledger) ->
            (I) -> I
         end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {NewAlpha, NewBeta, Score} = score(Gateway, Height),
     [
-        {score, score(Gateway, Height)},
+        {score, Score},
         {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
         {location, UndefinedHandleFunc(location(Gateway))},
         {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
         {nonce, nonce(Gateway)},
         {alpha, alpha(Gateway)},
+        {new_alpha, NewAlpha},
         {beta, beta(Gateway)},
+        {new_beta, NewBeta},
         {delta, Height - delta(Gateway)}
     ].
 
