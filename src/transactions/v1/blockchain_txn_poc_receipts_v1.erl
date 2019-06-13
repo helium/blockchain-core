@@ -263,8 +263,8 @@ check_path_continuation(Elements) ->
               Elements).
 
 -spec assign_alpha_beta(HasContinued :: boolean(),
-                        Receipt :: blockchain_poc_receipt_v1:poc_receipt(),
-                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), float()}, boolean()}.
+                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
 assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
     case {HasContinued, Receipt, Witnesses} of
         {true, undefined, _} ->
@@ -298,7 +298,7 @@ assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
     end.
 
 -spec increment_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
-                       {A :: float(), B :: float()},
+                       {A :: float(), B :: 0 | 1},
                        Deltas :: deltas()) -> deltas().
 increment_deltas(Challengee, {A, B}, Deltas) ->
     {A0, B0} = proplists:get_value(Challengee, Deltas, {0, 0}),
@@ -317,7 +317,7 @@ absorb(Txn, Chain) ->
          {error, _}=Error ->
              Error;
          ok ->
-             maps:fold(fun(Gateway, Delta, _Acc) ->
+             lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                        end,
                        ok,
