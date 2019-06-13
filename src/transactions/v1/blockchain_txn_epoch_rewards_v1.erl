@@ -41,7 +41,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(binary(), binary()) -> txn_epoch_rewards().
+-spec new(non_neg_integer(), non_neg_integer()) -> txn_epoch_rewards().
 new(Start, End) ->
     #blockchain_txn_epoch_rewards_v1_pb{start_of_epoch=Start, end_of_epoch=End}.
 
@@ -59,7 +59,7 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec start_of_epoch(txn_epoch_rewards()) -> binary().
+-spec start_of_epoch(txn_epoch_rewards()) -> non_neg_integer().
 start_of_epoch(Txn) ->
     Txn#blockchain_txn_epoch_rewards_v1_pb.start_of_epoch.
 
@@ -67,7 +67,7 @@ start_of_epoch(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec end_of_epoch(txn_epoch_rewards()) -> binary().
+-spec end_of_epoch(txn_epoch_rewards()) -> non_neg_integer().
 end_of_epoch(Txn) ->
     Txn#blockchain_txn_epoch_rewards_v1_pb.end_of_epoch.
 
@@ -135,18 +135,10 @@ validate_epoch(Start, End, Chain) ->
     % TODO: Grab this from chain vars
     validate_epoch(Start, End, Chain, 30).
     
-validate_epoch(Start, Start, _Chain, _Size) ->
+validate_epoch(Start, End, _Chain, Size) when End-Start =< Size ->
     ok;
-validate_epoch(_Start, _Current, _Chain, 0) ->
-    {error, epoch_size};
-validate_epoch(Start, Current, Chain, Size) ->
-    case blockchain:get_block(Current, Chain) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Block} ->
-            PrevHash = blockchain_block:prev_hash(Block),
-            validate_epoch(Start, PrevHash, Chain, Size-1)
-    end.
+validate_epoch(_Start, _end, _Chain, _Size) ->
+    {error, epoch_size}.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -997,7 +997,7 @@ epoch_reward_test(Config) ->
     meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_Txn, _Chain) -> ok end),
 
     % Add few empty blocks to fake epoch
-    Blocks = lists:reverse(lists:foldl(
+    _Blocks = lists:reverse(lists:foldl(
         fun(X, Acc) ->
             Txns = case X =:= 15 of
                 false ->
@@ -1014,8 +1014,8 @@ epoch_reward_test(Config) ->
         lists:seq(1, 30)
     )),
 
-    Start = blockchain_block:hash_block(lists:nth(2, Blocks)),
-    End = blockchain_block:hash_block(lists:nth(29, Blocks)),
+    Start = 2,
+    End = 29,
     Tx = blockchain_txn_epoch_rewards_v1:new(Start, End),
     SignedTx = blockchain_txn_epoch_rewards_v1:sign(Tx, SigFun),
     B = test_utils:create_block(ConsensusMembers, [SignedTx]),

@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 message txn_epoch_rewards_v1 {
-    bytes start_of_epoch = 1;
-    bytes end_of_epoch = 2;
+    uint64 start_of_epoch = 1;
+    uint64 end_of_epoch = 2;
     bytes signature = 3;
 }
