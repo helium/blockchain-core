@@ -159,7 +159,7 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(Txn, _Chain) ->
+is_valid(Txn, Chain) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_gateway(Txn)} of
         {false, _} ->
@@ -167,17 +167,20 @@ is_valid(Txn, _Chain) ->
         {_, false} ->
             {error, bad_gateway_signature};
         {true, true} ->
-            %% NOTE: This causes a chain fork, commenting out till we roll new rules new chain
-            %% case blockchain_ledger_v1:transaction_fee(Ledger) of
-            %%     {error, Error} ->
-            %%         Error;
-            %%     {ok, MinerFee} ->
-            %%         case blockchain_ledger_v1:debit_fee(OwnerAddress, MinerFee, Ledger) of
-            %%             {error, _Reason}=Error -> Error;
-            %%             ok -> blockchain_ledger_v1:add_gateway(OwnerAddress, GatewayAddress, Ledger)
-            %%         end
-            %% end
-            ok
+            Ledger = blockchain:ledger(Chain),
+            Fee = ?MODULE:fee(Txn),
+            case blockchain_ledger_v1:transaction_fee(Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, MinerFee} ->
+                    case (Fee >= MinerFee) of
+                        false ->
+                            {error, invalid_transaction};
+                        true ->
+                            Owner = ?MODULE:owner(Txn),
+                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                    end
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -189,9 +192,10 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
     Gateway = ?MODULE:gateway(Txn),
-    case blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger) of
+    Fee = ?MODULE:fee(Txn),
+    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
         {error, _Reason}=Error -> Error;
-        ok -> ok
+        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
 
 %% ------------------------------------------------------------------
