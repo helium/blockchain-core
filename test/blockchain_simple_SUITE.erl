@@ -1025,8 +1025,7 @@ epoch_reward_test(Config) ->
 
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
-    % 5k base tokens + 1591 for consensus_members_rewards + 455 for securities_rewards + 4500 for being the only challenger
-    ?assertEqual(11546, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(4550455, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1).
