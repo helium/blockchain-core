@@ -123,7 +123,7 @@ score(#gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
     RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
     RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
     IQR = RV2 - RV1,
-    Mean = 1 / (1 + Beta/Alpha),
+    Mean = 1 / (1 + NewBeta/NewAlpha),
     {NewAlpha, NewBeta, Mean * (1 - IQR)}.
 
 %%--------------------------------------------------------------------
