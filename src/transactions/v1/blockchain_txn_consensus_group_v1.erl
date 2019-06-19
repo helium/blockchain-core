@@ -230,14 +230,6 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
 %%--------------------------------------------------------------------
 consensus_members_rewards(_Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-<<<<<<< HEAD
-    Members = ?MODULE:members(Txn),
-    Height = ?MODULE:height(Txn),
-    {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
-    ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
-    blockchain_ledger_v1:consensus_members(Members, Ledger),
-    blockchain_ledger_v1:election_height(Height, Ledger).
-=======
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]);
@@ -402,7 +394,6 @@ poc_witnesses_rewards(Transactions, Chain) ->
         Witnesses
     ),
     ok.
->>>>>>> [ch3561] Move reward to consensur group txn
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
