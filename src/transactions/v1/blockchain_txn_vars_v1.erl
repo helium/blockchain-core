@@ -59,7 +59,7 @@
 new(Vars, Proof) ->
     new(Vars, Proof, #{}).
 
--spec new(#{}, binary(), #{}) -> txn_vars().
+-spec new(#{atom() => any()}, binary(), #{atom() => any()}) -> txn_vars().
 new(Vars, Proof, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
