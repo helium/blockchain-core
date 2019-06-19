@@ -989,12 +989,14 @@ epoch_reward_test(Config) ->
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
 
-    [_, {PubKeyBin, {_, PrivKey, _}}|_] = ConsensusMembers,
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
 
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
     meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_Txn, _Chain) -> ok end),
+
+    meck:new(blockchain_txn_consensus_group_v1, [passthrough]),
+    meck:expect(blockchain_txn_consensus_group_v1, is_valid, fun(_Txn, _Chain) -> ok end),
 
     % Add few empty blocks to fake epoch
     _Blocks = lists:reverse(lists:foldl(
@@ -1011,21 +1013,21 @@ epoch_reward_test(Config) ->
             [B|Acc]
         end,
         [],
-        lists:seq(1, 30)
+        lists:seq(1, 32)
     )),
 
-    Start = 2,
-    End = 29,
-    Tx = blockchain_txn_epoch_rewards_v1:new(Start, End),
-    SignedTx = blockchain_txn_epoch_rewards_v1:sign(Tx, SigFun),
-    B = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    End = 30,
+    Tx = blockchain_txn_consensus_group_v1:new([], <<"fake_proof">>, End, 0),
+    B = test_utils:create_block(ConsensusMembers, [Tx]),
     _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
 
     Ledger = blockchain:ledger(Chain),
 
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
-    ?assertEqual(4550455, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(4234798, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
-    meck:unload(blockchain_txn_poc_receipts_v1).
+    ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1),
+    meck:unload(blockchain_txn_consensus_group_v1).

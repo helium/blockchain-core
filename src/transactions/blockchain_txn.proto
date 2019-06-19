@@ -15,7 +15,6 @@ import "v1/blockchain_txn_redeem_htlc_v1.proto";
 import "v1/blockchain_txn_poc_request_v1.proto";
 import "v1/blockchain_txn_poc_receipts_v1.proto";
 import "v1/blockchain_txn_vars_v1.proto";
-import "v1/blockchain_txn_epoch_rewards_v1.proto";
 
 message txn {
     oneof txn {
@@ -34,6 +33,5 @@ message txn {
         txn_routing_v1 routing = 13;
         txn_security_exchange_v1 security_exchange = 14;
         txn_vars_v1 vars = 15;
-        txn_epoch_rewards_v1 epoch_rewards = 16;
     }
 }

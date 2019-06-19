@@ -25,8 +25,7 @@
              | blockchain_txn_redeem_htlc_v1:txn_redeem_htlc()
              | blockchain_txn_poc_request_v1:txn_poc_request()
              | blockchain_txn_poc_receipts_v1:txn_poc_receipts()
-             | blockchain_txn_vars_v1:txn_vars()
-             | blockchain_txn_epoch_rewards_v1:txn_epoch_rewards().
+             | blockchain_txn_vars_v1:txn_vars().
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
 
@@ -120,9 +119,7 @@ wrap_txn(#blockchain_txn_oui_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_routing_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={routing, Txn}};
 wrap_txn(#blockchain_txn_vars_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={vars, Txn}};
-wrap_txn(#blockchain_txn_epoch_rewards_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={epoch_rewards, Txn}}.
+    #blockchain_txn_pb{txn={vars, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
@@ -286,9 +283,7 @@ type(#blockchain_txn_oui_v1_pb{}) ->
 type(#blockchain_txn_routing_v1_pb{}) ->
     blockchain_txn_routing_v1;
 type(#blockchain_txn_vars_v1_pb{}) ->
-    blockchain_txn_vars_v1;
-type(#blockchain_txn_epoch_rewards_v1_pb{}) ->
-    blockchain_txn_epoch_rewards_v1.
+    blockchain_txn_vars_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
