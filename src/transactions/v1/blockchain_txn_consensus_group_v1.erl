@@ -24,6 +24,15 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([
+    get_txns_for_epoch/3,
+    get_reward_vars/1,
+    consensus_members_rewards/2,
+    securities_rewards/2,
+    poc_challengers_rewards/2,
+    poc_challengees_rewards/2,
+    poc_witnesses_rewards/2
+]).
 -endif.
 
 % monthly_reward          50000 * 1000000  In bones 
@@ -159,11 +168,33 @@ absorb(Txn, Chain) ->
             End = Height,
             Transactions = get_txns_for_epoch(Start, End, Chain),
             Vars = get_reward_vars(Chain),
-            ok = consensus_members_rewards(Txn, Chain, Vars),
-            ok = securities_rewards(Chain, Vars),
-            ok = poc_challengers_rewards(Transactions, Chain, Vars),
-            ok = poc_challengees_rewards(Transactions, Chain, Vars),
-            ok = poc_witnesses_rewards(Transactions, Chain, Vars)
+            ConsensusRewards = consensus_members_rewards(Chain, Vars),
+            SecuritiesRewards = securities_rewards(Chain, Vars),
+            POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
+            POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
+            POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
+            Rewards = lists:foldl(
+                fun(Map, Acc0) ->
+                    maps:fold(
+                        fun(Account, Amount, Acc1) ->
+                            Current = maps:get(Account, Acc1, 0),
+                            maps:put(Account, Amount+Current, Acc1)
+                        end,
+                        Acc0,
+                        Map
+                    )
+                end,
+                #{},
+                [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
+                 POCChallengeesRewards, POCWitnessesRewards]
+            ),
+            maps:fold(
+                fun(Account, Amount, _) ->
+                    blockchain_ledger_v1:credit_account(Account, Amount, Ledger)
+                end,
+                ok,
+                Rewards
+            )
     end.
 
 %% ------------------------------------------------------------------
@@ -249,25 +280,26 @@ get_reward_vars(Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-consensus_members_rewards(_Txn, Chain, #{epoch_reward := EpochReward,
-                                         consensus_percent := ConsensusPercent}) ->
+consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
+                                   consensus_percent := ConsensusPercent}) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
-            lager:error("failed to get consensus_members ~p", [_Reason]);
+            lager:error("failed to get consensus_members ~p", [_Reason]),
+            #{};
             % TODO: Should we error out here?
         {ok, ConsensusMembers} ->
             ConsensusReward = EpochReward * ConsensusPercent,
             Total = erlang:length(ConsensusMembers),
-            lists:foreach(
-                fun(Member) ->
+            lists:foldl(
+                fun(Member, Acc) ->
                     PercentofReward = 100/Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
-                    blockchain_ledger_v1:credit_account(Member, Amount, Ledger)
+                    maps:put(Member, Amount, Acc)
                 end,
+                #{},
                 ConsensusMembers
-            ),
-            ok
+            )
     end.
 
 %%--------------------------------------------------------------------
@@ -287,23 +319,22 @@ securities_rewards(Chain, #{epoch_reward := EpochReward,
     ),
     SecuritiesReward = EpochReward * SecuritiesPercent,
     maps:fold(
-        fun(Key, Entry, _Acc) ->
+        fun(Key, Entry, Acc) ->
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = (Balance*100/TotalSecurities)/100,
             Amount = erlang:round(PercentofReward*SecuritiesReward),
-            blockchain_ledger_v1:credit_account(Key, Amount, Ledger)
+            maps:put(Key, Amount, Acc)
         end,
-        ok,
+        #{},
         Securities
-    ),
-    ok.
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_challengers_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
-                                               poc_challengers_percent := PocChallengersPercent}) ->
+poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
+                                        poc_challengers_percent := PocChallengersPercent}) ->
     {Challengers, TotalChallenged} = lists:foldl(
         fun(Txn, {Map, Total}=Acc) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -318,25 +349,23 @@ poc_challengers_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
         {#{}, 0},
         Transactions
     ),
-    Ledger = blockchain:ledger(Chain),
     ChallengersReward = EpochReward * PocChallengersPercent,
     maps:fold(
-        fun(Challenger, Challenged, _Acc) ->
+        fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward * ChallengersReward),
-            blockchain_ledger_v1:credit_account(Challenger, Amount, Ledger)
+            maps:put(Challenger, Amount, Acc)
         end,
-        ok,
+        #{},
         Challengers
-    ),
-    ok.
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_challengees_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
-                                               poc_challengees_percent := PocChallengeesPercent}) ->
+poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
+                                        poc_challengees_percent := PocChallengeesPercent}) ->
     ChallengeesReward = EpochReward * PocChallengeesPercent,
     {Challengees, TotalChallenged} = lists:foldl(
         fun(Txn, Acc0) ->
@@ -364,25 +393,23 @@ poc_challengees_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
         {#{}, 0},
         Transactions
     ),
-    Ledger = blockchain:ledger(Chain),
     maps:fold(
-        fun(Challengee, Challenged, _Acc) ->
+        fun(Challengee, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             % TODO: Not sure about the all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
-            blockchain_ledger_v1:credit_account(Challengee, Amount, Ledger)
+            maps:put(Challengee, Amount, Acc)
         end,
-        ok,
+        #{},
         Challengees
-    ),
-    ok.
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_witnesses_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
-                                             poc_witnesses_percent := PocWitnessesPercent}) ->
+poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
+                                      poc_witnesses_percent := PocWitnessesPercent}) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -408,18 +435,16 @@ poc_witnesses_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
         {#{}, 0},
         Transactions
     ),
-    Ledger = blockchain:ledger(Chain),
     WitnessesReward = EpochReward * PocWitnessesPercent,
     maps:fold(
-        fun(Witness, Witnessed, _Acc) ->
+        fun(Witness, Witnessed, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
             Amount = erlang:round(PercentofReward*WitnessesReward),
-            blockchain_ledger_v1:credit_account(Witness, Amount, Ledger)
+            maps:put(Witness, Amount, Acc)
         end,
-        ok,
+        #{},
         Witnesses
-    ),
-    ok.
+    ).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
