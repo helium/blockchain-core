@@ -24,7 +24,6 @@ start(_StartType, _StartArgs) ->
                 K
         end,
     BaseDir = application:get_env(blockchain, base_dir, "data"),
-    NumConsensusMembers = application:get_env(blockchain, num_consensus_members, 7),
     Port = application:get_env(blockchain, port, 0),
     SeedNodes = application:get_env(blockchain, seed_nodes, []),
     SeedNodeDNS = application:get_env(blockchain, seed_node_dns, []),
@@ -33,7 +32,6 @@ start(_StartType, _StartArgs) ->
     SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),
     Args = [
         {base_dir, BaseDir},
-        {num_consensus_members, NumConsensusMembers},
         {seed_nodes, SeedNodes ++ SeedAddresses},
         {key, Key},
         {port, Port}

@@ -15,6 +15,7 @@
     blocks/1, get_block/2,
     add_blocks/2, add_block/2, add_block/3,
     delete_block/2,
+    config/2,
     fees_since/2,
     build/3,
     close/1
@@ -409,6 +410,9 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
     end,
     ok = rocksdb:batch_delete(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+config(ConfigName, Ledger) ->
+    blockchain_ledger_v1:config(ConfigName, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

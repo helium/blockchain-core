@@ -48,24 +48,32 @@ init_per_testcase(_TestCase, Config0) ->
 
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
+    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+
+    InitialVars = [ VTxn ],
+
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
-    Txs = GenPaymentTxs ++ [GenConsensusGroupTx],
+    Txs = InitialVars ++ GenPaymentTxs ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
     %% tell each node to integrate the genesis block
     lists:foreach(fun(Node) ->
-                          ok = ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock])
+                          ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
                   end, Nodes),
 
     %% wait till each worker gets the gensis block
-    ok = lists:foreach(fun(Node) ->
-                               ok = blockchain_ct_utils:wait_until(fun() ->
-                                                                           C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                                                                           {ok, 1} == ct_rpc:call(Node, blockchain, height, [C0])
-                                                                   end, 120, 500)
-                       end, Nodes),
+    ok = lists:foreach(
+           fun(Node) ->
+                   ok = blockchain_ct_utils:wait_until(
+                          fun() ->
+                                  C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                                  {ok, Height} = ct_rpc:call(Node, blockchain, height, [C0]),
+                                  ct:pal("node ~p height ~p", [Node, Height]),
+                                  Height == 1
+                          end, 100, 100)
+           end, Nodes),
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),

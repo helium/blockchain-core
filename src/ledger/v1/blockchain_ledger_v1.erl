@@ -21,6 +21,10 @@
     entries/1,
     htlcs/1,
 
+    master_key/1, master_key/2,
+    vars/3,
+    config/2,  % no version with default, use the set value or fail
+
     find_gateway_info/2,
     add_gateway/3, add_gateway/5,
     add_gateway_location/4,
@@ -86,6 +90,7 @@
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
+-define(MASTER_KEY, <<"master_key">>).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -395,6 +400,50 @@ htlcs(#ledger_v1{db=DB}=Ledger) ->
         #{},
         maybe_use_snapshot(Ledger, [])
     ).
+
+master_key(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?MASTER_KEY, []) of
+        {ok, MasterKey} ->
+            {ok, MasterKey};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+master_key(NewKey, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
+
+vars(Vars, Unset, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    maps:map(
+      fun(K, V) ->
+              cache_put(Ledger, DefaultCF, var_name(K), term_to_binary(V))
+      end,
+      Vars),
+    lists:foreach(
+      fun(K) ->
+              cache_delete(Ledger, DefaultCF, var_name(K))
+      end,
+      Unset),
+    ok.
+
+config(ConfigName, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
+        {ok, ConfigVal} ->
+            {ok, binary_to_term(ConfigVal)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+%% need to prefix to keep people from messing with existing names on accident
+var_name(Name) ->
+    <<"$var_", (atom_to_binary(Name, utf8))/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
