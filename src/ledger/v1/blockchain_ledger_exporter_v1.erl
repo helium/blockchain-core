@@ -6,9 +6,7 @@
 -module(blockchain_ledger_exporter_v1).
 
 -export([
-    export/1,
-    export_accounts/1,
-    export_gateways/1
+    export/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -18,16 +16,16 @@
 -spec export(blockchain_ledger_v1:ledger()) -> any().
 export(Ledger) ->
     [
+        {securities, export_securities(Ledger)},
         {accounts, export_accounts(Ledger)},
         {gateways, export_gateways(Ledger)}
     ].
-
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec export_accounts(blockchain_ledger_v1:ledger()) -> any().
+-spec export_accounts(blockchain_ledger_v1:ledger()) -> list().
 export_accounts(Ledger) ->
     lists:foldl(
         fun({Address, Entry}, Acc) ->
@@ -42,7 +40,7 @@ export_accounts(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec export_gateways(blockchain_ledger_v1:ledger()) -> any().
+-spec export_gateways(blockchain_ledger_v1:ledger()) -> list().
 export_gateways(Ledger) ->
     lists:foldl(
         fun({GatewayAddress, Gateway}, Acc) ->
@@ -53,4 +51,19 @@ export_gateways(Ledger) ->
         end,
         [],
         maps:to_list(blockchain_ledger_v1:active_gateways(Ledger))
+    ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec export_securities(blockchain_ledger_v1:ledger()) -> list().
+export_securities(Ledger) ->
+    lists:foldl(
+        fun({Address, SecurityEntry}, Acc) ->
+            [[{address, libp2p_crypto:bin_to_b58(Address)},
+              {token, blockchain_ledger_security_entry_v1:balance(SecurityEntry)}] | Acc]
+        end,
+        [],
+        maps:to_list(blockchain_ledger_v1:securities(Ledger))
     ).

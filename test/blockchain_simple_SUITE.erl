@@ -579,6 +579,7 @@ export_test(Config) ->
      | _] = ConsensusMembers,
     Amount = 2500,
     Fee = 10,
+    N = length(ConsensusMembers),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
@@ -614,7 +615,7 @@ export_test(Config) ->
 
     timer:sleep(500),
 
-    [{accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
+    [{securities, Securities}, {accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
@@ -622,10 +623,10 @@ export_test(Config) ->
                    {nonce,1}]], Gateways),
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
-                                                   AccontAddress = proplists:get_value(address, Account),
-                                                   case libp2p_crypto:bin_to_b58(Payer1) == AccontAddress orelse
-                                                        libp2p_crypto:bin_to_b58(Payer2) == AccontAddress orelse
-                                                        libp2p_crypto:bin_to_b58(Payer3) == AccontAddress
+                                                   AccountAddress = proplists:get_value(address, Account),
+                                                   case libp2p_crypto:bin_to_b58(Payer1) == AccountAddress orelse
+                                                        libp2p_crypto:bin_to_b58(Payer2) == AccountAddress orelse
+                                                        libp2p_crypto:bin_to_b58(Payer3) == AccountAddress
                                                    of
                                                        true -> [Account | Acc];
                                                        false -> Acc
@@ -634,6 +635,15 @@ export_test(Config) ->
     lists:all(fun(Account) ->
                       (Balance - Amount - Fee) == proplists:get_value(balance, Account)
               end, FilteredExportedAccounts),
+
+    %% check all consensus members are included in the exported securities
+    ?assertEqual(length(Securities), N),
+
+    %% check security balance for each member
+    lists:all(fun(Security) ->
+                      Token = proplists:get_value(token, Security),
+                      Token == Balance
+              end, Securities),
 
     ok.
 
