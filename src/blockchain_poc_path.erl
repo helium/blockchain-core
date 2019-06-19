@@ -205,7 +205,6 @@ neighbors(Address, Gateways, Height) ->
                   Gw2 :: blockchain_ledger_gateway_v1:gateway(),
                   Height :: non_neg_integer()) -> float().
 edge_weight(Gw1, Gw2, Height) ->
-    io:format("Gw1: ~p~n", [Gw1]),
     {_, _, S1} = blockchain_ledger_gateway_v1:score(Gw1, Height),
     {_, _, S2} = blockchain_ledger_gateway_v1:score(Gw2, Height),
     1 - abs(prob_fun(S1) -  prob_fun(S2)).
