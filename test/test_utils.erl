@@ -38,7 +38,15 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => 10}),
+    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{
+        num_consensus_members => 10,
+        monthly_reward => 50000 * 1000000,
+        securities_percent => 0.35,
+        poc_challengees_percent => 0.19 + 0.16,
+        poc_challengers_percent => 0.09 + 0.06,
+        poc_witnesses_percent => 0.02 + 0.03,
+        consensus_percent => 0.10
+    }),
 
     InitialVars = [ VTxn ],
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)

@@ -26,15 +26,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-% TODO: Make this chain vars
--define(MONTHLY_REWARD, 50000 * 1000000). % In bones 
--define(EPOCH_REWARD, ?MONTHLY_REWARD/30/24/2).
--define(SECURITIES_PERCENT, 0.35).
--define(DC_PERCENT, 0.25). % Unused for now so give to POC
--define(POC_CHALLENGEES_PERCENT, 0.19 + 0.16).
--define(POC_CHALLENGERS_PERCENT, 0.09 + 0.06).
--define(POC_WITNESSES_PERCENT, 0.02 + 0.03).
--define(CONSENSUS_PERCENT, 0.10).
+% monthly_reward          50000 * 1000000  In bones 
+% securities_percent      0.35
+% dc_percent              0.25 Unused for now so give to POC
+% poc_challengees_percen  0.19 + 0.16
+% poc_challengers_percen  0.09 + 0.06
+% poc_witnesses_percent   0.02 + 0.03
+% consensus_percent       0.10
 
 -type txn_consensus_group() :: #blockchain_txn_consensus_group_v1_pb{}.
 -export_type([txn_consensus_group/0]).
@@ -160,11 +158,12 @@ absorb(Txn, Chain) ->
             Start = Height - 30,
             End = Height,
             Transactions = get_txns_for_epoch(Start, End, Chain),
-            ok = consensus_members_rewards(Txn, Chain),
-            ok = securities_rewards(Chain),
-            ok = poc_challengers_rewards(Transactions, Chain),
-            ok = poc_challengees_rewards(Transactions, Chain),
-            ok = poc_witnesses_rewards(Transactions, Chain)
+            Vars = get_reward_vars(Chain),
+            ok = consensus_members_rewards(Txn, Chain, Vars),
+            ok = securities_rewards(Chain, Vars),
+            ok = poc_challengers_rewards(Transactions, Chain, Vars),
+            ok = poc_challengees_rewards(Transactions, Chain, Vars),
+            ok = poc_witnesses_rewards(Transactions, Chain, Vars)
     end.
 
 %% ------------------------------------------------------------------
@@ -228,14 +227,37 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-consensus_members_rewards(_Txn, Chain) ->
+get_reward_vars(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, MonthlyReward} = blockchain:config(monthly_reward, Ledger),
+    {ok, SecuritiesPercent} = blockchain:config(securities_percent, Ledger),
+    {ok, PocChallengeesPercent} = blockchain:config(poc_challengees_percent, Ledger),
+    {ok, PocChallengersPercent} = blockchain:config(poc_challengers_percent, Ledger),
+    {ok, PocWitnessesPercent} = blockchain:config(poc_witnesses_percent, Ledger),
+    {ok, ConsensusPercent} = blockchain:config(consensus_percent, Ledger),
+    #{
+        monthly_reward => MonthlyReward,
+        epoch_reward => MonthlyReward/30/24/2,
+        securities_percent => SecuritiesPercent,
+        poc_challengees_percent => PocChallengeesPercent,
+        poc_challengers_percent => PocChallengersPercent,
+        poc_witnesses_percent => PocWitnessesPercent,
+        consensus_percent => ConsensusPercent
+    }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+consensus_members_rewards(_Txn, Chain, #{epoch_reward := EpochReward,
+                                         consensus_percent := ConsensusPercent}) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]);
             % TODO: Should we error out here?
         {ok, ConsensusMembers} ->
-            ConsensusReward = ?EPOCH_REWARD * ?CONSENSUS_PERCENT,
+            ConsensusReward = EpochReward * ConsensusPercent,
             Total = erlang:length(ConsensusMembers),
             lists:foreach(
                 fun(Member) ->
@@ -252,9 +274,9 @@ consensus_members_rewards(_Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-securities_rewards(Blockchain) ->
-    Ledger = blockchain:ledger(Blockchain),
-    SecuritiesReward = ?EPOCH_REWARD * ?SECURITIES_PERCENT,
+securities_rewards(Chain, #{epoch_reward := EpochReward,
+                            securities_percent := SecuritiesPercent}) ->
+    Ledger = blockchain:ledger(Chain),
     Securities = blockchain_ledger_v1:securities(Ledger),
     TotalSecurities = maps:fold(
         fun(_, Entry, Acc) ->
@@ -263,6 +285,7 @@ securities_rewards(Blockchain) ->
         0,
         Securities
     ),
+    SecuritiesReward = EpochReward * SecuritiesPercent,
     maps:fold(
         fun(Key, Entry, _Acc) ->
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
@@ -279,8 +302,8 @@ securities_rewards(Blockchain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_challengers_rewards(Transactions, Chain) ->
-    ChallengersReward = ?EPOCH_REWARD * ?POC_CHALLENGERS_PERCENT,
+poc_challengers_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
+                                               poc_challengers_percent := PocChallengersPercent}) ->
     {Challengers, TotalChallenged} = lists:foldl(
         fun(Txn, {Map, Total}=Acc) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -296,6 +319,7 @@ poc_challengers_rewards(Transactions, Chain) ->
         Transactions
     ),
     Ledger = blockchain:ledger(Chain),
+    ChallengersReward = EpochReward * PocChallengersPercent,
     maps:fold(
         fun(Challenger, Challenged, _Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
@@ -311,8 +335,9 @@ poc_challengers_rewards(Transactions, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_challengees_rewards(Transactions, Chain) ->
-    ChallengeesReward = ?EPOCH_REWARD * ?POC_CHALLENGEES_PERCENT,
+poc_challengees_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
+                                               poc_challengees_percent := PocChallengeesPercent}) ->
+    ChallengeesReward = EpochReward * PocChallengeesPercent,
     {Challengees, TotalChallenged} = lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -356,8 +381,8 @@ poc_challengees_rewards(Transactions, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-poc_witnesses_rewards(Transactions, Chain) ->
-    WitnessesReward = ?EPOCH_REWARD * ?POC_WITNESSES_PERCENT,
+poc_witnesses_rewards(Transactions, Chain, #{epoch_reward := EpochReward,
+                                             poc_witnesses_percent := PocWitnessesPercent}) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -384,6 +409,7 @@ poc_witnesses_rewards(Transactions, Chain) ->
         Transactions
     ),
     Ledger = blockchain:ledger(Chain),
+    WitnessesReward = EpochReward * PocWitnessesPercent,
     maps:fold(
         fun(Witness, Witnessed, _Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
