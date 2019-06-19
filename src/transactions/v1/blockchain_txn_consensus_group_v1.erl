@@ -24,22 +24,13 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
--export([
-    get_txns_for_epoch/3,
-    get_reward_vars/1,
-    consensus_members_rewards/2,
-    securities_rewards/2,
-    poc_challengers_rewards/2,
-    poc_challengees_rewards/2,
-    poc_witnesses_rewards/2
-]).
 -endif.
 
 % monthly_reward          50000 * 1000000  In bones 
 % securities_percent      0.35
 % dc_percent              0.25 Unused for now so give to POC
-% poc_challengees_percen  0.19 + 0.16
-% poc_challengers_percen  0.09 + 0.06
+% poc_challengees_percent 0.19 + 0.16
+% poc_challengers_percent 0.09 + 0.06
 % poc_witnesses_percent   0.02 + 0.03
 % consensus_percent       0.10
 
@@ -419,7 +410,8 @@ poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
                     lists:foldl(
                         fun(Elem, Acc1) ->
                             lists:foldl(
-                                fun(Witness, {Map, Total}) ->
+                                fun(WitnessRecord, {Map, Total}) ->
+                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
                                     I = maps:get(Witness, Map, 0),
                                     {maps:put(Witness, I+1, Map), Total+1}
                                 end,
@@ -461,5 +453,102 @@ new_test() ->
 members_test() ->
     Tx = new([<<"1">>], <<"proof">>, 1, 0),
     ?assertEqual([<<"1">>], members(Tx)).
+
+
+consensus_members_rewards_test() ->
+    BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block),
+    Vars = #{
+        epoch_reward => 1000,
+        consensus_percent => 0.10
+    },
+    Rewards = #{
+        <<"1">> => 50,
+        <<"2">> => 50
+    },
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+        {ok, maps:keys(Rewards)}
+    end),
+    ?assertEqual(Rewards, consensus_members_rewards(Chain, Vars)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1).
+
+
+securities_rewards_test() ->
+    BaseDir = test_utils:tmp_dir("securities_rewards_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block),
+    Vars = #{
+        epoch_reward => 1000,
+        securities_percent => 0.35
+    },
+    Rewards = #{
+        <<"1">> => 175,
+        <<"2">> => 175
+    },
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, securities, fun(_) ->
+        #{
+            <<"1">> => blockchain_ledger_security_entry_v1:new(0, 2500),
+            <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
+        }
+    end),
+    ?assertEqual(Rewards, securities_rewards(Chain, Vars)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1).
+
+poc_challengers_rewards_test() ->
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"1">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"2">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"1">>, <<"Secret">>, <<"OnionKeyHash">>, [])
+    ],
+    Vars = #{
+        epoch_reward => 1000,
+        poc_challengers_percent => 0.09 + 0.06
+    },
+    Rewards = #{
+        <<"1">> => 100,
+        <<"2">> => 50
+    },
+    ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
+
+poc_challengees_rewards_test() ->
+    Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, <<"Receipt not undefined">>, []),
+    Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, <<"Receipt not undefined">>, []),
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2])
+    ],
+    Vars = #{
+        epoch_reward => 1000,
+        poc_challengees_percent => 0.19 + 0.16
+    },
+    Rewards = #{
+        <<"1">> => 175,
+        <<"2">> => 175
+    },
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
+
+
+poc_witnesses_rewards_test() ->
+    Witness1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
+    Witness2 = blockchain_poc_witness_v1:new(<<"2">>, 1, 1, <<>>),
+    Elem = blockchain_poc_path_element_v1:new(<<"Y">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
+    ],
+    Vars = #{
+        epoch_reward => 1000,
+        poc_witnesses_percent => 0.02 + 0.03
+    },
+    Rewards = #{
+        <<"1">> => 25,
+        <<"2">> => 25
+    },
+    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, Vars)).
 
 -endif.
