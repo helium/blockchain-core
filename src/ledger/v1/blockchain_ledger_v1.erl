@@ -30,6 +30,7 @@
 
     find_gateway_info/2,
     add_gateway/3, add_gateway/5,
+    update_gateway/3,
     add_gateway_location/4,
 
     update_gateway_score/3,
@@ -557,6 +558,11 @@ add_gateway(OwnerAddr,
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
+
+update_gateway(Gw, GwAddr, Ledger) ->
+    Bin = blockchain_ledger_gateway_v1:serialize(Gw),
+    AGwsCF = active_gateways_cf(Ledger),
+    cache_put(Ledger, AGwsCF, GwAddr, Bin).
 
 %%--------------------------------------------------------------------
 %% @doc
