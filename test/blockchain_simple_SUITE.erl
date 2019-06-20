@@ -621,10 +621,15 @@ export_test(Config) ->
 
     [{securities, Securities}, {accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
+    %% we added this after we add all of the existing gateways in the
+    %% genesis block with nonce 0.  we filter those out to make sure
+    %% we're still getting the txn that we're looking for
+    Gateways1 = [G || [_, _, _, {nonce, Nonce}] = G <- Gateways, Nonce == 1],
+
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
                    {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,?TEST_LOCATION},
-                   {nonce,1}]], Gateways),
+                   {nonce,1}]], Gateways1),
 
     FilteredExportedAccounts = lists:foldl(fun(Account, Acc) ->
                                                    AccountAddress = proplists:get_value(address, Account),
