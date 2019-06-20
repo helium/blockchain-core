@@ -23,7 +23,8 @@
     routing_test/1,
     block_save_failed_test/1,
     absorb_failed_test/1,
-    epoch_reward_test/1
+    epoch_reward_test/1,
+    election_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -53,7 +54,8 @@ all() ->
         routing_test,
         block_save_failed_test,
         absorb_failed_test,
-        epoch_reward_test
+        epoch_reward_test,
+        election_test
     ].
 
 %%--------------------------------------------------------------------
@@ -975,7 +977,6 @@ absorb_failed_test(Config) ->
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
-
 %%--------------------------------------------------------------------
 %% @public
 %% @doc
@@ -1031,3 +1032,61 @@ epoch_reward_test(Config) ->
     ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
     meck:unload(blockchain_txn_consensus_group_v1).
+
+election_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    %% Chain = proplists:get_value(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    _Swarm = proplists:get_value(swarm, Config),
+    _N = proplists:get_value(n, Config),
+
+    %% this is kind of short because there aren't a huge number of
+    %% gateways, and the easy check fails if the list wraps around
+    Len = 4,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% add random alpha and beta to gateways
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    [begin
+         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+         Alpha = (rand:uniform() * 10.0) + 1.0,
+         Beta = (rand:uniform() * 10.0) + 1.0,
+         I2 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+     end
+     || {Addr, _} <- ConsensusMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% generate new group
+    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), Len),
+
+    ?assertEqual(Len, length(New)),
+
+    %% confirm that they're sorted by score
+    Scored =
+        [begin
+             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v1:score(I, 1),
+             {Score, Addr}
+         end
+         || Addr <- New],
+
+    ct:pal("scored ~p", [Scored]),
+
+    %% no dupes
+    ?assertEqual(lists:usort(Scored), lists:sort(Scored)),
+
+    Scored1 = lists:sort(Scored),
+
+    {_Scores, SortedAddrs} = lists:unzip(Scored1),
+
+    %% in the expected order
+    ?assertEqual(SortedAddrs, New),
+
+    ok.

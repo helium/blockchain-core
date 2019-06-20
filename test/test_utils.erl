@@ -54,8 +54,18 @@ init_chain(Balance, {PrivKey, PubKey}) ->
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
-    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
-    Txs = InitialVars ++ GenPaymentTxs ++ GenSecPaymentTxs ++ [GenConsensusGroupTx],
+
+    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr,
+                                                           16#8c283475d4e89ff, 0)
+                         || {Addr, _} <- ConsensusMembers ],
+
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
+                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
+    Txs = InitialVars ++
+        GenPaymentTxs ++
+        GenSecPaymentTxs ++
+        InitialGatewayTxn ++
+        [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
