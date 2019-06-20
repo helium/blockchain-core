@@ -17,16 +17,16 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(RESOLUTION, 9).
--define(RING_SIZE, 2).
+-define(RESOLUTION, 8).
+-define(RING_SIZE, 1).
 % KRing of 1
 %     Scale 3.57
-%     Max distance 1.028 miles @ resolution 8
+%     Max distance 1.028 miles @ resolution 8 <---
 %     Max distance 0.38 miles @ resolution 9
 
 % KRing of 2
 %     Scale 5.42
-%     Max distance 1.564 miles @ resolution 8 <---
+%     Max distance 1.564 miles @ resolution 8
 %     Max distance 0.59 miles @ resolution 9
 
 -type graph() :: #{any() => [{number(), any()}]}.
