@@ -467,6 +467,7 @@ master_key(NewKey, Ledger) ->
 
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
+    lager:info("calling vars ~p ~p", [Vars, Unset]),
     maps:map(
       fun(K, V) ->
               cache_put(Ledger, DefaultCF, var_name(K), term_to_binary(V))
