@@ -22,6 +22,17 @@
     absorb/2
 ]).
 
+% Exported for APIs
+-export([
+    get_txns_for_epoch/3,
+    get_reward_vars/1,
+    consensus_members_rewards/2,
+    securities_rewards/2,
+    poc_challengers_rewards/2,
+    poc_challengees_rewards/2,
+    poc_witnesses_rewards/2
+]).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
