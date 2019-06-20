@@ -160,6 +160,8 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
     Height = ?MODULE:height(Txn),
+    {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
+    ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
     blockchain_ledger_v1:consensus_members(Members, Ledger),
     blockchain_ledger_v1:election_height(Height, Ledger),
     case Height - 30 < 0 of
