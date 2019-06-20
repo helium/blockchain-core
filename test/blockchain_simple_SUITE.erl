@@ -22,7 +22,8 @@
     security_token_test/1,
     routing_test/1,
     block_save_failed_test/1,
-    absorb_failed_test/1
+    absorb_failed_test/1,
+    epoch_reward_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -51,7 +52,8 @@ all() ->
         security_token_test,
         routing_test,
         block_save_failed_test,
-        absorb_failed_test
+        absorb_failed_test,
+        epoch_reward_test
     ].
 
 %%--------------------------------------------------------------------
@@ -972,3 +974,60 @@ absorb_failed_test(Config) ->
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
+
+
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+epoch_reward_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
+
+    meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
+    meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),
+    meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_Txn, _Chain) -> ok end),
+
+    meck:new(blockchain_txn_consensus_group_v1, [passthrough]),
+    meck:expect(blockchain_txn_consensus_group_v1, is_valid, fun(_Txn, _Chain) -> ok end),
+
+    % Add few empty blocks to fake epoch
+    _Blocks = lists:reverse(lists:foldl(
+        fun(X, Acc) ->
+            Txns = case X =:= 15 of
+                false ->
+                    [];
+                true ->
+                    POCReceiptTxn = blockchain_txn_poc_receipts_v1:new(PubKeyBin, <<"Secret">>, <<"OnionKeyHash">>, []),
+                    [POCReceiptTxn]
+            end,
+            B = test_utils:create_block(ConsensusMembers, Txns),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+            [B|Acc]
+        end,
+        [],
+        lists:seq(1, 32)
+    )),
+
+    End = 30,
+    Tx = blockchain_txn_consensus_group_v1:new([], <<"fake_proof">>, End, 0),
+    B = test_utils:create_block(ConsensusMembers, [Tx]),
+    _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+
+    Ledger = blockchain:ledger(Chain),
+
+    {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
+
+    ?assertEqual(6318131, blockchain_ledger_entry_v1:balance(Entry)),
+
+    ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
+    meck:unload(blockchain_txn_poc_receipts_v1),
+    meck:unload(blockchain_txn_consensus_group_v1).
