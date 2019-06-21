@@ -1045,11 +1045,7 @@ election_test(Config) ->
     %% Chain = proplists:get_value(chain, Config),
     Chain = blockchain_worker:blockchain(),
     _Swarm = proplists:get_value(swarm, Config),
-    _N = proplists:get_value(n, Config),
-
-    %% this is kind of short because there aren't a huge number of
-    %% gateways, and the easy check fails if the list wraps around
-    Len = 4,
+    N = 7,
 
     %% make sure our generated alpha & beta values are the same each time
     rand:seed(exs1024s, {1, 2, 234098723564079}),
@@ -1068,10 +1064,13 @@ election_test(Config) ->
      || {Addr, _} <- ConsensusMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
-    %% generate new group
-    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), Len),
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
 
-    ?assertEqual(Len, length(New)),
+    %% generate new group of the same length
+    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N),
+
+    ?assertEqual(N, length(New)),
 
     %% confirm that they're sorted by score
     Scored =
@@ -1087,11 +1086,8 @@ election_test(Config) ->
     %% no dupes
     ?assertEqual(lists:usort(Scored), lists:sort(Scored)),
 
-    Scored1 = lists:sort(Scored),
+    %% TODO: add better tests here
 
-    {_Scores, SortedAddrs} = lists:unzip(Scored1),
-
-    %% in the expected order
-    ?assertEqual(SortedAddrs, New),
+    ?assertEqual(1, length(New -- OldGroup)),
 
     ok.

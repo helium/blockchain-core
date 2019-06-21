@@ -9,28 +9,55 @@ new_group(Ledger, Hash, Size) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    {ok, SelectPct} = blockchain_ledger_v1:config(election_selection_pct, Ledger),
+    {ok, ReplacementFactor} = blockchain_ledger_v1:config(election_replacement_factor, Ledger),
+
+    OldLen = length(OldGroup),
+    case Size == OldLen of
+        true ->
+            Remove = Replace = floor(Size/ReplacementFactor);
+        %% growing
+        false when Size > OldLen ->
+            Remove = 0,
+            Replace = Size - OldLen;
+        %% shrinking
+        false ->
+            Remove = OldLen - Size,
+            Replace = 0
+    end,
+
+    %% annotate with score while removing dupes
     Gateways1 =
-        [begin
-             {_, _, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
-             {Score, Addr}
+        [case lists:member(Addr, OldGroup) of
+             true ->
+                 [];
+             _ ->
+                 {_, _, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
+                 {Score, Addr}
          end
          || {Addr, Gw} <- maps:to_list(Gateways0)],
 
-    Gateways = lists:sort(Gateways1),
+    Gateways2 = lists:flatten(Gateways1),
+    Gateways = lists:sort(Gateways2),
     blockchain_utils:rand_from_hash(Hash),
-    select(Gateways, Gateways, Size, []).
+    New = select(Gateways, Gateways, Replace, SelectPct, []),
+    OldGroupWrap = lists:zip([ignored || _ <- lists:seq(1, OldLen)], OldGroup),
+    Rem = OldGroup -- select(OldGroupWrap, OldGroupWrap, Remove, SelectPct, []),
+    Rem ++ New.
 
-select(_, _, 0, Acc) ->
+select(_, _, 0, _Pct, Acc) ->
     lists:reverse(Acc);
-select([], Gateways, Size, Acc) ->
-    select(Gateways, Gateways, Size, Acc);
-select([{_Score, Gw} | Rest], Gateways, Size, Acc) ->
+select([], Gateways, Size, Pct, Acc) ->
+    select(Gateways, Gateways, Size, Pct, Acc);
+select([{_Score, Gw} | Rest], Gateways, Size, Pct, Acc) ->
     case rand:uniform(100) of
         %% this pctage should be chain-var tunable
-        N when N =< 60 ->
-            select(Rest, lists:keydelete(Gw, 2, Gateways), Size - 1, [Gw | Acc]);
+        N when N =< Pct ->
+            select(Rest, lists:keydelete(Gw, 2, Gateways), Size - 1, Pct, [Gw | Acc]);
         _ ->
-            select(Rest, Gateways, Size, Acc)
+            select(Rest, Gateways, Size, Pct, Acc)
     end.
 
 has_new_group(Txns) ->

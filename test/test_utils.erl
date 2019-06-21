@@ -38,15 +38,18 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{
-        num_consensus_members => 10,
-        monthly_reward => 50000 * 1000000,
-        securities_percent => 0.35,
-        poc_challengees_percent => 0.19 + 0.16,
-        poc_challengers_percent => 0.09 + 0.06,
-        poc_witnesses_percent => 0.02 + 0.03,
-        consensus_percent => 0.10
-    }),
+    {VTxn, _Config} = blockchain_ct_utils:create_vars(
+                        #{
+                          num_consensus_members => 7,
+                          monthly_reward => 50000 * 1000000,
+                          securities_percent => 0.35,
+                          poc_challengees_percent => 0.19 + 0.16,
+                          poc_challengers_percent => 0.09 + 0.06,
+                          poc_witnesses_percent => 0.02 + 0.03,
+                          consensus_percent => 0.10,
+                          election_selection_pct => 60,
+                          election_replacement_factor => 4
+                         }),
 
     InitialVars = [ VTxn ],
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
@@ -60,7 +63,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                          || {Addr, _} <- ConsensusMembers ],
 
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
-                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
+                            [Addr || {Addr, _} <- lists:sublist(ConsensusMembers, 7)], <<"proof">>, 1, 0),
     Txs = InitialVars ++
         GenPaymentTxs ++
         GenSecPaymentTxs ++
