@@ -180,9 +180,17 @@ absorb(Txn, Chain) ->
             Rewards = lists:foldl(
                 fun(Map, Acc0) ->
                     maps:fold(
-                        fun(Account, Amount, Acc1) ->
-                            Current = maps:get(Account, Acc1, 0),
-                            maps:put(Account, Amount+Current, Acc1)
+                        fun({owner, Owner}, Amount, Acc1) ->
+                            Current = maps:get(Owner, Acc1, 0),
+                            maps:put(Owner, Amount+Current, Acc1);
+                        ({gateway, Gateway}, Amount, Acc1) ->
+                            case get_gateway_owner(Gateway, Ledger) of
+                                {error, _} ->
+                                    Acc1;
+                                {ok, Owner} ->
+                                    Current = maps:get(Owner, Acc1, 0),
+                                    maps:put(Owner, Amount+Current, Acc1)
+                            end
                         end,
                         Acc0,
                         Map
@@ -299,7 +307,7 @@ consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
                 fun(Member, Acc) ->
                     PercentofReward = 100/Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
-                    maps:put(Member, Amount, Acc)
+                    maps:put({gateway, Member}, Amount, Acc)
                 end,
                 #{},
                 ConsensusMembers
@@ -327,7 +335,7 @@ securities_rewards(Chain, #{epoch_reward := EpochReward,
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = (Balance*100/TotalSecurities)/100,
             Amount = erlang:round(PercentofReward*SecuritiesReward),
-            maps:put(Key, Amount, Acc)
+            maps:put({owner, Key}, Amount, Acc)
         end,
         #{},
         Securities
@@ -358,7 +366,7 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
         fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward * ChallengersReward),
-            maps:put(Challenger, Amount, Acc)
+            maps:put({gateway, Challenger}, Amount, Acc)
         end,
         #{},
         Challengers
@@ -402,7 +410,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             % TODO: Not sure about the all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
-            maps:put(Challengee, Amount, Acc)
+            maps:put({gateway, Challengee}, Amount, Acc)
         end,
         #{},
         Challengees
@@ -445,11 +453,25 @@ poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
         fun(Witness, Witnessed, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
             Amount = erlang:round(PercentofReward*WitnessesReward),
-            maps:put(Witness, Amount, Acc)
+            maps:put({gateway, Witness}, Amount, Acc)
         end,
         #{},
         Witnesses
     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+get_gateway_owner(Address, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
+        {error, _Reason}=Error ->
+            lager:error("failed to get gateway owner for ~p: ~p", [Address, _Reason]),
+            Error;
+        {ok, GwInfo} ->
+            {ok, blockchain_ledger_gateway_v1:owner_address(GwInfo)}
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
