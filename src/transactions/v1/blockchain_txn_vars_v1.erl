@@ -217,25 +217,31 @@ is_valid(Txn, Chain) ->
 
         case Gen of
             false ->
-                try
-                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-                    Curr = Mod:Fun(),
-                    case version_predicate(Txn) of
-                        %% not required, commit.
-                        0 ->
-                            ok;
-                        V when V < (Curr + 1) ->
-                            throw({error, predicate_too_low});
-                        _ -> ok
-                    end
-                catch throw:E ->
-                        %% rethrow validation errors
-                        throw(E);
-                      _:_ ->
-                        %% assume anything else is a bad function specification
-                        throw({error, bad_predicate_fun})
-                end;
+                %% this is broken for non-miner users of the
+                %% blockchain application, comment out till I can
+                %% rework it later.
+
+
+                %% try
+                %%     {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+                %%     {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+                %%     Curr = Mod:Fun(),
+                %%     case version_predicate(Txn) of
+                %%         %% not required, commit.
+                %%         0 ->
+                %%             ok;
+                %%         V when V < (Curr + 1) ->
+                %%             throw({error, predicate_too_low});
+                %%         _ -> ok
+                %%     end
+                %% catch throw:E ->
+                %%         %% rethrow validation errors
+                %%         throw(E);
+                %%       _:_ ->
+                %%         %% assume anything else is a bad function specification
+                %%         throw({error, bad_predicate_fun})
+                %% end;
+                ok;
             _ -> ok
         end
     catch throw:Ret ->
@@ -259,23 +265,24 @@ absorb(Txn, Chain) ->
             %% {ok, Current} = blockchain:height(Chain),
             {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
             Effective = Delay + Epoch,
-            case version_predicate(Txn) of
-                0 ->
-                    lager:info("delaying var application until ~p", [Effective]),
-                    ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-                V ->
-                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-                    Curr = Mod:Fun(),
-                    case V >= Curr of
-                        true ->
-                            lager:info("delaying var application until ~p", [Effective]),
-                            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-                        false ->
-                            %% TODO: this requires more work on the threshold side.
-                            ok
-                    end
-            end
+            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger)
+            %% case version_predicate(Txn) of
+            %%     0 ->
+            %%         lager:info("delaying var application until ~p", [Effective]),
+            %%         ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+            %%     V ->
+            %%         {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+            %%         {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+            %%         Curr = Mod:Fun(),
+            %%         case V >= Curr of
+            %%             true ->
+            %%                 lager:info("delaying var application until ~p", [Effective]),
+            %%                 ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+            %%             false ->
+            %%                 %% TODO: this requires more work on the threshold side.
+            %%                 ok
+            %%         end
+            %% end
     end.
 
 delayed_absorb(Txn, Ledger) ->
