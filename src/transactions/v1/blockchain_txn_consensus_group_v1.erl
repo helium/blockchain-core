@@ -499,12 +499,12 @@ consensus_members_rewards_test() ->
         consensus_percent => 0.10
     },
     Rewards = #{
-        <<"1">> => 50,
-        <<"2">> => 50
+        {gateway, <<"1">>} => 50,
+        {gateway, <<"2">>} => 50
     },
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, maps:keys(Rewards)}
+        {ok, [O || {gateway, O} <- maps:keys(Rewards)]}
     end),
     ?assertEqual(Rewards, consensus_members_rewards(Chain, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
@@ -520,8 +520,8 @@ securities_rewards_test() ->
         securities_percent => 0.35
     },
     Rewards = #{
-        <<"1">> => 175,
-        <<"2">> => 175
+        {owner, <<"1">>} => 175,
+        {owner, <<"2">>} => 175
     },
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, securities, fun(_) ->
@@ -545,8 +545,8 @@ poc_challengers_rewards_test() ->
         poc_challengers_percent => 0.09 + 0.06
     },
     Rewards = #{
-        <<"1">> => 100,
-        <<"2">> => 50
+        {gateway, <<"1">>} => 100,
+        {gateway, <<"2">>} => 50
     },
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
@@ -562,8 +562,8 @@ poc_challengees_rewards_test() ->
         poc_challengees_percent => 0.19 + 0.16
     },
     Rewards = #{
-        <<"1">> => 175,
-        <<"2">> => 175
+        {gateway, <<"1">>} => 175,
+        {gateway, <<"2">>} => 175
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
 
@@ -581,8 +581,8 @@ poc_witnesses_rewards_test() ->
         poc_witnesses_percent => 0.02 + 0.03
     },
     Rewards = #{
-        <<"1">> => 25,
-        <<"2">> => 25
+        {gateway, <<"1">>} => 25,
+        {gateway, <<"2">>} => 25
     },
     ?assertEqual(Rewards, poc_witnesses_rewards(Txns, Vars)).
 
