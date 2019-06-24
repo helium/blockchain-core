@@ -217,25 +217,31 @@ is_valid(Txn, Chain) ->
 
         case Gen of
             false ->
-                try
-                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-                    Curr = Mod:Fun(),
-                    case version_predicate(Txn) of
-                        %% not required, commit.
-                        0 ->
-                            ok;
-                        V when V < (Curr + 1) ->
-                            throw({error, predicate_too_low});
-                        _ -> ok
-                    end
-                catch throw:E ->
-                        %% rethrow validation errors
-                        throw(E);
-                      _:_ ->
-                        %% assume anything else is a bad function specification
-                        throw({error, bad_predicate_fun})
-                end;
+                %% this is broken for non-miner users of the
+                %% blockchain application, comment out till I can
+                %% rework it later.
+
+
+                %% try
+                %%     {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+                %%     {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+                %%     Curr = Mod:Fun(),
+                %%     case version_predicate(Txn) of
+                %%         %% not required, commit.
+                %%         0 ->
+                %%             ok;
+                %%         V when V < (Curr + 1) ->
+                %%             throw({error, predicate_too_low});
+                %%         _ -> ok
+                %%     end
+                %% catch throw:E ->
+                %%         %% rethrow validation errors
+                %%         throw(E);
+                %%       _:_ ->
+                %%         %% assume anything else is a bad function specification
+                %%         throw({error, bad_predicate_fun})
+                %% end;
+                ok;
             _ -> ok
         end
     catch throw:Ret ->
