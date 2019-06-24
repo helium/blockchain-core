@@ -1092,7 +1092,7 @@ election_test(Config) ->
 
 
     %% generate new group of the same length
-    New =  blockchain_election:new_group(Chain, crypto:hash(sha256, "foo"), N),
+    New =  blockchain_election:new_group(Chain, crypto:hash(sha256, "foo"), 11, N),
 
     ?assertEqual(N, length(New)),
 

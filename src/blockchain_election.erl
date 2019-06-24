@@ -1,14 +1,13 @@
 -module(blockchain_election).
 
 -export([
-         new_group/3,
+         new_group/4,
          has_new_group/1
         ]).
 
-new_group(Chain, Hash, Size) ->
+new_group(Chain, Hash, Height, Size) ->
     Ledger = blockchain:ledger(Chain),
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
 
