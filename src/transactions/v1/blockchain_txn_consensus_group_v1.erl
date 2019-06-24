@@ -171,18 +171,26 @@ absorb(Txn, Chain) ->
             Start = Height - 30,
             End = Height,
             Transactions = get_txns_for_epoch(Start, End, Chain),
-            Vars = get_reward_vars(Chain),
-            ConsensusRewards = consensus_members_rewards(Chain, Vars),
-            SecuritiesRewards = securities_rewards(Chain, Vars),
+            Vars = get_reward_vars(Ledger),
+            ConsensusRewards = consensus_members_rewards(Ledger, Vars),
+            SecuritiesRewards = securities_rewards(Ledger, Vars),
             POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
             POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
             POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
             Rewards = lists:foldl(
                 fun(Map, Acc0) ->
                     maps:fold(
-                        fun(Account, Amount, Acc1) ->
-                            Current = maps:get(Account, Acc1, 0),
-                            maps:put(Account, Amount+Current, Acc1)
+                        fun({owner, Owner}, Amount, Acc1) ->
+                            Current = maps:get(Owner, Acc1, 0),
+                            maps:put(Owner, Amount+Current, Acc1);
+                        ({gateway, Gateway}, Amount, Acc1) ->
+                            case get_gateway_owner(Gateway, Ledger) of
+                                {error, _} ->
+                                    Acc1;
+                                {ok, Owner} ->
+                                    Current = maps:get(Owner, Acc1, 0),
+                                    maps:put(Owner, Amount+Current, Acc1)
+                            end
                         end,
                         Acc0,
                         Map
@@ -241,9 +249,12 @@ verify_proof(Proof, Members, Hash, OldLedger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) -> blockchain_txn:txns().
 get_txns_for_epoch(Start, End, Chain) ->
     get_txns_for_epoch(Start, End, Chain, []).
-    
+
+-spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(),
+                         blockchain:blockchain(), blockchain_txn:txns()) -> blockchain_txn:txns().
 get_txns_for_epoch(Start, Start, _Chain, Txns) ->
     Txns;
 get_txns_for_epoch(Start, Current, Chain, Txns) ->
@@ -253,17 +264,16 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
             % TODO: Should we error out here?
             Txns;
         {ok, Block} ->
-            PrevHash = blockchain_block:prev_hash(Block),
             Transactions = blockchain_block:transactions(Block),
-            get_txns_for_epoch(Start, PrevHash, Chain, Txns ++ Transactions)
+            get_txns_for_epoch(Start, Current-1, Chain, Txns ++ Transactions)
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-get_reward_vars(Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec get_reward_vars(blockchain_ledger_v1:ledger()) -> map().
+get_reward_vars(Ledger) ->
     {ok, MonthlyReward} = blockchain:config(monthly_reward, Ledger),
     {ok, SecuritiesPercent} = blockchain:config(securities_percent, Ledger),
     {ok, PocChallengeesPercent} = blockchain:config(poc_challengees_percent, Ledger),
@@ -284,9 +294,9 @@ get_reward_vars(Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
-                                   consensus_percent := ConsensusPercent}) ->
-    Ledger = blockchain:ledger(Chain),
+-spec consensus_members_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
+                                    consensus_percent := ConsensusPercent}) ->
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]),
@@ -299,7 +309,7 @@ consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
                 fun(Member, Acc) ->
                     PercentofReward = 100/Total/100,
                     Amount = erlang:round(PercentofReward*ConsensusReward),
-                    maps:put(Member, Amount, Acc)
+                    maps:put({gateway, Member}, Amount, Acc)
                 end,
                 #{},
                 ConsensusMembers
@@ -310,9 +320,9 @@ consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-securities_rewards(Chain, #{epoch_reward := EpochReward,
-                            securities_percent := SecuritiesPercent}) ->
-    Ledger = blockchain:ledger(Chain),
+-spec securities_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+securities_rewards(Ledger, #{epoch_reward := EpochReward,
+                             securities_percent := SecuritiesPercent}) ->
     Securities = blockchain_ledger_v1:securities(Ledger),
     TotalSecurities = maps:fold(
         fun(_, Entry, Acc) ->
@@ -327,7 +337,7 @@ securities_rewards(Chain, #{epoch_reward := EpochReward,
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             PercentofReward = (Balance*100/TotalSecurities)/100,
             Amount = erlang:round(PercentofReward*SecuritiesReward),
-            maps:put(Key, Amount, Acc)
+            maps:put({owner, Key}, Amount, Acc)
         end,
         #{},
         Securities
@@ -337,6 +347,7 @@ securities_rewards(Chain, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_challengers_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengers_percent := PocChallengersPercent}) ->
     {Challengers, TotalChallenged} = lists:foldl(
@@ -358,7 +369,7 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
         fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             Amount = erlang:round(PercentofReward * ChallengersReward),
-            maps:put(Challenger, Amount, Acc)
+            maps:put({gateway, Challenger}, Amount, Acc)
         end,
         #{},
         Challengers
@@ -368,6 +379,7 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_challengees_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengees_percent := PocChallengeesPercent}) ->
     ChallengeesReward = EpochReward * PocChallengeesPercent,
@@ -402,7 +414,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
             PercentofReward = (Challenged*100/TotalChallenged)/100,
             % TODO: Not sure about the all round thing...
             Amount = erlang:round(PercentofReward*ChallengeesReward),
-            maps:put(Challengee, Amount, Acc)
+            maps:put({gateway, Challengee}, Amount, Acc)
         end,
         #{},
         Challengees
@@ -412,6 +424,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_witnesses_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
                                       poc_witnesses_percent := PocWitnessesPercent}) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
@@ -445,11 +458,27 @@ poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
         fun(Witness, Witnessed, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
             Amount = erlang:round(PercentofReward*WitnessesReward),
-            maps:put(Witness, Amount, Acc)
+            maps:put({gateway, Witness}, Amount, Acc)
         end,
         #{},
         Witnesses
     ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec get_gateway_owner(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger())-> {ok, libp2p_crypto:pubkey_bin()}
+                                                                                     | {error, any()}.
+get_gateway_owner(Address, Ledger) ->
+    case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
+        {error, _Reason}=Error ->
+            lager:error("failed to get gateway owner for ~p: ~p", [Address, _Reason]),
+            Error;
+        {ok, GwInfo} ->
+            {ok, blockchain_ledger_gateway_v1:owner_address(GwInfo)}
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -472,19 +501,20 @@ consensus_members_rewards_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
     {ok, Chain} = blockchain:new(BaseDir, Block),
+    Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,
         consensus_percent => 0.10
     },
     Rewards = #{
-        <<"1">> => 50,
-        <<"2">> => 50
+        {gateway, <<"1">>} => 50,
+        {gateway, <<"2">>} => 50
     },
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, maps:keys(Rewards)}
+        {ok, [O || {gateway, O} <- maps:keys(Rewards)]}
     end),
-    ?assertEqual(Rewards, consensus_members_rewards(Chain, Vars)),
+    ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
@@ -493,13 +523,14 @@ securities_rewards_test() ->
     BaseDir = test_utils:tmp_dir("securities_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
     {ok, Chain} = blockchain:new(BaseDir, Block),
+    Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,
         securities_percent => 0.35
     },
     Rewards = #{
-        <<"1">> => 175,
-        <<"2">> => 175
+        {owner, <<"1">>} => 175,
+        {owner, <<"2">>} => 175
     },
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, securities, fun(_) ->
@@ -508,7 +539,7 @@ securities_rewards_test() ->
             <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
         }
     end),
-    ?assertEqual(Rewards, securities_rewards(Chain, Vars)),
+    ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
@@ -523,8 +554,8 @@ poc_challengers_rewards_test() ->
         poc_challengers_percent => 0.09 + 0.06
     },
     Rewards = #{
-        <<"1">> => 100,
-        <<"2">> => 50
+        {gateway, <<"1">>} => 100,
+        {gateway, <<"2">>} => 50
     },
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
@@ -540,8 +571,8 @@ poc_challengees_rewards_test() ->
         poc_challengees_percent => 0.19 + 0.16
     },
     Rewards = #{
-        <<"1">> => 175,
-        <<"2">> => 175
+        {gateway, <<"1">>} => 175,
+        {gateway, <<"2">>} => 175
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
 
@@ -559,8 +590,8 @@ poc_witnesses_rewards_test() ->
         poc_witnesses_percent => 0.02 + 0.03
     },
     Rewards = #{
-        <<"1">> => 25,
-        <<"2">> => 25
+        {gateway, <<"1">>} => 25,
+        {gateway, <<"2">>} => 25
     },
     ?assertEqual(Rewards, poc_witnesses_rewards(Txns, Vars)).
 

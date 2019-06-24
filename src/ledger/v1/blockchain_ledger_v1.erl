@@ -500,7 +500,7 @@ var_name(Name) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec find_gateway_info(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
-                                                              | {error, any()}.
+                                                                 | {error, any()}.
 find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     case cache_get(Ledger, AGwsCF, Address, []) of
