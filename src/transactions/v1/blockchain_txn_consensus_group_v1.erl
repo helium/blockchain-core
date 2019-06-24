@@ -249,9 +249,12 @@ verify_proof(Proof, Members, Hash, OldLedger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) -> blockchain_txn:txns().
 get_txns_for_epoch(Start, End, Chain) ->
     get_txns_for_epoch(Start, End, Chain, []).
-    
+
+-spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(),
+                         blockchain:blockchain(), blockchain_txn:txns()) -> blockchain_txn:txns().
 get_txns_for_epoch(Start, Start, _Chain, Txns) ->
     Txns;
 get_txns_for_epoch(Start, Current, Chain, Txns) ->
@@ -261,15 +264,15 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
             % TODO: Should we error out here?
             Txns;
         {ok, Block} ->
-            PrevHash = blockchain_block:prev_hash(Block),
             Transactions = blockchain_block:transactions(Block),
-            get_txns_for_epoch(Start, PrevHash, Chain, Txns ++ Transactions)
+            get_txns_for_epoch(Start, Current-1, Chain, Txns ++ Transactions)
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_reward_vars(blockchain:blockchain()) -> map().
 get_reward_vars(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, MonthlyReward} = blockchain:config(monthly_reward, Ledger),
@@ -292,6 +295,7 @@ get_reward_vars(Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec consensus_members_rewards(blockchain:blockchain(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
                                    consensus_percent := ConsensusPercent}) ->
     Ledger = blockchain:ledger(Chain),
@@ -318,6 +322,7 @@ consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec securities_rewards(blockchain:blockchain(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 securities_rewards(Chain, #{epoch_reward := EpochReward,
                             securities_percent := SecuritiesPercent}) ->
     Ledger = blockchain:ledger(Chain),
@@ -345,6 +350,7 @@ securities_rewards(Chain, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_challengers_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengers_percent := PocChallengersPercent}) ->
     {Challengers, TotalChallenged} = lists:foldl(
@@ -376,6 +382,7 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_challengees_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengees_percent := PocChallengeesPercent}) ->
     ChallengeesReward = EpochReward * PocChallengeesPercent,
@@ -420,6 +427,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec poc_witnesses_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
 poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
                                       poc_witnesses_percent := PocWitnessesPercent}) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
@@ -463,6 +471,8 @@ poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec get_gateway_owner(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger())-> {ok, libp2p_crypto:pubkey_bin()}
+                                                                                     | {error, any()}.
 get_gateway_owner(Address, Ledger) ->
     case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
         {error, _Reason}=Error ->
