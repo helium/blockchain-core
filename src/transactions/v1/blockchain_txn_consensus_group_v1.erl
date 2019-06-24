@@ -171,9 +171,9 @@ absorb(Txn, Chain) ->
             Start = Height - 30,
             End = Height,
             Transactions = get_txns_for_epoch(Start, End, Chain),
-            Vars = get_reward_vars(Chain),
-            ConsensusRewards = consensus_members_rewards(Chain, Vars),
-            SecuritiesRewards = securities_rewards(Chain, Vars),
+            Vars = get_reward_vars(Ledger),
+            ConsensusRewards = consensus_members_rewards(Ledger, Vars),
+            SecuritiesRewards = securities_rewards(Ledger, Vars),
             POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
             POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
             POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
@@ -272,9 +272,8 @@ get_txns_for_epoch(Start, Current, Chain, Txns) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_reward_vars(blockchain:blockchain()) -> map().
-get_reward_vars(Chain) ->
-    Ledger = blockchain:ledger(Chain),
+-spec get_reward_vars(blockchain_ledger_v1:ledger()) -> map().
+get_reward_vars(Ledger) ->
     {ok, MonthlyReward} = blockchain:config(monthly_reward, Ledger),
     {ok, SecuritiesPercent} = blockchain:config(securities_percent, Ledger),
     {ok, PocChallengeesPercent} = blockchain:config(poc_challengees_percent, Ledger),
@@ -295,10 +294,9 @@ get_reward_vars(Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members_rewards(blockchain:blockchain(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
-consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
-                                   consensus_percent := ConsensusPercent}) ->
-    Ledger = blockchain:ledger(Chain),
+-spec consensus_members_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
+                                    consensus_percent := ConsensusPercent}) ->
     case blockchain_ledger_v1:consensus_members(Ledger) of
         {error, _Reason} ->
             lager:error("failed to get consensus_members ~p", [_Reason]),
@@ -322,10 +320,9 @@ consensus_members_rewards(Chain, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec securities_rewards(blockchain:blockchain(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
-securities_rewards(Chain, #{epoch_reward := EpochReward,
-                            securities_percent := SecuritiesPercent}) ->
-    Ledger = blockchain:ledger(Chain),
+-spec securities_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+securities_rewards(Ledger, #{epoch_reward := EpochReward,
+                             securities_percent := SecuritiesPercent}) ->
     Securities = blockchain_ledger_v1:securities(Ledger),
     TotalSecurities = maps:fold(
         fun(_, Entry, Acc) ->
@@ -504,6 +501,7 @@ consensus_members_rewards_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
     {ok, Chain} = blockchain:new(BaseDir, Block),
+    Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,
         consensus_percent => 0.10
@@ -516,7 +514,7 @@ consensus_members_rewards_test() ->
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
         {ok, [O || {gateway, O} <- maps:keys(Rewards)]}
     end),
-    ?assertEqual(Rewards, consensus_members_rewards(Chain, Vars)),
+    ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
@@ -525,6 +523,7 @@ securities_rewards_test() ->
     BaseDir = test_utils:tmp_dir("securities_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
     {ok, Chain} = blockchain:new(BaseDir, Block),
+    Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,
         securities_percent => 0.35
@@ -540,7 +539,7 @@ securities_rewards_test() ->
             <<"2">> => blockchain_ledger_security_entry_v1:new(0, 2500)
         }
     end),
-    ?assertEqual(Rewards, securities_rewards(Chain, Vars)),
+    ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 

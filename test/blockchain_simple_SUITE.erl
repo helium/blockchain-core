@@ -1004,6 +1004,11 @@ epoch_reward_test(Config) ->
     meck:new(blockchain_txn_consensus_group_v1, [passthrough]),
     meck:expect(blockchain_txn_consensus_group_v1, is_valid, fun(_Txn, _Chain) -> ok end),
 
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
+        {ok, blockchain_ledger_gateway_v1:new(Address, 12)}
+    end),
+
     % Add few empty blocks to fake epoch
     _Blocks = lists:reverse(lists:foldl(
         fun(X, Acc) ->
@@ -1034,8 +1039,10 @@ epoch_reward_test(Config) ->
     ?assertEqual(6318131, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
-    ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
     meck:unload(blockchain_txn_consensus_group_v1).
 
 election_test(Config) ->
