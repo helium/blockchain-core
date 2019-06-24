@@ -14,6 +14,9 @@ new_group(Ledger, Hash, Size) ->
     {ok, SelectPct} = blockchain_ledger_v1:config(election_selection_pct, Ledger),
     {ok, ReplacementFactor} = blockchain_ledger_v1:config(election_replacement_factor, Ledger),
 
+    %% TODO: get poc interval properly on the chain
+    PoCInterval = blockchain_txn_poc_request_v1:challenge_interval(),
+
     OldLen = length(OldGroup),
     case Size == OldLen of
         true ->
@@ -30,12 +33,17 @@ new_group(Ledger, Hash, Size) ->
 
     %% annotate with score while removing dupes
     Gateways1 =
-        [case lists:member(Addr, OldGroup) of
-             true ->
-                 [];
-             _ ->
-                 {_, _, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
-                 {Score, Addr}
+        [begin
+             Last0 = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
+             Last = Height - Last0,
+             case lists:member(Addr, OldGroup) orelse
+                  Last > 3 * PoCInterval of
+                 true ->
+                     [];
+                 _ ->
+                     {_, _, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
+                     {Score, Addr}
+             end
          end
          || {Addr, Gw} <- maps:to_list(Gateways0)],
 
@@ -46,6 +54,11 @@ new_group(Ledger, Hash, Size) ->
     OldGroupWrap = lists:zip([ignored || _ <- lists:seq(1, OldLen)], OldGroup),
     Rem = OldGroup -- select(OldGroupWrap, OldGroupWrap, Remove, SelectPct, []),
     Rem ++ New.
+
+last(undefined) ->
+    0;
+last(N) when is_integer(N) ->
+    N.
 
 select(_, _, 0, _Pct, Acc) ->
     lists:reverse(Acc);
