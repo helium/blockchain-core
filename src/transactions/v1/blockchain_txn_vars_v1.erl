@@ -265,23 +265,24 @@ absorb(Txn, Chain) ->
             %% {ok, Current} = blockchain:height(Chain),
             {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
             Effective = Delay + Epoch,
-            case version_predicate(Txn) of
-                0 ->
-                    lager:info("delaying var application until ~p", [Effective]),
-                    ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-                V ->
-                    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-                    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-                    Curr = Mod:Fun(),
-                    case V >= Curr of
-                        true ->
-                            lager:info("delaying var application until ~p", [Effective]),
-                            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
-                        false ->
-                            %% TODO: this requires more work on the threshold side.
-                            ok
-                    end
-            end
+            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger)
+            %% case version_predicate(Txn) of
+            %%     0 ->
+            %%         lager:info("delaying var application until ~p", [Effective]),
+            %%         ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+            %%     V ->
+            %%         {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+            %%         {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+            %%         Curr = Mod:Fun(),
+            %%         case V >= Curr of
+            %%             true ->
+            %%                 lager:info("delaying var application until ~p", [Effective]),
+            %%                 ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger);
+            %%             false ->
+            %%                 %% TODO: this requires more work on the threshold side.
+            %%                 ok
+            %%         end
+            %% end
     end.
 
 delayed_absorb(Txn, Ledger) ->
