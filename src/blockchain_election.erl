@@ -5,17 +5,45 @@
          has_new_group/1
         ]).
 
-new_group(Ledger, Hash, Size) ->
+new_group(Chain, Hash, Size) ->
+    Ledger = blockchain:ledger(Chain),
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
 
+    {ok, RestartInterval} = blockchain_ledger_v1:config(election_restart_interval, Ledger),
     {ok, SelectPct} = blockchain_ledger_v1:config(election_selection_pct, Ledger),
     {ok, ReplacementFactor} = blockchain_ledger_v1:config(election_replacement_factor, Ledger),
 
     %% TODO: get poc interval properly on the chain
     PoCInterval = blockchain_txn_poc_request_v1:challenge_interval(),
+
+    Counts0 =
+        lists:foldl(
+          fun(H, Acc) ->
+                  {ok, B} = blockchain:get_block(H, Chain),
+                  Sigs = blockchain_block:signatures(B),
+                  lists:foldl(
+                    fun({Addr, _Sig}, Ctrs) ->
+                            maps:update_with(Addr, fun(V) -> V + 1 end, 1, Ctrs)
+                    end,
+                    Acc,
+                    Sigs)
+          end,
+          #{},
+          lists:seq(Height - RestartInterval, Height)),
+
+    Counts = [{Count, Addr} || {Addr, Count} <- maps:to_list(Counts0)],
+
+    {_, Group} = lists:unzip(Counts),
+
+    case lists:sort(Group) == lists:sort(OldGroup) of
+        true ->
+            ok;
+        false ->
+            throw({error, group_sig_mismatch})
+    end,
 
     OldLen = length(OldGroup),
     case Size == OldLen of
@@ -31,7 +59,6 @@ new_group(Ledger, Hash, Size) ->
             Replace = 0
     end,
 
-    %% annotate with score while removing dupes
     Gateways1 =
         [begin
              Last0 = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
@@ -47,12 +74,13 @@ new_group(Ledger, Hash, Size) ->
          end
          || {Addr, Gw} <- maps:to_list(Gateways0)],
 
+    OldGroupSorted = lists:reverse(lists:sort(Counts)),
+
     Gateways2 = lists:flatten(Gateways1),
     Gateways = lists:sort(Gateways2),
     blockchain_utils:rand_from_hash(Hash),
     New = select(Gateways, Gateways, Replace, SelectPct, []),
-    OldGroupWrap = lists:zip([ignored || _ <- lists:seq(1, OldLen)], OldGroup),
-    Rem = OldGroup -- select(OldGroupWrap, OldGroupWrap, Remove, SelectPct, []),
+    Rem = OldGroup -- select(OldGroupSorted, OldGroupSorted, Remove, SelectPct, []),
     Rem ++ New.
 
 last(undefined) ->
