@@ -37,7 +37,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-% monthly_reward          50000 * 1000000  In bones 
+% monthly_reward          50000 * 1000000  In bones
 % securities_percent      0.35
 % dc_percent              0.25 Unused for now so give to POC
 % poc_challengees_percent 0.19 + 0.16

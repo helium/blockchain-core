@@ -37,10 +37,11 @@ new_group(Chain, Hash, Height, Size) ->
 
     {_, Group} = lists:unzip(Counts),
 
-    case lists:sort(Group) == lists:sort(OldGroup) of
-        true ->
+    case Group -- OldGroup of
+        [] ->
             ok;
-        false ->
+        _ ->
+            lager:error("SIG GROUP ~p LEDGER GROUP ~p", [Group, OldGroup]),
             throw({error, group_sig_mismatch})
     end,
 
