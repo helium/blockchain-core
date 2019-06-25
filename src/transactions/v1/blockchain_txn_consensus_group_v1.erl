@@ -37,7 +37,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-% monthly_reward          50000 * 1000000  In bones 
+% monthly_reward          50000 * 1000000  In bones
 % securities_percent      0.35
 % dc_percent              0.25 Unused for now so give to POC
 % poc_challengees_percent 0.19 + 0.16
@@ -141,10 +141,9 @@ is_valid(Txn, Chain) ->
                         true ->
                             Proof = binary_to_term(Proof0),
                             EffectiveHeight = TxnHeight + Delay,
-                            {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                             {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                             Hash = blockchain_block:hash_block(Block),
-                            verify_proof(Proof, Members, Hash, OldLedger);
+                            verify_proof(Proof, Members, Hash, EffectiveHeight, Chain);
                         _ ->
                             {error, {duplicate_group, ?MODULE:height(Txn), Height}}
                     end
@@ -217,10 +216,10 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-verify_proof(Proof, Members, Hash, OldLedger) ->
+verify_proof(Proof, Members, Hash, Height, Chain) ->
     %% verify that the list is the proper list
     L = length(Members),
-    HashMembers = blockchain_election:new_group(OldLedger, Hash, L),
+    HashMembers = blockchain_election:new_group(Chain, Hash, Height, L),
     Artifact = term_to_binary(Members),
     case HashMembers of
         Members ->
