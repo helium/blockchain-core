@@ -48,7 +48,7 @@ new_group(Ledger, Hash, Size) ->
          || {Addr, Gw} <- maps:to_list(Gateways0)],
 
     Gateways2 = lists:flatten(Gateways1),
-    Gateways = lists:sort(Gateways2),
+    Gateways = lists:reverse(lists:sort(Gateways2)),
     blockchain_utils:rand_from_hash(Hash),
     New = select(Gateways, Gateways, Replace, SelectPct, []),
     OldGroupWrap = lists:zip([ignored || _ <- lists:seq(1, OldLen)], OldGroup),
