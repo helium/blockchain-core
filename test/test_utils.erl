@@ -48,8 +48,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           poc_witnesses_percent => 0.02 + 0.03,
                           consensus_percent => 0.10,
                           election_selection_pct => 60,
-                          election_replacement_factor => 4,
-                          election_restart_interval => 5
+                          election_replacement_factor => 4
                          }),
 
     InitialVars = [ VTxn ],
@@ -118,14 +117,14 @@ create_block(ConsensusMembers, Txs) ->
     Height = blockchain_block:height(HeadBlock) + 1,
     Time = blockchain_block:time(HeadBlock) + 1,
     Block0 = blockchain_block_v1:new(#{prev_hash => PrevHash,
-                                       height => Height,
-                                       transactions => Txs,
-                                       signatures => [],
-                                       time => Time,
-                                       hbbft_round => 0,
-                                       election_epoch => 1,
-                                       epoch_start => 0
-                                      }),
+                                     height => Height,
+                                     transactions => Txs,
+                                     signatures => [],
+                                     time => Time,
+                                     hbbft_round => 0,
+                                     election_epoch => 1,
+                                     epoch_start => 0
+                                     }),
     BinBlock = blockchain_block:serialize(Block0),
     Signatures = signatures(ConsensusMembers, BinBlock),
     Block1 = blockchain_block:set_signatures(Block0, Signatures),

@@ -1051,31 +1051,12 @@ election_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     %% Chain = proplists:get_value(chain, Config),
     Chain = blockchain_worker:blockchain(),
-    Swarm = proplists:get_value(swarm, Config),
+    _Swarm = proplists:get_value(swarm, Config),
     N = 7,
 
-    Ledger = blockchain:ledger(Chain),
-    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
-    ct:pal("old ~p", [OldGroup]),
+    %% make sure our generated alpha & beta values are the same each time
     rand:seed(exs1024s, {1, 2, 234098723564079}),
-
-    Int =
-        [case lists:member(Addr, OldGroup) of
-             true ->
-                 {rand:uniform(10000), M};
-             false ->
-                 []
-         end
-         || {Addr,_} = M <- ConsensusMembers],
-
-    {_, Group} = lists:unzip(lists:sort(lists:flatten(Int))),
-    lists:foreach(
-        fun(_) ->
-            Block = test_utils:create_block(Group, []),
-            _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
-        end,
-        lists:seq(1, 10)
-    ),
+    Ledger = blockchain:ledger(Chain),
 
     %% add random alpha and beta to gateways
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
@@ -1090,9 +1071,11 @@ election_test(Config) ->
      || {Addr, _} <- ConsensusMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
 
     %% generate new group of the same length
-    New =  blockchain_election:new_group(Chain, crypto:hash(sha256, "foo"), 11, N),
+    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N),
 
     ?assertEqual(N, length(New)),
 
