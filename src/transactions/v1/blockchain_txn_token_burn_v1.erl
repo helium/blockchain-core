@@ -10,7 +10,7 @@
 -include("pb/blockchain_txn_token_burn_v1_pb.hrl").
 
   -export([
-    new/5,
+    new/4,
     hash/1,
     type/1,
     payer/1,
@@ -34,15 +34,14 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(account | channel, libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          pos_integer(), non_neg_integer()) -> txn_token_burn().
-new(Type, Payer, Key, Amount, Fee) ->
+-spec new(account | channel, libp2p_crypto:pubkey_bin(),
+          libp2p_crypto:pubkey_bin(), pos_integer()) -> txn_token_burn().
+new(Type, Payer, Key, Amount) ->
     #blockchain_txn_token_burn_v1_pb{
         type=Type,
         payer=Payer,
         key=Key,
         amount=Amount,
-        fee=Fee,
         signature = <<>>
     }.
 
@@ -92,9 +91,9 @@ amount(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec fee(txn_token_burn()) -> non_neg_integer().
-fee(Txn) ->
-    Txn#blockchain_txn_token_burn_v1_pb.fee.
+-spec fee(txn_token_burn()) -> 0.
+fee(_Txn) ->
+    0.
 
  %%--------------------------------------------------------------------
 %% @doc
@@ -121,7 +120,8 @@ sign(Txn, SigFun) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(Txn, _Chain) ->
+is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
@@ -131,7 +131,8 @@ is_valid(Txn, _Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            ok
+            Amount = ?MODULE:amount(Txn),
+            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
     end.
 
  %%--------------------------------------------------------------------
@@ -139,9 +140,23 @@ is_valid(Txn, _Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(_Txn, _Chain) ->
-    ok.
-
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Amount = ?MODULE:amount(Txn),
+    Payer = ?MODULE:payer(Txn),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+            case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Credits = Amount * 1000000, % TODO: Calculate this
+                    blockchain_ledger_v1:credit_dc(Payer, Credits, Ledger)
+            end
+    end.
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -154,34 +169,33 @@ absorb(_Txn, _Chain) ->
         payer= <<"payer">>,
         key = <<"key">>,
         amount=666,
-        fee=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(account, <<"payer">>, <<"key">>, 666, 1)).
+    ?assertEqual(Tx, new(account, <<"payer">>, <<"key">>, 666)).
 
 type_test() ->
-    Tx = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx = new(account, <<"payer">>, <<"key">>, 666),
     ?assertEqual(account, type(Tx)).
 
 payer_test() ->
-    Tx = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx = new(account, <<"payer">>, <<"key">>, 666),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 key_test() ->
-    Tx = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx = new(account, <<"payer">>, <<"key">>, 666),
     ?assertEqual(<<"key">>, key(Tx)).
 
 amount_test() ->
-    Tx = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx = new(account, <<"payer">>, <<"key">>, 666),
     ?assertEqual(666, amount(Tx)).
 
 signature_test() ->
-    Tx = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx = new(account, <<"payer">>, <<"key">>, 666),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(account, <<"payer">>, <<"key">>, 666, 1),
+    Tx0 = new(account, <<"payer">>, <<"key">>, 666),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
