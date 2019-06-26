@@ -293,7 +293,8 @@ get_reward_vars(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec consensus_members_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+-spec consensus_members_rewards(blockchain_ledger_v1:ledger(),
+                                map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
                                     consensus_percent := ConsensusPercent}) ->
     case blockchain_ledger_v1:consensus_members(Ledger) of
@@ -319,7 +320,8 @@ consensus_members_rewards(Ledger, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec securities_rewards(blockchain_ledger_v1:ledger(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+-spec securities_rewards(blockchain_ledger_v1:ledger(),
+                         map()) -> #{{owner, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 securities_rewards(Ledger, #{epoch_reward := EpochReward,
                              securities_percent := SecuritiesPercent}) ->
     Securities = blockchain_ledger_v1:securities(Ledger),
@@ -346,7 +348,8 @@ securities_rewards(Ledger, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec poc_challengers_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+-spec poc_challengers_rewards(blockchain_txn:txns(),
+                              map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengers_percent := PocChallengersPercent}) ->
     {Challengers, TotalChallenged} = lists:foldl(
@@ -378,7 +381,8 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec poc_challengees_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+-spec poc_challengees_rewards(blockchain_txn:txns(),
+                              map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                                         poc_challengees_percent := PocChallengeesPercent}) ->
     ChallengeesReward = EpochReward * PocChallengeesPercent,
@@ -423,7 +427,8 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec poc_witnesses_rewards(blockchain_txn:txns(), map()) -> #{libp2p_crypto:pubkey_bin() => non_neg_integer()}.
+-spec poc_witnesses_rewards(blockchain_txn:txns(),
+                            map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
                                       poc_witnesses_percent := PocWitnessesPercent}) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
