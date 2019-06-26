@@ -151,7 +151,7 @@ is_valid(Txn, Chain) ->
                                         true ->
                                             Fee = ?MODULE:fee(Txn),
                                             Owner = ?MODULE:owner(Txn),
-                                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
                                     end
                             end
                     end

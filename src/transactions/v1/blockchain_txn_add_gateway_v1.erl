@@ -178,7 +178,7 @@ is_valid(Txn, Chain) ->
                             {error, invalid_transaction};
                         true ->
                             Owner = ?MODULE:owner(Txn),
-                            blockchain_ledger_v1:check_balance(Owner, Fee, Ledger)
+                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
                     end
             end
     end.

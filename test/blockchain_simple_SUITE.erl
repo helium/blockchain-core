@@ -81,8 +81,6 @@ init_per_testcase(TestCase, Config) ->
         Balance = blockchain_ledger_entry_v1:balance(Entry),
         0 = blockchain_ledger_entry_v1:nonce(Entry)
     end, maps:values(Entries)),
-
-
     [
         {basedir, BaseDir},
         {balance, Balance},
@@ -134,7 +132,7 @@ basic_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -151,7 +149,7 @@ basic_test(Config) ->
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -438,7 +436,7 @@ poc_request_test(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 0),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
@@ -563,7 +561,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     %% Create a good payment transaction as well
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
@@ -585,7 +583,7 @@ export_test(Config) ->
      {Payer3, {_, PayerPrivKey3, _}}
      | _] = ConsensusMembers,
     Amount = 2500,
-    Fee = 10,
+    Fee = 0,
     N = length(ConsensusMembers),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
@@ -607,7 +605,7 @@ export_test(Config) ->
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 0),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
@@ -764,6 +762,10 @@ fees_since_test(Config) ->
     Payee = blockchain_swarm:pubkey_bin(),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, check_dc_balance, fun(_, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _) -> ok end),
+
     % Add 100 txns with 1 fee each
     lists:foreach(
         fun(X) ->
@@ -777,7 +779,9 @@ fees_since_test(Config) ->
 
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
-    ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)).
+    ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1).
 
 %%--------------------------------------------------------------------
 %% @public
@@ -796,7 +800,7 @@ security_token_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_security_exchange_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -814,11 +818,6 @@ security_token_test(Config) ->
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_security_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500, blockchain_ledger_security_entry_v1:balance(NewEntry1)),
-
-    %% the fee came out of the atom balance, not security tokens
-    {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry2)),
-
     ok.
 
 %%--------------------------------------------------------------------
@@ -840,7 +839,7 @@ routing_test(Config) ->
 
     OUI1 = 1,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 1),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -854,7 +853,7 @@ routing_test(Config) ->
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     Addresses1 = [<<"/p2p/random">>],
-    OUITxn2 = blockchain_txn_routing_v1:new(OUI1, Payer, Addresses1, 1, 1),
+    OUITxn2 = blockchain_txn_routing_v1:new(OUI1, Payer, Addresses1, 0, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     Block1 = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, N, self()),
@@ -866,7 +865,7 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 1),
+    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0),
     SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -899,7 +898,7 @@ block_save_failed_test(Config) ->
      % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -921,7 +920,7 @@ block_save_failed_test(Config) ->
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
      {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 %%--------------------------------------------------------------------
@@ -941,7 +940,7 @@ absorb_failed_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -982,7 +981,7 @@ absorb_failed_test(Config) ->
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 %%--------------------------------------------------------------------

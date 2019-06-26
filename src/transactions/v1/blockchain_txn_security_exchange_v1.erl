@@ -137,7 +137,7 @@ is_valid(Txn, Chain) ->
                     Amount = ?MODULE:amount(Txn),
                     case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
                         ok ->
-                            blockchain_ledger_v1:check_balance(Payer, Fee, Ledger);
+                            blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger);
                         Error ->
                             Error
                     end;
@@ -157,7 +157,7 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_account(Payer, Fee, Nonce, Ledger) of
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
         ok ->
             case blockchain_ledger_v1:debit_security(Payer, Amount, Nonce, Ledger) of
                 {error, _Reason}=Error ->

@@ -1035,6 +1035,8 @@ credit_dc(Address, Amount, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+debit_fee(_Address, 0,_Ledger) ->
+    ok;
 debit_fee(Address, Fee, Ledger) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -1060,6 +1062,8 @@ debit_fee(Address, Fee, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec check_dc_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_dc_balance(_Address, 0, _Ledger) ->
+    ok;
 check_dc_balance(Address, Amount, Ledger) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, _}=Error ->

@@ -136,14 +136,19 @@ is_valid(Txn, Chain) ->
                     Amount = ?MODULE:amount(Txn),
                     Fee = ?MODULE:fee(Txn),
                     case blockchain_ledger_v1:transaction_fee(Ledger) of
-                        {error, _}=Error ->
-                            Error;
+                        {error, _}=Error0 ->
+                            Error0;
                         {ok, MinerFee} ->
                             case (Amount >= 0) andalso (Fee >= MinerFee) of
                                 false ->
                                     {error, invalid_transaction};
                                 true ->
-                                    blockchain_ledger_v1:check_balance(Payer, Fee + Amount, Ledger)
+                                    case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
+                                        {error, _}=Error1 ->
+                                            Error1;
+                                        ok ->
+                                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                                    end
                             end
                     end;
                 true ->
@@ -162,13 +167,19 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            Payee = ?MODULE:payee(Txn),
-            blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+            case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Payee = ?MODULE:payee(Txn),
+                    blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
+            end
     end.
+    
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

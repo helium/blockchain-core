@@ -192,7 +192,7 @@ is_valid(Txn, Chain) ->
             Nonce = ?MODULE:nonce(Txn),
             Fee = ?MODULE:fee(Txn),
             Location = ?MODULE:location(Txn),
-            case blockchain_ledger_v1:check_balance(Owner, Fee, Ledger) of
+            case blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger) of
                 {error, _}=Error ->
                     Error;
                 ok ->
