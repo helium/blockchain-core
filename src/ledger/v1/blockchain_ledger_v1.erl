@@ -45,8 +45,12 @@
 
     find_entry/2,
     credit_account/3, debit_account/4,
-    debit_fee/3,
     check_balance/3,
+
+    find_dc_entry/2,
+    credit_dc/3,
+    debit_fee/3,
+    check_dc_balance/3,
 
     securities/1,
     find_security_entry/2,
@@ -85,6 +89,7 @@
     default :: rocksdb:cf_handle(),
     active_gateways :: rocksdb:cf_handle(),
     entries :: rocksdb:cf_handle(),
+    dc_entries :: rocksdb:cf_handle(),
     htlcs :: rocksdb:cf_handle(),
     pocs :: rocksdb:cf_handle(),
     securities :: rocksdb:cf_handle(),
@@ -119,8 +124,8 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedHTLCsCF,
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedDCEntriesCF, DelayedHTLCsCF,
      DelayedPoCsCF, DelayedSecuritiesCF, DelayedRoutingCF] = CFs,
     #ledger_v1{
         dir=Dir,
@@ -130,6 +135,7 @@ new(Dir) ->
             default=DefaultCF,
             active_gateways=AGwsCF,
             entries=EntriesCF,
+            dc_entries=DCEntriesCF,
             htlcs=HTLCsCF,
             pocs=PoCsCF,
             securities=SecuritiesCF,
@@ -139,6 +145,7 @@ new(Dir) ->
             default=DelayedDefaultCF,
             active_gateways=DelayedAGwsCF,
             entries=DelayedEntriesCF,
+            dc_entries=DelayedDCEntriesCF,
             htlcs=DelayedHTLCsCF,
             pocs=DelayedPoCsCF,
             securities=DelayedSecuritiesCF,
@@ -165,6 +172,60 @@ mode(Mode, Ledger) ->
 -spec dir(ledger()) -> file:filename_all().
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec new_context(ledger()) -> ledger().
+new_context(Ledger) ->
+    %% accumulate DB operations in a rocksdb batch
+    {ok, Context} = rocksdb:batch(),
+    %% accumulate ledger changes in a read-through ETS cache
+    Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
+    context_cache({Context, Cache}, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_context(ledger()) -> ledger().
+delete_context(Ledger) ->
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
+            Ledger;
+        {undefined, Cache} ->
+            ets:delete(Cache),
+            context_cache({undefined, undefined}, Ledger);
+        {Context, undefined} ->
+            rocksdb:batch_clear(Context),
+            context_cache({undefined, undefined}, Ledger);
+        {Context, Cache} ->
+            rocksdb:batch_clear(Context),
+            ets:delete(Cache),
+            context_cache({undefined, undefined}, Ledger)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec commit_context(ledger()) -> ok.
+commit_context(#ledger_v1{db=DB}=Ledger) ->
+    {Context, _Cache} = ?MODULE:context_cache(Ledger),
+    ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
+    delete_context(Ledger),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec context_cache(ledger()) -> {undefined | rocksdb:batch_handle(), undefined | ets:tid()}.
+context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{context=Context, cache=Cache}}) ->
+    {Context, Cache};
+context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, cache=Cache}}) ->
+    {Context, Cache}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -205,50 +266,6 @@ snapshot(Ledger) ->
         S ->
             {ok, S}
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec new_context(ledger()) -> ledger().
-new_context(Ledger) ->
-    %% accumulate DB operations in a rocksdb batch
-    {ok, Context} = rocksdb:batch(),
-    %% accumulate ledger changes in a read-through ETS cache
-    Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
-    context_cache({Context, Cache}, Ledger).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec delete_context(ledger()) -> ledger().
-delete_context(Ledger) ->
-    case context_cache(Ledger) of
-        {undefined, undefined} ->
-            Ledger;
-        {undefined, Cache} ->
-            ets:delete(Cache),
-            context_cache({undefined, undefined}, Ledger);
-        {Context, undefined} ->
-            rocksdb:batch_clear(Context),
-            context_cache({undefined, undefined}, Ledger);
-        {Context, Cache} ->
-            rocksdb:batch_clear(Context),
-            ets:delete(Cache),
-            context_cache({undefined, undefined}, Ledger)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec commit_context(ledger()) -> ok.
-commit_context(#ledger_v1{db=DB}=Ledger) ->
-    {Context, _Cache} = context_cache(Ledger),
-    ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
-    delete_context(Ledger),
-    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -342,6 +359,11 @@ consensus_members(Members, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?CONSENSUS_MEMBERS, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_height(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 election_height(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?ELECTION_HEIGHT, []) of
@@ -353,11 +375,21 @@ election_height(Ledger) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_height(non_neg_integer(), ledger()) -> ok | {error, any()}.
 election_height(Height, Ledger) ->
     Bin = erlang:term_to_binary(Height),
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?ELECTION_HEIGHT, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_epoch(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 election_epoch(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?ELECTION_EPOCH, []) of
@@ -369,6 +401,11 @@ election_epoch(Ledger) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec election_epoch(non_neg_integer(), ledger()) -> ok | {error, any()}.
 election_epoch(Epoch, Ledger) ->
     Bin = erlang:term_to_binary(Epoch),
     DefaultCF = default_cf(Ledger),
@@ -521,6 +558,11 @@ htlcs(#ledger_v1{db=DB}=Ledger) ->
         maybe_use_snapshot(Ledger, [])
     ).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec master_key(ledger()) -> {ok, binary()} | {error, any()}.
 master_key(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?MASTER_KEY, []) of
@@ -532,10 +574,19 @@ master_key(Ledger) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec master_key(binary(), ledger()) -> ok | {error, any()}.
 master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
     maps:map(
@@ -550,6 +601,10 @@ vars(Vars, Unset, Ledger) ->
       Unset),
     ok.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 config(ConfigName, Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
@@ -919,21 +974,81 @@ debit_account(Address, Amount, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(Address, Fee, Ledger) ->
+-spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_balance(Address, Amount, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Amount) >= 0 of
+                false ->
+                    {error, {insufficient_balance, Amount, Balance}};
+                true ->
+                    ok
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec find_dc_entry(libp2p_crypto:pubkey_bin(), ledger()) ->
+    {ok, blockchain_ledger_data_credits_entry_v1:data_credits_entry()}
+    | {error, any()}.
+find_dc_entry(Address, Ledger) ->
+    EntriesCF = dc_entries_cf(Ledger),
+    case cache_get(Ledger, EntriesCF, Address, []) of
+        {ok, BinEntry} ->
+            {ok, blockchain_ledger_data_credits_entry_v1:deserialize(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec credit_dc(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
+credit_dc(Address, Amount, Ledger) ->
+    EntriesCF = dc_entries_cf(Ledger),
+    case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, not_found} ->
+            Entry = blockchain_ledger_data_credits_entry_v1:new(0, Amount),
+            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {ok, Entry} ->
+            Entry1 = blockchain_ledger_data_credits_entry_v1:new(
+                blockchain_ledger_data_credits_entry_v1:nonce(Entry),
+                blockchain_ledger_data_credits_entry_v1:balance(Entry) + Amount
+            ),
+            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
+            cache_put(Ledger, EntriesCF, Address, Bin);
+        {error, _}=Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+debit_fee(Address, Fee, Ledger) ->
+    case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
-                    Entry1 = blockchain_ledger_entry_v1:new(
-                        blockchain_ledger_entry_v1:nonce(Entry),
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(
+                        blockchain_ledger_data_credits_entry_v1:nonce(Entry),
                         (Balance - Fee)
                     ),
-                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
-                    EntriesCF = entries_cf(Ledger),
+                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
+                    EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
                     {error, {insufficient_balance, Fee, Balance}}
@@ -944,13 +1059,13 @@ debit_fee(Address, Fee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-check_balance(Address, Amount, Ledger) ->
-    case ?MODULE:find_entry(Address, Ledger) of
+-spec check_dc_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+check_dc_balance(Address, Amount, Ledger) ->
+    case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
-            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
                     {error, {insufficient_balance, Amount, Balance}};
@@ -1234,14 +1349,16 @@ close(#ledger_v1{db=DB}) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% need to prefix to keep people from messing with existing names on accident
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(ledger()) -> {undefined | rocksdb:batch_handle(), undefined | ets:tid()}.
-context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{context=Context, cache=Cache}}) ->
-    {Context, Cache};
-context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, cache=Cache}}) ->
-    {Context, Cache}.
+var_name(Name) ->
+    <<"$var_", (atom_to_binary(Name, utf8))/binary>>.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec context_cache({undefined | rocksdb:batch_handle(), undefined | ets:tid()}, ledger()) -> ledger().
 context_cache({Context, Cache}, #ledger_v1{mode=active, active=Active}=Ledger) ->
     Ledger#ledger_v1{active=Active#sub_ledger_v1{context=Context, cache=Cache}};
@@ -1276,6 +1393,16 @@ active_gateways_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{active_gatewa
 entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{entries=EntriesCF}}) ->
     EntriesCF;
 entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{entries=EntriesCF}}) ->
+    EntriesCF.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec dc_entries_cf(ledger()) -> rocksdb:cf_handle().
+dc_entries_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
+    EntriesCF;
+dc_entries_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{dc_entries=EntriesCF}}) ->
     EntriesCF.
 
 %%--------------------------------------------------------------------
@@ -1381,8 +1508,8 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "htlcs", "pocs", "securities", "routing",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries",
+    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing",
+                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries",
                   "delayed_htlcs", "delayed_pocs", "delayed_securities", "delayed_routing"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
@@ -1508,19 +1635,28 @@ debit_account_test() ->
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
     ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
 
+credit_dc_test() ->
+    BaseDir = test_utils:tmp_dir("credit_dc_test"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ok = credit_dc(<<"address">>, 1000, Ledger1),
+    ok = commit_context(Ledger1),
+    {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)).
+
 debit_fee_test() ->
     BaseDir = test_utils:tmp_dir("debit_fee_test"),
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
-    ok = credit_account(<<"address">>, 1000, Ledger1),
+    ok = credit_dc(<<"address">>, 1000, Ledger1),
     ok = commit_context(Ledger1),
     ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(<<"address">>, 9999, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_fee(<<"address">>, 500, Ledger2),
     ok = commit_context(Ledger2),
-    {ok, Entry} = find_entry(<<"address">>, Ledger),
-    ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(0, blockchain_ledger_entry_v1:nonce(Entry)).
+    {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(500, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
+    ?assertEqual(0, blockchain_ledger_data_credits_entry_v1:nonce(Entry)).
 
 credit_security_test() ->
     BaseDir = test_utils:tmp_dir("credit_security_test"),
