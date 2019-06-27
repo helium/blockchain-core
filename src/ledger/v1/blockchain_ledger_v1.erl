@@ -52,6 +52,9 @@
     debit_fee/3,
     check_dc_balance/3,
 
+    token_burn_exchange_rate/1,
+    token_burn_exchange_rate/2,
+
     securities/1,
     find_security_entry/2,
     credit_security/3, debit_security/4,
@@ -107,6 +110,7 @@
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
+-define(BURN_RATE, <<"token_burn_exchange_rate">>).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -1077,6 +1081,31 @@ check_dc_balance(Address, Amount, Ledger) ->
                     ok
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec token_burn_exchange_rate(ledger()) -> {ok, integer()} | {error, any()}.
+token_burn_exchange_rate(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?BURN_RATE, []) of
+        {ok, <<Rate:64/integer-unsigned-big>>} ->
+            {ok, Rate};
+        not_found ->
+            {ok, 0};
+        Error ->
+            Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec token_burn_exchange_rate(non_neg_integer(), ledger()) -> ok.
+token_burn_exchange_rate(Rate, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?BURN_RATE, <<Rate:64/integer-unsigned-big>>).
 
 %%--------------------------------------------------------------------
 %% @doc
