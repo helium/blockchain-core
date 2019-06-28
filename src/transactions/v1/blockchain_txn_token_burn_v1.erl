@@ -143,8 +143,6 @@ is_valid(Txn, Chain) ->
             case blockchain_ledger_v1:token_burn_exchange_rate(Ledger) of
                 {error, _Reason}=Error ->
                     Error;
-                {ok, 0} ->
-                    ok;
                 {ok, _Rate} ->
                     Amount = ?MODULE:amount(Txn),
                     blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)     
@@ -161,8 +159,6 @@ absorb(Txn, Chain) ->
     case blockchain_ledger_v1:token_burn_exchange_rate(Ledger) of
         {error, _Reason}=Error ->
             Error;
-        {ok, 0} ->
-            ok;
         {ok, Rate} ->
             Amount = ?MODULE:amount(Txn),
             Payer = ?MODULE:payer(Txn),
@@ -190,7 +186,7 @@ absorb(Txn, Chain) ->
     Tx = #blockchain_txn_token_burn_v1_pb{
         type=account,
         payer= <<"payer">>,
-        key = <<"key">>,
+        key = <<>>,
         amount=666,
         signature = <<>>
     },
@@ -208,7 +204,7 @@ payer_test() ->
 
 key_test() ->
     Tx0 = new(<<"payer">>, 666),
-    ?assertEqual(<<"key">>, key(Tx0)),
+    ?assertEqual(<<>>, key(Tx0)),
     Tx1 = new(<<"payer">>, 666, <<"key">>),
     ?assertEqual(<<"key">>, key(Tx1)).
 

@@ -1093,7 +1093,7 @@ token_burn_exchange_rate(Ledger) ->
         {ok, <<Rate:64/integer-unsigned-big>>} ->
             {ok, Rate};
         not_found ->
-            {ok, 0};
+            {error, not_found};
         Error ->
             Error
     end.

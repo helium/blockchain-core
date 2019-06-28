@@ -1167,38 +1167,46 @@ token_burn_test(Config) ->
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
 
-    % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
+    Ledger = blockchain:ledger(Chain),
 
+    % Step 1: Simple payment txn with no fees
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10),
-    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
     Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1), 
     SignedTx0 = blockchain_txn_payment_v1:sign(Tx0, SigFun),
-    Block2 = test_utils:create_block(ConsensusMembers, [SignedTx0, SignedBurnTx0]),
+    Block2 = test_utils:create_block(ConsensusMembers, [SignedTx0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
-
-    Ledger = blockchain:ledger(Chain),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
-
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
-    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_dc_entry(Payer, Ledger)),
-    ?assertEqual({ok, 0}, blockchain_ledger_v1:token_burn_exchange_rate(Ledger)),
+    % Step 2: Token burn txn (without a rate) should fail and stay at same block
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
+    FailedBlock = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, N, self()),
 
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_dc_entry(Payer, Ledger)),
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:token_burn_exchange_rate(Ledger)),
+
+    % Step 3: Add exchange rate to ledger
     Rate = 1000000,
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     ok = blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
+    % Step 4: Retry token burn txn should pass now
     Block3 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
 
@@ -1206,13 +1214,12 @@ token_burn_test(Config) ->
     ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
     ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
-
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10, blockchain_ledger_entry_v1:balance(NewEntry2)),
-
     {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
+    % Step 5: Try payment txn with fee this time
     Fee = 10,
     Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3), 
     SignedTx1 = blockchain_txn_payment_v1:sign(Tx1, SigFun),
@@ -1223,13 +1230,10 @@ token_burn_test(Config) ->
     ?assertEqual({ok, Block4}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 4}, blockchain:height(Chain)),
     ?assertEqual({ok, Block4}, blockchain:get_block(4, Chain)),
-
     {ok, NewEntry3} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500 + 500, blockchain_ledger_entry_v1:balance(NewEntry3)),
-
     {ok, NewEntry4} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10 - 500, blockchain_ledger_entry_v1:balance(NewEntry4)),
-
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     ?assertEqual((10*Rate)-Fee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
