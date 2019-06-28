@@ -120,8 +120,4 @@ type_test() ->
     Reward = new(<<"account">>, <<"gateway">>, 12, poc_challengees),
     ?assertEqual(poc_challengees, type(Reward)).
 
-encode_decode_test() ->
-    Reward = new(<<"account">>, <<"gateway">>, 12, poc_challengees),
-    ?assertEqual({witness, Reward}, blockchain_txn_rewards_v1_pb:decode(blockchain_txn_rewards_v1_pb:encode(Reward))).
-
 -endif.
