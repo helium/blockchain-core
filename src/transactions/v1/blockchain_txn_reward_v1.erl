@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Proof of Coverage Witness ==
+%% == Blockchain Transaction reward ==
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_reward_v1).
 
