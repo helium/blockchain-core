@@ -94,7 +94,7 @@ is_valid(Txn, _Chain) ->
         Rewards
     ), 
     case ValidateRewards of
-        false -> {error, unvalid_reward};
+        false -> {error, invalid_reward};
         true -> ok
     end.
 
