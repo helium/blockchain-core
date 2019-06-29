@@ -41,8 +41,8 @@
 %%--------------------------------------------------------------------
 -spec new(blockchain_txn_reward_v1:rewards()) -> txn_rewards().
 new(Rewards) ->
-    % TODO: Sort rewards
-    #blockchain_txn_rewards_v1_pb{rewards=Rewards}.
+    SortedRewards = lists:sort(Rewards),
+    #blockchain_txn_rewards_v1_pb{rewards=SortedRewards}.
 
 %%--------------------------------------------------------------------
 %% @doc
