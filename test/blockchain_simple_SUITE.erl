@@ -1035,7 +1035,8 @@ epoch_reward_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
-
+    
+    % 5208333 (poc_challengers) + 1104798 (securities) + 496032 (consensus group) + 5000 (initial balance)
     ?assertEqual(6814163, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
