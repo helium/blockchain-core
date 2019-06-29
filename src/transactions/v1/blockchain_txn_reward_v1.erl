@@ -21,14 +21,15 @@
 
 -type reward() :: #blockchain_txn_reward_v1_pb{}.
 -type rewards() :: [reward()].
--type type() :: securities | data_credits | poc_challengees | poc_challengers | rewardes | consensus.
+-type type() :: securities | data_credits | poc_challengees | poc_challengers | poc_witnesses | consensus.
 
 -export_type([reward/0, rewards/0, type/0]).
 
--define(TYPES, [securities, data_credits, poc_challengees, poc_challengers, rewardes, consensus]).
+-define(TYPES, [securities, data_credits, poc_challengees, poc_challengers, poc_witnesses, consensus]).
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Gateway might be `undefined` when it is a security reward
 %% @end
 %%--------------------------------------------------------------------
 -spec new(Account :: libp2p_crypto:pubkey_bin(),
