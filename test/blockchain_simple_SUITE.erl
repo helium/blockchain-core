@@ -1028,15 +1028,15 @@ epoch_reward_test(Config) ->
     )),
 
     End = 30,
-    Tx = blockchain_txn_consensus_group_v1:new([], <<"fake_proof">>, End, 0),
+    Rewards = blockchain_txn_rewards_v1:calculate_rewards(End, Chain),
+    Tx = blockchain_txn_rewards_v1:new(Rewards),
     B = test_utils:create_block(ConsensusMembers, [Tx]),
     _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
 
     Ledger = blockchain:ledger(Chain),
-
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
-    ?assertEqual(6318131, blockchain_ledger_entry_v1:balance(Entry)),
+    ?assertEqual(6814163, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
