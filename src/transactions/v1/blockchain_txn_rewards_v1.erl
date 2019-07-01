@@ -10,9 +10,10 @@
 -include("pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
-    new/1,
+    new/2,
     hash/1,
     rewards/1,
+    epoch/1,
     sign/2,
     fee/1,
     is_valid/2,
@@ -39,10 +40,10 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_txn_reward_v1:rewards()) -> txn_rewards().
-new(Rewards) ->
+-spec new(blockchain_txn_reward_v1:rewards(), non_neg_integer()) -> txn_rewards().
+new(Rewards, Epoch) ->
     SortedRewards = lists:sort(Rewards),
-    #blockchain_txn_rewards_v1_pb{rewards=SortedRewards}.
+    #blockchain_txn_rewards_v1_pb{rewards=SortedRewards, epoch=Epoch}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -60,6 +61,14 @@ hash(Txn) ->
 -spec rewards(txn_rewards()) -> blockchain_txn_reward_v1:rewards().
 rewards(#blockchain_txn_rewards_v1_pb{rewards=Rewards}) ->
     Rewards.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec epoch(txn_rewards()) -> non_neg_integer().
+epoch(#blockchain_txn_rewards_v1_pb{epoch=Epoch}) ->
+    Epoch.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -417,12 +426,16 @@ get_gateway_owner(Address, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_rewards_v1_pb{rewards=[]},
-    ?assertEqual(Tx, new([])).
+    Tx = #blockchain_txn_rewards_v1_pb{rewards=[], epoch=10},
+    ?assertEqual(Tx, new([], 10)).
 
 rewards_test() ->
-    Tx = new([]),
+    Tx = new([], 10),
     ?assertEqual([], rewards(Tx)).
+
+epoch_test() ->
+    Tx = new([], 10),
+    ?assertEqual(10, epoch(Tx)).
 
 consensus_members_rewards_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
