@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+message txn_reward_v1 {
+    enum Type {
+        securities = 0;
+        data_credits = 1;
+        poc_challengees = 2;
+        poc_challengers = 3;
+        poc_witnesses = 4;
+        consensus = 5;
+    }
+    bytes account = 1;
+    bytes gateway = 3;
+    uint64 amount = 4;
+    Type type = 5;
+    
+}
+
+message txn_rewards_v1 {
+    repeated txn_reward_v1 rewards = 1;
+    uint64 epoch = 2;
+}   
