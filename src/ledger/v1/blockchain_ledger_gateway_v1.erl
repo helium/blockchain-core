@@ -13,7 +13,7 @@
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
-    print/3,
+    print/3, print/4,
     serialize/1, deserialize/1,
     alpha/1,
     beta/1,
@@ -237,31 +237,44 @@ nonce(Gateway) ->
 nonce(Nonce, Gateway) ->
     Gateway#gateway_v1{nonce=Nonce}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
+-spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> list().
 print(Address, Gateway, Ledger) ->
+    print(Address, Gateway, Ledger, false).
+
+-spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
+            Ledger :: blockchain_ledger_v1:ledger(), boolean()) -> list().
+print(Address, Gateway, Ledger, Verbose) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
     UndefinedHandleFunc =
         fun(undefined) -> "undefined";
            (I) -> I
         end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    PocUndef =
+        fun(undefined) -> "undefined";
+           (I) -> Height - I
+        end,
     {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height),
+    Scoring =
+        case Verbose of
+            true ->
+                [
+                 {alpha, alpha(Gateway)},
+                 {new_alpha, NewAlpha},
+                 {beta, beta(Gateway)},
+                 {new_beta, NewBeta},
+                 {delta, Height - delta(Gateway)}
+                ];
+            _ -> []
+        end,
     [
-        {score, Score},
-        {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
-        {location, UndefinedHandleFunc(location(Gateway))},
-        {last_poc_challenge, UndefinedHandleFunc(last_poc_challenge(Gateway))},
-        {nonce, nonce(Gateway)},
-        {alpha, alpha(Gateway)},
-        {new_alpha, NewAlpha},
-        {beta, beta(Gateway)},
-        {new_beta, NewBeta},
-        {delta, Height - delta(Gateway)}
-    ].
+     {score, Score},
+     {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
+     {location, UndefinedHandleFunc(location(Gateway))},
+     {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
+     {nonce, nonce(Gateway)}
+    ] ++ Scoring.
 
 %%--------------------------------------------------------------------
 %% @doc
