@@ -15,6 +15,7 @@ export(Ledger) ->
         {securities, export_securities(Ledger)},
         {accounts, export_accounts(Ledger)},
         {gateways, export_gateways(Ledger)},
+        {chain_vars, export_chain_vars(Ledger)},
         {dcs, export_dcs(Ledger)}
     ].
 
@@ -63,3 +64,6 @@ export_dcs(Ledger) ->
         [],
         maps:to_list(blockchain_ledger_v1:dc_entries(Ledger))
     ).
+
+export_chain_vars(Ledger) ->
+    blockchain_ledger_v1:all_vars(Ledger).

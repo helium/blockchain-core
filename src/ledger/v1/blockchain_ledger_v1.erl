@@ -27,6 +27,7 @@
     htlcs/1,
 
     master_key/1, master_key/2,
+    all_vars/1,
     vars/3,
     config/2,  % no version with default, use the set value or fail
     vars_nonce/1, vars_nonce/2,
@@ -605,10 +606,21 @@ master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+all_vars(#ledger_v1{db = DB} = Ledger) ->
+    CF = default_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, CF,
+                                 [{iterate_upper_bound,
+                                   <<"$var`">>}]),
+    Start = rocksdb:iterator_move(Itr, {seek, <<"$var_">>}),
+    (fun Scan({error, _}, Acc) ->
+             rocksdb:iterator_close(Itr),
+             Acc;
+         Scan({ok, <<"$var_", BName/binary>>, BValue}, Acc) ->
+             Name = binary_to_atom(BName, utf8),
+             Value = binary_to_term(BValue),
+             Scan(rocksdb:iterator_move(Itr, next), [{Name, Value} | Acc])
+     end)(Start, []).
+
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
     maps:map(

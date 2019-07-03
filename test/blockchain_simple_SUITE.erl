@@ -707,7 +707,8 @@ export_test(Config) ->
     [{securities, Securities},
      {accounts, Accounts},
      {gateways, Gateways},
-     {dcs, DCs}
+     {dcs, DCs},
+     ChainVars
     ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ct:pal("gateways ~p", [Gateways]),
@@ -749,6 +750,21 @@ export_test(Config) ->
                       Token = proplists:get_value(token, Security),
                       Token == Balance
               end, Securities),
+
+    ?assertEqual({chain_vars,
+                  [{vars_commit_interval,2},
+                   {securities_percent,0.35},
+                   {proposal_threshold,0.85},
+                   {poc_witnesses_percent,0.05},
+                   {poc_challengers_percent,0.15},
+                   {poc_challengees_percent,0.35},
+                   {num_consensus_members,7},
+                   {monthly_reward,50000000000},
+                   {election_selection_pct,60},
+                   {election_replacement_factor,4},
+                   {consensus_percent,0.1},
+                   {block_version,v1}]},
+                 ChainVars),
 
     ok.
 
