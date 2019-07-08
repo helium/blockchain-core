@@ -266,7 +266,7 @@ active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     maps:fold(
         fun(PubkeyBin, Gateway, Acc0) ->
-            {ok, Score} = blockchain_ledger_v1:gateway_score(Gateway, Ledger),
+            {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
             case
                 PubkeyBin == Challenger orelse
                 blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
