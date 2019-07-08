@@ -397,13 +397,13 @@ target_test() ->
 neighbors_test() ->
     LatLongs = [
         {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
-        {{37.782604, -122.447857}, 1000.0, 0.2},
-        {{37.782074, -122.448528}, 1000.0, 0.2},
-        {{37.782002, -122.44826}, 1000.0, 0.2},
-        {{37.78207, -122.44613}, 1000.0, 0.2},
-        {{37.781909, -122.445411}, 1000.0, 0.2},
-        {{37.783371, -122.447879}, 1000.0, 0.2},
-        {{37.780827, -122.44716}, 1000.0, 0.2},
+        {{37.782604, -122.447857}, 1000.0, 0.1},
+        {{37.782074, -122.448528}, 1000.0, 0.1},
+        {{37.782002, -122.44826}, 1000.0, 0.1},
+        {{37.78207, -122.44613}, 1000.0, 0.1},
+        {{37.781909, -122.445411}, 1000.0, 0.1},
+        {{37.783371, -122.447879}, 1000.0, 0.1},
+        {{37.780827, -122.44716}, 1000.0, 0.1},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -424,13 +424,13 @@ neighbors_test() ->
 build_graph_test() ->
     LatLongs = [
         {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
-        {{37.782604, -122.447857}, 1000.0, 0.2},
-        {{37.782074, -122.448528}, 1000.0, 0.2},
-        {{37.782002, -122.44826}, 1000.0, 0.2},
-        {{37.78207, -122.44613}, 1000.0, 0.2},
-        {{37.781909, -122.445411}, 1000.0, 0.2},
-        {{37.783371, -122.447879}, 1000.0, 0.2},
-        {{37.780827, -122.44716}, 1000.0, 0.2},
+        {{37.782604, -122.447857}, 1000.0, 0.1},
+        {{37.782074, -122.448528}, 1000.0, 0.1},
+        {{37.782002, -122.44826}, 1000.0, 0.1},
+        {{37.78207, -122.44613}, 1000.0, 0.1},
+        {{37.781909, -122.445411}, 1000.0, 0.1},
+        {{37.783371, -122.447879}, 1000.0, 0.1},
+        {{37.780827, -122.44716}, 1000.0, 0.1},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -443,18 +443,17 @@ build_graph_test() ->
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
     ok.
 
-
 build_graph_in_line_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
         {{37.780586, -122.469471}, 1.0, 1.0},
-        {{37.780959, -122.467496}, 1000.0, 0.2},
-        {{37.78101, -122.465372}, 1000.0, 0.2},
-        {{37.781179, -122.463226}, 1000.0, 0.2},
-        {{37.781281, -122.461038}, 1000.0, 0.2},
-        {{37.781349, -122.458892}, 1000.0, 0.2},
-        {{37.781468, -122.456617}, 1000.0, 0.2},
-        {{37.781637, -122.4543}, 1000.0, 0.2},
+        {{37.780959, -122.467496}, 1000.0, 0.1},
+        {{37.78101, -122.465372}, 1000.0, 0.1},
+        {{37.781179, -122.463226}, 1000.0, 0.1},
+        {{37.781281, -122.461038}, 1000.0, 0.1},
+        {{37.781349, -122.458892}, 1000.0, 0.1},
+        {{37.781468, -122.456617}, 1000.0, 0.1},
+        {{37.781637, -122.4543}, 1000.0, 0.1},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -657,6 +656,49 @@ active_gateways_test() ->
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
     ?assertEqual(3, maps:size(ActiveGateways)),
+
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ok.
+
+active_gateways_low_score_test() ->
+    % 2 First points are grouped together and next ones form a group also
+    LatLongs = [
+        {{48.858391, 2.294469}, 1.0, 1.0},
+        {{48.856696, 2.293997}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
+    ],
+    {_Target0, Gateways} = build_gateways(LatLongs),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1,
+                active_gateways,
+                fun(_) ->
+                        Gateways
+                end),
+    meck:expect(blockchain_ledger_v1,
+                current_height,
+                fun(_) ->
+                        {ok, 1}
+                end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        %% Assume that all gateways have a trash score
+                        {ok, 0.01}
+                end),
+
+    [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
+    Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
+    ActiveGateways = active_gateways(fake_ledger, Challenger),
+
+    ?assertNot(maps:is_key(Challenger, ActiveGateways)),
+
+    %% No gateway should be in active gateways map
+    ?assertEqual(0, maps:size(ActiveGateways)),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
