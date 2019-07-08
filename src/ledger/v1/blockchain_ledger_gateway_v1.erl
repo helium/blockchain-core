@@ -307,12 +307,12 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual({1.0, 1.0, 0.25000000000000006}, score(Gw, 12)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(Gw, 12)).
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    ?assertEqual({1.0, 1.0, 0.25000000000000006}, score(Gw1, 1000)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(Gw1, 1000)).
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
