@@ -123,7 +123,12 @@ score(#gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
     NewBeta = scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta)),
     RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
     RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
-    IQR = RV2 - RV1,
+    %% Because of the vagaries of floating point, different CPUs can differ
+    %% in their rounding and precision. We assume 32 bit should be above that
+    %% threshold, so we truncate the results here.
+    <<FRV1:32/float-unsigned-little>> = <<RV1:32/float-unsigned-little>>,
+    <<FRV2:32/float-unsigned-little>> = <<RV2:32/float-unsigned-little>>,
+    IQR = FRV2 - FRV1,
     Mean = 1 / (1 + NewBeta/NewAlpha),
     {NewAlpha, NewBeta, Mean * (1 - IQR)}.
 
@@ -302,12 +307,12 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual({1.0, 1.0, 0.25000000000000006}, score(Gw, 12)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(Gw, 12)).
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    ?assertEqual({1.0, 1.0, 0.25000000000000006}, score(Gw1, 1000)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(Gw1, 1000)).
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
