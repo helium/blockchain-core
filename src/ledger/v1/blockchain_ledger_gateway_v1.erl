@@ -123,7 +123,12 @@ score(#gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
     NewBeta = scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta)),
     RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
     RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
-    IQR = RV2 - RV1,
+    %% Because of the vagaries of floating point, different CPUs can differ
+    %% in their rounding and precision. We assume 32 bit should be above that
+    %% threshold, so we truncate the results here.
+    <<FRV1:32/float-unsigned-little>> = <<RV1:32/float-unsigned-little>>,
+    <<FRV2:32/float-unsigned-little>> = <<RV2:32/float-unsigned-little>>,
+    IQR = FRV2 - FRV1,
     Mean = 1 / (1 + NewBeta/NewAlpha),
     {NewAlpha, NewBeta, Mean * (1 - IQR)}.
 
