@@ -17,6 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(MIN_SCORE, 0.1).
 -define(RESOLUTION, 8).
 -define(RING_SIZE, 3).
 % KRing of 1
@@ -265,11 +266,12 @@ active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     maps:fold(
         fun(PubkeyBin, Gateway, Acc0) ->
-            % TODO: Maybe do some find of score check here
+            {ok, Score} = blockchain_ledger_v1:gateway_score(Gateway, Ledger),
             case
                 PubkeyBin == Challenger orelse
                 blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
-                maps:is_key(PubkeyBin, Acc0)
+                maps:is_key(PubkeyBin, Acc0) orelse
+                Score =< ?MIN_SCORE
             of
                 true ->
                     Acc0;
@@ -395,13 +397,13 @@ target_test() ->
 neighbors_test() ->
     LatLongs = [
         {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
-        {{37.782604, -122.447857}, 1000.0, 0.1},
-        {{37.782074, -122.448528}, 1000.0, 0.1},
-        {{37.782002, -122.44826}, 1000.0, 0.1},
-        {{37.78207, -122.44613}, 1000.0, 0.1},
-        {{37.781909, -122.445411}, 1000.0, 0.1},
-        {{37.783371, -122.447879}, 1000.0, 0.1},
-        {{37.780827, -122.44716}, 1000.0, 0.1},
+        {{37.782604, -122.447857}, 1000.0, 0.2},
+        {{37.782074, -122.448528}, 1000.0, 0.2},
+        {{37.782002, -122.44826}, 1000.0, 0.2},
+        {{37.78207, -122.44613}, 1000.0, 0.2},
+        {{37.781909, -122.445411}, 1000.0, 0.2},
+        {{37.783371, -122.447879}, 1000.0, 0.2},
+        {{37.780827, -122.44716}, 1000.0, 0.2},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -422,13 +424,13 @@ neighbors_test() ->
 build_graph_test() ->
     LatLongs = [
         {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
-        {{37.782604, -122.447857}, 1000.0, 0.1},
-        {{37.782074, -122.448528}, 1000.0, 0.1},
-        {{37.782002, -122.44826}, 1000.0, 0.1},
-        {{37.78207, -122.44613}, 1000.0, 0.1},
-        {{37.781909, -122.445411}, 1000.0, 0.1},
-        {{37.783371, -122.447879}, 1000.0, 0.1},
-        {{37.780827, -122.44716}, 1000.0, 0.1},
+        {{37.782604, -122.447857}, 1000.0, 0.2},
+        {{37.782074, -122.448528}, 1000.0, 0.2},
+        {{37.782002, -122.44826}, 1000.0, 0.2},
+        {{37.78207, -122.44613}, 1000.0, 0.2},
+        {{37.781909, -122.445411}, 1000.0, 0.2},
+        {{37.783371, -122.447879}, 1000.0, 0.2},
+        {{37.780827, -122.44716}, 1000.0, 0.2},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -446,13 +448,13 @@ build_graph_in_line_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
         {{37.780586, -122.469471}, 1.0, 1.0},
-        {{37.780959, -122.467496}, 1000.0, 0.1},
-        {{37.78101, -122.465372}, 1000.0, 0.1},
-        {{37.781179, -122.463226}, 1000.0, 0.1},
-        {{37.781281, -122.461038}, 1000.0, 0.1},
-        {{37.781349, -122.458892}, 1000.0, 0.1},
-        {{37.781468, -122.456617}, 1000.0, 0.1},
-        {{37.781637, -122.4543}, 1000.0, 0.1},
+        {{37.780959, -122.467496}, 1000.0, 0.2},
+        {{37.78101, -122.465372}, 1000.0, 0.2},
+        {{37.781179, -122.463226}, 1000.0, 0.2},
+        {{37.781281, -122.461038}, 1000.0, 0.2},
+        {{37.781349, -122.458892}, 1000.0, 0.2},
+        {{37.781468, -122.456617}, 1000.0, 0.2},
+        {{37.781637, -122.4543}, 1000.0, 0.2},
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
@@ -640,6 +642,11 @@ active_gateways_test() ->
                 current_height,
                 fun(_) ->
                         {ok, 1}
+                end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        {ok, 0.5}
                 end),
 
     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
