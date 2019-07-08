@@ -17,8 +17,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+%% TODO: All these should be chain vars
+-define(MIN_SCORE, 0.2).
 -define(RESOLUTION, 8).
--define(RING_SIZE, 3).
+-define(RING_SIZE, 2).
 % KRing of 1
 %     Scale 3.57
 %     Max distance 1.028 miles @ resolution 8
@@ -26,12 +28,12 @@
 
 % KRing of 2
 %     Scale 5.42
-%     Max distance 1.564 miles @ resolution 8
+%     Max distance 1.564 miles @ resolution 8 <---
 %     Max distance 0.59 miles @ resolution 9
 %
 % KRing of 3
 %   Scale: unknown
-%   Max distance: unknown, presumably larger than 1.54 miles <---
+%   Max distance: unknown, presumably larger than 1.54 miles
 
 -type graph() :: #{any() => [{number(), any()}]}.
 
@@ -265,11 +267,12 @@ active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     maps:fold(
         fun(PubkeyBin, Gateway, Acc0) ->
-            % TODO: Maybe do some find of score check here
+            {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
             case
                 PubkeyBin == Challenger orelse
                 blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
-                maps:is_key(PubkeyBin, Acc0)
+                maps:is_key(PubkeyBin, Acc0) orelse
+                Score =< ?MIN_SCORE
             of
                 true ->
                     Acc0;
@@ -440,7 +443,6 @@ build_graph_test() ->
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
     ok.
-
 
 build_graph_in_line_test() ->
     % All these point are in a line one after the other (except last)
@@ -641,6 +643,11 @@ active_gateways_test() ->
                 fun(_) ->
                         {ok, 1}
                 end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        {ok, 0.5}
+                end),
 
     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -650,6 +657,49 @@ active_gateways_test() ->
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
     ?assertEqual(3, maps:size(ActiveGateways)),
+
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
+    ok.
+
+active_gateways_low_score_test() ->
+    % 2 First points are grouped together and next ones form a group also
+    LatLongs = [
+        {{48.858391, 2.294469}, 1.0, 1.0},
+        {{48.856696, 2.293997}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
+    ],
+    {_Target0, Gateways} = build_gateways(LatLongs),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1,
+                active_gateways,
+                fun(_) ->
+                        Gateways
+                end),
+    meck:expect(blockchain_ledger_v1,
+                current_height,
+                fun(_) ->
+                        {ok, 1}
+                end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        %% Assume that all gateways have a trash score
+                        {ok, 0.01}
+                end),
+
+    [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
+    Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
+    ActiveGateways = active_gateways(fake_ledger, Challenger),
+
+    ?assertNot(maps:is_key(Challenger, ActiveGateways)),
+
+    %% No gateway should be in active gateways map
+    ?assertEqual(0, maps:size(ActiveGateways)),
 
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),

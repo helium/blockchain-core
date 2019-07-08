@@ -38,6 +38,7 @@
     nonce = 0 :: non_neg_integer()
 }).
 
+%% TODO: All these need to be chain vars
 -define(ALPHA_DECAY, 0.007).
 -define(BETA_DECAY, 0.0005).
 -define(MAX_STALENESS, 100000).
