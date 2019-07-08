@@ -17,9 +17,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(MIN_SCORE, 0.1).
+%% TODO: All these should be chain vars
+-define(MIN_SCORE, 0.2).
 -define(RESOLUTION, 8).
--define(RING_SIZE, 3).
+-define(RING_SIZE, 2).
 % KRing of 1
 %     Scale 3.57
 %     Max distance 1.028 miles @ resolution 8
@@ -27,12 +28,12 @@
 
 % KRing of 2
 %     Scale 5.42
-%     Max distance 1.564 miles @ resolution 8
+%     Max distance 1.564 miles @ resolution 8 <---
 %     Max distance 0.59 miles @ resolution 9
 %
 % KRing of 3
 %   Scale: unknown
-%   Max distance: unknown, presumably larger than 1.54 miles <---
+%   Max distance: unknown, presumably larger than 1.54 miles
 
 -type graph() :: #{any() => [{number(), any()}]}.
 
