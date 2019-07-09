@@ -507,32 +507,43 @@ build_graph_in_line_test() ->
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
 
-    Addresses = lists:droplast([crypto:hash(sha256, erlang:term_to_binary(X)) || {X, _, _} <- LatLongs]),
+    Addresses = lists:droplast([{crypto:hash(sha256, erlang:term_to_binary(X)), X} || {X, _, _} <- LatLongs]),
+    io:format("Addresses: ~p~n", [Addresses]),
     Size = erlang:length(Addresses),
 
     lists:foldl(
-        fun(Address, Acc) when Acc =:= 1 ->
-            Next = lists:nth(Acc + 1, Addresses),
-            GraphPart = maps:get(Address, Graph, []),
-            ?assert(lists:member(Next, [A || {_, A} <- GraphPart])),
-            Acc + 1;
-        (Address, Acc) when Size =:= Acc ->
-            Prev = lists:nth(Acc - 1, Addresses),
-            GraphPart = maps:get(Address, Graph, []),
-            ?assert(lists:member(Prev, [A || {_, A} <- GraphPart])),
-            0;
-        (Address, Acc) ->
-            % Each hotspot should at least see the next / prev one
-            Next = lists:nth(Acc + 1, Addresses),
-            Prev = lists:nth(Acc - 1, Addresses),
-            GraphPart = maps:get(Address, Graph, []),
-            ?assert(lists:member(Next, [A || {_, A} <- GraphPart])),
-            ?assert(lists:member(Prev, [A || {_, A} <- GraphPart])),
-            Acc + 1
-        end,
-        1,
-        Addresses
-    ),
+      fun({Address, _}, Acc) when Acc =:= 1 ->
+              {Next, _} = lists:nth(Acc + 1, Addresses),
+              GraphPart = maps:get(Address, Graph, []),
+              ?assert(lists:member(Next, [A || {_, A} <- GraphPart])),
+              Acc + 1;
+         ({Address, _}, Acc) when Size =:= Acc ->
+              {Prev, _} = lists:nth(Acc - 1, Addresses),
+              GraphPart = maps:get(Address, Graph, []),
+              ?assert(lists:member(Prev, [A || {_, A} <- GraphPart])),
+              0;
+         ({Address, Coordinate}, Acc) ->
+              % Each hotspot should at least see the next / prev one
+              {Next, NextCoordinate} = lists:nth(Acc + 1, Addresses),
+              {Prev, PrevCoordinate} = lists:nth(Acc - 1, Addresses),
+              GraphPart = maps:get(Address, Graph, []),
+
+              io:format("GraphPart: ~p~n", [GraphPart]),
+              io:format("Next: ~p~n", [Next]),
+              io:format("Prev: ~p~n", [Prev]),
+              io:format("Address: ~p~n", [Address]),
+              DistNext = blockchain_utils:haversine_distance(Coordinate, NextCoordinate),
+              io:format("DistNext: ~p~n", [DistNext]),
+              DistPrev = blockchain_utils:haversine_distance(Coordinate, PrevCoordinate),
+              io:format("DistPrev: ~p~n", [DistPrev]),
+
+              ?assert(lists:member(Next, [B || {_, B} <- GraphPart])),
+              ?assert(lists:member(Prev, [A || {_, A} <- GraphPart])),
+              Acc + 1
+      end,
+      1,
+      Addresses
+     ),
     ok.
 
 build_test() ->
