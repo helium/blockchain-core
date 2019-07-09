@@ -189,6 +189,7 @@ neighbors(Address, Gateways, Height) ->
     end,
     GwInRing0 = maps:to_list(maps:filter(
         fun(A, G) ->
+            {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
             case blockchain_ledger_gateway_v1:location(G) of
                 undefined -> false;
                 I ->
@@ -198,6 +199,7 @@ neighbors(Address, Gateways, Height) ->
                          end,
                     lists:member(I1, KRing)
                     andalso Address =/= A
+                    andalso Score >= ?MIN_SCORE
             end
         end,
         Gateways
@@ -574,7 +576,7 @@ build_only_2_test() ->
     % All these point are in a line one after the other
     LatLongs = [
         {{37.780959, -122.467496}, 1000.0, 100.0},
-        {{37.78101, -122.465372}, 10.0, 1000.0},
+        {{37.78101, -122.465372}, 100.0, 10.0},
         {{37.780586, -122.469471}, 100.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
