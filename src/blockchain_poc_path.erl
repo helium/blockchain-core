@@ -629,7 +629,7 @@ build_failed_test() ->
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1)),
     ok.
 
-build_with_zero_score_test() ->
+build_with_default_score_test() ->
     % All these point are in a line one after the other (except last)
     LatLongs = [
         {{37.780586, -122.469471}, 1.0, 1.0},
@@ -647,7 +647,7 @@ build_with_zero_score_test() ->
     ?assert(lists:member(Target, Path)),
     ok.
 
-build_with_zero_score_2_test() ->
+build_with_default_score2_test() ->
     % All these point are together
     LatLongs = [
         {{48.854918, 2.345903}, 1.0, 1.0},
@@ -659,9 +659,9 @@ build_with_zero_score_2_test() ->
     ],
     {Target, Gateways} = build_gateways(LatLongs),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1),
-    ?assertEqual(3, erlang:length(Path)),
-    [_P1, P2, _P3] = Path,
-    ?assertEqual(Target, P2),
+    ?assertEqual(5, erlang:length(Path)),
+    [_P1, _P2, P3, _P4, _P5] = Path,
+    ?assertEqual(Target, P3),
     ok.
 
 active_gateways_test() ->
