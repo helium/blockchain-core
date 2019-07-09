@@ -427,7 +427,31 @@ neighbors_test() ->
     {Target, Gateways} = build_gateways(LatLongs),
     Neighbors = neighbors(Target, Gateways, 1),
 
-    ?assertEqual(erlang:length(maps:keys(Gateways)) - 3, erlang:length(Neighbors)),
+    %% The CalculatedNeighbors should be a sublist of CandidateNeighbors.
+    GatewaysWithLocations = maps:filter(fun(_, Gw) ->
+                                                blockchain_ledger_gateway_v1:location(Gw) /= undefined
+                                        end,
+                                        Gateways),
+    TargetGw = maps:get(Target, GatewaysWithLocations),
+    TargetH3 = blockchain_ledger_gateway_v1:location(TargetGw),
+    TargetCoordinate = h3:to_geo(TargetH3),
+    CandidateNeighbors = lists:foldl(fun({Addr, Gw}, Acc) ->
+                                             case Addr == Target of
+                                                 true -> Acc;
+                                                 false ->
+                                                     Coordinate = h3:to_geo(blockchain_ledger_gateway_v1:location(Gw)),
+                                                     Dist = blockchain_utils:haversine_distance(Coordinate, TargetCoordinate),
+                                                     case Dist >= ?MIN_HOP of
+                                                         false -> Acc;
+                                                         true -> [Addr | Acc]
+                                                     end
+                                             end
+                                     end,
+                                     [],
+                                     maps:to_list(GatewaysWithLocations)),
+    CalculatedNeighbors = [A || {_, A} <- Neighbors],
+    ?assert(sets:is_subset(sets:from_list(CalculatedNeighbors), sets:from_list(CandidateNeighbors))),
+
     {LL1, _, _} = lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     lists:foreach(
@@ -742,6 +766,7 @@ build_gateways(LatLongs) ->
     ),
     [{LL, _, _}|_] = LatLongs,
     Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
+    %% Add a gateway with an undefined location to test removal
     {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
 
 -endif.
