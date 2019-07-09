@@ -56,7 +56,7 @@ build(Hash, Target, Gateways, Height) ->
                     Acc;
                 false ->
                     G = maps:get(Addr, Gateways),
-                    {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
+                    {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, G, Height),
                     [{Score, Addr}|Acc]
             end
         end,
@@ -201,18 +201,20 @@ neighbors(Address, Gateways, Height) ->
         end,
         Gateways
     )),
-    [{edge_weight(TargetGw, G, Height), A} || {A, G} <- GwInRing].
+    [{edge_weight(Address, TargetGw, A, G, Height), A} || {A, G} <- GwInRing].
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec edge_weight(Gw1 :: blockchain_ledger_gateway_v1:gateway(),
+-spec edge_weight(A1 :: libp2p_crypto:pubkey_bin(),
+                  Gw1 :: blockchain_ledger_gateway_v1:gateway(),
+                  A2 :: libp2p_crypto:pubkey_bin(),
                   Gw2 :: blockchain_ledger_gateway_v1:gateway(),
                   Height :: non_neg_integer()) -> float().
-edge_weight(Gw1, Gw2, Height) ->
-    {_, _, S1} = blockchain_ledger_gateway_v1:score(Gw1, Height),
-    {_, _, S2} = blockchain_ledger_gateway_v1:score(Gw2, Height),
+edge_weight(A1, Gw1, A2, Gw2, Height) ->
+    {_, _, S1} = blockchain_ledger_gateway_v1:score(A1, Gw1, Height),
+    {_, _, S2} = blockchain_ledger_gateway_v1:score(A2, Gw2, Height),
     1 - abs(prob_fun(S1) -  prob_fun(S2)).
 
 %%--------------------------------------------------------------------
@@ -237,7 +239,7 @@ target(Hash, Ledger, Challenger) ->
 -spec create_probs(Gateways :: map(), Height :: non_neg_integer()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways, Height) ->
     GwScores = lists:foldl(fun({A, G}, Acc) ->
-                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
+                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(A, G, Height),
                                    [{A, prob_fun(Score)} | Acc]
                            end,
                            [],
@@ -495,6 +497,7 @@ build_graph_in_line_test() ->
     ok.
 
 build_test() ->
+    e2qc:teardown(score_cache),
     % All these point are in a line one after the other (except last)
     LatLongs = [
         {{37.780959, -122.467496}, 200.0, 10.0},
@@ -517,6 +520,7 @@ build_test() ->
     ok.
 
 build_only_2_test() ->
+    e2qc:teardown(score_cache),
     % All these point are in a line one after the other
     LatLongs = [
         {{37.780959, -122.467496}, 1000.0, 100.0},
@@ -536,6 +540,7 @@ build_prob_test_() ->
     {timeout,
      60000,
      fun() ->
+             e2qc:teardown(score_cache),
              LatLongs = [
                          {{37.780586, -122.469471}, 1.0, 1.0},
                          {{37.780959, -122.467496}, 1.0, 1.0},
