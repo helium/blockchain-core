@@ -21,6 +21,7 @@
 -define(MIN_SCORE, 0.2).
 -define(RESOLUTION, 8).
 -define(RING_SIZE, 2).
+-define(MIN_HOP, 0.1). %% This is in miles
 % KRing of 1
 %     Scale 3.57
 %     Max distance 1.028 miles @ resolution 8
@@ -186,7 +187,7 @@ neighbors(Address, Gateways, Height) ->
             Parent = h3:parent(Index, ?RESOLUTION),
             h3:k_ring(Parent, ?RING_SIZE)
     end,
-    GwInRing = maps:to_list(maps:filter(
+    GwInRing0 = maps:to_list(maps:filter(
         fun(A, G) ->
             case blockchain_ledger_gateway_v1:location(G) of
                 undefined -> false;
@@ -201,7 +202,21 @@ neighbors(Address, Gateways, Height) ->
         end,
         Gateways
     )),
-    [{edge_weight(Address, TargetGw, A, G, Height), A} || {A, G} <- GwInRing].
+
+    %% Exclude hotspots in close proximity with `TargetGw` when building edges
+    TargetCoordinate = h3:to_geo(Index),
+    GwInRing = lists:filter(fun({_A, G}) ->
+                                    case blockchain_ledger_gateway_v1:location(G) of
+                                        undefined ->
+                                            %% Shouldn't happen but whatever
+                                            false;
+                                        H3Index ->
+                                            Coordinate = h3:to_geo(H3Index),
+                                            blockchain_utils:haversine_distance(TargetCoordinate, Coordinate) >= ?MIN_HOP
+                                    end
+                            end,
+                            GwInRing0),
+    [{edge_weight(TargetGw, G, Height), A} || {A, G} <- GwInRing].
 
 %%--------------------------------------------------------------------
 %% @doc

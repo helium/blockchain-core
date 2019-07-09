@@ -7,13 +7,16 @@
 
 -export([
     shuffle_from_hash/2,
-    rand_from_hash/1
+    rand_from_hash/1,
+    haversine_distance/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(EARTHRADIUS, 3961).
+-type coordinate() :: {float(), float()}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -32,6 +35,15 @@ shuffle_from_hash(Hash, L) ->
 rand_from_hash(Hash) ->
     <<I1:86/integer, I2:85/integer, I3:85/integer, _/binary>> = Hash,
     rand:seed(exs1024, {I1, I2, I3}).
+
+-spec haversine_distance(coordinate(), coordinate()) -> float().
+haversine_distance({Lat1, Long1}, {Lat2, Long2}) ->
+    V = math:pi()/180,
+    DeltaLat = (Lat2 - Lat1) * V,
+    DeltaLong = (Long2 - Long1) * V,
+    A = math:pow(math:sin(DeltaLat/2), 2) + math:cos(Lat1 * V) * math:cos(Lat2 * V) * math:pow(math:sin(DeltaLong/2), 2),
+    C = 2 * math:atan2(math:sqrt(A), math:sqrt(1-A)),
+    ?EARTHRADIUS * C.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
