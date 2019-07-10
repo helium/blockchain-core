@@ -1,0 +1,84 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Blockchain fastforward Stream Handler ==
+%% @end
+%%%-------------------------------------------------------------------
+-module(blockchain_fastforward_handler).
+
+-behavior(libp2p_framed_stream).
+
+
+-include("pb/blockchain_sync_handler_pb.hrl").
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+
+-export([
+    server/4,
+    client/2
+]).
+
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Exports
+%% ------------------------------------------------------------------
+-export([
+    init/3,
+    handle_data/3,
+    handle_info/3
+]).
+
+-record(state, {
+    n :: pos_integer(),
+    blockchain :: blockchain:blochain()
+}).
+
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
+client(Connection, Args) ->
+    libp2p_framed_stream:client(?MODULE, Connection, Args).
+
+server(Connection, Path, _TID, Args) ->
+    libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
+
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Definitions
+%% ------------------------------------------------------------------
+init(client, _Conn, [N, Blockchain]) ->
+    lager:debug("started fastforward_handler client"),
+    {ok, #state{n=N, blockchain=Blockchain}};
+init(server, _Conn, [_Path, _, N, Blockchain]) ->
+    lager:debug("started fastforward_handler server"),
+    {ok, Hash} = blockchain:head_hash(Blockchain),
+    Msg = #blockchain_sync_hash_pb{hash=Hash},
+    {ok, #state{n=N, blockchain=Blockchain}, blockchain_sync_handler_pb:encode_msg(Msg)}.
+
+handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
+    #blockchain_sync_hash_pb{hash=Hash} =
+    blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_hash_pb),
+    case blockchain:get_block(Hash, Blockchain) of
+        {ok, Block} ->
+            Blocks = blockchain:build(Block, Blockchain, 200),
+            Msg = #blockchain_sync_blocks_pb{blocks=[blockchain_block:serialize(B) || B <- Blocks]},
+            {stop, normal, State, blockchain_sync_handler_pb:encode_msg(Msg)};
+        {error, _Reason} ->
+            %% peer is ahead of us
+            {stop, normal, State}
+    end;
+handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
+    #blockchain_sync_blocks_pb{blocks=BinBlocks} =
+        blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
+    Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
+    case blockchain:add_blocks(Blocks, Blockchain) of
+        ok ->
+            blockchain_worker:synced_blocks();
+        Error ->
+            %% TODO: maybe dial for sync again?
+            lager:error("Couldn't sync blocks, error: ~p", [Error])
+    end,
+    {stop, normal, State}.
+
+handle_info(_Type, _Msg, State) ->
+    lager:debug("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
+    {noreply, State}.
