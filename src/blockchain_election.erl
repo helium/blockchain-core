@@ -1,11 +1,11 @@
 -module(blockchain_election).
 
 -export([
-         new_group/3,
+         new_group/4,
          has_new_group/1
         ]).
 
-new_group(Ledger, Hash, Size) ->
+new_group(Ledger, Hash, Size, Delay) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -13,11 +13,23 @@ new_group(Ledger, Hash, Size) ->
 
     {ok, SelectPct} = blockchain_ledger_v1:config(election_selection_pct, Ledger),
     {ok, ReplacementFactor} = blockchain_ledger_v1:config(election_replacement_factor, Ledger),
+    %% increase this to make removal more gradual, decrease to make it less so
+    {ok, ReplacementSlope} = blockchain_ledger_v1:config(election_replacement_slope, Ledger),
+    {ok, Interval} = blockchain:config(election_restart_interval, Ledger),
 
     OldLen = length(OldGroup0),
     case Size == OldLen of
         true ->
-            Remove = Replace = floor(Size/ReplacementFactor);
+            MinSize = ((OldLen - 1) div 3) + 1, % smallest remainder we will allow
+            BaseRemove =  floor(Size/ReplacementFactor), % initial remove size
+            Removable = OldLen - MinSize - BaseRemove,
+            %% use tanh to get a gradually increasing (but still clamped to 1) value for
+            %% scaling the size of removal as delay increases
+            %% vihu argues for the logistic function here, for better
+            %% control, but tanh is simple
+            AdditionalRemove = floor(Removable * math:tanh((Delay/Interval) / ReplacementSlope)),
+
+            Remove = Replace = BaseRemove + AdditionalRemove;
         %% growing
         false when Size > OldLen ->
             Remove = 0,

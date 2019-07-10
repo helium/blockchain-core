@@ -1076,9 +1076,13 @@ election_test(Config) ->
     ct:pal("old ~p", [OldGroup]),
 
     %% generate new group of the same length
-    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N),
+    New =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 =  blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p new1 ~p", [New, New1]),
 
     ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
 
     %% confirm that they're sorted by score
     Scored =
