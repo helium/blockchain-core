@@ -426,7 +426,13 @@ add_handlers(Swarm, N, Blockchain) ->
         Swarm,
         ?SYNC_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, N, Blockchain]}
+    ),
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm,
+        ?FASTFORWARD_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, N, Blockchain]}
     ).
+
 
 %%--------------------------------------------------------------------
 %% @doc

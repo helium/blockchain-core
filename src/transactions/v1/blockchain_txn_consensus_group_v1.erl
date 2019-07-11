@@ -125,7 +125,7 @@ is_valid(Txn, Chain) ->
                             {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                             {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                             Hash = blockchain_block:hash_block(Block),
-                            verify_proof(Proof, Members, Hash, OldLedger);
+                            verify_proof(Proof, Members, Hash, Delay, OldLedger);
                         _ ->
                             {error, {duplicate_group, ?MODULE:height(Txn), Height}}
                     end
@@ -155,10 +155,10 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-verify_proof(Proof, Members, Hash, OldLedger) ->
+verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
     %% verify that the list is the proper list
     L = length(Members),
-    HashMembers = blockchain_election:new_group(OldLedger, Hash, L),
+    HashMembers = blockchain_election:new_group(OldLedger, Hash, L, Delay),
     Artifact = term_to_binary(Members),
     case HashMembers of
         Members ->

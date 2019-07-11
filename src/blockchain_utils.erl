@@ -8,7 +8,8 @@
 -export([
     shuffle_from_hash/2,
     rand_from_hash/1,
-    haversine_distance/2
+    haversine_distance/2,
+    normalize_float/1
 ]).
 
 -ifdef(TEST).
@@ -44,6 +45,16 @@ haversine_distance({Lat1, Long1}, {Lat2, Long2}) ->
     A = math:pow(math:sin(DeltaLat/2), 2) + math:cos(Lat1 * V) * math:cos(Lat2 * V) * math:pow(math:sin(DeltaLong/2), 2),
     C = 2 * math:atan2(math:sqrt(A), math:sqrt(1-A)),
     ?EARTHRADIUS * C.
+
+%%--------------------------------------------------------------------
+%% @doc normalize a float by converting it to fixed point and back
+%% using 16 bits of exponent precision. This should be well above
+%% the floating point error threshold and doing this will prevent
+%% errors from accumulating.
+%% @end
+%%--------------------------------------------------------------------
+normalize_float(Float) ->
+    round(Float * 65536) / 65536.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
