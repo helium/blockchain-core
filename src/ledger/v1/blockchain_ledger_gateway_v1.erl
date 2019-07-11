@@ -21,6 +21,8 @@
     set_alpha_beta_delta/4
 ]).
 
+-import(blockchain_utils, [normalize_float/1]).
+
 -include("blockchain.hrl").
 
 -ifdef(TEST).
@@ -121,15 +123,14 @@ location(Location, Gateway) ->
 score(Address, #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
     e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
                fun() ->
-                       NewAlpha = normalize(scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta))),
-                       NewBeta = normalize(scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta))),
-                       RV1 = normalize(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
-                       RV2 = normalize(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
-                       IQR = normalize(RV2 - RV1),
-                       Mean = normalize(1 / (1 + NewBeta/NewAlpha)),
-                       {NewAlpha, NewBeta, normalize(Mean * (1 - IQR))}
+                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta))),
+                       NewBeta = normalize_float(scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta))),
+                       RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
+                       RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
+                       IQR = normalize_float(RV2 - RV1),
+                       Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
+                       {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
                end).
-
 %%--------------------------------------------------------------------
 %% @doc
 %% K: constant decay factor, calculated empirically (for now)
@@ -180,8 +181,8 @@ delta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v1{alpha=normalize(scale_shape_param(Alpha)),
-                       beta=normalize(scale_shape_param(Beta)),
+    Gateway#gateway_v1{alpha=normalize_float(scale_shape_param(Alpha)),
+                       beta=normalize_float(scale_shape_param(Beta)),
                        delta=Delta}.
 
 %%--------------------------------------------------------------------
@@ -277,13 +278,6 @@ serialize(Gw) ->
 deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
-%% normalize a float by converting it to fixed point and back
-%% using 16 bits of exponent precision. This should be well above
-%% the floating point error threshold and doing this will prevent
-%% errors from accumulating.
-normalize(Float) ->
-    round(Float * 65536) / 65536.
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -318,7 +312,7 @@ score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000),
-    ?assertEqual(normalize(A), A),
+    ?assertEqual(normalize_float(A), A),
     ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000)).
 
 score_decay2_test() ->
