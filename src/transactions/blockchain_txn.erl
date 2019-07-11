@@ -27,7 +27,8 @@
              | blockchain_txn_poc_receipts_v1:txn_poc_receipts()
              | blockchain_txn_vars_v1:txn_vars()
              | blockchain_txn_rewards_v1:txn_rewards()
-             | blockchain_txn_token_burn_v1:txn_token_burn().
+             | blockchain_txn_token_burn_v1:txn_token_burn()
+             | blockchain_txn_dc_coinbase_v1:txn_dc_coinbase().
 
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
@@ -64,6 +65,7 @@
     {blockchain_txn_consensus_group_v1, 2},
     {blockchain_txn_coinbase_v1, 3},
     {blockchain_txn_security_coinbase_v1, 4},
+    {blockchain_txn_dc_coinbase_v1, 4},
     {blockchain_txn_gen_gateway_v1, 5},
     {blockchain_txn_oui_v1, 6},
     {blockchain_txn_routing_v1, 7},
@@ -127,7 +129,9 @@ wrap_txn(#blockchain_txn_vars_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_rewards_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={rewards, Txn}};
 wrap_txn(#blockchain_txn_token_burn_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={token_burn, Txn}}.
+    #blockchain_txn_pb{txn={token_burn, Txn}};
+wrap_txn(#blockchain_txn_dc_coinbase_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={dc_coinbase, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
@@ -297,7 +301,9 @@ type(#blockchain_txn_vars_v1_pb{}) ->
 type(#blockchain_txn_rewards_v1_pb{}) ->
     blockchain_txn_rewards_v1;
 type(#blockchain_txn_token_burn_v1_pb{}) ->
-    blockchain_txn_token_burn_v1.
+    blockchain_txn_token_burn_v1;
+type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
+    blockchain_txn_dc_coinbase_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -417,6 +423,8 @@ actor(Txn) ->
             blockchain_txn_routing_v1:owner(Txn);
         blockchain_txn_token_burn_v1 ->
             blockchain_txn_token_burn_v1:payer(Txn);
+        blockchain_txn_dc_coinbase_v1 ->
+            blockchain_txn_dc_coinbase_v1:payee(Txn);
         _ ->
             <<>>
     end.
