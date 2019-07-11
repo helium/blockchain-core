@@ -51,10 +51,6 @@ new(OwnerAddress, GatewayAddress, Amount, Fee) ->
         fee=Fee
     }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
 new(OwnerAddress, GatewayAddress, Payer, Amount, Fee) ->
@@ -251,13 +247,12 @@ is_valid(Txn, Chain) ->
                             {error, invalid_transaction};
                         true ->
                             Payer = ?MODULE:payer(Txn),
-                            case Payer == undefined orelse Payer == <<>> of
-                                true ->
-                                    Owner = ?MODULE:owner(Txn),
-                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
-                                false ->
-                                    blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger)
-                            end
+                            Owner = ?MODULE:owner(Txn),
+                            ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                true -> Owner;
+                                false -> Payer
+                            end,
+                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee, Ledger)
                     end
             end
     end.
@@ -273,17 +268,14 @@ absorb(Txn, Chain) ->
     Gateway = ?MODULE:gateway(Txn),
     Payer = ?MODULE:payer(Txn),
     Fee = ?MODULE:fee(Txn),
-    case Payer == undefined orelse Payer == <<>> of
-        true ->
-            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
-                {error, _Reason}=Error -> Error;
-                ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
-            end;
-        false ->
-            case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
-                {error, _Reason}=Error -> Error;
-                ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
-            end
+    Payer = ?MODULE:payer(Txn),
+    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+        true -> Owner;
+        false -> Payer
+    end,
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee, Ledger) of
+        {error, _Reason}=Error -> Error;
+        ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
 
 %% ------------------------------------------------------------------
