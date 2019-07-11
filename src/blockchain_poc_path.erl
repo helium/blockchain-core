@@ -189,7 +189,7 @@ neighbors(Address, Gateways, Height) ->
     end,
     GwInRing0 = maps:to_list(maps:filter(
         fun(A, G) ->
-            {_, _, Score} = blockchain_ledger_gateway_v1:score(G, Height),
+            {_, _, Score} = blockchain_ledger_gateway_v1:score(A, G, Height),
             case blockchain_ledger_gateway_v1:location(G) of
                 undefined -> false;
                 I ->
@@ -218,7 +218,7 @@ neighbors(Address, Gateways, Height) ->
                                     end
                             end,
                             GwInRing0),
-    [{edge_weight(TargetGw, G, Height), A} || {A, G} <- GwInRing].
+    [{edge_weight(Address, TargetGw, A, G, Height), A} || {A, G} <- GwInRing].
 
 %%--------------------------------------------------------------------
 %% @doc
