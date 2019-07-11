@@ -90,4 +90,5 @@ basic(_Config) ->
     ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
     true = erlang:exit(Sup, normal),
+    ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
     ok.
