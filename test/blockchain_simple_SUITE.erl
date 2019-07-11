@@ -26,7 +26,8 @@
     epoch_reward_test/1,
     election_test/1,
     chain_vars_test/1,
-    token_burn_test/1
+    token_burn_test/1,
+    payer_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -1237,4 +1238,84 @@ token_burn_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     ?assertEqual((10*Rate)-Fee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+payer_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Balance = proplists:get_value(balance, Config),
+    BaseDir = proplists:get_value(basedir, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+
+    [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+    Ledger = blockchain:ledger(Chain),
+
+
+    % Step 1: Add exchange rate to ledger
+    Rate = 1000000,
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    ok = blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    % Step 2: Token burn txn should pass now
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, PayerSigFun),
+    Block2 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+
+    % Step 3: Add OUI, gateway, assert_location and let payer pay for it
+    Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Payer, 10),
+    SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
+    SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
+
+
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer, 0, 10),
+    SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
+    SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
+
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1, 10),
+    SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
+    SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
+
+    Block3 = test_utils:create_block(ConsensusMembers, [SignedOUITxn1, SignedAddGatewayTx2, SignedAssertLocationTx2]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    ?assertEqual(10*Rate-10*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+
+
+    Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, 0),
+    ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
+
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
+    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v1:location(GwInfo)),
     ok.
