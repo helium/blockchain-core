@@ -1084,7 +1084,7 @@ election_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v1:score(I, 1),
+             {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, I, 1),
              {Score, Addr}
          end
          || Addr <- New],

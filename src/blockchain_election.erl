@@ -36,7 +36,7 @@ new_group(Ledger, Hash, Size) ->
         maps:fold(
           fun(Addr, Gw, {Old, Candidates} = Acc) ->
                   Last0 = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
-                  {_, _, Score} = blockchain_ledger_gateway_v1:score(Gw, Height),
+                  {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, Gw, Height),
                   Last = Height - Last0,
                   Missing = Last > 3 * PoCInterval,
                   case lists:member(Addr, OldGroup0) of

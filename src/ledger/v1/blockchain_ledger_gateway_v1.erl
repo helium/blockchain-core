@@ -9,11 +9,11 @@
     new/2, new/3,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/2,
+    score/3,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
-    print/2,
+    print/3,
     serialize/1, deserialize/1,
     alpha/1,
     beta/1,
@@ -117,20 +117,23 @@ location(Location, Gateway) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec score(Gateway :: gateway(), Height :: pos_integer()) -> {float(), float(), float()}.
-score(#gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
-    NewAlpha = scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta)),
-    NewBeta = scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta)),
-    RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
-    RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
-    %% Because of the vagaries of floating point, different CPUs can differ
-    %% in their rounding and precision. We assume 32 bit should be above that
-    %% threshold, so we truncate the results here.
-    <<FRV1:32/float-unsigned-little>> = <<RV1:32/float-unsigned-little>>,
-    <<FRV2:32/float-unsigned-little>> = <<RV2:32/float-unsigned-little>>,
-    IQR = FRV2 - FRV1,
-    Mean = 1 / (1 + NewBeta/NewAlpha),
-    {NewAlpha, NewBeta, Mean * (1 - IQR)}.
+-spec score(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(), Height :: pos_integer()) -> {float(), float(), float()}.
+score(Address, #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
+    e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
+               fun() ->
+                       NewAlpha = scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta)),
+                       NewBeta = scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta)),
+                       RV1 = erlang_stats:qbeta(0.25, NewAlpha, NewBeta),
+                       RV2 = erlang_stats:qbeta(0.75, NewAlpha, NewBeta),
+                       %% Because of the vagaries of floating point, different CPUs can differ
+                       %% in their rounding and precision. We assume 32 bit should be above that
+                       %% threshold, so we truncate the results here.
+                       <<FRV1:32/float-unsigned-little>> = <<RV1:32/float-unsigned-little>>,
+                       <<FRV2:32/float-unsigned-little>> = <<RV2:32/float-unsigned-little>>,
+                       IQR = FRV2 - FRV1,
+                       Mean = 1 / (1 + NewBeta/NewAlpha),
+                       {NewAlpha, NewBeta, Mean * (1 - IQR)}
+               end).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -238,15 +241,15 @@ nonce(Nonce, Gateway) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec print(Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
-print(Gateway, Ledger) ->
+-spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
+print(Address, Gateway, Ledger) ->
     %% TODO: This is annoying but it makes printing happy on the CLI
     UndefinedHandleFunc =
         fun(undefined) -> "undefined";
            (I) -> I
         end,
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {NewAlpha, NewBeta, Score} = score(Gateway, Height),
+    {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height),
     [
         {score, Score},
         {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
@@ -307,17 +310,17 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual({1.0, 1.0, 0.25}, score(Gw, 12)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12)).
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    ?assertEqual({1.0, 1.0, 0.25}, score(Gw1, 1000)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000)).
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
-    {Alpha, Beta, Score} = score(Gw1, 1000),
+    {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
     ?assert(Score < 0.25).
