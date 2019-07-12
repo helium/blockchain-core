@@ -64,16 +64,20 @@ init(Args) ->
     application:ensure_all_started(clique),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
-    SwarmWorkerOpts = [
-        {key, proplists:get_value(key, Args)},
-        {base_dir, proplists:get_value(base_dir, Args, "data")},
-        {libp2p_group_gossip, [
-            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
-            {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
-            {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)},
-            {peer_cache_timeout, proplists:get_value(peer_cache_timeout, Args, 10 * 1000)}
-        ]}
-    ],
+    SwarmWorkerOpts =
+        [
+         {key, proplists:get_value(key, Args)},
+         {base_dir, proplists:get_value(base_dir, Args, "data")},
+         {libp2p_proxy,
+          [{limit, application:get_env(blockchain, relay_limit, 250)}]},
+         {libp2p_group_gossip,
+          [
+           {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
+           {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
+           {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)},
+           {peer_cache_timeout, proplists:get_value(peer_cache_timeout, Args, 10 * 1000)}
+          ]}
+        ],
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, proplists:get_value(base_dir, Args, "data")},
