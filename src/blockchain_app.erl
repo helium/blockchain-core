@@ -27,6 +27,7 @@ start(_StartType, _StartArgs) ->
     Port = application:get_env(blockchain, port, 0),
     SeedNodes = application:get_env(blockchain, seed_nodes, []),
     SeedNodeDNS = application:get_env(blockchain, seed_node_dns, []),
+    ProxyLimit = application:get_env(blockchain, proxy_limit, 13),
     % look up the DNS record and add any resulting addresses to the SeedNodes
     % no need to do any checks here as any bad combination results in an empty list
     SeedAddresses = string:tokens(lists:flatten([string:prefix(X, "blockchain-seed-nodes=") || [X] <- inet_res:lookup(SeedNodeDNS, in, txt), string:prefix(X, "blockchain-seed-nodes=") /= nomatch]), ","),
@@ -34,7 +35,8 @@ start(_StartType, _StartArgs) ->
         {base_dir, BaseDir},
         {seed_nodes, SeedNodes ++ SeedAddresses},
         {key, Key},
-        {port, Port}
+        {port, Port},
+        {proxy_limit, ProxyLimit}
     ],
     case blockchain_sup:start_link(Args) of
         {ok, Pid} ->
