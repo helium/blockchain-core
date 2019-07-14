@@ -373,7 +373,7 @@ target_test_() ->
                                   {{37.780827, -122.44716}, 1.0, 1.0},
                                   {{38.897675, -77.036530}, 1.0, 1.0}
                                  ],
-             Ledger = build_fake_ledger(BaseDir, LatLongs),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
              ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
              io:format("ActiveGateways: ~p~n", [ActiveGateways]),
 
@@ -422,7 +422,7 @@ neighbors_test() ->
         {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
     Neighbors = neighbors(Target, Gateways, 1, Ledger),
 
     ?assertEqual(erlang:length(maps:keys(Gateways)) - 3, erlang:length(Neighbors)),
@@ -451,7 +451,7 @@ build_graph_test() ->
                          {{37.780827, -122.44716}, 1.0, 1.0},
                          {{38.897675, -77.036530}, 1.0, 1.0}
                         ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
     {Target, Gateways} = build_gateways(LatLongs),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
@@ -478,7 +478,7 @@ build_graph_in_line_test() ->
         {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
@@ -532,7 +532,7 @@ build_test() ->
         {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -552,7 +552,7 @@ build_only_2_test() ->
         {{37.780586, -122.469471}, 100.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -577,7 +577,7 @@ build_prob_test_() ->
                          {{37.78104, -122.465372}, 1.0, 1.0}
                         ],
              {Target, Gateways} = build_gateways(LatLongs),
-             Ledger = build_fake_ledger(BaseDir, LatLongs),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
 
              Iteration = 1000,
              Size = erlang:length(LatLongs)-1,
@@ -617,7 +617,7 @@ build_failed_test() ->
         {{12.780586, -122.469471}, 1000.0, 20.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     ok.
@@ -637,7 +637,7 @@ build_with_default_score_test() ->
         {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assert(lists:member(Target, Path)),
     unload_meck(),
@@ -655,7 +655,7 @@ build_with_default_score2_test() ->
         {{48.855228, 2.347126}, 1.0, 1.0}
     ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assertEqual(3, erlang:length(Path)),
     [_P1, P2, _P3] = Path,
@@ -663,91 +663,56 @@ build_with_default_score2_test() ->
     unload_meck(),
     ok.
 
-%% active_gateways_test() ->
-%%     % 2 First points are grouped together and next ones form a group also
-%%     LatLongs = [
-%%         {{48.858391, 2.294469}, 1.0, 1.0},
-%%         {{48.856696, 2.293997}, 1.0, 1.0},
-%%         {{48.852969, 2.349872}, 1.0, 1.0},
-%%         {{48.855425, 2.344980}, 1.0, 1.0},
-%%         {{48.854127, 2.344637}, 1.0, 1.0},
-%%         {{48.855228, 2.347126}, 1.0, 1.0}
-%%     ],
-%%     {_Target0, Gateways} = build_gateways(LatLongs),
-%% 
-%%     meck:new(blockchain_ledger_v1, [passthrough]),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 active_gateways,
-%%                 fun(_) ->
-%%                         Gateways
-%%                 end),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 current_height,
-%%                 fun(_) ->
-%%                         {ok, 1}
-%%                 end),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 gateway_score,
-%%                 fun(_, _) ->
-%%                         {ok, 0.5}
-%%                 end),
-%% 
-%%     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
-%%     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
-%%     ActiveGateways = active_gateways(fake_ledger, Challenger),
-%% 
-%%     ?assertNot(maps:is_key(Challenger, ActiveGateways)),
-%%     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
-%%     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
-%%     ?assertEqual(3, maps:size(ActiveGateways)),
-%% 
-%%     ?assert(meck:validate(blockchain_ledger_v1)),
-%%     meck:unload(blockchain_ledger_v1),
-%%     ok.
-%% 
-%% active_gateways_low_score_test() ->
-%%     % 2 First points are grouped together and next ones form a group also
-%%     LatLongs = [
-%%         {{48.858391, 2.294469}, 1.0, 1.0},
-%%         {{48.856696, 2.293997}, 1.0, 1.0},
-%%         {{48.852969, 2.349872}, 1.0, 1.0},
-%%         {{48.855425, 2.344980}, 1.0, 1.0},
-%%         {{48.854127, 2.344637}, 1.0, 1.0},
-%%         {{48.855228, 2.347126}, 1.0, 1.0}
-%%     ],
-%%     {_Target0, Gateways} = build_gateways(LatLongs),
-%% 
-%%     meck:new(blockchain_ledger_v1, [passthrough]),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 active_gateways,
-%%                 fun(_) ->
-%%                         Gateways
-%%                 end),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 current_height,
-%%                 fun(_) ->
-%%                         {ok, 1}
-%%                 end),
-%%     meck:expect(blockchain_ledger_v1,
-%%                 gateway_score,
-%%                 fun(_, _) ->
-%%                         %% Assume that all gateways have a trash score
-%%                         {ok, 0.01}
-%%                 end),
-%% 
-%%     [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
-%%     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
-%%     ActiveGateways = active_gateways(fake_ledger, Challenger),
-%% 
-%%     ?assertNot(maps:is_key(Challenger, ActiveGateways)),
-%% 
-%%     %% No gateway should be in active gateways map
-%%     ?assertEqual(0, maps:size(ActiveGateways)),
-%% 
-%%     ?assert(meck:validate(blockchain_ledger_v1)),
-%%     meck:unload(blockchain_ledger_v1),
-%%     ok.
-%% 
+active_gateways_test() ->
+    BaseDir = test_utils:tmp_dir("active_gateways_test"),
+    % 2 First points are grouped together and next ones form a group also
+    LatLongs = [
+        {{48.858391, 2.294469}, 1.0, 1.0},
+        {{48.856696, 2.293997}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
+    ],
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+
+    [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
+    Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
+    ActiveGateways = active_gateways(Ledger, Challenger),
+
+    ?assertNot(maps:is_key(Challenger, ActiveGateways)),
+    ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
+    ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
+    ?assertEqual(4, maps:size(ActiveGateways)),
+
+    unload_meck(),
+    ok.
+
+active_gateways_low_score_test() ->
+    BaseDir = test_utils:tmp_dir("active_gateways_low_score_test"),
+    % 2 First points are grouped together and next ones form a group also
+    LatLongs = [
+        {{48.858391, 2.294469}, 1.0, 1.0},
+        {{48.856696, 2.293997}, 1.0, 1.0},
+        {{48.852969, 2.349872}, 1.0, 1.0},
+        {{48.855425, 2.344980}, 1.0, 1.0},
+        {{48.854127, 2.344637}, 1.0, 1.0},
+        {{48.855228, 2.347126}, 1.0, 1.0}
+    ],
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.01),
+
+    [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
+    Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
+    ActiveGateways = active_gateways(Ledger, Challenger),
+
+    ?assertNot(maps:is_key(Challenger, ActiveGateways)),
+
+    %% No gateway should be in active gateways map
+    ?assertEqual(0, maps:size(ActiveGateways)),
+
+    unload_meck(),
+    ok.
+
 build_gateways(LatLongs) ->
     Gateways = lists:foldl(
         fun({LatLong, Alpha, Beta}, Acc) ->
@@ -767,7 +732,7 @@ build_gateways(LatLongs) ->
     Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
     {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
 
-build_fake_ledger(TestDir, LatLongs) ->
+build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
     Ledger = blockchain_ledger_v1:new(TestDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     meck:new(blockchain_swarm, [passthrough]),
@@ -793,7 +758,7 @@ build_fake_ledger(TestDir, LatLongs) ->
     meck:expect(blockchain_ledger_v1,
                 gateway_score,
                 fun(_, _) ->
-                        {ok, 0.5}
+                        {ok, DefaultScore}
                 end),
 
     N = length(LatLongs),
@@ -801,7 +766,7 @@ build_fake_ledger(TestDir, LatLongs) ->
     OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(N), test_utils:generate_keys(N))],
 
     _ = lists:map(fun({{Owner, Gw}, {Coordinate, _, _}}) ->
-                          blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), 0.25, Ledger1)
+                          blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
     blockchain_ledger_v1:commit_context(Ledger1),
     Ledger1.
