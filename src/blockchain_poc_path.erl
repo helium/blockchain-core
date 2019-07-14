@@ -6,10 +6,10 @@
 -module(blockchain_poc_path).
 
 -export([
-    build/4,
+    build/5,
     shortest/3,
     length/3,
-    build_graph/3,
+    build_graph/4,
     target/3
 ]).
 
@@ -17,10 +17,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-%% TODO: All these should be chain vars
--define(MIN_SCORE, 0.2).
--define(RESOLUTION, 8).
--define(RING_SIZE, 2).
 % KRing of 1
 %     Scale 3.57
 %     Max distance 1.028 miles @ resolution 8
@@ -46,9 +42,10 @@
 -spec build(Hash :: binary(),
             Target :: binary(),
             Gateways :: map(),
-            Height :: non_neg_integer()) -> {ok, list()} | {error, any()}.
-build(Hash, Target, Gateways, Height) ->
-    Graph = ?MODULE:build_graph(Target, Gateways, Height),
+            Height :: non_neg_integer(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, any()}.
+build(Hash, Target, Gateways, Height, Ledger) ->
+    Graph = ?MODULE:build_graph(Target, Gateways, Height, Ledger),
     GraphList = maps:fold(
         fun(Addr, _, Acc) ->
             case Addr == Target of
@@ -118,24 +115,31 @@ length(Graph, Start, End) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec build_graph(Address :: binary(), Gateways :: map(), Height :: non_neg_integer()) -> graph().
-build_graph(Address, Gateways, Height) ->
-    build_graph([Address], Gateways, Height, maps:new()).
+-spec build_graph(Address :: binary(),
+                  Gateways :: map(),
+                  Height :: non_neg_integer(),
+                  Ledger :: blockchain_ledger_v1:ledger()) -> graph().
+build_graph(Address, Gateways, Height, Ledger) ->
+    build_graph([Address], Gateways, Height, Ledger, maps:new()).
 
--spec build_graph([binary()], Gateways :: map(), Height :: non_neg_integer(), Graph :: graph()) -> graph().
-build_graph([], _Gateways, _Height, Graph) ->
+-spec build_graph([binary()],
+                  Gateways :: map(),
+                  Height :: non_neg_integer(),
+                  Ledger :: blockchain_ledger_v1:ledger(),
+                  Graph :: graph()) -> graph().
+build_graph([], _Gateways, _Height, _Ledger, Graph) ->
     Graph;
-build_graph([Address0|Addresses], Gateways, Height, Graph0) ->
-    Neighbors0 = neighbors(Address0, Gateways, Height),
+build_graph([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
+    Neighbors0 = neighbors(Address0, Gateways, Height, Ledger),
     Graph1 = lists:foldl(
         fun({_W, Address1}, Acc) ->
             case maps:is_key(Address1, Acc) of
                 true ->
                     Acc;
                 false ->
-                    Neighbors1 = neighbors(Address1, Gateways, Height),
+                    Neighbors1 = neighbors(Address1, Gateways, Height, Ledger),
                     Graph1 = maps:put(Address1, Neighbors1, Acc),
-                    build_graph([A || {_, A} <- Neighbors1], Gateways, Height, Graph1)
+                    build_graph([A || {_, A} <- Neighbors1], Gateways, Height, Ledger, Graph1)
             end
         end,
         maps:put(Address0, Neighbors0, Graph0),
@@ -143,7 +147,7 @@ build_graph([Address0|Addresses], Gateways, Height, Graph0) ->
     ),
     case maps:size(Graph1) > 100 of
         false ->
-            build_graph(Addresses, Gateways, Height, Graph1);
+            build_graph(Addresses, Gateways, Height, Ledger, Graph1);
         true ->
             Graph1
     end.
@@ -174,17 +178,19 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-neighbors(Address, Gateways, Height) ->
+neighbors(Address, Gateways, Height, Ledger) ->
     TargetGw = maps:get(Address, Gateways),
     Index = blockchain_ledger_gateway_v1:location(TargetGw),
+    {ok, H3PathRes} = blockchain:config(h3_path_res, Ledger),
+    {ok, H3RingSize} = blockchain:config(h3_ring_size, Ledger),
     KRing = case h3:get_resolution(Index) of
-        Res when Res < ?RESOLUTION ->
+        Res when Res < H3PathRes ->
             [];
-        ?RESOLUTION ->
-            h3:k_ring(Index, ?RING_SIZE);
-        Res when Res > ?RESOLUTION ->
-            Parent = h3:parent(Index, ?RESOLUTION),
-            h3:k_ring(Parent, ?RING_SIZE)
+        H3PathRes ->
+            h3:k_ring(Index, H3RingSize);
+        Res when Res > H3PathRes ->
+            Parent = h3:parent(Index, H3PathRes),
+            h3:k_ring(Parent, H3RingSize)
     end,
     GwInRing = maps:to_list(maps:filter(
         fun(A, G) ->
@@ -192,8 +198,8 @@ neighbors(Address, Gateways, Height) ->
                 undefined -> false;
                 I ->
                     I1 = case h3:get_resolution(I) of
-                             R when R =< ?RESOLUTION -> I;
-                             R when R > ?RESOLUTION -> h3:parent(I, ?RESOLUTION)
+                             R when R =< H3PathRes -> I;
+                             R when R > H3PathRes -> h3:parent(I, H3PathRes)
                          end,
                     lists:member(I1, KRing)
                     andalso Address =/= A
@@ -267,6 +273,7 @@ entropy(Entropy) ->
 active_gateways(Ledger, Challenger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, MinScore} = blockchain:config(min_score, Ledger),
     maps:fold(
         fun(PubkeyBin, Gateway, Acc0) ->
             {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
@@ -274,12 +281,12 @@ active_gateways(Ledger, Challenger) ->
                 PubkeyBin == Challenger orelse
                 blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
                 maps:is_key(PubkeyBin, Acc0) orelse
-                Score =< ?MIN_SCORE
+                Score =< MinScore
             of
                 true ->
                     Acc0;
                 false ->
-                    Graph = ?MODULE:build_graph(PubkeyBin, Gateways, Height),
+                    Graph = ?MODULE:build_graph(PubkeyBin, Gateways, Height, Ledger),
                     case maps:size(Graph) > 2 of
                         false ->
                             Acc0;
@@ -350,32 +357,51 @@ prob_fun(Score) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-target_test() ->
+target_test_() ->
     {timeout,
      60000,
      fun() ->
-             io:format("Target test~n"),
              BaseDir = test_utils:tmp_dir("target_test"),
-             io:format("BaseDir: ~p~n", [BaseDir]),
              Ledger = blockchain_ledger_v1:new(BaseDir),
-             io:format("Ledger: ~p~n", [Ledger]),
              Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-             io:format("Ledger1: ~p~n", [Ledger1]),
 
              meck:new(blockchain_swarm, [passthrough]),
-             meck:expect(blockchain_swarm, pubkey_bin, fun() ->
-                                                               <<"yolo">>
-                                                       end),
+             meck:expect(blockchain_swarm,
+                         pubkey_bin,
+                         fun() ->
+                                 <<"yolo">>
+                         end),
+             meck:expect(blockchain_ledger_v1,
+                         current_height,
+                         fun(_) ->
+                                 {ok, 1}
+                         end),
+             meck:expect(blockchain,
+                         config,
+                         fun(Var, _) when Var == min_score ->
+                                 {ok, 0.2};
+                            (Var, _) when Var == h3_path_res ->
+                                 {ok, 8};
+                            (Var, _) when Var == h3_ring_size ->
+                                 {ok, 2}
+                         end),
+             meck:expect(blockchain_ledger_v1,
+                         gateway_score,
+                         fun(_, _) ->
+                                 {ok, 0.5}
+                         end),
 
              Gateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(4), test_utils:generate_keys(4))],
-             io:format("Gateways: ~p~n", [Gateways]),
 
              lists:map(fun({Owner, Gw}) ->
-                               blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0, Ledger1)
+                               blockchain_ledger_v1:add_gateway(Owner, Gw, 16#8c283475d4e89ff, 0.5, Ledger1)
                        end, Gateways),
              blockchain_ledger_v1:commit_context(Ledger1),
 
-             Iterations = 500,
+             ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger1),
+             io:format("ActiveGateways: ~p~n", [ActiveGateways]),
+
+             Iterations = 5000,
              Results = dict:to_list(lists:foldl(fun(_, Acc) ->
                                                         {Target, _} = target(crypto:strong_rand_bytes(32), Ledger1, <<>>),
                                                         dict:update_counter(Target, 1, Acc)
@@ -383,6 +409,7 @@ target_test() ->
                                                 dict:new(),
                                                 lists:seq(1, Iterations))),
 
+             io:format("Results: ~p~n", [Results]),
              lists:foreach(
                fun({_Gw, Count}) ->
                        Prob = Count/Iterations,
