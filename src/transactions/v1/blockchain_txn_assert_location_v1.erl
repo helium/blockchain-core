@@ -23,6 +23,7 @@
     sign/2,
     is_valid_owner/1,
     is_valid_gateway/1,
+    is_valid_location/2,
     is_valid/2,
     absorb/2
 ]).
@@ -171,6 +172,10 @@ is_valid_owner(#blockchain_txn_assert_location_v1_pb{owner=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
+-spec is_valid_location(txn_assert_location(), pos_integer()) -> boolean().
+is_valid_location(#blockchain_txn_assert_location_v1_pb{location=Location}, MinH3Res) ->
+    h3:get_resolution(h3:from_string(Location)) >= MinH3Res.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -201,7 +206,7 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                 true ->
-                                    case h3:get_resolution(Location) >= MinAssertH3Res of
+                                    case ?MODULE:is_valid_location(Location, MinAssertH3Res) of
                                         false ->
                                             {error, {low_assert_res, {assert_location, Location, Gateway}}};
                                         true ->
@@ -259,6 +264,17 @@ new() ->
        fee = 1
       }.
 
+invalid_new() ->
+    #blockchain_txn_assert_location_v1_pb{
+       gateway= <<"gateway_address">>,
+       owner= <<"owner_address">>,
+       gateway_signature= <<>>,
+       owner_signature= << >>,
+       location= h3:to_string(599685771850416127),
+       nonce = 1,
+       fee = 1
+      }.
+
 new_test() ->
     Tx = new(),
     ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1)).
@@ -309,5 +325,13 @@ sign_test() ->
     Sig2 = owner_signature(Tx2),
     BaseTxn1 = Tx1#blockchain_txn_assert_location_v1_pb{gateway_signature = <<>>, owner_signature = << >>},
     ?assert(libp2p_crypto:verify(blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn1), Sig2, PubKey)).
+
+valid_location_test() ->
+    Tx = new(),
+    ?assert(is_valid_location(Tx, 12)).
+
+invalid_location_test() ->
+    Tx = invalid_new(),
+    ?assertNot(is_valid_location(Tx, 12)).
 
 -endif.
