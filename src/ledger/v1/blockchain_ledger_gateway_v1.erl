@@ -361,11 +361,11 @@ nonce_test() ->
 fake_config() ->
     meck:expect(blockchain,
                 config,
-                fun(Var, _) when Var == alpha_decay ->
+                fun(alpha_decay, _) ->
                         {ok, 0.007};
-                   (Var, _) when Var == beta_decay ->
+                   (beta_decay, _) ->
                         {ok, 0.0005};
-                   (Var, _) when Var == max_staleness ->
+                   (max_staleness, _) ->
                         {ok, 100000}
                 end).
 

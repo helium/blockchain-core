@@ -751,17 +751,17 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
                 end),
     meck:expect(blockchain,
                 config,
-                fun(Var, _) when Var == min_score ->
+                fun(min_score, _) ->
                         {ok, 0.2};
-                   (Var, _) when Var == h3_path_res ->
+                   (h3_path_res, _) ->
                         {ok, 8};
-                   (Var, _) when Var == h3_ring_size ->
+                   (h3_ring_size, _) ->
                         {ok, 2};
-                   (Var, _) when Var == alpha_decay ->
+                   (alpha_decay, _) ->
                         {ok, 0.007};
-                   (Var, _) when Var == beta_decay ->
+                   (beta_decay, _) ->
                         {ok, 0.0005};
-                   (Var, _) when Var == max_staleness ->
+                   (max_staleness, _) ->
                         {ok, 100000}
                 end),
     meck:expect(blockchain_ledger_v1,
