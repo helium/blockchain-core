@@ -9,7 +9,7 @@
     new/2, new/3,
     owner_address/1, owner_address/2,
     location/1, location/2,
-    score/3,
+    score/4,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -39,11 +39,6 @@
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer()
 }).
-
-%% TODO: All these need to be chain vars
--define(ALPHA_DECAY, 0.007).
--define(BETA_DECAY, 0.0005).
--define(MAX_STALENESS, 100000).
 
 -type gateway() :: #gateway_v1{}.
 -export_type([gateway/0]).
@@ -119,12 +114,21 @@ location(Location, Gateway) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec score(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(), Height :: pos_integer()) -> {float(), float(), float()}.
-score(Address, #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
+-spec score(Address :: libp2p_crypto:pubkey_bin(),
+            Gateway :: gateway(),
+            Height :: pos_integer(),
+            Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
+score(Address,
+      #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta},
+      Height,
+      Ledger) ->
     e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
                fun() ->
-                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(?ALPHA_DECAY, Height - Delta))),
-                       NewBeta = normalize_float(scale_shape_param(Beta - decay(?BETA_DECAY, Height - Delta))),
+                       {ok, AlphaDecay} = blockchain:config(alpha_decay, Ledger),
+                       {ok, BetaDecay} = blockchain:config(beta_decay, Ledger),
+                       {ok, MaxStaleness} = blockchain:config(max_staleness, Ledger),
+                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
+                       NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
                        RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
                        RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
                        IQR = normalize_float(RV2 - RV1),
@@ -137,10 +141,10 @@ score(Address, #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta}, Height) ->
 %% Staleness: current_ledger_height - delta
 %% @end
 %%--------------------------------------------------------------------
--spec decay(float(), pos_integer()) -> float().
-decay(K, Staleness) when Staleness =< ?MAX_STALENESS ->
+-spec decay(float(), pos_integer(), pos_integer()) -> float().
+decay(K, Staleness, MaxStaleness) when Staleness =< MaxStaleness ->
     math:exp(K * Staleness) - 1;
-decay(_, _) ->
+decay(_, _, _) ->
     %% Basically infinite decay at this point
     math:exp(709).
 
@@ -251,7 +255,7 @@ print(Address, Gateway, Ledger, Verbose) ->
         fun(undefined) -> "undefined";
            (I) -> Height - I
         end,
-    {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height),
+    {NewAlpha, NewBeta, Score} = score(Address, Gateway, Height, Ledger),
     Scoring =
         case Verbose of
             true ->
@@ -319,19 +323,22 @@ location_test() ->
 
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12)).
+    fake_config(),
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)).
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 1.0, 300, Gw0),
-    {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000),
+    fake_config(),
+    {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)).
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
     Gw1 = set_alpha_beta_delta(1.1, 10.0, 300, Gw0),
-    {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000),
+    fake_config(),
+    {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
     ?assert(Score < 0.25).
@@ -350,5 +357,16 @@ nonce_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(0, nonce(Gw)),
     ?assertEqual(1, nonce(nonce(1, Gw))).
+
+fake_config() ->
+    meck:expect(blockchain,
+                config,
+                fun(alpha_decay, _) ->
+                        {ok, 0.007};
+                   (beta_decay, _) ->
+                        {ok, 0.0005};
+                   (max_staleness, _) ->
+                        {ok, 100000}
+                end).
 
 -endif.
