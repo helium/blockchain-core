@@ -1028,7 +1028,7 @@ epoch_reward_test(Config) ->
     )),
 
     End = 30,
-    Rewards = blockchain_txn_rewards_v1:calculate_rewards(End, Chain),
+    {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(End, Chain),
     Tx = blockchain_txn_rewards_v1:new(Rewards, End),
     B = test_utils:create_block(ConsensusMembers, [Tx]),
     _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),

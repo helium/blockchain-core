@@ -137,44 +137,45 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_rewards(non_neg_integer(), blockchain:blockchain()) -> blockchain_txn_reward_v1:rewards().
+-spec calculate_rewards(non_neg_integer(), blockchain:blockchain()) -> {ok, blockchain_txn_reward_v1:rewards()}
+                                                                       | {error, any()}.
 calculate_rewards(Height, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Start = case Height - 30 < 0 of
-        false -> Height - 30;
-        true -> 1
-    end,
-    End = Height,
-    Transactions = get_txns_for_epoch(Start, End, Chain),
-    Vars = get_reward_vars(Ledger),
-    ConsensusRewards = consensus_members_rewards(Ledger, Vars),
-    SecuritiesRewards = securities_rewards(Ledger, Vars),
-    POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
-    POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
-    POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
-    lists:foldl(
-        fun(Map, Acc0) ->
-            maps:fold(
-                fun({owner, Type, Owner}, Amount, Acc1) ->
-                    Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
-                    [Reward|Acc1];
-                ({gateway, Type, Gateway}, Amount, Acc1) ->
-                    case get_gateway_owner(Gateway, Ledger) of
-                        {error, _} ->
-                            Acc1;
-                        {ok, Owner} ->
-                            Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
-                            [Reward|Acc1]
-                    end
+    {ok, Start} = blockchain_ledger_v1:election_height(Ledger),
+    case get_txns_for_epoch(Start, Height, Chain) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Transactions} ->
+            Vars = get_reward_vars(Ledger),
+            ConsensusRewards = consensus_members_rewards(Ledger, Vars),
+            SecuritiesRewards = securities_rewards(Ledger, Vars),
+            POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
+            POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
+            POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
+            {ok, lists:foldl(
+                fun(Map, Acc0) ->
+                    maps:fold(
+                        fun({owner, Type, Owner}, Amount, Acc1) ->
+                            Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
+                            [Reward|Acc1];
+                        ({gateway, Type, Gateway}, Amount, Acc1) ->
+                            case get_gateway_owner(Gateway, Ledger) of
+                                {error, _} ->
+                                    Acc1;
+                                {ok, Owner} ->
+                                    Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
+                                    [Reward|Acc1]
+                            end
+                        end,
+                        Acc0,
+                        Map
+                    )
                 end,
-                Acc0,
-                Map
-            )
-        end,
-        [],
-        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
-         POCChallengeesRewards, POCWitnessesRewards]
-    ).
+                [],
+                [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
+                 POCChallengeesRewards, POCWitnessesRewards]
+            )}
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -184,23 +185,24 @@ calculate_rewards(Height, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) -> blockchain_txn:txns().
+-spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) -> {ok, blockchain_txn:txns()}
+                                                                                           | {error, any()}.
 get_txns_for_epoch(Start, End, Chain) ->
     get_txns_for_epoch(Start, End, Chain, []).
 
 -spec get_txns_for_epoch(non_neg_integer(), non_neg_integer(),
-                         blockchain:blockchain(), blockchain_txn:txns()) -> blockchain_txn:txns().
-get_txns_for_epoch(Start, Start, _Chain, Txns) ->
-    Txns;
-get_txns_for_epoch(Start, Current, Chain, Txns) ->
+                         blockchain:blockchain(), blockchain_txn:txns()) -> {ok, blockchain_txn:txns()}
+                                                                            | {error, any()}.
+get_txns_for_epoch(Start, End, _Chain, Txns) when Start == End+1 ->
+    {ok, Txns};
+get_txns_for_epoch(Current, End, Chain, Txns) ->
     case blockchain:get_block(Current, Chain) of
-        {error, _Reason} ->
+        {error, _Reason}=Error ->
             lager:error("failed to get block ~p ~p", [_Reason, Current]),
-            % TODO: Should we error out here?
-            Txns;
+            Error;
         {ok, Block} ->
             Transactions = blockchain_block:transactions(Block),
-            get_txns_for_epoch(Start, Current-1, Chain, Txns ++ Transactions)
+            get_txns_for_epoch(Current+1, End, Chain, Txns ++ Transactions)
     end.
 
 %%--------------------------------------------------------------------
