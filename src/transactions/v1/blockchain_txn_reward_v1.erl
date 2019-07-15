@@ -8,6 +8,7 @@
 
 -export([
     new/4,
+    hash/1,
     account/1,
     gateway/1,
     amount/1,
@@ -43,6 +44,15 @@ new(Account, Gateway, Amount, Type) ->
         amount=Amount,
         type=Type
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec hash(reward()) -> blockchain_txn:hash().
+hash(Reward) ->
+    EncodedReward = blockchain_txn_rewards_v1_pb:encode_msg(Reward),
+    crypto:hash(sha256, EncodedReward).
 
 %%--------------------------------------------------------------------
 %% @doc
