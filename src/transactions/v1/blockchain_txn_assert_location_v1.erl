@@ -206,7 +206,7 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                 true ->
-                                    case ?MODULE:is_valid_location(Location, MinAssertH3Res) of
+                                    case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                         false ->
                                             {error, {low_assert_res, {assert_location, Location, Gateway}}};
                                         true ->
