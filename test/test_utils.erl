@@ -49,6 +49,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           consensus_percent => 0.10,
                           election_selection_pct => 60,
                           election_replacement_factor => 4,
+                          min_assert_h3_res => 12,
                           max_staleness => 100000,
                           alpha_decay => 0.007,
                           beta_decay => 0.0005
