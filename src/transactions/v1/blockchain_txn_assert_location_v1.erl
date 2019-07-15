@@ -178,6 +178,7 @@ is_valid_owner(#blockchain_txn_assert_location_v1_pb{owner=PubKeyBin,
 -spec is_valid(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    {ok, MinAssertH3Res} = blockchain:config(min_assert_h3_res, Ledger),
     case ?MODULE:is_valid_gateway(Txn) andalso ?MODULE:is_valid_owner(Txn) of
         false ->
             {error, bad_signature};
@@ -185,6 +186,7 @@ is_valid(Txn, Chain) ->
             Owner = ?MODULE:owner(Txn),
             Nonce = ?MODULE:nonce(Txn),
             Fee = ?MODULE:fee(Txn),
+            Location = ?MODULE:location(Txn),
             case blockchain_ledger_v1:check_balance(Owner, Fee, Ledger) of
                 {error, _}=Error ->
                     Error;
@@ -199,12 +201,17 @@ is_valid(Txn, Chain) ->
                                 false ->
                                     {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                 true ->
-                                    LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-                                    case Nonce =:= LedgerNonce + 1 of
+                                    case h3:get_resolution(Location) >= MinAssertH3Res of
                                         false ->
-                                            {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                            {error, {low_assert_res, {assert_location, Location, Gateway}}};
                                         true ->
-                                            ok
+                                            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
+                                            case Nonce =:= LedgerNonce + 1 of
+                                                false ->
+                                                    {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                                true ->
+                                                    ok
+                                            end
                                     end
                             end
                     end
