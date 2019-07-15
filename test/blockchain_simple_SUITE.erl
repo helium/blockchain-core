@@ -1035,7 +1035,7 @@ epoch_reward_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
-    
+
     % 5208333 (poc_challengers) + 1104798 (securities) + 496032 (consensus group) + 5000 (initial balance)
     ?assertEqual(6814163, blockchain_ledger_entry_v1:balance(Entry)),
 
@@ -1088,7 +1088,7 @@ election_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, I, 1),
+             {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],

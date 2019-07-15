@@ -48,7 +48,10 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           poc_witnesses_percent => 0.02 + 0.03,
                           consensus_percent => 0.10,
                           election_selection_pct => 60,
-                          election_replacement_factor => 4
+                          election_replacement_factor => 4,
+                          max_staleness => 100000,
+                          alpha_decay => 0.007,
+                          beta_decay => 0.0005
                          }),
 
     InitialVars = [ VTxn ],
