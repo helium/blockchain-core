@@ -53,7 +53,7 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                     Acc;
                 false ->
                     G = maps:get(Addr, Gateways),
-                    {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, G, Height),
+                    {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, G, Height, Ledger),
                     [{Score, Addr}|Acc]
             end
         end,
@@ -207,7 +207,7 @@ neighbors(Address, Gateways, Height, Ledger) ->
         end,
         Gateways
     )),
-    [{edge_weight(Address, TargetGw, A, G, Height), A} || {A, G} <- GwInRing].
+    [{edge_weight(Address, TargetGw, A, G, Height, Ledger), A} || {A, G} <- GwInRing].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -217,10 +217,11 @@ neighbors(Address, Gateways, Height, Ledger) ->
                   Gw1 :: blockchain_ledger_gateway_v1:gateway(),
                   A2 :: libp2p_crypto:pubkey_bin(),
                   Gw2 :: blockchain_ledger_gateway_v1:gateway(),
-                  Height :: non_neg_integer()) -> float().
-edge_weight(A1, Gw1, A2, Gw2, Height) ->
-    {_, _, S1} = blockchain_ledger_gateway_v1:score(A1, Gw1, Height),
-    {_, _, S2} = blockchain_ledger_gateway_v1:score(A2, Gw2, Height),
+                  Height :: non_neg_integer(),
+                  Ledger :: blockchain_ledger_v1:ledger()) -> float().
+edge_weight(A1, Gw1, A2, Gw2, Height, Ledger) ->
+    {_, _, S1} = blockchain_ledger_gateway_v1:score(A1, Gw1, Height, Ledger),
+    {_, _, S2} = blockchain_ledger_gateway_v1:score(A2, Gw2, Height, Ledger),
     1 - abs(prob_fun(S1) -  prob_fun(S2)).
 
 %%--------------------------------------------------------------------
@@ -232,7 +233,7 @@ edge_weight(A1, Gw1, A2, Gw2, Height) ->
 target(Hash, Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActiveGateways = active_gateways(Ledger, Challenger),
-    ProbsAndGatewayAddrs = create_probs(ActiveGateways, Height),
+    ProbsAndGatewayAddrs = create_probs(ActiveGateways, Height, Ledger),
     Entropy = entropy(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
     Target = select_target(ProbsAndGatewayAddrs, RandVal),
@@ -242,10 +243,12 @@ target(Hash, Ledger, Challenger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_probs(Gateways :: map(), Height :: non_neg_integer()) -> [{float(), libp2p_crypto:pubkey_bin()}].
-create_probs(Gateways, Height) ->
+-spec create_probs(Gateways :: map(),
+                   Height :: non_neg_integer(),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> [{float(), libp2p_crypto:pubkey_bin()}].
+create_probs(Gateways, Height, Ledger) ->
     GwScores = lists:foldl(fun({A, G}, Acc) ->
-                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(A, G, Height),
+                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(A, G, Height, Ledger),
                                    [{A, prob_fun(Score)} | Acc]
                            end,
                            [],
@@ -753,7 +756,13 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
                    (Var, _) when Var == h3_path_res ->
                         {ok, 8};
                    (Var, _) when Var == h3_ring_size ->
-                        {ok, 2}
+                        {ok, 2};
+                   (Var, _) when Var == alpha_decay ->
+                        {ok, 0.007};
+                   (Var, _) when Var == beta_decay ->
+                        {ok, 0.0005};
+                   (Var, _) when Var == max_staleness ->
+                        {ok, 100000}
                 end),
     meck:expect(blockchain_ledger_v1,
                 gateway_score,
