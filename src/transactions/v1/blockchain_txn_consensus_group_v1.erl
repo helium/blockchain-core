@@ -110,26 +110,46 @@ is_valid(Txn, Chain) ->
     Members = ?MODULE:members(Txn),
     Delay = ?MODULE:delay(Txn),
     Proof0 = ?MODULE:proof(Txn),
-    case Members of
-        [] -> {error, no_members};
-        _ ->
-            case blockchain_ledger_v1:election_height(Ledger) of
-                {error, not_found} ->
-                    ok;
-                {ok, Height} ->
-                    TxnHeight = ?MODULE:height(Txn),
-                    case TxnHeight > Height of
-                        true ->
-                            Proof = binary_to_term(Proof0),
-                            EffectiveHeight = TxnHeight + Delay,
-                            {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
-                            {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                            Hash = blockchain_block:hash_block(Block),
-                            verify_proof(Proof, Members, Hash, Delay, OldLedger);
-                        _ ->
-                            {error, {duplicate_group, ?MODULE:height(Txn), Height}}
-                    end
-            end
+    try
+        %% TODO: check and make sure that Members is the right size
+        case Members of
+            [] ->
+                throw({error, no_members});
+            _ ->
+                ok
+        end,
+        case blockchain_ledger_v1:election_height(Ledger) of
+            {error, not_found} ->
+                ok;
+            {ok, Height} ->
+                TxnHeight = ?MODULE:height(Txn),
+                case TxnHeight > Height of
+                    true ->
+                        Proof = binary_to_term(Proof0),
+                        EffectiveHeight = TxnHeight + Delay,
+                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
+                        {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
+                        {ok, CurrHeight} = blockchain:height(Chain),
+                        {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
+                        case CurrHeight > Height + Delay + RestartInterval of
+                            true ->
+                                throw({error, txn_too_old});
+                            _ ->
+                                ok
+                        end,
+                        {ok, N} = blockchain:config(num_consensus_members, Ledger),
+                        case length(Members) == N of
+                            true -> ok;
+                            _ -> throw({error, {wrong_members_size, N, length(Members)}})
+                        end,
+                        Hash = blockchain_block:hash_block(Block),
+                        verify_proof(Proof, Members, Hash, Delay, OldLedger);
+                    _ ->
+                        throw({error, {duplicate_group, ?MODULE:height(Txn), Height}})
+                end
+        end
+    catch throw:E ->
+            E
     end.
 
 %%--------------------------------------------------------------------

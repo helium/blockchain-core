@@ -76,6 +76,9 @@ new_group(Ledger, Hash, Size, Delay) ->
           {[], []},
           Gateways0),
 
+    lager:info("scored old group: ~p scored gateways: ~p",
+               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+
     %% sort high to low to prioritize high-scoring gateways for selection
     Gateways = lists:reverse(lists:sort(GatewaysScored)),
     blockchain_utils:rand_from_hash(Hash),
@@ -86,6 +89,13 @@ new_group(Ledger, Hash, Size, Delay) ->
     OldGroup = lists:sort(OldGroupScored),
     Rem = OldGroup0 -- select(OldGroup, OldGroup, Remove, SelectPct, []),
     Rem ++ New.
+
+tup_to_animal(TL) ->
+    lists:map(fun({Scr, Addr}) ->
+                      {ok, N} = erl_angry_purple_tiger:animal_name(Addr),
+                      {Scr, N}
+              end,
+              TL).
 
 last(undefined) ->
     0;
