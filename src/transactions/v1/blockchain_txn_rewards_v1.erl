@@ -91,20 +91,25 @@ fee(_Txn) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(Txn, _Chain) ->
-    Rewards = ?MODULE:rewards(Txn),
-    ValidateRewards = lists:foldl(
-        fun(_, false) ->
-            false;
-        (Reward, _) ->
-            blockchain_txn_reward_v1:is_valid(Reward)
-        end,
-        true,
-        Rewards
-    ), 
-    case ValidateRewards of
-        false -> {error, invalid_reward};
-        true -> ok
+is_valid(Txn, Chain) ->
+    Epoch = ?MODULE:epoch(Txn),
+    case blockchain:ledger_at(Epoch, Chain) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, LedgerAt} ->
+            ChainAt = blockchain:ledger(LedgerAt, Chain),
+            case ?MODULE:calculate_rewards(Epoch, ChainAt) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, CalRewards} ->
+                    TxnRewards = ?MODULE:rewards(Txn),
+                    CalRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- CalRewards]),
+                    TxnRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- TxnRewards]),
+                    case CalRewardsHashes == TxnRewardsHashes of
+                        false -> {error, invalid_rewards};
+                        true -> ok
+                    end
+            end
     end.
 
 %%--------------------------------------------------------------------
