@@ -208,7 +208,7 @@ is_valid(Txn, Chain) ->
                                 true ->
                                     case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                         false ->
-                                            {error, {low_assert_res, {assert_location, Location, Gateway}}};
+                                            {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
                                         true ->
                                             LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
                                             case Nonce =:= LedgerNonce + 1 of
