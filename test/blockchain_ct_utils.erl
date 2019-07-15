@@ -266,7 +266,7 @@ create_vars(Vars) ->
         libp2p_crypto:generate_keys(ecc_compact),
 
     DefVars = #{vars_commit_interval => 2,
-                election_restart_interval => 1,
+                election_restart_interval => 5,
                 election_replacement_slope => 20,
                 block_version => v1,
                 proposal_threshold => 0.85},
