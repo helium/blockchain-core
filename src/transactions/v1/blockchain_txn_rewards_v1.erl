@@ -149,7 +149,6 @@ absorb(Txn, Chain) ->
 -spec calculate_rewards(non_neg_integer(), non_neg_integer(),blockchain:blockchain()) ->
     {ok, blockchain_txn_reward_v1:rewards()} | {error, any()}.
 calculate_rewards(Start, End, Chain) ->
-    Ledger = blockchain:ledger(Chain),
     case get_txns_for_epoch(Start, End, Chain) of
         {error, _Reason}=Error ->
             Error;
@@ -160,6 +159,7 @@ calculate_rewards(Start, End, Chain) ->
             ),
             case Filtered of
                 [] ->
+                    {ok, Ledger} = blockchain:ledger_at(End, Chain),
                     Vars = get_reward_vars(Ledger),
                     ConsensusRewards = consensus_members_rewards(Ledger, Vars),
                     SecuritiesRewards = securities_rewards(Ledger, Vars),
