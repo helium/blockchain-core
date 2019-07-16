@@ -145,7 +145,7 @@ absorb(Txn, Chain) ->
 -spec calculate_rewards(non_neg_integer(), blockchain:blockchain()) -> {ok, blockchain_txn_reward_v1:rewards()}
                                                                        | {error, any()}.
 calculate_rewards(Height, Chain) ->
-    {ok, Ledger} = blockchain:ledger_at(Height-1c, Chain),
+    {ok, Ledger} = blockchain:ledger_at(Height-1, Chain),
     {ok, Start} = blockchain_ledger_v1:election_height(Ledger),
     case get_txns_for_epoch(Start, Height, Chain) of
         {error, _Reason}=Error ->
