@@ -209,7 +209,6 @@ ledger_at(Height, Chain0) ->
             {error, invalid_height};
         {ok, CurrentHeight} ->
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            ct:pal("Height ~p, CurrentHeight ~p, DelayedLedger ~p", [Height, CurrentHeight, blockchain_ledger_v1:current_height(DelayedLedger)]),
             case blockchain_ledger_v1:current_height(DelayedLedger) of
                 {ok, Height} ->
                     {ok, DelayedLedger};
