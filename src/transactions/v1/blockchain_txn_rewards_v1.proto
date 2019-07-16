@@ -17,6 +17,7 @@ message txn_reward_v1 {
 }
 
 message txn_rewards_v1 {
-    repeated txn_reward_v1 rewards = 1;
-    uint64 epoch = 2;
+    uint64 start_epoch = 1;
+    uint64 end_epoch = 2;
+    repeated txn_reward_v1 rewards = 3;
 }   
