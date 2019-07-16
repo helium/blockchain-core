@@ -121,15 +121,15 @@ handle_info({accepted, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, accepted_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     {noreply, State};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({rejected, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, rejected_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~p, rejected_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#state{chain=Chain, txn_map=TxnMap}) ->

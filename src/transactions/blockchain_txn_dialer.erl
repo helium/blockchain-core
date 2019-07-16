@@ -48,7 +48,7 @@ dial(Pid) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    lager:info("blockchain_txn_dialer started with ~p", [Args]),
+    lager:debug("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, Txn, Member] = Args,
     {ok, #state{parent=Parent, txn=Txn, member=Member}}.
 
