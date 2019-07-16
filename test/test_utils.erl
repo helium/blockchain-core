@@ -52,7 +52,9 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           min_assert_h3_res => 12,
                           max_staleness => 100000,
                           alpha_decay => 0.007,
-                          beta_decay => 0.0005
+                          beta_decay => 0.0005,
+                          block_time => 30000,
+                          election_interval => 30
                          }),
 
     InitialVars = [ VTxn ],

@@ -151,35 +151,44 @@ calculate_rewards(Height, Chain) ->
         {error, _Reason}=Error ->
             Error;
         {ok, Transactions} ->
-            Vars = get_reward_vars(Ledger),
-            ConsensusRewards = consensus_members_rewards(Ledger, Vars),
-            SecuritiesRewards = securities_rewards(Ledger, Vars),
-            POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
-            POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
-            POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
-            {ok, lists:foldl(
-                fun(Map, Acc0) ->
-                    maps:fold(
-                        fun({owner, Type, Owner}, Amount, Acc1) ->
-                            Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
-                            [Reward|Acc1];
-                        ({gateway, Type, Gateway}, Amount, Acc1) ->
-                            case get_gateway_owner(Gateway, Ledger) of
-                                {error, _} ->
-                                    Acc1;
-                                {ok, Owner} ->
-                                    Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
-                                    [Reward|Acc1]
-                            end
+            Filtered = lists:filter(
+                fun(Txn) -> blockchain_txn:type(Txn) == ?MODULE end,
+                Transactions
+            ),
+            case Filtered of
+                [] ->
+                    Vars = get_reward_vars(Ledger),
+                    ConsensusRewards = consensus_members_rewards(Ledger, Vars),
+                    SecuritiesRewards = securities_rewards(Ledger, Vars),
+                    POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
+                    POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
+                    POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
+                    {ok, lists:foldl(
+                        fun(Map, Acc0) ->
+                            maps:fold(
+                                fun({owner, Type, Owner}, Amount, Acc1) ->
+                                    Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
+                                    [Reward|Acc1];
+                                ({gateway, Type, Gateway}, Amount, Acc1) ->
+                                    case get_gateway_owner(Gateway, Ledger) of
+                                        {error, _} ->
+                                            Acc1;
+                                        {ok, Owner} ->
+                                            Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
+                                            [Reward|Acc1]
+                                    end
+                                end,
+                                Acc0,
+                                Map
+                            )
                         end,
-                        Acc0,
-                        Map
-                    )
-                end,
-                [],
-                [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
-                 POCChallengeesRewards, POCWitnessesRewards]
-            )}
+                        [],
+                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
+                        POCChallengeesRewards, POCWitnessesRewards]
+                    )};
+                [_RewardTxn|_] ->
+                    {error, already_existing_rewards}
+            end
     end.
 
 %% ------------------------------------------------------------------
@@ -222,9 +231,19 @@ get_reward_vars(Ledger) ->
     {ok, PocChallengersPercent} = blockchain:config(poc_challengers_percent, Ledger),
     {ok, PocWitnessesPercent} = blockchain:config(poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(consensus_percent, Ledger),
+    {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
+    {ok, BlockTime0} = blockchain:config(block_time, Ledger),
+    % blocktime is in ms, so we get blocks in seconds
+    BlockTime1 = (BlockTime0/1000),
+    % Convert to blocks per min
+    BlockPerMin = 60/BlockTime1,
+    % Convert to blocks per hour
+    BlockPerHour = BlockPerMin*60,
+    % Calculate number of elections per hour
+    ElectionPerHour = BlockPerHour/ElectionInterval,
     #{
         monthly_reward => MonthlyReward,
-        epoch_reward => MonthlyReward/30/24/2,
+        epoch_reward => MonthlyReward/30/24/ElectionPerHour,
         securities_percent => SecuritiesPercent,
         poc_challengees_percent => PocChallengeesPercent,
         poc_challengers_percent => PocChallengersPercent,

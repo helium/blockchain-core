@@ -1029,6 +1029,7 @@ epoch_reward_test(Config) ->
 
     End = 30,
     {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(End, Chain),
+    ct:pal("rewards ~p", [Rewards]),
     Tx = blockchain_txn_rewards_v1:new(Rewards, End),
     B = test_utils:create_block(ConsensusMembers, [Tx]),
     _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
@@ -1036,8 +1037,8 @@ epoch_reward_test(Config) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
 
-    % 5208333 (poc_challengers) + 1104798 (securities) + 496032 (consensus group) + 5000 (initial balance)
-    ?assertEqual(6814163, blockchain_ledger_entry_v1:balance(Entry)),
+    % 2604167 (poc_challengers) + 552399 (securities) + 248016 (consensus group) + 5000 (initial balance)
+    ?assertEqual(3409582, blockchain_ledger_entry_v1:balance(Entry)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
