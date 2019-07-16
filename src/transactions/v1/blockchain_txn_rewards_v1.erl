@@ -98,7 +98,7 @@ is_valid(Txn, Chain) ->
             Error;
         {ok, LedgerAt} ->
             ChainAt = blockchain:ledger(LedgerAt, Chain),
-            case ?MODULE:calculate_rewards(Epoch, ChainAt) of
+            case ?MODULE:calculate_rewards(Epoch-1, ChainAt) of
                 {error, _Reason}=Error ->
                     Error;
                 {ok, CalRewards} ->
@@ -145,7 +145,6 @@ absorb(Txn, Chain) ->
 -spec calculate_rewards(non_neg_integer(), blockchain:blockchain()) -> {ok, blockchain_txn_reward_v1:rewards()}
                                                                        | {error, any()}.
 calculate_rewards(Height, Chain) ->
-    ct:pal("MARKER1", []),
     Ledger = blockchain:ledger(Chain),
     {ok, Start} = blockchain_ledger_v1:election_height(Ledger),
     case get_txns_for_epoch(Start, Height, Chain) of
