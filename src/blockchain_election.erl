@@ -82,12 +82,12 @@ new_group(Ledger, Hash, Size, Delay) ->
     %% sort high to low to prioritize high-scoring gateways for selection
     Gateways = lists:reverse(lists:sort(GatewaysScored)),
     blockchain_utils:rand_from_hash(Hash),
-    New = select(Gateways, Gateways, Replace, SelectPct, []),
+    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, []),
 
     %% sort low to high to prioritize low scoring and down gateways
     %% for removal from the group
     OldGroup = lists:sort(OldGroupScored),
-    Rem = OldGroup0 -- select(OldGroup, OldGroup, Remove, SelectPct, []),
+    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), SelectPct, []),
     Rem ++ New.
 
 tup_to_animal(TL) ->
@@ -102,6 +102,8 @@ last(undefined) ->
 last(N) when is_integer(N) ->
     N.
 
+select(_, [], _, _Pct, Acc) ->
+    lists:reverse(Acc);
 select(_, _, 0, _Pct, Acc) ->
     lists:reverse(Acc);
 select([], Gateways, Size, Pct, Acc) ->
