@@ -10,15 +10,16 @@
 -include("pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
-    new/2,
+    new/3,
     hash/1,
+    start_epoch/1,
+    end_epoch/1,
     rewards/1,
-    epoch/1,
     sign/2,
     fee/1,
     is_valid/2,
     absorb/2,
-    calculate_rewards/2
+    calculate_rewards/3
 ]).
 
 -ifdef(TEST).
@@ -40,10 +41,10 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(blockchain_txn_reward_v1:rewards(), non_neg_integer()) -> txn_rewards().
-new(Rewards, Epoch) ->
+-spec new(non_neg_integer(), non_neg_integer(), blockchain_txn_reward_v1:rewards()) -> txn_rewards().
+new(Start, End, Rewards) ->
     SortedRewards = lists:sort(Rewards),
-    #blockchain_txn_rewards_v1_pb{rewards=SortedRewards, epoch=Epoch}.
+    #blockchain_txn_rewards_v1_pb{start_epoch=Start, end_epoch=End, rewards=SortedRewards}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -58,17 +59,25 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec rewards(txn_rewards()) -> blockchain_txn_reward_v1:rewards().
-rewards(#blockchain_txn_rewards_v1_pb{rewards=Rewards}) ->
-    Rewards.
+-spec start_epoch(txn_rewards()) -> non_neg_integer().
+start_epoch(#blockchain_txn_rewards_v1_pb{start_epoch=Start}) ->
+    Start.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec epoch(txn_rewards()) -> non_neg_integer().
-epoch(#blockchain_txn_rewards_v1_pb{epoch=Epoch}) ->
-    Epoch.
+-spec end_epoch(txn_rewards()) -> non_neg_integer().
+end_epoch(#blockchain_txn_rewards_v1_pb{end_epoch=End}) ->
+    End.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec rewards(txn_rewards()) -> blockchain_txn_reward_v1:rewards().
+rewards(#blockchain_txn_rewards_v1_pb{rewards=Rewards}) ->
+    Rewards.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -92,23 +101,18 @@ fee(_Txn) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Epoch = ?MODULE:epoch(Txn),
-    case blockchain:ledger_at(Epoch, Chain) of
+    Start = ?MODULE:start_epoch(Txn),
+    End = ?MODULE:end_epoch(Txn),
+    case ?MODULE:calculate_rewards(Start, End, Chain) of
         {error, _Reason}=Error ->
             Error;
-        {ok, LedgerAt} ->
-            ChainAt = blockchain:ledger(LedgerAt, Chain),
-            case ?MODULE:calculate_rewards(Epoch, ChainAt) of
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, CalRewards} ->
-                    TxnRewards = ?MODULE:rewards(Txn),
-                    CalRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- CalRewards]),
-                    TxnRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- TxnRewards]),
-                    case CalRewardsHashes == TxnRewardsHashes of
-                        false -> {error, invalid_rewards};
-                        true -> ok
-                    end
+        {ok, CalRewards} ->
+            TxnRewards = ?MODULE:rewards(Txn),
+            CalRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- CalRewards]),
+            TxnRewardsHashes = lists:sort([blockchain_txn_reward_v1:hash(R)|| R <- TxnRewards]),
+            case CalRewardsHashes == TxnRewardsHashes of
+                false -> {error, invalid_rewards};
+                true -> ok
             end
     end.
 
@@ -142,12 +146,10 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_rewards(non_neg_integer(), blockchain:blockchain()) -> {ok, blockchain_txn_reward_v1:rewards()}
-                                                                       | {error, any()}.
-calculate_rewards(Height, Chain) ->
-    {ok, Ledger} = blockchain:ledger_at(Height, Chain),
-    {ok, Start} = blockchain_ledger_v1:election_height(Ledger),
-    case get_txns_for_epoch(Start, Height, Chain) of
+-spec calculate_rewards(non_neg_integer(), non_neg_integer(),blockchain:blockchain()) ->
+    {ok, blockchain_txn_reward_v1:rewards()} | {error, any()}.
+calculate_rewards(Start, End, Chain) ->
+    case get_txns_for_epoch(Start, End, Chain) of
         {error, _Reason}=Error ->
             Error;
         {ok, Transactions} ->
@@ -157,6 +159,7 @@ calculate_rewards(Height, Chain) ->
             ),
             case Filtered of
                 [] ->
+                    {ok, Ledger} = blockchain:ledger_at(End, Chain),
                     Vars = get_reward_vars(Ledger),
                     ConsensusRewards = consensus_members_rewards(Ledger, Vars),
                     SecuritiesRewards = securities_rewards(Ledger, Vars),
@@ -452,16 +455,20 @@ get_gateway_owner(Address, Ledger) ->
 -ifdef(TEST).
 
 new_test() ->
-    Tx = #blockchain_txn_rewards_v1_pb{rewards=[], epoch=10},
-    ?assertEqual(Tx, new([], 10)).
+    Tx = #blockchain_txn_rewards_v1_pb{start_epoch=1, end_epoch=30, rewards=[]},
+    ?assertEqual(Tx, new(1, 30, [])).
+
+start_epoch_test() ->
+    Tx = new(1, 30, []),
+    ?assertEqual(1, start_epoch(Tx)).
+
+end_epoch_test() ->
+    Tx = new(1, 30, []),
+    ?assertEqual(30, end_epoch(Tx)).
 
 rewards_test() ->
-    Tx = new([], 10),
+    Tx = new(1, 30, []),
     ?assertEqual([], rewards(Tx)).
-
-epoch_test() ->
-    Tx = new([], 10),
-    ?assertEqual(10, epoch(Tx)).
 
 consensus_members_rewards_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
