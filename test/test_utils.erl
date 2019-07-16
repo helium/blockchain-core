@@ -124,7 +124,7 @@ create_block(ConsensusMembers, Txs) ->
     Time = blockchain_block:time(HeadBlock) + 1,
     Block0 = blockchain_block_v1:new(#{prev_hash => PrevHash,
                                      height => Height,
-                                     transactions => Txs,
+                                     transactions => lists:sort(fun blockchain_txn:sort/2, Txs),
                                      signatures => [],
                                      time => Time,
                                      hbbft_round => 0,

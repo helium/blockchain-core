@@ -66,15 +66,15 @@
     {blockchain_txn_gen_gateway_v1, 5},
     {blockchain_txn_oui_v1, 6},
     {blockchain_txn_routing_v1, 7},
-    {blockchain_txn_payment_v1, 9},
+    {blockchain_txn_payment_v1, 8},
+    {blockchain_txn_create_htlc_v1, 8},
     {blockchain_txn_security_exchange_v1, 9},
     {blockchain_txn_add_gateway_v1, 10},
     {blockchain_txn_assert_location_v1, 11},
-    {blockchain_txn_create_htlc_v1, 12},
-    {blockchain_txn_redeem_htlc_v1, 13},
-    {blockchain_txn_poc_request_v1, 14},
-    {blockchain_txn_poc_receipts_v1, 15},
-    {blockchain_txn_vars_v1, 16}
+    {blockchain_txn_redeem_htlc_v1, 12},
+    {blockchain_txn_poc_request_v1, 13},
+    {blockchain_txn_poc_receipts_v1, 14},
+    {blockchain_txn_vars_v1, 15}
 ]).
 
 hash(Txn) ->

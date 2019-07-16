@@ -364,23 +364,29 @@ add_block_(Block, Blockchain, Syncing) ->
                                         false ->
                                             {error, failed_verify_signatures};
                                         {true, _} ->
-                                            BeforeCommit = fun() ->
-                                                lager:info("adding block ~p", [Height]),
-                                                ok = ?save_block(Block, Blockchain)
-                                            end,
-
-                                            case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                                {error, Reason}=Error ->
-                                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                                    Error;
-                                                {ok, NewLedger} ->
-                                                    case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
+                                            Txns = blockchain_block:transactions(Block),
+                                            SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
+                                            case Txns == SortedTxns of
+                                                false ->
+                                                    {error, wrong_txn_order};
+                                                true ->
+                                                    BeforeCommit = fun() ->
+                                                        lager:info("adding block ~p", [Height]),
+                                                        ok = ?save_block(Block, Blockchain)
+                                                    end,
+                                                    case blockchain_ledger_v1:new_snapshot(Ledger) of
                                                         {error, Reason}=Error ->
-                                                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                                                            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                                                             Error;
-                                                        ok ->
-                                                            lager:info("Notifying new block ~p", [Height]),
-                                                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                                                        {ok, NewLedger} ->
+                                                            case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit) of
+                                                                {error, Reason}=Error ->
+                                                                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                                                                    Error;
+                                                                ok ->
+                                                                    lager:info("Notifying new block ~p", [Height]),
+                                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                                                            end
                                                     end
                                             end
                                     end
