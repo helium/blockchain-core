@@ -136,7 +136,9 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#s
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
             Txns = blockchain_block:transactions(Block),
-            {_ValidTransactions, InvalidTransactions} = blockchain_txn:validate(maps:keys(TxnMap), Chain),
+            {_ValidTransactions, InvalidTransactions} =
+                blockchain_txn:validate(lists:usort(fun blockchain_txn:sort/2,
+                                                    maps:keys(TxnMap)), Chain),
 
             SortedTxns = lists:sort(fun({TxnA, _}, {TxnB, _}) ->
                                             blockchain_txn:sort(TxnA, TxnB)
