@@ -118,6 +118,7 @@ is_valid(Txn, Chain) ->
             _ ->
                 ok
         end,
+        TxnHeight = ?MODULE:height(Txn),
         case blockchain:height(Chain) of
             %% no chain, genesis block
             {error, not_found} ->
@@ -125,7 +126,6 @@ is_valid(Txn, Chain) ->
             {ok, CurrHeight} ->
                 {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
                 {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
-                TxnHeight = ?MODULE:height(Txn),
                 {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
                 %% This check prevents elections ahead of schedule
@@ -150,6 +150,15 @@ is_valid(Txn, Chain) ->
                         end,
                         Hash = blockchain_block:hash_block(Block),
                         verify_proof(Proof, Members, Hash, Delay, OldLedger);
+                    _ ->
+                        throw({error, {election_too_early, TxnHeight, LastElectionHeight}})
+                end,
+                case blockchain_ledger_v1:election_height(Ledger) of
+                    %% no chain, genesis block
+                    {error, not_found} ->
+                        ok;
+                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
+                        ok;
                     _ ->
                         throw({error, {duplicate_group, ?MODULE:height(Txn), LastElectionHeight}})
                 end
