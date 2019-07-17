@@ -118,10 +118,13 @@ is_valid(Txn, Chain) ->
             _ ->
                 ok
         end,
-        case blockchain_ledger_v1:election_height(Ledger) of
+        case blockchain:height(Chain) of
+            %% no chain, genesis block
             {error, not_found} ->
                 ok;
-            {ok, LastElectionHeight} ->
+            {ok, CurrHeight} ->
+                {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+                {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 TxnHeight = ?MODULE:height(Txn),
                 {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
@@ -132,7 +135,6 @@ is_valid(Txn, Chain) ->
                         EffectiveHeight = TxnHeight + Delay,
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, CurrHeight} = blockchain:height(Chain),
                         {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
                         %% The next election should occur within RestartInterval blocks of when the election started
                         case CurrHeight > LastElectionHeight + ElectionInterval + Delay + RestartInterval of
