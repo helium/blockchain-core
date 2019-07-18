@@ -92,7 +92,8 @@ new_group(Ledger, Hash, Size, Delay) ->
 
 tup_to_animal(TL) ->
     lists:map(fun({Scr, Addr}) ->
-                      {ok, N} = erl_angry_purple_tiger:animal_name(Addr),
+                      B58Addr = libp2p_crypto:bin_to_b58(Addr),
+                      {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
                       {Scr, N}
               end,
               TL).
