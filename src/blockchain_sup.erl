@@ -74,7 +74,7 @@ init(Args) ->
           [
            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
            {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
-           {peerbook_connections, proplists:get_value(max_gossip_connections, Args, 10)},
+           {peerbook_connections, proplists:get_value(outbound_gossip_connections, Args, 10)},
            {inbound_connections, proplists:get_value(max_inbound_connections, Args, 10)},
            {peer_cache_timeout, proplists:get_value(peer_cache_timeout, Args, 10 * 1000)}
           ]}
