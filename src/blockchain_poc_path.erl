@@ -728,6 +728,7 @@ no_neighbor_test() ->
     Neighbors = neighbors(Target, Gateways, 1, Ledger),
     ?assertEqual([], Neighbors),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
+    unload_meck(),
     ok.
 
 build_gateways(LatLongs) ->
