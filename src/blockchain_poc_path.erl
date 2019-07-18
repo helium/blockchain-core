@@ -191,7 +191,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                     case blockchain_ledger_gateway_v1:location(G) of
                                         undefined -> Acc;
                                         Index ->
-                                            case blockchain_ledger_v1:gateway_score(G, Ledger) of
+                                            case blockchain_ledger_v1:gateway_score(A, Ledger) of
                                                 S when S >= MinScore ->
                                                     ScaledIndex = case h3:get_resolution(Index) of
                                                                       R when R > H3NeighborRes ->
