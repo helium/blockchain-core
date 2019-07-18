@@ -313,8 +313,19 @@ peer_gossip_peers_usage() ->
     ].
 
 peer_gossip_peers(["peer", "gossip_peers"], [], []) ->
-    %% TODO: tabularize this
-    [clique_status:text(io_lib:format("~p", [blockchain_swarm:gossip_peers()]))];
+    Peers = blockchain_swarm:gossip_peers(),
+
+    %% TODO: maybe add some connection state quality check?
+    Formatted = lists:map(
+                  fun({Addr, Kind, _Pid}) ->
+                          SKind = atom_to_list(Kind),
+                          Bin = libp2p_crypto:p2p_to_pubkey_bin(Addr),
+                          Name = libp2p_crypto:bin_to_b58(Bin),
+                          [{name, Name},
+                           {kind, SKind}]
+                  end,
+                  Peers),
+    [clique_status:table(Formatted)];
 peer_gossip_peers([], [], []) ->
     usage.
 
