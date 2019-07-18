@@ -343,10 +343,17 @@ add_block_(Block, Blockchain, Syncing) ->
                             lager:info("Already have this block"),
                             ok;
                         {false, _} ->
-                            lager:warning("block doesn't fit with our chain,
+                            case ?MODULE:get_block(Hash, Blockchain) of
+                                {ok, Block} ->
+                                    %% we already have this, thanks
+                                    %% don't error here incase there's more blocks coming that *are* valid
+                                    ok;
+                                _ ->
+                                    lager:warning("block doesn't fit with our chain,
                                           block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
                                                                                      blockchain_block:height(HeadBlock)]),
-                            {error, disjoint_chain};
+                                    {error, disjoint_chain}
+                            end;
                         {true, true} ->
                             lager:info("prev hash matches the gossiped block"),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
