@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Transaction Data Credtis Coinbase ==
+%% == Blockchain Transaction Data Credits Coinbase ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_dc_coinbase_v1).

@@ -205,20 +205,18 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid_payer(txn_add_gateway()) -> boolean().
+is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=undefined}) ->
+    true;
+is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer_signature= <<>>}) ->
+    true;
 is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
                                                  payer_signature=Signature}=Txn) ->
-
-    case PubKeyBin == undefined orelse PubKeyBin == <<>> of
-        true ->
-            true;
-        false ->
-            BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
-                                                           gateway_signature= <<>>,
-                                                           payer_signature= <<>>},
-            EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
-            PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
-            libp2p_crypto:verify(EncodedTxn, Signature, PubKey)
-    end.
+    BaseTxn = Txn#blockchain_txn_add_gateway_v1_pb{owner_signature= <<>>,
+                                                    gateway_signature= <<>>,
+                                                    payer_signature= <<>>},
+    EncodedTxn = blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTxn),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -59,7 +59,7 @@ challenge_interval(Ledger) ->
 
 -spec serialize_hash(binary()) -> string().
 serialize_hash(Hash) ->
-    base58:binary_to_base58(Hash).
+    libp2p_crypto:bin_to_b58(Hash).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -67,7 +67,7 @@ serialize_hash(Hash) ->
 %%--------------------------------------------------------------------
 -spec deserialize_hash(string()) -> binary().
 deserialize_hash(String) ->
-    base58:base58_to_binary(String).
+    libp2p_crypto:b58_to_bin(String).
 
 %%--------------------------------------------------------------------
 %% @doc
