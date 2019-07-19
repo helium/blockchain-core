@@ -188,6 +188,7 @@ mismatch() ->
 %% ------------------------------------------------------------------
 init(Args) ->
     erlang:process_flag(trap_exit, true),
+    ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
@@ -395,6 +396,19 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     end;
 handle_info({update_timer, Ref}, State) ->
     {noreply, State#state{sync_timer=Ref}};
+handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, #state{swarm=Swarm, blockchain=Chain} = State) ->
+    %% we added a new block to the chain, send it to all our peers
+    case blockchain:get_block(Hash, Chain) of
+        {ok, Block} ->
+            libp2p_group_gossip:send(
+              libp2p_swarm:gossip_group(Swarm),
+              ?GOSSIP_PROTOCOL,
+              blockchain_gossip_handler:gossip_data(Swarm, Block)
+             );
+        {error, Reason} ->
+            lager:warning("unable to find new block ~p in blockchain: ~p", [Hash, Reason])
+    end,
+    {noreply, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
