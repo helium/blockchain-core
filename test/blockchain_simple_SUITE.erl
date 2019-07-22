@@ -24,7 +24,8 @@
     block_save_failed_test/1,
     absorb_failed_test/1,
     epoch_reward_test/1,
-    election_test/1
+    election_test/1,
+    chain_vars_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -55,7 +56,8 @@ all() ->
         block_save_failed_test,
         absorb_failed_test,
         epoch_reward_test,
-        election_test
+        election_test,
+        chain_vars_test
     ].
 
 %%--------------------------------------------------------------------
@@ -66,7 +68,7 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
-    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -91,7 +93,8 @@ init_per_testcase(TestCase, Config) ->
         {chain, Chain},
         {swarm, Swarm},
         {n, N},
-        {consensus_members, ConsensusMembers}
+        {consensus_members, ConsensusMembers},
+        Keys
         | Config
     ].
 
@@ -454,7 +457,7 @@ poc_request_test(Config) ->
     #{public := OnionCompactKey0} = Keys0,
     SecretHash0 = crypto:hash(sha256, Secret0),
     OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2)),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
     Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
@@ -503,7 +506,7 @@ poc_request_test(Config) ->
     #{public := OnionCompactKey1} = Keys1,
     SecretHash1 = crypto:hash(sha256, Secret1),
     OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
-    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block40)),
+    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block40), 1),
     SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
     Block5 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block5, Chain, N, self()),
@@ -1103,4 +1106,47 @@ election_test(Config) ->
 
     ?assertEqual(1, length(New -- OldGroup)),
 
+    ok.
+
+chain_vars_test(Config) ->
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    {Priv, _} = proplists:get_value(master_key, Config),
+    N = proplists:get_value(n, Config),
+
+    Ledger = blockchain:ledger(Chain),
+
+    Vars = #{chain_var => foo},
+
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
+
+    ct:pal("priv_key ~p", [Priv]),
+
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+
+
+    InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, N, self()),
+
+    {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
+    ct:pal("commit delay ~p", [Delay]),
+    %% Add some blocks,
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+                {ok, Height} = blockchain:height(Chain),
+                case blockchain:config(chain_var, Ledger) of
+                    {error, not_found} when Height < (Delay + 1) ->
+                        ok;
+                    {ok, foo} when Height >= (Delay + 1) ->
+                        ok;
+                    Res ->
+                        throw({error, {chain_var_wrong_height, Res, Height}})
+                end
+        end,
+        lists:seq(1, 15)
+    ),
+    ?assertEqual({ok, 17}, blockchain:height(Chain)),
     ok.

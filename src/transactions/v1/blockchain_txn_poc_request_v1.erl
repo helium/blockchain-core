@@ -10,13 +10,15 @@
 -include("pb/blockchain_txn_poc_request_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/5,
+    get_version/1,
     hash/1,
     challenger/1,
     secret_hash/1,
     onion_key_hash/1,
     block_hash/1,
     signature/1,
+    version/1,
     fee/1,
     sign/2,
     is_valid/2,
@@ -37,16 +39,24 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), binary(), binary(), binary()) -> txn_poc_request().
-new(Challenger, SecretHash, OnionKeyHash, BlockHash) ->
+-spec new(libp2p_crypto:pubkey_bin(), binary(), binary(), binary(),
+          non_neg_integer()) -> txn_poc_request().
+new(Challenger, SecretHash, OnionKeyHash, BlockHash, Version) ->
     #blockchain_txn_poc_request_v1_pb{
         challenger=Challenger,
         secret_hash=SecretHash,
         onion_key_hash=OnionKeyHash,
         block_hash=BlockHash,
         fee=0,
-        signature = <<>>
+        signature = <<>>,
+        version = Version
     }.
+
+-spec get_version(blockchain:ledger()) -> integer().
+get_version(Ledger) ->
+    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
+    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+    Mod:Fun().
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -106,6 +116,9 @@ fee(_Txn) ->
 signature(Txn) ->
     Txn#blockchain_txn_poc_request_v1_pb.signature.
 
+-spec version(txn_poc_request()) -> any().
+version(Txn) ->
+    Txn#blockchain_txn_poc_request_v1_pb.version.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -174,13 +187,11 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
+    Version = version(Txn),
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-        {ok, GwInfo} ->
-            Fee = ?MODULE:fee(Txn),
-            Owner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
-            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
+        {ok, Gw} ->
+            Gw1 = blockchain_ledger_gateway_v1:version(Version, Gw),
+            case blockchain_ledger_v1:update_gateway(Gw1, Challenger, Ledger) of
                 ok ->
                     SecretHash = ?MODULE:secret_hash(Txn),
                     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
@@ -210,37 +221,38 @@ new_test() ->
         onion_key_hash = <<"onion">>,
         block_hash = <<"block">>,
         fee=0,
-        signature= <<>>
+        signature= <<>>,
+        version = 1
     },
-    ?assertEqual(Tx, new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>)).
+    ?assertEqual(Tx, new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1)).
 
 challenger_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(<<"gateway">>, challenger(Tx)).
 
 secret_hash_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(<<"hash">>, secret_hash(Tx)).
 
 onion_key_hash_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(<<"onion">>, onion_key_hash(Tx)).
 
 block_hash_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(<<"block">>, block_hash(Tx)).
 
 fee_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(0, fee(Tx)).
 
 signature_test() ->
-    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>),
+    Tx0 = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
     ChallengerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, ChallengerSigFun),
     EncodedTx1 = blockchain_txn_poc_request_v1_pb:encode_msg(

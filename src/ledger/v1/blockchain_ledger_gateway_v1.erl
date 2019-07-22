@@ -10,6 +10,7 @@
     owner_address/1, owner_address/2,
     location/1, location/2,
     score/4,
+    version/1, version/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -37,7 +38,8 @@
     delta :: non_neg_integer(),
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
-    nonce = 0 :: non_neg_integer()
+    nonce = 0 :: non_neg_integer(),
+    version = 0 :: non_neg_integer()
 }).
 
 -type gateway() :: #gateway_v1{}.
@@ -99,6 +101,12 @@ location(Gateway) ->
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
     Gateway#gateway_v1{location=Location}.
+
+version(Gateway) ->
+    Gateway#gateway_v1.version.
+
+version(Version, Gateway) ->
+    Gateway#gateway_v1{version = Version}.
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
