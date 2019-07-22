@@ -39,7 +39,7 @@
     last_poc_challenge :: undefined | non_neg_integer(),
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
-    version :: undefined | any()
+    version = 0 :: non_neg_integer()
 }).
 
 -type gateway() :: #gateway_v1{}.

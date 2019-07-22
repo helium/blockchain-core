@@ -445,6 +445,9 @@ threshold_name(Txn) ->
 process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
     [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger, Chain) of
          false -> ok;
+         %% true here means we've passed the threshold and have
+         %% scheduled the var to be committed in the future, so we can
+         %% safely delete it from the list
          true -> cache_delete(Ledger, CF, threshold_name(Txn))
      end
      || Txn <- scan_threshold_txns(CF, DB)],

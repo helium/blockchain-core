@@ -40,7 +40,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), binary(), binary(), binary(),
-          integer()) -> txn_poc_request().
+          non_neg_integer()) -> txn_poc_request().
 new(Challenger, SecretHash, OnionKeyHash, BlockHash, Version) ->
     #blockchain_txn_poc_request_v1_pb{
         challenger=Challenger,
