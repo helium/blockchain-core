@@ -140,7 +140,7 @@ is_valid(Txn, Chain) ->
                         _Location ->
                             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                            PoCInterval = blockchain_poc:challenge_interval(Ledger),
+                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
                             case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
                                 false ->
                                     {error, too_many_challenges};

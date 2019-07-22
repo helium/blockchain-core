@@ -8,13 +8,15 @@
 -export([
     shuffle_from_hash/2,
     rand_from_hash/1,
-    normalize_float/1
+    normalize_float/1,
+    challenge_interval/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(CHALLENGE_INTERVAL, poc_challenge_interval).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -43,6 +45,15 @@ rand_from_hash(Hash) ->
 %%--------------------------------------------------------------------
 normalize_float(Float) ->
     round(Float * 65536) / 65536.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec challenge_interval(blockchain_ledger_v1:ledger()) -> non_neg_integer().
+challenge_interval(Ledger) ->
+    {ok, Interval} = blockchain:config(?CHALLENGE_INTERVAL, Ledger),
+    Interval.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

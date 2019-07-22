@@ -40,7 +40,7 @@ new_group(Ledger, Hash, Size, Delay) ->
             Replace = 0
     end,
 
-    PoCInterval = blockchain_poc:challenge_interval(Ledger),
+    PoCInterval = blockchain_utils:challenge_interval(Ledger),
 
     %% annotate with score while removing dupes
     {OldGroupScored, GatewaysScored} =

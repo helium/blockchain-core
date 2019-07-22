@@ -158,7 +158,7 @@ is_valid(Txn, Chain) ->
                                                 {error, _}=Error ->
                                                     Error;
                                                 {ok, Block1} ->
-                                                    PoCInterval = blockchain_poc:challenge_interval(Ledger),
+                                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
                                                     case LastChallenge + PoCInterval >= Height of
                                                         false ->
                                                             {error, challenge_too_old};
