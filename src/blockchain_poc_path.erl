@@ -186,6 +186,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
     {ok, H3NeighborRes} = blockchain:config(h3_neighbor_res, Ledger),
     {ok, MinScore} = blockchain:config(min_score, Ledger),
     ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
+    ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
     ToInclude = lists:foldl(fun({A, G}, Acc) ->
                                     case blockchain_ledger_gateway_v1:location(G) of
@@ -201,7 +202,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                                                   end,
                                                     case lists:member(ScaledIndex, ExclusionIndices) of
                                                         false ->
-                                                            case (catch h3:grid_distance(GwH3, ScaledIndex)) of
+                                                            case (catch h3:grid_distance(ScaledGwH3, ScaledIndex)) of
                                                                 {'EXIT', _} -> Acc;
                                                                 D when D > H3MaxGridDistance -> Acc;
                                                                 _ ->
