@@ -111,7 +111,6 @@ is_valid(Txn, Chain) ->
     Delay = ?MODULE:delay(Txn),
     Proof0 = ?MODULE:proof(Txn),
     try
-        %% TODO: check and make sure that Members is the right size
         case Members of
             [] ->
                 throw({error, no_members});
@@ -137,9 +136,10 @@ is_valid(Txn, Chain) ->
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                         {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
                         %% The next election should occur within RestartInterval blocks of when the election started
-                        case CurrHeight > LastElectionHeight + ElectionInterval + Delay + RestartInterval of
+                        NextRestart = LastElectionHeight + ElectionInterval + Delay + RestartInterval,
+                        case CurrHeight > NextRestart of
                             true ->
-                                throw({error, {txn_too_old, CurrHeight, LastElectionHeight + ElectionInterval + Delay + RestartInterval}});
+                                throw({error, {txn_too_old, CurrHeight, NextRestart}});
                             _ ->
                                 ok
                         end,
@@ -149,7 +149,10 @@ is_valid(Txn, Chain) ->
                             _ -> throw({error, {wrong_members_size, N, length(Members)}})
                         end,
                         Hash = blockchain_block:hash_block(Block),
-                        verify_proof(Proof, Members, Hash, Delay, OldLedger);
+                        case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
+                            ok -> ok;
+                            {error, _} = VerifyErr -> throw(VerifyErr)
+                        end;
                     _ ->
                         throw({error, {election_too_early, TxnHeight, LastElectionHeight}})
                 end,
@@ -159,8 +162,8 @@ is_valid(Txn, Chain) ->
                         ok;
                     {ok, BaseHeight} when TxnHeight > BaseHeight ->
                         ok;
-                    _ ->
-                        throw({error, {duplicate_group, ?MODULE:height(Txn), LastElectionHeight}})
+                    {ok, BaseHeight} ->
+                        throw({error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}})
                 end
         end
     catch throw:E ->
