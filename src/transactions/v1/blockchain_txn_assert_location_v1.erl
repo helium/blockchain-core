@@ -10,7 +10,7 @@
 -include("pb/blockchain_txn_assert_location_v1_pb.hrl").
 
 -export([
-    new/5, new/6,
+    new/6, new/7,
     hash/1,
     gateway/1,
     owner/1,
@@ -20,6 +20,7 @@
     owner_signature/1,
     payer_signature/1,
     nonce/1,
+    amount/1,
     fee/1,
     sign_request/2,
     sign_payer/2,
@@ -48,8 +49,9 @@
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
           Nonce :: non_neg_integer(),
+          Amount :: pos_integer(),
           Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce, Fee) ->
+new(Gateway, Owner, Location, Nonce, Amount, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -59,6 +61,7 @@ new(Gateway, Owner, Location, Nonce, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
+        amount=Amount,
         fee=Fee
     }.
 
@@ -67,8 +70,9 @@ new(Gateway, Owner, Location, Nonce, Fee) ->
           Payer :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
           Nonce :: non_neg_integer(),
+          Amount :: pos_integer(),
           Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Payer, Location, Nonce, Fee) ->
+new(Gateway, Owner, Payer, Location, Nonce, Amount, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -78,6 +82,7 @@ new(Gateway, Owner, Payer, Location, Nonce, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
+        amount=Amount,
         fee=Fee
     }.
 
@@ -154,6 +159,15 @@ payer_signature(Txn) ->
 -spec nonce(txn_assert_location()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.nonce.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec amount(txn_assert_location()) -> non_neg_integer().
+amount(Txn) ->
+    Txn#blockchain_txn_assert_location_v1_pb.amount.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -272,13 +286,14 @@ is_valid(Txn, Chain) ->
         {true, true, true} ->
             Owner = ?MODULE:owner(Txn),
             Nonce = ?MODULE:nonce(Txn),
+            Amount = ?MODULE:amount(Txn),
             Fee = ?MODULE:fee(Txn),
             Payer = ?MODULE:payer(Txn),
             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                 true -> Owner;
                 false -> Payer
             end,
-            case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee, Ledger) of
+            case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + Amount, Ledger) of
                 {error, _}=Error ->
                     Error;
                 ok ->
@@ -322,13 +337,14 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
+    Amount = ?MODULE:amount(Txn),
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + Amount, Ledger) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -356,6 +372,7 @@ new() ->
        payer_signature= <<>>,
        location= h3:to_string(?TEST_LOCATION),
        nonce = 1,
+       amount = 1,
        fee = 1
       }.
 
@@ -367,12 +384,13 @@ invalid_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
+       amount = 1,
        fee = 1
       }.
 
 new_test() ->
     Tx = new(),
-    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1)).
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1, 1)).
 
 location_test() ->
     Tx = new(),
@@ -381,6 +399,10 @@ location_test() ->
 nonce_test() ->
     Tx = new(),
     ?assertEqual(1, nonce(Tx)).
+
+amount_test() ->
+    Tx = new(),
+    ?assertEqual(1, amount(Tx)).
 
 fee_test() ->
     Tx = new(),
