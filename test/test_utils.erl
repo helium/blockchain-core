@@ -55,7 +55,10 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           beta_decay => 0.0005,
                           block_time => 30000,
                           election_interval => 30,
-                          poc_challenge_interval => 30
+                          poc_challenge_interval => 30,
+                          h3_exclusion_ring_dist => 2,
+                          h3_max_grid_distance => 13,
+                          h3_neighbor_res => 12
                          }),
 
     InitialVars = [ VTxn ],
