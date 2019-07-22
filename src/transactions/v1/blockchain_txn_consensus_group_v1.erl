@@ -149,7 +149,10 @@ is_valid(Txn, Chain) ->
                             _ -> throw({error, {wrong_members_size, N, length(Members)}})
                         end,
                         Hash = blockchain_block:hash_block(Block),
-                        verify_proof(Proof, Members, Hash, Delay, OldLedger);
+                        case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
+                            ok -> ok;
+                            {error, _} = VerifyErr -> throw(VerifyErr)
+                        end;
                     _ ->
                         throw({error, {election_too_early, TxnHeight, LastElectionHeight}})
                 end,
