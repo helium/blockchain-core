@@ -32,8 +32,6 @@
 -type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
 -type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
 
--define(MAX_CHALLENGE_HEIGHT, 30).
-
 -export_type([txn_poc_receipts/0]).
 
 %%--------------------------------------------------------------------
@@ -160,7 +158,8 @@ is_valid(Txn, Chain) ->
                                                 {error, _}=Error ->
                                                     Error;
                                                 {ok, Block1} ->
-                                                    case LastChallenge + ?MAX_CHALLENGE_HEIGHT >= Height of
+                                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                                                    case LastChallenge + PoCInterval >= Height of
                                                         false ->
                                                             {error, challenge_too_old};
                                                         true ->

@@ -22,15 +22,12 @@
     fee/1,
     sign/2,
     is_valid/2,
-    absorb/2,
-    challenge_interval/0
+    absorb/2
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
--define(CHALLENGE_INTERVAL, 30).
 
 -type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
@@ -156,7 +153,8 @@ is_valid(Txn, Chain) ->
                         _Location ->
                             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                             LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(Info),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - ?CHALLENGE_INTERVAL) of
+                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
                                 false ->
                                     {error, too_many_challenges};
                                 true ->
@@ -165,7 +163,7 @@ is_valid(Txn, Chain) ->
                                         {error, _}=Error ->
                                             Error;
                                         {ok, Block1} ->
-                                            case (blockchain_block:height(Block1) + ?CHALLENGE_INTERVAL) > (Height+1) of
+                                            case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
                                                 false ->
                                                     {error, replaying_request};
                                                 true ->
@@ -200,14 +198,6 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec challenge_interval() -> ?CHALLENGE_INTERVAL.
-challenge_interval() ->
-    ?CHALLENGE_INTERVAL.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
