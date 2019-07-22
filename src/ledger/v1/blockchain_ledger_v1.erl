@@ -18,7 +18,7 @@
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
-    process_epoch/2,
+    process_delayed_txns/3,
 
     active_gateways/1,
     entries/1,
@@ -374,33 +374,60 @@ election_epoch(Epoch, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?ELECTION_EPOCH, Bin).
 
-%% this is called outside of absorb context, so we need to set up the
-%% context in order for the writes to work correctly
-process_epoch(Epoch, Ledger0) ->
-    lager:info("processing epoch ~p", [Epoch]),
-    Ledger = new_context(Ledger0),
-
+process_delayed_txns(Block, Ledger, Chain) ->
+    lager:info("processing block ~p", [Block]),
     DefaultCF = default_cf(Ledger),
-    process_threshold_txns(DefaultCF, Ledger),
+    ok = process_threshold_txns(DefaultCF, Ledger, Chain),
     PendingTxns =
-        case cache_get(Ledger, DefaultCF, epoch_name(Epoch), []) of
+        case cache_get(Ledger, DefaultCF, block_name(Block), []) of
             {ok, BP} ->
                 binary_to_term(BP);
             not_found ->
                 []
-                %% Error ->  % just gonna function clause for now
-                %%     %% since this could cause a fork, should we exception
-                %%     %% here and hope an eventual retry will work?
-                %%     []
+                %% function clause on error for now since this could
+                %% cause a fork, should we exception here and hope an
+                %% eventual retry will work?
         end,
     lists:foreach(
       fun(Hash) ->
               {ok, Bin} = cache_get(Ledger, DefaultCF, Hash, []),
               {Type, Txn} = binary_to_term(Bin),
-              ok = Type:delayed_absorb(Txn, Ledger)
+              lager:info("processing ~p ~p", [Type, Txn]),
+              case Type:delayed_absorb(Txn, Ledger) of
+                  ok ->
+                      cache_delete(Ledger, DefaultCF, Hash);
+                  {error, Reason} ->
+                      lager:error("problem applying delayed txn: ~p", [Reason]),
+                      error(bad_delayed_txn)
+              end
       end,
       PendingTxns),
-    ok = commit_context(Ledger).
+    ok.
+
+delay_vars(Effective, Vars, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    %% save the vars txn to disk
+    Hash = blockchain_txn_vars_v1:hash(Vars),
+    cache_put(Ledger, DefaultCF, Hash, term_to_binary({blockchain_txn_vars_v1, Vars})),
+    %% somehow register with epoch processing
+    PendingTxns =
+        case cache_get(Ledger, DefaultCF, block_name(Effective), []) of
+            {ok, BP} ->
+                binary_to_term(BP);
+            not_found ->
+                []
+            %% Error ->  % just gonna function clause for now
+            %%     %% since this could cause a fork, should we exception
+            %%     %% here and hope an eventual retry will work?
+            %%     []
+        end,
+    PendingTxns1 = PendingTxns ++ [Hash],
+    lager:info("storing ~p", [PendingTxns1]),
+    cache_put(Ledger, DefaultCF, block_name(Effective),
+              term_to_binary(PendingTxns1)).
+
+block_name(Block) ->
+    <<"$block_", (integer_to_binary(Block))/binary>>.
 
 -spec save_threshold_txn(blockchain_txn_vars_v1:txn_vars(), ledger()) ->  ok | {error, any()}.
 save_threshold_txn(Txn, Ledger) ->
@@ -415,8 +442,8 @@ threshold_name(Txn) ->
 
      <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
 
-process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger) ->
-    [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger) of
+process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
+    [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger, Chain) of
          false -> ok;
          true -> cache_delete(Ledger, CF, threshold_name(Txn))
      end
@@ -1181,31 +1208,6 @@ add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
     Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Nonce),
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
     cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin).
-
-delay_vars(Effective, Vars, Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    %% save the vars txn to disk
-    Hash = blockchain_txn_vars_v1:hash(Vars),
-    cache_put(Ledger, DefaultCF, Hash, term_to_binary({blockchain_txn_vars_v1, Vars})),
-    %% somehow register with epoch processing
-    PendingTxns =
-        case cache_get(Ledger, DefaultCF, epoch_name(Effective), []) of
-            {ok, BP} ->
-                binary_to_term(BP);
-            not_found ->
-                []
-            %% Error ->  % just gonna function clause for now
-            %%     %% since this could cause a fork, should we exception
-            %%     %% here and hope an eventual retry will work?
-            %%     []
-        end,
-    PendingTxns1 = PendingTxns ++ [Hash],
-    cache_put(Ledger, DefaultCF, epoch_name(Effective),
-              term_to_binary(PendingTxns1)).
-
-epoch_name(Epoch) ->
-    <<"$epoch_", (integer_to_binary(Epoch))/binary>>.
-
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -38,7 +38,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    {VTxn, _Config} = blockchain_ct_utils:create_vars(
+    {VTxn, Keys} = blockchain_ct_utils:create_vars(
                         #{
                           num_consensus_members => 7,
                           monthly_reward => 50000 * 1000000,
@@ -85,7 +85,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    {ok, ConsensusMembers}.
+    {ok, ConsensusMembers, Keys}.
 
 generate_keys(N) ->
     generate_keys(N, ecc_compact).

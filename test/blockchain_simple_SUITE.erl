@@ -24,7 +24,8 @@
     block_save_failed_test/1,
     absorb_failed_test/1,
     epoch_reward_test/1,
-    election_test/1
+    election_test/1,
+    chain_vars_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -55,7 +56,8 @@ all() ->
         block_save_failed_test,
         absorb_failed_test,
         epoch_reward_test,
-        election_test
+        election_test,
+        chain_vars_test
     ].
 
 %%--------------------------------------------------------------------
@@ -66,7 +68,7 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
-    {ok, ConsensusMembers} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -91,7 +93,8 @@ init_per_testcase(TestCase, Config) ->
         {chain, Chain},
         {swarm, Swarm},
         {n, N},
-        {consensus_members, ConsensusMembers}
+        {consensus_members, ConsensusMembers},
+        Keys
         | Config
     ].
 
@@ -1103,4 +1106,47 @@ election_test(Config) ->
 
     ?assertEqual(1, length(New -- OldGroup)),
 
+    ok.
+
+chain_vars_test(Config) ->
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    {Priv, _} = proplists:get_value(master_key, Config),
+    N = proplists:get_value(n, Config),
+
+    Ledger = blockchain:ledger(Chain),
+
+    Vars = #{chain_var => foo},
+
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
+
+    ct:pal("priv_key ~p", [Priv]),
+
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+
+
+    InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, N, self()),
+
+    {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
+    ct:pal("commit delay ~p", [Delay]),
+    %% Add some blocks,
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+                {ok, Height} = blockchain:height(Chain),
+                case blockchain:config(chain_var, Ledger) of
+                    {error, not_found} when Height < (Delay + 1) ->
+                        ok;
+                    {ok, foo} when Height >= (Delay + 1) ->
+                        ok;
+                    Res ->
+                        throw({error, {chain_var_wrong_height, Res, Height}})
+                end
+        end,
+        lists:seq(1, 15)
+    ),
+    ?assertEqual({ok, 17}, blockchain:height(Chain)),
     ok.

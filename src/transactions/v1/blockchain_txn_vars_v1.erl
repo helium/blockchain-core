@@ -29,7 +29,7 @@
 %% helper API
 -export([
          create_proof/2,
-         maybe_absorb/2,
+         maybe_absorb/3,
          delayed_absorb/2
         ]).
 
@@ -276,14 +276,14 @@ absorb(Txn, Chain) ->
     %% if we cannot absorb the full txn right now.
     ok = blockchain_ledger_v1:vars_nonce(nonce(Txn), Ledger),
 
-    case maybe_absorb(Txn, Ledger) of
+    case maybe_absorb(Txn, Ledger, Chain) of
         true ->
             ok;
         false ->
-            blockchain_ledger_v1:save_threshold_txn(Txn, Ledger)
+            ok = blockchain_ledger_v1:save_threshold_txn(Txn, Ledger)
     end.
 
-maybe_absorb(Txn, Ledger) ->
+maybe_absorb(Txn, Ledger, Chain) ->
     %% the sorting order makes sure that this txn will be sorted after
     %% any epoch change so this will result in deterministic delay
     case blockchain_ledger_v1:current_height(Ledger) of
@@ -292,9 +292,9 @@ maybe_absorb(Txn, Ledger) ->
             delayed_absorb(Txn, Ledger),
             true;
         _ ->
-            {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
+            {ok, Height} = blockchain:height(Chain),
             {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
-            Effective = Delay + Epoch,
+            Effective = Delay + Height,
             case version_predicate(Txn) of
                 0 ->
                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
