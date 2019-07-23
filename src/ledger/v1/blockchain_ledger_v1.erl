@@ -103,6 +103,8 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 
+-define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
+
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
@@ -472,17 +474,16 @@ scan_threshold_txns(CF, DB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
-active_gateways(#ledger_v1{db=DB}=Ledger) ->
+active_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         AGwsCF,
         fun({Address, Binary}, Acc) ->
             Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
             maps:put(Address, Gw, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -490,17 +491,16 @@ active_gateways(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec entries(ledger()) -> entries().
-entries(#ledger_v1{db=DB}=Ledger) ->
+entries(Ledger) ->
     EntriesCF = entries_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -508,17 +508,16 @@ entries(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec htlcs(ledger()) -> htlcs().
-htlcs(#ledger_v1{db=DB}=Ledger) ->
+htlcs(Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         HTLCsCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 master_key(Ledger) ->
@@ -966,17 +965,16 @@ check_balance(Address, Amount, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec securities(ledger()) -> securities().
-securities(#ledger_v1{db=DB}=Ledger) ->
+securities(Ledger) ->
     SecuritiesCF = securities_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         SecuritiesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_security_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -1345,6 +1343,9 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);
                 [{CF, CFCache}] ->
                     case maps:find(Key, CFCache) of
+                        {ok, ?CACHE_TOMBSTONE} ->
+                            %% deleted in the cache
+                            not_found;
                         {ok, Value} ->
                             {ok, Value};
                         error ->
@@ -1364,9 +1365,40 @@ cache_delete(Ledger, CF, Key) ->
         [] ->
             ok;
         [{CF, CFCache}] ->
-            ets:insert(Cache, {CF, maps:remove(Key, CFCache)})
+            ets:insert(Cache, {CF, maps:put(Key, ?CACHE_TOMBSTONE, CFCache)})
     end,
     rocksdb:batch_delete(Context, CF, Key).
+
+cache_fold(Ledger, CF, Fun, Acc) ->
+    case context_cache(Ledger) of
+        {_, undefined} ->
+            %% fold rocks directly
+            rocks_fold(Ledger, CF, Fun, Acc);
+        {_Context, Cache} ->
+            case ets:lookup(Cache, CF) of
+                [] ->
+                    %% fold rocks directly
+                    rocks_fold(Ledger, CF, Fun, Acc);
+                [{CF, CFCache}] ->
+                    %% fold using the cache wrapper
+                    rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), Acc)
+            end
+    end.
+
+rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
+    rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
+
+mk_cache_fold_fun(CFCache, Fun) ->
+    fun({Key, Value}, Acc) ->
+            case maps:find(Key, CFCache) of
+                {ok, ?CACHE_TOMBSTONE} ->
+                    Acc;
+                {ok, CacheValue} ->
+                    Fun({Key, CacheValue}, Acc);
+                error ->
+                    Fun({Key, Value}, Acc)
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -802,7 +802,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
                           blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
     blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger1.
+    Ledger.
 
 unload_meck() ->
     ?assert(meck:validate(blockchain_swarm)),
