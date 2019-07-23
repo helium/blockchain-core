@@ -10,12 +10,13 @@
 -include("pb/blockchain_txn_token_burn_v1_pb.hrl").
 
   -export([
-    new/2, new/3,
+    new/3, new/4,
     hash/1,
     type/1,
     payer/1,
     key/1,
     amount/1,
+    nonce/1,
     fee/1,
     signature/1,
     sign/2,
@@ -34,23 +35,25 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(),  pos_integer()) -> txn_token_burn().
-new(Payer, Amount) ->
+-spec new(libp2p_crypto:pubkey_bin(),  pos_integer(), pos_integer()) -> txn_token_burn().
+new(Payer, Amount, Nonce) ->
     #blockchain_txn_token_burn_v1_pb{
         type=account,
         payer=Payer,
         amount=Amount,
+        nonce=Nonce,
         signature = <<>>
     }.
 
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), libp2p_crypto:pubkey_bin()) -> txn_token_burn().
-new(Payer, Amount, Key) ->
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), libp2p_crypto:pubkey_bin()) -> txn_token_burn().
+new(Payer, Amount, Nonce, Key) ->
     #blockchain_txn_token_burn_v1_pb{
         type=channel,
         payer=Payer,
         key=Key,
         amount=Amount,
+        nonce=Nonce,
         signature = <<>>
     }.
 
@@ -72,7 +75,7 @@ hash(Txn) ->
 type(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.type.
 
- %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
@@ -88,13 +91,21 @@ payer(Txn) ->
 key(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.key.
 
- %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec amount(txn_token_burn()) -> pos_integer().
 amount(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.amount.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(txn_token_burn()) -> pos_integer().
+nonce(Txn) ->
+    Txn#blockchain_txn_token_burn_v1_pb.nonce.
 
  %%--------------------------------------------------------------------
 %% @doc
@@ -162,18 +173,13 @@ absorb(Txn, Chain) ->
         {ok, Rate} ->
             Amount = ?MODULE:amount(Txn),
             Payer = ?MODULE:payer(Txn),
-            case blockchain_ledger_v1:find_entry(Payer, Ledger) of
-                {error, _}=Error ->
+            Nonce = ?MODULE:nonce(Txn),
+            case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
                     Error;
-                {ok, Entry} ->
-                    Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-                    case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        ok ->
-                            Credits = Amount * Rate,
-                            blockchain_ledger_v1:credit_dc(Payer, Credits, Ledger)
-                    end
+                ok ->
+                    Credits = Amount * Rate,
+                    blockchain_ledger_v1:credit_dc(Payer, Credits, Ledger)
             end
     end.
 
@@ -188,37 +194,42 @@ absorb(Txn, Chain) ->
         payer= <<"payer">>,
         key = <<>>,
         amount=666,
+        nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, 666)).
+    ?assertEqual(Tx, new(<<"payer">>, 666, 1)).
 
 type_test() ->
-    Tx0 = new(<<"payer">>, 666),
+    Tx0 = new(<<"payer">>, 666, 1),
     ?assertEqual(account, type(Tx0)),
-    Tx1 = new(<<"payer">>, 666, <<"key">>),
+    Tx1 = new(<<"payer">>, 666, 1, <<"key">>),
     ?assertEqual(channel, type(Tx1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, 666),
+    Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 key_test() ->
-    Tx0 = new(<<"payer">>, 666),
+    Tx0 = new(<<"payer">>, 666, 1),
     ?assertEqual(<<>>, key(Tx0)),
-    Tx1 = new(<<"payer">>, 666, <<"key">>),
+    Tx1 = new(<<"payer">>, 666, 1, <<"key">>),
     ?assertEqual(<<"key">>, key(Tx1)).
 
 amount_test() ->
-    Tx = new(<<"payer">>, 666),
+    Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(666, amount(Tx)).
 
+nonce_test() ->
+    Tx = new(<<"payer">>, 666, 1),
+    ?assertEqual(1, nonce(Tx)).
+
 signature_test() ->
-    Tx = new(<<"payer">>, 666),
+    Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, 666),
+    Tx0 = new(<<"payer">>, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
