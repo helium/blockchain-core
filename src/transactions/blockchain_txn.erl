@@ -186,10 +186,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit) ->
                     Ledger2 = blockchain:ledger(Chain2),
                     case BeforeCommit() of
                          ok ->
-                            ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger2, Chain2),
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
-                            Versions = blockchain_ledger_v1:gateway_versions(Ledger2),
-                            lager:info("real ledger versions ~p", [Versions]),
                             absorb_delayed(Block, Chain0);
                        Any ->
                             Any
@@ -215,6 +212,7 @@ absorb_block(Block, Chain) ->
         ok ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
+            ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger2, Chain2),
             {ok, Chain};
         Error ->
             Error
