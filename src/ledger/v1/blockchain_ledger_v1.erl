@@ -424,7 +424,6 @@ delay_vars(Effective, Vars, Ledger) ->
             %%     []
         end,
     PendingTxns1 = PendingTxns ++ [Hash],
-    lager:info("storing ~p", [PendingTxns1]),
     cache_put(Ledger, DefaultCF, block_name(Effective),
               term_to_binary(PendingTxns1)).
 
@@ -436,7 +435,6 @@ save_threshold_txn(Txn, Ledger) ->
     DefaultCF = default_cf(Ledger),
     Bin = term_to_binary(Txn),
     Name = threshold_name(Txn),
-    lager:info("saving threshold txn ~p", [Name]),
     cache_put(Ledger, DefaultCF, Name, Bin).
 
 threshold_name(Txn) ->
@@ -466,7 +464,6 @@ scan_threshold_txns(CF, DB) ->
                  Value = binary_to_term(BValue),
                  Scan(rocksdb:iterator_move(Itr, next), [Value | Acc])
          end)(Start, []),
-    lager:info("scanned ~p", [L]),
     lists:reverse(L).
 
 %%--------------------------------------------------------------------
@@ -682,7 +679,6 @@ gateway_versions(Ledger) ->
           end,
          #{},
           Gateways),
-    lager:info("versions ~p", [Versions]),
     L = maps:to_list(Versions),
     Tot = lists:sum([Ct || {_V, Ct} <- L]),
 
@@ -795,7 +791,6 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
                 ok ->
                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height+1, Gw0),
-                    lager:info("updated gateway with new last poc ~p", [Height+1]),
                     Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
                     GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
                     AGwsCF = active_gateways_cf(Ledger),

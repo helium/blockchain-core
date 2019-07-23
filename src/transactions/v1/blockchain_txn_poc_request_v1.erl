@@ -191,7 +191,6 @@ absorb(Txn, Chain) ->
             Gw1 = blockchain_ledger_gateway_v1:version(Version, Gw),
             case blockchain_ledger_v1:update_gateway(Gw1, Challenger, Ledger) of
                 ok ->
-                    lager:info("updated gateway with new version ~p ~p", [Gw, Version]),
                     SecretHash = ?MODULE:secret_hash(Txn),
                     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
                     blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, Ledger)
