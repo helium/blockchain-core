@@ -239,7 +239,8 @@ edge_weight(A1, Gw1, A2, Gw2, Height, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec target(Hash :: binary(),
-             Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> {libp2p_crypto:pubkey_bin(), map()}.
+             Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->
+                    {libp2p_crypto:pubkey_bin(), map()} | no_target.
 target(Hash, Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActiveGateways = active_gateways(Ledger, Challenger),
