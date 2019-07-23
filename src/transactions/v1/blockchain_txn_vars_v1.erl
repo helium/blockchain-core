@@ -300,16 +300,13 @@ maybe_absorb(Txn, Ledger, Chain) ->
                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                     true;
                 V ->
-                    lager:info("checking threshold"),
                     {ok, Threshold} = blockchain:config(predicate_threshold, Ledger),
                     Versions = blockchain_ledger_v1:gateway_versions(Ledger),
                     case sum_higher(V, Versions) of
                         Pct when Pct >= Threshold ->
-                            lager:info("got ~p >= ~p", [Pct, Threshold]),
                             ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                             true;
-                        _Pct ->
-                            lager:info("got ~p < ~p", [_Pct, Threshold]),
+                        _ ->
                             false
                     end
             end

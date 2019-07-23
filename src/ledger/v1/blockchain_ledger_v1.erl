@@ -112,6 +112,8 @@
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
 
+-define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
+
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
@@ -463,7 +465,6 @@ delay_vars(Effective, Vars, Ledger) ->
             %%     []
         end,
     PendingTxns1 = PendingTxns ++ [Hash],
-    lager:info("storing ~p", [PendingTxns1]),
     cache_put(Ledger, DefaultCF, block_name(Effective),
               term_to_binary(PendingTxns1)).
 
@@ -475,7 +476,6 @@ save_threshold_txn(Txn, Ledger) ->
     DefaultCF = default_cf(Ledger),
     Bin = term_to_binary(Txn),
     Name = threshold_name(Txn),
-    lager:info("saving threshold txn ~p", [Name]),
     cache_put(Ledger, DefaultCF, Name, Bin).
 
 threshold_name(Txn) ->
@@ -505,7 +505,6 @@ scan_threshold_txns(CF, DB) ->
                  Value = binary_to_term(BValue),
                  Scan(rocksdb:iterator_move(Itr, next), [Value | Acc])
          end)(Start, []),
-    lager:info("scanned ~p", [L]),
     lists:reverse(L).
 
 %%--------------------------------------------------------------------
@@ -513,17 +512,16 @@ scan_threshold_txns(CF, DB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
-active_gateways(#ledger_v1{db=DB}=Ledger) ->
+active_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         AGwsCF,
         fun({Address, Binary}, Acc) ->
             Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
             maps:put(Address, Gw, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -531,17 +529,16 @@ active_gateways(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec entries(ledger()) -> entries().
-entries(#ledger_v1{db=DB}=Ledger) ->
+entries(Ledger) ->
     EntriesCF = entries_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -549,17 +546,16 @@ entries(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec htlcs(ledger()) -> htlcs().
-htlcs(#ledger_v1{db=DB}=Ledger) ->
+htlcs(Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         HTLCsCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -738,7 +734,6 @@ gateway_versions(Ledger) ->
           end,
          #{},
           Gateways),
-    lager:info("versions ~p", [Versions]),
     L = maps:to_list(Versions),
     Tot = lists:sum([Ct || {_V, Ct} <- L]),
 
@@ -851,7 +846,6 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
                 ok ->
                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height+1, Gw0),
-                    lager:info("updated gateway with new last poc ~p", [Height+1]),
                     Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
                     GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
                     AGwsCF = active_gateways_cf(Ledger),
@@ -1110,17 +1104,16 @@ token_burn_exchange_rate(Rate, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec securities(ledger()) -> securities().
-securities(#ledger_v1{db=DB}=Ledger) ->
+securities(Ledger) ->
     SecuritiesCF = securities_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         SecuritiesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_security_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -1501,6 +1494,9 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);
                 [{CF, CFCache}] ->
                     case maps:find(Key, CFCache) of
+                        {ok, ?CACHE_TOMBSTONE} ->
+                            %% deleted in the cache
+                            not_found;
                         {ok, Value} ->
                             {ok, Value};
                         error ->
@@ -1520,9 +1516,40 @@ cache_delete(Ledger, CF, Key) ->
         [] ->
             ok;
         [{CF, CFCache}] ->
-            ets:insert(Cache, {CF, maps:remove(Key, CFCache)})
+            ets:insert(Cache, {CF, maps:put(Key, ?CACHE_TOMBSTONE, CFCache)})
     end,
     rocksdb:batch_delete(Context, CF, Key).
+
+cache_fold(Ledger, CF, Fun, Acc) ->
+    case context_cache(Ledger) of
+        {_, undefined} ->
+            %% fold rocks directly
+            rocks_fold(Ledger, CF, Fun, Acc);
+        {_Context, Cache} ->
+            case ets:lookup(Cache, CF) of
+                [] ->
+                    %% fold rocks directly
+                    rocks_fold(Ledger, CF, Fun, Acc);
+                [{CF, CFCache}] ->
+                    %% fold using the cache wrapper
+                    rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), Acc)
+            end
+    end.
+
+rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
+    rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
+
+mk_cache_fold_fun(CFCache, Fun) ->
+    fun({Key, Value}, Acc) ->
+            case maps:find(Key, CFCache) of
+                {ok, ?CACHE_TOMBSTONE} ->
+                    Acc;
+                {ok, CacheValue} ->
+                    Fun({Key, CacheValue}, Acc);
+                error ->
+                    Fun({Key, Value}, Acc)
+            end
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

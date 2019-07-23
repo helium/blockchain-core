@@ -143,8 +143,6 @@ is_valid(Txn, Chain) ->
                         Proof = binary_to_term(Proof0),
                         EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
-                        lager:info("ledger ~p", [lager:pr(Ledger, blockchain_ledger_v1)]),
-                        lager:info("old ledger ~p", [lager:pr(OldLedger, blockchain_ledger_v1)]),
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                         {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
                         %% The next election should occur within RestartInterval blocks of when the election started
