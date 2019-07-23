@@ -1376,7 +1376,8 @@ cache_fold(Ledger, CF, Fun, Acc) ->
                     rocks_fold(Ledger, CF, Fun, Acc);
                 [{CF, CFCache}] ->
                     %% fold using the cache wrapper
-                    rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), Acc)
+                    {TrailingKeys, Res0} = rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), {lists:usort(maps:keys(CFCache)), Acc}),
+                    process_fun(TrailingKeys, CFCache, Fun, Res0)
             end
     end.
 
@@ -1384,16 +1385,27 @@ rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
     rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
 
 mk_cache_fold_fun(CFCache, Fun) ->
-    fun({Key, Value}, Acc) ->
+    %% we want to preserve rocksdb order, but we assume it's normal lexiographic order
+    fun({Key, Value}, {CacheKeys, Acc0}) ->
+            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc0),
             case maps:find(Key, CFCache) of
                 {ok, ?CACHE_TOMBSTONE} ->
-                    Acc;
+                    {NewCacheKeys, Acc};
                 {ok, CacheValue} ->
-                    Fun({Key, CacheValue}, Acc);
+                    {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
                 error ->
-                    Fun({Key, Value}, Acc)
+                    {NewCacheKeys, Fun({Key, Value}, Acc)}
             end
     end.
+
+process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc) ->
+    {ToProcess, [Key|Remaining]} = lists:splitwith(fun(E) -> E < Key end, CacheKeys),
+    {Remaining, process_fun(ToProcess, CFCache, Fun, Acc)}.
+
+process_fun(ToProcess, CFCache, Fun, Acc) ->
+    lists:foldl(fun(K, A) ->
+                        Fun({K, maps:get(K, CFCache)}, A)
+                end, Acc, ToProcess).
 
 %%--------------------------------------------------------------------
 %% @doc
