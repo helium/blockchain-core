@@ -635,10 +635,6 @@ vars_nonce(NewNonce, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?VARS_NONCE, term_to_binary(NewNonce)).
 
-%% need to prefix to keep people from messing with existing names on accident
-var_name(Name) ->
-    <<"$var_", (atom_to_binary(Name, utf8))/binary>>.
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
