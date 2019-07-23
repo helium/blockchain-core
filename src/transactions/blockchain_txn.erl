@@ -355,6 +355,8 @@ absorb_delayed_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, Chain1} ->
             Ledger = blockchain:ledger(Chain1),
+            %% {ok, Height} = blockchain_block:height(Block),
+            %% ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain1),
             ok = blockchain_ledger_v1:commit_context(Ledger);
         Error ->
             Ledger = blockchain:ledger(Chain0),

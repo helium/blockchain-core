@@ -131,7 +131,7 @@ is_valid(Txn, Chain) ->
                 case TxnHeight >= LastElectionHeight + ElectionInterval  of
                     true ->
                         Proof = binary_to_term(Proof0),
-                        EffectiveHeight = TxnHeight + Delay,
+                        EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                         {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
