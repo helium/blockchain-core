@@ -618,12 +618,51 @@ export_test(Config) ->
     Block2 = test_utils:create_block(ConsensusMembers, Txns1),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
+    % Step 2: Add exchange rate to ledger
+    Ledger = blockchain:ledger(Chain),
+    Rate = 1000000,
+    {Priv, _} = proplists:get_value(master_key, Config),
+    Vars = #{token_burn_exchange_rate => Rate},
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+    Block3 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+        end,
+        lists:seq(1, 20)
+    ),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+
+    %% Step 3
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer1, 10, 2),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
+    FailedBlock = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, N, self()),
+
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     timer:sleep(500),
 
-    [{securities, Securities}, {accounts, Accounts}, {gateways, Gateways}] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
+    [{securities, Securities},
+     {accounts, Accounts},
+     {gateways, Gateways},
+     {dcs, DCs}
+    ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
+
+    %% check DC balance for Payer1
+    [[{address, A}, {dc_balance, DCBalance}]] = DCs,
+    ?assertEqual(A, libp2p_crypto:bin_to_b58(Payer1)),
+    ?assertEqual(DCBalance, Rate*10),
 
     %% we added this after we add all of the existing gateways in the
     %% genesis block with nonce 0.  we filter those out to make sure
@@ -1174,7 +1213,7 @@ token_burn_test(Config) ->
 
     % Step 1: Simple payment txn with no fees
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1), 
+    Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SignedTx0 = blockchain_txn_payment_v1:sign(Tx0, SigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedTx0]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
@@ -1238,7 +1277,7 @@ token_burn_test(Config) ->
 
     % Step 5: Try payment txn with fee this time
     Fee = 10,
-    Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3), 
+    Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3),
     SignedTx1 = blockchain_txn_payment_v1:sign(Tx1, SigFun),
     Block25 = test_utils:create_block(ConsensusMembers, [SignedTx1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),

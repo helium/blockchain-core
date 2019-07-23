@@ -9,22 +9,15 @@
     export/1
 ]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec export(blockchain_ledger_v1:ledger()) -> any().
 export(Ledger) ->
     [
         {securities, export_securities(Ledger)},
         {accounts, export_accounts(Ledger)},
-        {gateways, export_gateways(Ledger)}
+        {gateways, export_gateways(Ledger)},
+        {dcs, export_dcs(Ledger)}
     ].
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec export_accounts(blockchain_ledger_v1:ledger()) -> list().
 export_accounts(Ledger) ->
     lists:foldl(
@@ -36,10 +29,6 @@ export_accounts(Ledger) ->
         maps:to_list(blockchain_ledger_v1:entries(Ledger))
     ).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec export_gateways(blockchain_ledger_v1:ledger()) -> list().
 export_gateways(Ledger) ->
     lists:foldl(
@@ -53,10 +42,6 @@ export_gateways(Ledger) ->
         maps:to_list(blockchain_ledger_v1:active_gateways(Ledger))
     ).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec export_securities(blockchain_ledger_v1:ledger()) -> list().
 export_securities(Ledger) ->
     lists:foldl(
@@ -66,4 +51,15 @@ export_securities(Ledger) ->
         end,
         [],
         maps:to_list(blockchain_ledger_v1:securities(Ledger))
+    ).
+
+-spec export_dcs(blockchain_ledger_v1:ledger()) -> list().
+export_dcs(Ledger) ->
+    lists:foldl(
+        fun({Address, DCEntry}, Acc) ->
+            [[{address, libp2p_crypto:bin_to_b58(Address)},
+              {dc_balance, blockchain_ledger_data_credits_entry_v1:balance(DCEntry)}] | Acc]
+        end,
+        [],
+        maps:to_list(blockchain_ledger_v1:dc_entries(Ledger))
     ).

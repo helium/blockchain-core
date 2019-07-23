@@ -47,6 +47,7 @@
     credit_account/3, debit_account/4,
     check_balance/3,
 
+    dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
     debit_fee/3,
@@ -117,6 +118,7 @@
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
+-type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
@@ -534,6 +536,19 @@ entries(Ledger) ->
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_entry_v1:deserialize(Binary),
+            maps:put(Address, Entry, Acc)
+        end,
+        #{}
+    ).
+
+-spec dc_entries(ledger()) -> dc_entries().
+dc_entries(Ledger) ->
+    DCEntriesCF = dc_entries_cf(Ledger),
+    cache_fold(
+        Ledger,
+        DCEntriesCF,
+        fun({Address, Binary}, Acc) ->
+            Entry = blockchain_ledger_data_credits_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
         #{}
