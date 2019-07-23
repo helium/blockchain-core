@@ -73,26 +73,26 @@ fee(_Txn) ->
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> ok | {error, any()}.
-is_valid(Txn, _Chain) ->
-    Amount = ?MODULE:rate(Txn),
-    case Amount > 0 of
-        true ->
-            ok;
-        false ->
-            {error, zero_or_negative_rate}
-    end.
+-spec is_valid(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> {error, any()}.
+is_valid(_Txn, _Chain) ->
+    {error, not_implemented}.
+    % Amount = ?MODULE:rate(Txn),
+    % case Amount > 0 of
+    %     true ->
+    %         ok;
+    %     false ->
+    %         {error, zero_or_negative_rate}
+    % end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(_Txn, _Chain) ->
-    % Ledger = blockchain:ledger(Chain),
-    % Rate = ?MODULE:rate(Txn),
-    % blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger).
-    ok.
+absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Rate = ?MODULE:rate(Txn),
+    blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
