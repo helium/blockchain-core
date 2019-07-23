@@ -6,6 +6,7 @@
         ]).
 
 new_group(Ledger, Hash, Size, Delay) ->
+    lager:info("ledger ~p", [lager:pr(Ledger, blockchain_ledger_v1)]),
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
@@ -42,6 +43,8 @@ new_group(Ledger, Hash, Size, Delay) ->
 
     PoCInterval = blockchain_utils:challenge_interval(Ledger),
 
+    lager:info("apparent height ~p requested size ~p", [Height, Size]),
+
     %% annotate with score while removing dupes
     {OldGroupScored, GatewaysScored} =
         maps:fold(
@@ -49,7 +52,7 @@ new_group(Ledger, Hash, Size, Delay) ->
                   Last0 = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
                   {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, Gw, Height, Ledger),
                   Last = Height - Last0,
-                  lager:info("last ~p ~p", [Addr, Last]),
+                  lager:info("last ~p ~p ~p", [Addr, Last, lager:pr(Gw, blockchain_ledger_gateway_v1)]),
                   Missing = Last > 3 * PoCInterval,
                   case lists:member(Addr, OldGroup0) of
                       true ->
