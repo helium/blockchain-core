@@ -1553,7 +1553,10 @@ mk_cache_fold_fun(CFCache, Fun) ->
     end.
 
 process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc) ->
-    {ToProcess, [Key|Remaining]} = lists:splitwith(fun(E) -> E < Key end, CacheKeys),
+    case lists:splitwith(fun(E) -> E < Key end, CacheKeys) of
+        {ToProcess, [Key|Remaining]} -> ok;
+        {ToProcess, Remaining} -> ok
+    end,
     {Remaining, process_fun(ToProcess, CFCache, Fun, Acc)}.
 
 process_fun(ToProcess, CFCache, Fun, Acc) ->
