@@ -239,15 +239,20 @@ edge_weight(A1, Gw1, A2, Gw2, Height, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec target(Hash :: binary(),
-             Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> {libp2p_crypto:pubkey_bin(), map()}.
+             Ledger :: blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->
+                    {libp2p_crypto:pubkey_bin(), map()} | no_target.
 target(Hash, Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ActiveGateways = active_gateways(Ledger, Challenger),
     ProbsAndGatewayAddrs = create_probs(ActiveGateways, Height, Ledger),
     Entropy = entropy(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
-    Target = select_target(ProbsAndGatewayAddrs, RandVal),
-    {Target, ActiveGateways}.
+    case select_target(ProbsAndGatewayAddrs, RandVal) of
+        {ok, Target} ->
+            {Target, ActiveGateways};
+        _ ->
+            no_target
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -339,8 +344,10 @@ active_gateways(Ledger, Challenger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+select_target([], _Rnd) ->
+    no_target;
 select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 < 0 ->
-    GwAddr1;
+    {ok, GwAddr1};
 select_target([{Prob1, _GwAddr1} | Tail], Rnd) ->
     select_target(Tail, Rnd - Prob1).
 
@@ -796,7 +803,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
                           blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
     blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger1.
+    Ledger.
 
 unload_meck() ->
     ?assert(meck:validate(blockchain_swarm)),

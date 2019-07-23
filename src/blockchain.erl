@@ -340,7 +340,7 @@ add_block_(Block, Blockchain, Syncing) ->
                             ok = blockchain_worker:mismatch(),
                             {error, mismatch_ledger_chain};
                         {false, _} when HeadHash =:= Hash ->
-                            lager:info("Already have this block"),
+                            lager:debug("Already have this block"),
                             ok;
                         {false, _} ->
                             case ?MODULE:get_block(Hash, Blockchain) of

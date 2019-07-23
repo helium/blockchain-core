@@ -112,6 +112,8 @@
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
 
+-define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
+
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
@@ -416,7 +418,6 @@ election_epoch(Epoch, Ledger) ->
     cache_put(Ledger, DefaultCF, ?ELECTION_EPOCH, Bin).
 
 process_delayed_txns(Block, Ledger, Chain) ->
-    lager:info("processing block ~p", [Block]),
     DefaultCF = default_cf(Ledger),
     ok = process_threshold_txns(DefaultCF, Ledger, Chain),
     PendingTxns =
@@ -433,7 +434,6 @@ process_delayed_txns(Block, Ledger, Chain) ->
       fun(Hash) ->
               {ok, Bin} = cache_get(Ledger, DefaultCF, Hash, []),
               {Type, Txn} = binary_to_term(Bin),
-              lager:info("processing ~p ~p", [Type, Txn]),
               case Type:delayed_absorb(Txn, Ledger) of
                   ok ->
                       cache_delete(Ledger, DefaultCF, Hash);
@@ -463,7 +463,6 @@ delay_vars(Effective, Vars, Ledger) ->
             %%     []
         end,
     PendingTxns1 = PendingTxns ++ [Hash],
-    lager:info("storing ~p", [PendingTxns1]),
     cache_put(Ledger, DefaultCF, block_name(Effective),
               term_to_binary(PendingTxns1)).
 
@@ -475,13 +474,11 @@ save_threshold_txn(Txn, Ledger) ->
     DefaultCF = default_cf(Ledger),
     Bin = term_to_binary(Txn),
     Name = threshold_name(Txn),
-
     cache_put(Ledger, DefaultCF, Name, Bin).
 
 threshold_name(Txn) ->
     Nonce = blockchain_txn_vars_v1:nonce(Txn),
-
-     <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
+    <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
 
 process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
     [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger, Chain) of
@@ -513,17 +510,16 @@ scan_threshold_txns(CF, DB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
-active_gateways(#ledger_v1{db=DB}=Ledger) ->
+active_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         AGwsCF,
         fun({Address, Binary}, Acc) ->
             Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
             maps:put(Address, Gw, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -531,17 +527,16 @@ active_gateways(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec entries(ledger()) -> entries().
-entries(#ledger_v1{db=DB}=Ledger) ->
+entries(Ledger) ->
     EntriesCF = entries_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         EntriesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -549,17 +544,16 @@ entries(#ledger_v1{db=DB}=Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec htlcs(ledger()) -> htlcs().
-htlcs(#ledger_v1{db=DB}=Ledger) ->
+htlcs(Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         HTLCsCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_htlc_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -1108,17 +1102,16 @@ token_burn_exchange_rate(Rate, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec securities(ledger()) -> securities().
-securities(#ledger_v1{db=DB}=Ledger) ->
+securities(Ledger) ->
     SecuritiesCF = securities_cf(Ledger),
-    rocksdb:fold(
-        DB,
+    cache_fold(
+        Ledger,
         SecuritiesCF,
         fun({Address, Binary}, Acc) ->
             Entry = blockchain_ledger_security_entry_v1:deserialize(Binary),
             maps:put(Address, Entry, Acc)
         end,
-        #{},
-        maybe_use_snapshot(Ledger, [])
+        #{}
     ).
 
 %%--------------------------------------------------------------------
@@ -1499,6 +1492,9 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);
                 [{CF, CFCache}] ->
                     case maps:find(Key, CFCache) of
+                        {ok, ?CACHE_TOMBSTONE} ->
+                            %% deleted in the cache
+                            not_found;
                         {ok, Value} ->
                             {ok, Value};
                         error ->
@@ -1518,9 +1514,55 @@ cache_delete(Ledger, CF, Key) ->
         [] ->
             ok;
         [{CF, CFCache}] ->
-            ets:insert(Cache, {CF, maps:remove(Key, CFCache)})
+            ets:insert(Cache, {CF, maps:put(Key, ?CACHE_TOMBSTONE, CFCache)})
     end,
     rocksdb:batch_delete(Context, CF, Key).
+
+cache_fold(Ledger, CF, Fun, Acc) ->
+    case context_cache(Ledger) of
+        {_, undefined} ->
+            %% fold rocks directly
+            rocks_fold(Ledger, CF, Fun, Acc);
+        {_Context, Cache} ->
+            case ets:lookup(Cache, CF) of
+                [] ->
+                    %% fold rocks directly
+                    rocks_fold(Ledger, CF, Fun, Acc);
+                [{CF, CFCache}] ->
+                    %% fold using the cache wrapper
+                    {TrailingKeys, Res0} = rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), {lists:usort(maps:keys(CFCache)), Acc}),
+                    process_fun(TrailingKeys, CFCache, Fun, Res0)
+            end
+    end.
+
+rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
+    rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
+
+mk_cache_fold_fun(CFCache, Fun) ->
+    %% we want to preserve rocksdb order, but we assume it's normal lexiographic order
+    fun({Key, Value}, {CacheKeys, Acc0}) ->
+            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc0),
+            case maps:find(Key, CFCache) of
+                {ok, ?CACHE_TOMBSTONE} ->
+                    {NewCacheKeys, Acc};
+                {ok, CacheValue} ->
+                    {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
+                error ->
+                    {NewCacheKeys, Fun({Key, Value}, Acc)}
+            end
+    end.
+
+process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc) ->
+    case lists:splitwith(fun(E) -> E < Key end, CacheKeys) of
+        {ToProcess, [Key|Remaining]} -> ok;
+        {ToProcess, Remaining} -> ok
+    end,
+    {Remaining, process_fun(ToProcess, CFCache, Fun, Acc)}.
+
+process_fun(ToProcess, CFCache, Fun, Acc) ->
+    lists:foldl(fun(K, A) ->
+                        Fun({K, maps:get(K, CFCache)}, A)
+                end, Acc, ToProcess).
 
 %%--------------------------------------------------------------------
 %% @doc
