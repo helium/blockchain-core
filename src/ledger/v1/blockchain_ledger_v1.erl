@@ -434,13 +434,12 @@ save_threshold_txn(Txn, Ledger) ->
     DefaultCF = default_cf(Ledger),
     Bin = term_to_binary(Txn),
     Name = threshold_name(Txn),
-
+    lager:info("saving threshold txn ~p", [Name]),
     cache_put(Ledger, DefaultCF, Name, Bin).
 
 threshold_name(Txn) ->
     Nonce = blockchain_txn_vars_v1:nonce(Txn),
-
-     <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
+    <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
 
 process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
     [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger, Chain) of
@@ -465,6 +464,7 @@ scan_threshold_txns(CF, DB) ->
                  Value = binary_to_term(BValue),
                  Scan(rocksdb:iterator_move(Itr, next), [Value | Acc])
          end)(Start, []),
+    lager:info("scanned ~p", [L]),
     lists:reverse(L).
 
 %%--------------------------------------------------------------------
@@ -683,6 +683,7 @@ gateway_versions(Ledger) ->
           end,
          #{},
           Gateways),
+    lager:info("versions ~p", [Versions]),
     L = maps:to_list(Versions),
     Tot = lists:sum([Ct || {_V, Ct} <- L]),
 
