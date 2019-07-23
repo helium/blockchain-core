@@ -851,6 +851,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
                 ok ->
                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                     Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height+1, Gw0),
+                    lager:info("updated gateway with new last poc ~p", [Height+1]),
                     Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
                     GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
                     AGwsCF = active_gateways_cf(Ledger),
