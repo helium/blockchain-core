@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Transaction TOken Burn Exchange Rate ==
+%% == Blockchain Transaction Token Burn Exchange Rate ==
+%% This is a placeholder, Token Burn Exchange Rate is a chain var for now whne ready it will be a transaction again.
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_token_burn_exchange_rate_v1).
@@ -87,10 +88,11 @@ is_valid(Txn, _Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_token_burn_exchange_rate(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Rate = ?MODULE:rate(Txn),
-    blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger).
+absorb(_Txn, _Chain) ->
+    % Ledger = blockchain:ledger(Chain),
+    % Rate = ?MODULE:rate(Txn),
+    % blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger).
+    ok.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

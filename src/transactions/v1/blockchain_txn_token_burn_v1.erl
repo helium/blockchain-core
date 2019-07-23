@@ -140,7 +140,7 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            case blockchain_ledger_v1:token_burn_exchange_rate(Ledger) of
+            case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 {ok, _Rate} ->
@@ -156,7 +156,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:token_burn_exchange_rate(Ledger) of
+    case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
         {error, _Reason}=Error ->
             Error;
         {ok, Rate} ->

@@ -1203,18 +1203,34 @@ token_burn_test(Config) ->
 
     % Step 3: Add exchange rate to ledger
     Rate = 1000000,
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    ok = blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger1),
-    ok = blockchain_ledger_v1:commit_context(Ledger1),
-
-    % Step 4: Retry token burn txn should pass now
-    Block3 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    {Priv, _} = proplists:get_value(master_key, Config),
+    Vars = #{token_burn_exchange_rate => Rate},
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+    Block3 = test_utils:create_block(ConsensusMembers, [VarTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 3}, blockchain:height(Chain)),
     ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+        end,
+        lists:seq(1, 20)
+    ),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+
+    % Step 4: Retry token burn txn should pass now
+    Block4 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block4)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block4}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 24}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block4}, blockchain:get_block(24, Chain)),
     {ok, NewEntry2} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10, blockchain_ledger_entry_v1:balance(NewEntry2)),
     {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
@@ -1224,13 +1240,13 @@ token_burn_test(Config) ->
     Fee = 10,
     Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3), 
     SignedTx1 = blockchain_txn_payment_v1:sign(Tx1, SigFun),
-    Block4 = test_utils:create_block(ConsensusMembers, [SignedTx1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
+    Block5 = test_utils:create_block(ConsensusMembers, [SignedTx1]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block5, Chain, N, self()),
 
-    ?assertEqual({ok, blockchain_block:hash_block(Block4)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block4}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 4}, blockchain:height(Chain)),
-    ?assertEqual({ok, Block4}, blockchain:get_block(4, Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block5)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block5}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 25}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block5}, blockchain:get_block(25, Chain)),
     {ok, NewEntry3} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500 + 500, blockchain_ledger_entry_v1:balance(NewEntry3)),
     {ok, NewEntry4} = blockchain_ledger_v1:find_entry(Payer, Ledger),
