@@ -49,6 +49,7 @@ new_group(Ledger, Hash, Size, Delay) ->
                   Last0 = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
                   {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, Gw, Height, Ledger),
                   Last = Height - Last0,
+                  lager:info("last ~p ~p", [Addr, Last]),
                   Missing = Last > 3 * PoCInterval,
                   case lists:member(Addr, OldGroup0) of
                       true ->

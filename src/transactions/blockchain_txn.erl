@@ -188,6 +188,8 @@ absorb_and_commit(Block, Chain0, BeforeCommit) ->
                          ok ->
                             ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger2, Chain2),
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
+                            Versions = blockchain_ledger_v1:gateway_versions(Ledger2),
+                            lager:info("real ledger versions ~p", [Versions]),
                             absorb_delayed(Block, Chain0);
                        Any ->
                             Any
@@ -352,13 +354,15 @@ absorb_delayed(Block0, Chain0) ->
     end.
 
 absorb_delayed_(Block, Chain0) ->
+    Height = blockchain_block:height(Block),
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, Chain1} ->
             Ledger = blockchain:ledger(Chain1),
-            %% {ok, Height} = blockchain_block:height(Block),
-            %% ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain1),
+            lager:info("delayed ledger height ~p", [Height]),
+            %% blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain1),
             ok = blockchain_ledger_v1:commit_context(Ledger);
         Error ->
+            lager:info("delayed ledger absorb error ~p ~p", [Height, Error]),
             Ledger = blockchain:ledger(Chain0),
             blockchain_ledger_v1:delete_context(Ledger),
             Error
