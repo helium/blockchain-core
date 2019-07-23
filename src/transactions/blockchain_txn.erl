@@ -26,7 +26,10 @@
              | blockchain_txn_poc_request_v1:txn_poc_request()
              | blockchain_txn_poc_receipts_v1:txn_poc_receipts()
              | blockchain_txn_vars_v1:txn_vars()
-             | blockchain_txn_rewards_v1:txn_rewards().
+             | blockchain_txn_rewards_v1:txn_rewards()
+             | blockchain_txn_token_burn_v1:txn_token_burn()
+             | blockchain_txn_dc_coinbase_v1:txn_dc_coinbase()
+             | blockchain_txn_token_burn_exchange_rate_v1:txn_token_burn_exchange_rate().
 
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
@@ -63,18 +66,21 @@
     {blockchain_txn_consensus_group_v1, 2},
     {blockchain_txn_coinbase_v1, 3},
     {blockchain_txn_security_coinbase_v1, 4},
+    {blockchain_txn_dc_coinbase_v1, 4},
     {blockchain_txn_gen_gateway_v1, 5},
-    {blockchain_txn_oui_v1, 6},
-    {blockchain_txn_routing_v1, 7},
-    {blockchain_txn_payment_v1, 8},
-    {blockchain_txn_create_htlc_v1, 8},
-    {blockchain_txn_security_exchange_v1, 9},
-    {blockchain_txn_add_gateway_v1, 10},
-    {blockchain_txn_assert_location_v1, 11},
-    {blockchain_txn_redeem_htlc_v1, 12},
-    {blockchain_txn_poc_request_v1, 13},
-    {blockchain_txn_poc_receipts_v1, 14},
-    {blockchain_txn_vars_v1, 15}
+    {blockchain_txn_token_burn_exchange_rate_v1, 6},
+    {blockchain_txn_oui_v1, 7},
+    {blockchain_txn_routing_v1, 8},
+     {blockchain_txn_create_htlc_v1, 9},
+    {blockchain_txn_payment_v1, 9},
+    {blockchain_txn_security_exchange_v1, 10},
+    {blockchain_txn_add_gateway_v1, 11},
+    {blockchain_txn_assert_location_v1, 12},
+    {blockchain_txn_redeem_htlc_v1, 13},
+    {blockchain_txn_poc_request_v1, 14},
+    {blockchain_txn_poc_receipts_v1, 15},
+    {blockchain_txn_vars_v1, 17},
+    {blockchain_txn_rewards_v1, 17}
 ]).
 
 hash(Txn) ->
@@ -124,7 +130,13 @@ wrap_txn(#blockchain_txn_routing_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_vars_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={vars, Txn}};
 wrap_txn(#blockchain_txn_rewards_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={rewards, Txn}}.
+    #blockchain_txn_pb{txn={rewards, Txn}};
+wrap_txn(#blockchain_txn_token_burn_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={token_burn, Txn}};
+wrap_txn(#blockchain_txn_dc_coinbase_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={dc_coinbase, Txn}};
+wrap_txn(#blockchain_txn_token_burn_exchange_rate_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={token_burn_exchange_rate, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
@@ -292,7 +304,13 @@ type(#blockchain_txn_routing_v1_pb{}) ->
 type(#blockchain_txn_vars_v1_pb{}) ->
     blockchain_txn_vars_v1;
 type(#blockchain_txn_rewards_v1_pb{}) ->
-    blockchain_txn_rewards_v1.
+    blockchain_txn_rewards_v1;
+type(#blockchain_txn_token_burn_v1_pb{}) ->
+    blockchain_txn_token_burn_v1;
+type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
+    blockchain_txn_dc_coinbase_v1;
+type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
+    blockchain_txn_token_burn_exchange_rate_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -410,6 +428,10 @@ actor(Txn) ->
             blockchain_txn_oui_v1:owner(Txn);
         blockchain_txn_routing_v1 ->
             blockchain_txn_routing_v1:owner(Txn);
+        blockchain_txn_token_burn_v1 ->
+            blockchain_txn_token_burn_v1:payer(Txn);
+        blockchain_txn_dc_coinbase_v1 ->
+            blockchain_txn_dc_coinbase_v1:payee(Txn);
         _ ->
             <<>>
     end.

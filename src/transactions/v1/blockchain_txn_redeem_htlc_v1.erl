@@ -136,7 +136,7 @@ is_valid(Txn, Chain) ->
                                 {error, _}=Error ->
                                     Error;
                                 {ok, HTLC} ->
-                                    case  blockchain_ledger_v1:check_balance(Redeemer, Fee, Ledger) of
+                                    case  blockchain_ledger_v1:check_dc_balance(Redeemer, Fee, Ledger) of
                                         {error, _Reason}=Error ->
                                             Error;
                                         ok ->

@@ -156,8 +156,8 @@ is_valid(Txn, Chain) ->
             {error, bad_signature};
         true ->
             case blockchain_ledger_v1:transaction_fee(Ledger) of
-                {error, _}=Error ->
-                    Error;
+                {error, _}=Error0 ->
+                    Error0;
                 {ok, MinerFee} ->
                     Amount = ?MODULE:amount(Txn),
                     Fee = ?MODULE:fee(Txn),
@@ -166,7 +166,12 @@ is_valid(Txn, Chain) ->
                             lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
                             {error, invalid_transaction};
                         true ->
-                            blockchain_ledger_v1:check_balance(Payer, Fee + Amount, Ledger)
+                            case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
+                                {error, _}=Error1 ->
+                                    Error1;
+                                ok ->
+                                    blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                            end
                     end
             end
     end.
@@ -187,18 +192,23 @@ absorb(Txn, Chain) ->
             Error;
         {ok, Entry} ->
             Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
-            case blockchain_ledger_v1:debit_account(Payer, Fee + Amount, Nonce, Ledger) of
+            case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
-                    Address = ?MODULE:address(Txn),
-                    blockchain_ledger_v1:add_htlc(Address,
-                                                    Payer,
-                                                    Payee,
-                                                    Amount,
-                                                    ?MODULE:hashlock(Txn),
-                                                    ?MODULE:timelock(Txn),
-                                                    Ledger)
+                    case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        ok ->
+                            Address = ?MODULE:address(Txn),
+                            blockchain_ledger_v1:add_htlc(Address,
+                                                            Payer,
+                                                            Payee,
+                                                            Amount,
+                                                            ?MODULE:hashlock(Txn),
+                                                            ?MODULE:timelock(Txn),
+                                                            Ledger)
+                    end
             end
     end.
 

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+message txn_token_burn_v1 {
+    enum Type {
+        account = 0;
+        channel = 1;
+    }
+    Type type = 1;
+    bytes payer = 2;
+    bytes key = 3;
+    uint64 amount = 4;
+    uint64 nonce = 5;
+    bytes signature = 6;
+}  

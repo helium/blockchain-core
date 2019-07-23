@@ -147,7 +147,7 @@ ledger_create_htlc(_CmdBase, _Keys, Flags) ->
 ledger_create_htlc_helper(Flags, Address) ->
     Payee = libp2p_crypto:b58_to_bin(clean(proplists:get_value(payee, Flags))),
     Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
-    Hashlock = blockchain_util:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
+    Hashlock = blockchain_utils:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
     Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
     blockchain_worker:create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee).
@@ -260,7 +260,7 @@ format_htlc_balance({Addr, HTLC}) ->
     [{address, libp2p_crypto:bin_to_b58(?B58_HTLC_VER, Addr)},
      {payer, libp2p_crypto:pubkey_bin_to_p2p(blockchain_ledger_htlc_v1:payer(HTLC))},
      {payee, libp2p_crypto:pubkey_bin_to_p2p(blockchain_ledger_htlc_v1:payee(HTLC))},
-     {hashlock, blockchain_util:bin_to_hex(blockchain_ledger_htlc_v1:hashlock(HTLC))},
+     {hashlock, blockchain_utils:bin_to_hex(blockchain_ledger_htlc_v1:hashlock(HTLC))},
      {timelock, integer_to_list(blockchain_ledger_htlc_v1:timelock(HTLC))},
      {amount, integer_to_list(blockchain_ledger_htlc_v1:balance(HTLC))}
     ].

@@ -81,7 +81,7 @@ keys_test(_Config) ->
     % Test a payment transaction, add a block and check balances
     {Payer, {_, _, PayerSigFun}} = lists:last(ConsensusMembers),
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, PayerSigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
@@ -97,7 +97,7 @@ keys_test(_Config) ->
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance - 2510, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
     case erlang:is_process_alive(Sup) of
         true ->
