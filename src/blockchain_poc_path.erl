@@ -246,8 +246,12 @@ target(Hash, Ledger, Challenger) ->
     ProbsAndGatewayAddrs = create_probs(ActiveGateways, Height, Ledger),
     Entropy = entropy(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
-    Target = select_target(ProbsAndGatewayAddrs, RandVal),
-    {Target, ActiveGateways}.
+    case select_target(ProbsAndGatewayAddrs, RandVal) of
+        {ok, Target} ->
+            {Target, ActiveGateways};
+        _ ->
+            no_target
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -339,8 +343,10 @@ active_gateways(Ledger, Challenger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+select_target([], _Rnd) ->
+    no_target;
 select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 < 0 ->
-    GwAddr1;
+    {ok, GwAddr1};
 select_target([{Prob1, _GwAddr1} | Tail], Rnd) ->
     select_target(Tail, Rnd - Prob1).
 

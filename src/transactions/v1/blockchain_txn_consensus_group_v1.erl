@@ -124,11 +124,21 @@ is_valid(Txn, Chain) ->
                 ok;
             {ok, CurrHeight} ->
                 {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),
+
+                case blockchain_ledger_v1:election_height(Ledger) of
+                    %% no chain, genesis block
+                    {error, not_found} ->
+                        ok;
+                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
+                        ok;
+                    {ok, BaseHeight} ->
+                        throw({error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}})
+                end,
                 {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
                 %% This check prevents elections ahead of schedule
-                case TxnHeight >= LastElectionHeight + ElectionInterval  of
+                case TxnHeight >= LastElectionHeight + ElectionInterval of
                     true ->
                         Proof = binary_to_term(Proof0),
                         EffectiveHeight = TxnHeight + Delay,
@@ -154,16 +164,8 @@ is_valid(Txn, Chain) ->
                             {error, _} = VerifyErr -> throw(VerifyErr)
                         end;
                     _ ->
-                        throw({error, {election_too_early, TxnHeight, LastElectionHeight}})
-                end,
-                case blockchain_ledger_v1:election_height(Ledger) of
-                    %% no chain, genesis block
-                    {error, not_found} ->
-                        ok;
-                    {ok, BaseHeight} when TxnHeight > BaseHeight ->
-                        ok;
-                    {ok, BaseHeight} ->
-                        throw({error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}})
+                        throw({error, {election_too_early, TxnHeight,
+                                       LastElectionHeight + ElectionInterval}})
                 end
         end
     catch throw:E ->
