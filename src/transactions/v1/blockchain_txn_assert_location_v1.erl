@@ -30,7 +30,8 @@
     is_valid_location/2,
     is_valid_payer/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    calculate_staking_fee/1
 ]).
 
 -ifdef(TEST).
@@ -292,13 +293,11 @@ is_valid(Txn, Chain) ->
                 true -> Owner;
                 false -> Payer
             end,
-            StakingFee = case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
-                {ok, _Rate} -> ?MODULE:staking_fee(Txn);
-                {error, _} -> 1
-            end,
-            case StakingFee > 0 of
+            StakingFee = ?MODULE:staking_fee(Txn),
+            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
+            case ExpectedStakingFee == StakingFee of
                 false ->
-                    {error, insufficient_staking_fee}; 
+                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
                 true ->
                     case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger) of
                         {error, _}=Error ->
@@ -358,6 +357,14 @@ absorb(Txn, Chain) ->
         ok ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(_Chain) ->
+    1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

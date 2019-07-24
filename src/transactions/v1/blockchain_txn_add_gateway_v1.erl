@@ -27,7 +27,8 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    calculate_staking_fee/1
 ]).
 
 -ifdef(TEST).
@@ -244,13 +245,11 @@ is_valid(Txn, Chain) ->
                         false ->
                             {error, invalid_transaction};
                         true ->
-                            StakingFee = case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
-                                {ok, _Rate} -> ?MODULE:staking_fee(Txn);
-                                {error, _} -> 1
-                            end,
-                            case StakingFee > 0 of
+                            StakingFee = ?MODULE:staking_fee(Txn),
+                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
+                            case ExpectedStakingFee == StakingFee of
                                 false ->
-                                    {error, insufficient_staking_fee}; 
+                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
                                 true ->
                                     Payer = ?MODULE:payer(Txn),
                                     Owner = ?MODULE:owner(Txn),
@@ -259,7 +258,7 @@ is_valid(Txn, Chain) ->
                                         false -> Payer
                                     end,
                                     blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
-                                end
+                            end
                     end
             end
     end.
@@ -286,6 +285,14 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(_Chain) ->
+    1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
