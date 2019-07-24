@@ -15,7 +15,7 @@
     owner/1,
     addresses/1,
     payer/1,
-    amount/1,
+    staking_fee/1,
     fee/1,
     owner_signature/1,
     payer_signature/1,
@@ -39,24 +39,24 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, Amount, Fee) ->
+new(Owner, Addresses, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
         addresses=Addresses,
         payer= <<>>,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee,
         owner_signature= <<>>,
         payer_signature= <<>>
     }.
 
 -spec new(libp2p_crypto:pubkey_bin(), [binary()], libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, Payer, Amount, Fee) ->
+new(Owner, Addresses, Payer, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
         addresses=Addresses,
         payer=Payer,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee,
         owner_signature= <<>>,
         payer_signature= <<>>
@@ -100,9 +100,9 @@ payer(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_oui()) -> non_neg_integer().
-amount(Txn) ->
-    Txn#blockchain_txn_oui_v1_pb.amount.
+-spec staking_fee(txn_oui()) -> non_neg_integer().
+staking_fee(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.staking_fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -196,15 +196,24 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, invalid_addresses};
                 true ->
-                    Fee = ?MODULE:fee(Txn),
-                    Owner = ?MODULE:owner(Txn),
-                    Payer = ?MODULE:payer(Txn),
-                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                        true -> Owner;
-                        false -> Payer
+                    StakingFee = case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
+                        {ok, _Rate} -> ?MODULE:staking_fee(Txn);
+                        {error, _} -> 1
                     end,
-                    Amount = ?MODULE:amount(Txn),
-                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + Amount, Ledger)
+                    case StakingFee > 0 of
+                        false ->
+                            {error, insufficient_staking_fee}; 
+                        true ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = ?MODULE:owner(Txn),
+                            Payer = ?MODULE:payer(Txn),
+                            ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                true -> Owner;
+                                false -> Payer
+                            end,
+                            StakingFee = ?MODULE:staking_fee(Txn),
+                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                    end
             end
     end.
 
@@ -215,6 +224,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    StakingFee = ?MODULE:staking_fee(Txn),
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -222,7 +232,7 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
@@ -262,7 +272,7 @@ new_test() ->
         owner= <<"owner">>,
         addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
         payer = <<>>,
-        amount=1,
+        staking_fee=1,
         fee=1,
         owner_signature= <<>>,
         payer_signature = <<>>
@@ -278,9 +288,9 @@ addresses_test() ->
     ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(Tx)).
 
 
-amount_test() ->
+staking_fee_test() ->
     Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 1),
-    ?assertEqual(1, amount(Tx)).
+    ?assertEqual(1, staking_fee(Tx)).
 
 fee_test() ->
     Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 1),

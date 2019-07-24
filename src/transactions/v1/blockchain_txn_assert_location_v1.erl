@@ -20,7 +20,7 @@
     owner_signature/1,
     payer_signature/1,
     nonce/1,
-    amount/1,
+    staking_fee/1,
     fee/1,
     sign_request/2,
     sign_payer/2,
@@ -49,9 +49,9 @@
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
           Nonce :: non_neg_integer(),
-          Amount :: pos_integer(),
+          StakingFee :: pos_integer(),
           Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce, Amount, Fee) ->
+new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -61,7 +61,7 @@ new(Gateway, Owner, Location, Nonce, Amount, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee
     }.
 
@@ -70,9 +70,9 @@ new(Gateway, Owner, Location, Nonce, Amount, Fee) ->
           Payer :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
           Nonce :: non_neg_integer(),
-          Amount :: pos_integer(),
+          StakingFee :: pos_integer(),
           Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Payer, Location, Nonce, Amount, Fee) ->
+new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -82,7 +82,7 @@ new(Gateway, Owner, Payer, Location, Nonce, Amount, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee
     }.
 
@@ -165,9 +165,9 @@ nonce(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_assert_location()) -> non_neg_integer().
-amount(Txn) ->
-    Txn#blockchain_txn_assert_location_v1_pb.amount.
+-spec staking_fee(txn_assert_location()) -> non_neg_integer().
+staking_fee(Txn) ->
+    Txn#blockchain_txn_assert_location_v1_pb.staking_fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -285,39 +285,48 @@ is_valid(Txn, Chain) ->
         {true, true, true} ->
             Owner = ?MODULE:owner(Txn),
             Nonce = ?MODULE:nonce(Txn),
-            Amount = ?MODULE:amount(Txn),
+            StakingFee = ?MODULE:staking_fee(Txn),
             Fee = ?MODULE:fee(Txn),
             Payer = ?MODULE:payer(Txn),
             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                 true -> Owner;
                 false -> Payer
             end,
-            case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + Amount, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                ok ->
-                    Gateway = ?MODULE:gateway(Txn),
-                    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
-                        {error, _} ->
-                            {error, {unknown_gateway, Gateway, Ledger}};
-                        {ok, GwInfo} ->
-                            GwOwner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
-                            case Owner == GwOwner of
-                                false ->
-                                    {error, {bad_owner, {assert_location, Owner, GwOwner}}};
-                                true ->
-                                    {ok, MinAssertH3Res} = blockchain:config(min_assert_h3_res, Ledger),
-                                    Location = ?MODULE:location(Txn),
-                                    case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
+            StakingFee = case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
+                {ok, _Rate} -> ?MODULE:staking_fee(Txn);
+                {error, _} -> 1
+            end,
+            case StakingFee > 0 of
+                false ->
+                    {error, insufficient_staking_fee}; 
+                true ->
+                    case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        ok ->
+                            Gateway = ?MODULE:gateway(Txn),
+                            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+                                {error, _} ->
+                                    {error, {unknown_gateway, Gateway, Ledger}};
+                                {ok, GwInfo} ->
+                                    GwOwner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
+                                    case Owner == GwOwner of
                                         false ->
-                                            {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
+                                            {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                         true ->
-                                            LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
-                                            case Nonce =:= LedgerNonce + 1 of
+                                            {ok, MinAssertH3Res} = blockchain:config(min_assert_h3_res, Ledger),
+                                            Location = ?MODULE:location(Txn),
+                                            case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                                 false ->
-                                                    {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                                    {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
                                                 true ->
-                                                    ok
+                                                    LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
+                                                    case Nonce =:= LedgerNonce + 1 of
+                                                        false ->
+                                                            {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
+                                                        true ->
+                                                            ok
+                                                    end
                                             end
                                     end
                             end
@@ -336,14 +345,14 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    Amount = ?MODULE:amount(Txn),
+    StakingFee = ?MODULE:staking_fee(Txn),
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + Amount, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -371,7 +380,7 @@ new() ->
        payer_signature= <<>>,
        location= h3:to_string(?TEST_LOCATION),
        nonce = 1,
-       amount = 1,
+       staking_fee = 1,
        fee = 1
       }.
 
@@ -383,7 +392,7 @@ invalid_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
-       amount = 1,
+       staking_fee = 1,
        fee = 1
       }.
 
@@ -399,9 +408,9 @@ nonce_test() ->
     Tx = new(),
     ?assertEqual(1, nonce(Tx)).
 
-amount_test() ->
+staking_fee_test() ->
     Tx = new(),
-    ?assertEqual(1, amount(Tx)).
+    ?assertEqual(1, staking_fee(Tx)).
 
 fee_test() ->
     Tx = new(),
