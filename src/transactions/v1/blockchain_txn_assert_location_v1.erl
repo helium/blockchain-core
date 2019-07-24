@@ -360,6 +360,8 @@ absorb(Txn, Chain) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% TODO: We should calulate this (one we have a token burn rate)
+%%       maybe using location and/or demand
 %% @end
 %%--------------------------------------------------------------------
 -spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
