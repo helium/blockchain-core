@@ -7,19 +7,30 @@ enum origin {
 
 message poc_receipt_v1 {
     bytes gateway = 1;
-    uint64 timestamp = 2;
-    sint32 signal = 3;
-    bytes data = 4;
-    origin origin = 5;
-    bytes signature = 6;
+    uint64 rx_timestamp = 2;
+    uint32 freq = 3;
+    bool gps_locked = 4;
+    uint64 gps_accuracy = 5;
+    sint32 signal = 6;
+    sint32 snr = 7;
+    bytes data = 8;
+    uint64 tx_timestamp1 = 9;
+    uint64 tx_timestamp2 = 10;
+    uint64 tx_timestamp3 = 11;
+    origin origin = 12;
+    bytes signature = 13;
 }
 
 message poc_witness_v1 {
     bytes gateway = 1;
-    uint64 timestamp = 2;
-    sint32 signal = 3;
-    bytes packet_hash = 4;
-    bytes signature = 5;
+    uint64 rx_timestamp = 2;
+    uint32 freq = 3;
+    bool gps_locked = 4;
+    uint64 gps_accuracy = 5;
+    sint32 signal = 6;
+    sint32 snr = 7;
+    bytes packet_hash = 8;
+    bytes signature = 9;
 }
 
 message poc_response_v1 {

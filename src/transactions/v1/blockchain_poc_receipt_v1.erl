@@ -40,7 +40,7 @@
 new(Address, Timestamp, Signal, Data, Origin) ->
     #blockchain_poc_receipt_v1_pb{
         gateway=Address,
-        timestamp=Timestamp,
+        rx_timestamp=Timestamp,
         signal=Signal,
         data=Data,
         origin=Origin,
@@ -60,7 +60,7 @@ gateway(Receipt) ->
 %%--------------------------------------------------------------------
 -spec timestamp(Receipt :: poc_receipt()) -> non_neg_integer().
 timestamp(Receipt) ->
-    Receipt#blockchain_poc_receipt_v1_pb.timestamp.
+    Receipt#blockchain_poc_receipt_v1_pb.rx_timestamp.
 
 %%--------------------------------------------------------------------
 %% @doc

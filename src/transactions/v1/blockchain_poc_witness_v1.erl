@@ -37,7 +37,7 @@
 new(Gateway, Timestamp, Signal, PacketHash) ->
     #blockchain_poc_witness_v1_pb{
         gateway=Gateway,
-        timestamp=Timestamp,
+        rx_timestamp=Timestamp,
         signal=Signal,
         packet_hash=PacketHash,
         signature = <<>>
@@ -56,7 +56,7 @@ gateway(Receipt) ->
 %%--------------------------------------------------------------------
 -spec timestamp(Receipt :: poc_witness()) -> non_neg_integer().
 timestamp(Receipt) ->
-    Receipt#blockchain_poc_witness_v1_pb.timestamp.
+    Receipt#blockchain_poc_witness_v1_pb.rx_timestamp.
 
 %%--------------------------------------------------------------------
 %% @doc
