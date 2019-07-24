@@ -415,42 +415,81 @@ poc_request_test(Config) ->
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
+    Balance = proplists:get_value(balance, Config),
+
+    Ledger = blockchain:ledger(Chain),
+    Rate = 1000000,
+    {Priv, _} = proplists:get_value(master_key, Config),
+    Vars = #{token_burn_exchange_rate => Rate},
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+        end,
+        lists:seq(1, 20)
+    ),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+
+    % Step 2: Token burn txn should pass now
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+    Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 23}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
-    Block = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    Block24 = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
-    ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
-    ?assertEqual({ok, Block}, blockchain:get_block(HeadHash, Chain)),
-    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual(blockchain_block:hash_block(Block24), HeadHash),
+    ?assertEqual({ok, Block24}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 24}, blockchain:height(Chain)),
 
     % Check that the Gateway is there
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 0, 0),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
-    Block2 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    Block25 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
     timer:sleep(500),
 
     {ok, HeadHash2} = blockchain:head_hash(Chain),
-    ?assertEqual(blockchain_block:hash_block(Block2), HeadHash2),
-    ?assertEqual({ok, Block2}, blockchain:get_block(HeadHash2, Chain)),
-    ?assertEqual({ok, 3}, blockchain:height(Chain)),
+    ?assertEqual(blockchain_block:hash_block(Block25), HeadHash2),
+    ?assertEqual({ok, Block25}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 25}, blockchain:height(Chain)),
 
     % Create the PoC challenge request txn
     Keys0 = libp2p_crypto:generate_keys(ecc_compact),
@@ -460,17 +499,17 @@ poc_request_test(Config) ->
     OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
-    Block3 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 4} =:= blockchain:height(Chain) end),
+    Block26 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block26, Chain, N, self()),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 26} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
     {ok, HeadHash3} = blockchain:head_hash(Chain),
-    ?assertEqual(blockchain_block:hash_block(Block3), HeadHash3),
-    ?assertEqual({ok, Block3}, blockchain:get_block(HeadHash3, Chain)),
+    ?assertEqual(blockchain_block:hash_block(Block26), HeadHash3),
+    ?assertEqual({ok, Block26}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(4, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
+    ?assertEqual(26, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
     ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo2)),
 
     % Check that the PoC info
@@ -484,11 +523,11 @@ poc_request_test(Config) ->
 
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(Gateway, Secret0, OnionKeyHash0, []),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
-    Block4 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 5} =:= blockchain:height(Chain) end),
+    Block27 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block27, Chain, N, self()),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 27} =:= blockchain:height(Chain) end),
 
-    Block40 = lists:foldl(
+    Block62 = lists:foldl(
         fun(_, _) ->
             B = test_utils:create_block(ConsensusMembers, []),
             _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
@@ -499,7 +538,7 @@ poc_request_test(Config) ->
         lists:seq(1, 35)
     ),
 
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 40} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 62} =:= blockchain:height(Chain) end),
 
     % Create another PoC challenge request txn
     Keys1 = libp2p_crypto:generate_keys(ecc_compact),
@@ -507,17 +546,17 @@ poc_request_test(Config) ->
     #{public := OnionCompactKey1} = Keys1,
     SecretHash1 = crypto:hash(sha256, Secret1),
     OnionKeyHash1 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey1)),
-    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block40), 1),
+    PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block62), 1),
     SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
-    Block5 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block5, Chain, N, self()),
+    Block63 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block63, Chain, N, self()),
 
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 41} =:= blockchain:height(Chain) end),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 63} =:= blockchain:height(Chain) end),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(41, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
+    ?assertEqual(63, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
@@ -591,47 +630,20 @@ export_test(Config) ->
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     N = proplists:get_value(n, Config),
-    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
-    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
-    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
 
-    % Create a Gateway
-    Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
-    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
-    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
-
-    % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 0, 0),
-    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
-    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
-
-    % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 0, 0),
-    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
-    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
-
-    %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
-    Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
-    Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
-    Block2 = test_utils:create_block(ConsensusMembers, Txns1),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
-
-    % Step 2: Add exchange rate to ledger
     Ledger = blockchain:ledger(Chain),
     Rate = 1000000,
     {Priv, _} = proplists:get_value(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
     Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
     VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
-    Block3 = test_utils:create_block(ConsensusMembers, [VarTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
-    ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 3}, blockchain:height(Chain)),
-    ?assertEqual({ok, Block3}, blockchain:get_block(3, Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
@@ -641,13 +653,53 @@ export_test(Config) ->
     ),
     ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
 
-    %% Step 3
-    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
-    BurnTx0 = blockchain_txn_token_burn_v1:new(Payer1, 10, 2),
-    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
-    FailedBlock = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, N, self()),
+    Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
 
+    % Step 2: Token burn txn should pass now
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+    Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 23}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+
+    % Create a Gateway
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    
+
+    % Add a Gateway
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 0),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+
+    % Assert the Gateways location
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 0),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+
+    %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
+    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 2, blockchain_swarm:pubkey_bin()),
+    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
+    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
+    Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
+    Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
+    Block24 = test_utils:create_block(ConsensusMembers, Txns1),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block24}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 24}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block24}, blockchain:get_block(24, Chain)),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
 
@@ -662,7 +714,7 @@ export_test(Config) ->
     %% check DC balance for Payer1
     [[{address, A}, {dc_balance, DCBalance}]] = DCs,
     ?assertEqual(A, libp2p_crypto:bin_to_b58(Payer1)),
-    ?assertEqual(DCBalance, Rate*10),
+    ?assertEqual(DCBalance, Rate*10-2),
 
     %% we added this after we add all of the existing gateways in the
     %% genesis block with nonce 0.  we filter those out to make sure
@@ -879,9 +931,12 @@ routing_test(Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
+    meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
+    meck:expect(blockchain_txn_oui_v1, is_valid, fun(_, _) -> ok end),
+
     OUI1 = 1,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -907,7 +962,7 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0),
+    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0, 0),
     SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -921,6 +976,9 @@ routing_test(Config) ->
     ?assertEqual({ok, Routing2}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     ?assertEqual({ok, [2, 1]}, blockchain_ledger_v1:find_ouis(Payer, Ledger)),
+
+    ?assert(meck:validate(blockchain_txn_oui_v1)),
+    meck:unload(blockchain_txn_oui_v1),
     ok.
 
 %%--------------------------------------------------------------------
@@ -1354,7 +1412,7 @@ payer_test(Config) ->
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Payer, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
@@ -1363,12 +1421,12 @@ payer_test(Config) ->
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer, 0, 10),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer, 1, 10),
     SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
     SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
 
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1, 10, 0),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1, 1, 10),
     SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
     SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
@@ -1381,7 +1439,7 @@ payer_test(Config) ->
     ?assertEqual({ok, 24}, blockchain:height(Chain)),
     ?assertEqual({ok, Block24}, blockchain:get_block(24, Chain)),
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
-    ?assertEqual(10*Rate-10*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    ?assertEqual(10*Rate-11*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
 
     Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, 0),

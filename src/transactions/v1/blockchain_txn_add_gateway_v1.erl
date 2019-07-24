@@ -18,7 +18,7 @@
     gateway_signature/1,
     payer/1,
     payer_signature/1,
-    amount/1,
+    staking_fee/1,
     fee/1,
     sign/2,
     sign_request/2,
@@ -27,7 +27,8 @@
     is_valid_owner/1,
     is_valid_payer/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    calculate_staking_fee/1
 ]).
 
 -ifdef(TEST).
@@ -43,22 +44,22 @@
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, Amount, Fee) ->
+new(OwnerAddress, GatewayAddress, StakingFee, Fee) ->
     #blockchain_txn_add_gateway_v1_pb{
         owner=OwnerAddress,
         gateway=GatewayAddress,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee
     }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, Payer, Amount, Fee) ->
+new(OwnerAddress, GatewayAddress, Payer, StakingFee, Fee) ->
     #blockchain_txn_add_gateway_v1_pb{
         owner=OwnerAddress,
         gateway=GatewayAddress,
         payer=Payer,
-        amount=Amount,
+        staking_fee=StakingFee,
         fee=Fee
     }.
 
@@ -124,9 +125,9 @@ payer_signature(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_add_gateway()) -> non_neg_integer().
-amount(Txn) ->
-    Txn#blockchain_txn_add_gateway_v1_pb.amount.
+-spec staking_fee(txn_add_gateway()) -> non_neg_integer().
+staking_fee(Txn) ->
+    Txn#blockchain_txn_add_gateway_v1_pb.staking_fee.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -244,17 +245,25 @@ is_valid(Txn, Chain) ->
                         false ->
                             {error, invalid_transaction};
                         true ->
-                            Payer = ?MODULE:payer(Txn),
-                            Owner = ?MODULE:owner(Txn),
-                            ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                                true -> Owner;
-                                false -> Payer
-                            end,
-                            Amount = ?MODULE:amount(Txn),
-                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + Amount, Ledger)
+                            StakingFee = ?MODULE:staking_fee(Txn),
+                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
+                            case ExpectedStakingFee == StakingFee of
+                                false ->
+                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                                true ->
+                                    Payer = ?MODULE:payer(Txn),
+                                    Owner = ?MODULE:owner(Txn),
+                                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                        true -> Owner;
+                                        false -> Payer
+                                    end,
+                                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                            end
                     end
             end
     end.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -267,15 +276,25 @@ absorb(Txn, Chain) ->
     Gateway = ?MODULE:gateway(Txn),
     Payer = ?MODULE:payer(Txn),
     Fee = ?MODULE:fee(Txn),
-    Amount = ?MODULE:amount(Txn),
+    StakingFee = ?MODULE:staking_fee(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + Amount, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% TODO: We should calulate this (one we have a token burn rate)
+%%       maybe using location and/or demand
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(_Chain) ->
+    1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -290,7 +309,7 @@ new_test() ->
         gateway_signature = <<>>,
         payer = <<>>,
         payer_signature = <<>>,
-        amount = 1,
+        staking_fee = 1,
         fee = 1
     },
     ?assertEqual(Tx, new(<<"owner_address">>, <<"gateway_address">>, 1, 1)).
@@ -303,9 +322,9 @@ gateway_address_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
     ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
-amount_test() ->
+staking_fee_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>, 2, 1),
-    ?assertEqual(2, amount(Tx)).
+    ?assertEqual(2, staking_fee(Tx)).
 
 payer_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>, 2, 1),

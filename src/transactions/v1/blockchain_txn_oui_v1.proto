@@ -4,7 +4,8 @@ message txn_oui_v1 {
     bytes owner = 1;
     repeated bytes addresses = 2;
     bytes payer = 3;
-    uint64 fee = 4;
-    bytes owner_signature = 5;
-    bytes payer_signature = 6;
+    uint64 staking_fee = 4;
+    uint64 fee = 5;
+    bytes owner_signature = 6;
+    bytes payer_signature = 7;
 }
