@@ -200,7 +200,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                         undefined -> Acc;
                                         Index ->
                                             case blockchain_ledger_v1:gateway_score(A, Ledger) of
-                                                {ok, S} when CorrectMinScore andalso S >= MinScore ->
+                                                {ok, S} when CorrectMinScore == false orelse S >= MinScore ->
                                                     ScaledIndex = case h3:get_resolution(Index) of
                                                                       R when R > H3NeighborRes ->
                                                                           h3:parent(Index, H3NeighborRes);
