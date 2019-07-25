@@ -124,7 +124,11 @@ has_new_group(Txns) ->
                               blockchain_txn:type(T) == blockchain_txn_consensus_group_v1
                       end, Txns) of
         [Txn] ->
-            {true, lists:member(MyAddress, blockchain_txn_consensus_group_v1:members(Txn))};
+            Height = blockchain_txn_consensus_group_v1:height(Txn),
+            Delay = blockchain_txn_consensus_group_v1:delay(Txn),
+            {true,
+             lists:member(MyAddress, blockchain_txn_consensus_group_v1:members(Txn)),
+             Height + Delay};
         [_|_] ->
             lists:foreach(fun(T) ->
                                   case blockchain_txn:type(T) == blockchain_txn_consensus_group_v1 of
