@@ -185,6 +185,13 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
     {ok, H3MaxGridDistance} = blockchain:config(h3_max_grid_distance, Ledger),
     {ok, H3NeighborRes} = blockchain:config(h3_neighbor_res, Ledger),
     {ok, MinScore} = blockchain:config(min_score, Ledger),
+    CorrectMinScore =
+        case blockchain:config(correct_min_score, Ledger) of
+            {ok, Val} ->
+                Val;
+            {error, not_found} ->
+                false
+        end,
     ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
     ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
@@ -193,7 +200,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                         undefined -> Acc;
                                         Index ->
                                             case blockchain_ledger_v1:gateway_score(A, Ledger) of
-                                                S when S >= MinScore ->
+                                                {ok, S} when CorrectMinScore == false orelse S >= MinScore ->
                                                     ScaledIndex = case h3:get_resolution(Index) of
                                                                       R when R > H3NeighborRes ->
                                                                           h3:parent(Index, H3NeighborRes);
@@ -393,7 +400,7 @@ target_test_() ->
                          {{37.780827, -122.44716}, 1.0, 1.0},
                          {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                         ],
-             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
              ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
              Challenger = hd(maps:keys(ActiveGateways)),
@@ -439,7 +446,7 @@ neighbors_test() ->
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     Neighbors = neighbors(Target, Gateways, 1, Ledger),
     ?assertEqual(6, erlang:length(Neighbors)),
     {LL1, _, _} = lists:last(LatLongs),
@@ -467,7 +474,7 @@ build_graph_test() ->
                 {{37.780827, -122.44716}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     {Target, Gateways} = build_gateways(LatLongs),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
@@ -494,7 +501,7 @@ build_graph_in_line_test() ->
                 {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
@@ -548,7 +555,7 @@ build_test() ->
                 {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -568,7 +575,7 @@ build_only_2_test() ->
                 {{37.780586, -122.469471}, 100.0, 20.0}
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -596,7 +603,7 @@ build_prob_test_() ->
                          {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                         ],
              {Target, Gateways} = build_gateways(LatLongs),
-             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
 
              Iteration = 1000,
              Size = erlang:length(LatLongs)-2,
@@ -612,6 +619,7 @@ build_prob_test_() ->
                           lists:seq(1, Iteration)
                          ),
 
+             io:format("Starters: ~p~n", [Starters]),
              ?assertEqual(Size, maps:size(Starters)),
 
              maps:fold(
@@ -634,7 +642,7 @@ build_failed_test() ->
                 {{12.780586, -122.469471}, 1000.0, 20.0}
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     ok.
@@ -654,7 +662,7 @@ build_with_default_score_test() ->
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assert(lists:member(Target, Path)),
     unload_meck(),
@@ -671,7 +679,7 @@ active_gateways_test() ->
                 {{48.854127, 2.344637}, 1.0, 1.0},
                 {{48.855228, 2.347126}, 1.0, 1.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
 
     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -680,7 +688,7 @@ active_gateways_test() ->
     ?assertNot(maps:is_key(Challenger, ActiveGateways)),
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
-    ?assertEqual(3, maps:size(ActiveGateways)),
+    ?assertEqual(4, maps:size(ActiveGateways)),
 
     unload_meck(),
     ok.
@@ -696,7 +704,7 @@ active_gateways_low_score_test() ->
                 {{48.854127, 2.344637}, 1.0, 1.0},
                 {{48.855228, 2.347126}, 1.0, 1.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.01),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.01, 3, 60),
 
     [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -732,7 +740,7 @@ no_neighbor_test() ->
                 {{37.781637, -122.4543}, 1.0, 1.0}
                ],
     {Target, Gateways} = build_gateways(LatLongs),
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     Neighbors = neighbors(Target, Gateways, 1, Ledger),
     ?assertEqual([], Neighbors),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
@@ -758,7 +766,7 @@ build_gateways(LatLongs) ->
     Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
     {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
 
-build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
+build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDist) ->
     Ledger = blockchain_ledger_v1:new(TestDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     meck:new(blockchain_swarm, [passthrough]),
@@ -777,15 +785,17 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore) ->
                 fun(min_score, _) ->
                         {ok, 0.2};
                    (h3_exclusion_ring_dist, _) ->
-                        {ok, 2};
+                        {ok, ExclusionRingDist};
                    (h3_max_grid_distance, _) ->
-                        {ok, 13};
+                        {ok, MaxGridDist};
                    (h3_neighbor_res, _) ->
                         {ok, 12};
                    (alpha_decay, _) ->
                         {ok, 0.007};
                    (beta_decay, _) ->
                         {ok, 0.0005};
+                   (correct_min_score, _) ->
+                        {ok, true};
                    (max_staleness, _) ->
                         {ok, 100000}
                 end),
