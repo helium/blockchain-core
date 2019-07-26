@@ -1240,7 +1240,7 @@ chain_vars_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(?chain_var, Ledger) of
+                case blockchain:config(chain_var, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, foo} when Height >= (Delay + 1) ->
