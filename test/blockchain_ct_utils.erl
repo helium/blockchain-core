@@ -269,7 +269,7 @@ create_vars(Vars) ->
                 election_restart_interval => 5,
                 election_replacement_slope => 20,
                 block_version => v1,
-                proposal_threshold => 0.85},
+                predicate_threshold => 0.85},
 
     Vars1 = maps:merge(DefVars, Vars),
 
