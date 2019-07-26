@@ -63,6 +63,15 @@
 %% The interval between blocks that the chain attempts to maintain. Specified in milliseconds.
 -define(block_time, block_time).
 
+%% This is passed onto hbbft from the miner. The number of transactions each consensus member is allowed
+%% to propose in each hbbft round = batch_size/num_consensus_members.
+-define(batch_size, batch_size).
+
+%% Currently accepted block version by the running chain. Set to v1.
+-define(block_version, block_version).
+
+%% Curve over which DKG is run. Set to SS512 currently. Accepts an atom.
+-define(dkg_curve, dkg_curve).
 
 %%%
 %%% burn vars
@@ -71,7 +80,7 @@
 -define(token_burn_exchange_rate, token_burn_exchange_rate).
 
 %%%
-%%% poc pathing vars
+%%% poc related vars
 %%%
 
 %% H3 Ring size to exclude when considering the next neighbor hop
@@ -88,6 +97,9 @@
 
 %% Required minimum h3 assert location resolution for assert_loc txn
 -define(min_assert_h3_res, min_assert_h3_res).
+
+%% Number of blocks to wait before a hotspot can submit a poc challenge request
+-define(poc_challenge_interval, poc_challenge_interval).
 
 %%%
 %%% score vars
@@ -117,3 +129,4 @@
 -define(poc_challengees_percent, poc_challengees_percent).
 -define(poc_witnesses_percent, poc_witnesses_percent).
 -define(poc_challengers_percent, poc_challengers_percent).
+-define(dc_percent, dc_percent).
