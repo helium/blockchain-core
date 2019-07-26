@@ -333,13 +333,7 @@ update_transaction_fee(Ledger) ->
     %% TODO - this should calculate a new transaction fee for the network
     %% TODO - based on the average of usage fees
     DefaultCF = default_cf(Ledger),
-    case ?MODULE:current_height(Ledger) of
-        {error, _} ->
-            ok;
-        {ok, Fee0} ->
-            Fee1 = Fee0 div 1000,
-            cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<Fee1:64/integer-unsigned-big>>)
-    end.
+    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<0:64/integer-unsigned-big>>).
 
 %%--------------------------------------------------------------------
 %% @doc
