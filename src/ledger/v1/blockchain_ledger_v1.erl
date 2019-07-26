@@ -75,6 +75,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -735,9 +736,10 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
-
 gateway_versions(Ledger) ->
-    Gateways = active_gateways(Ledger),
+    {ok, DeathThreshold} = blockchain:config(?var_gw_inactivity_thresh, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Gateways = filter_dead(active_gateways(Ledger), Height, DeathThreshold),
     Inc = fun(X) -> X + 1 end,
     Versions =
         maps:fold(
@@ -752,6 +754,22 @@ gateway_versions(Ledger) ->
 
     %% reformat counts as percentages
     [{V, Ct / Tot} || {V, Ct} <- L].
+
+filter_dead(Gws, Height, Threshold) ->
+    lists:filter(
+      fun(Gw) ->
+              Last = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
+              %% calculate the number of blocks since we last saw a challenge
+              Since = Height - Last,
+              %% if since is bigger than the threshold, invert to exclude
+              not (Since >= Threshold)
+      end,
+      Gws).
+
+last(undefined) ->
+    0;
+last(N) when is_integer(N) ->
+    N.
 
 %%--------------------------------------------------------------------
 %% @doc Update the score of a hotspot by looking at the updated alpha/beta values.
