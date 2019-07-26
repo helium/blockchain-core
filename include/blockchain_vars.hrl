@@ -47,14 +47,73 @@
 %% predicate value in order for a particular var txn to be applied.
 -define(predicate_threshold, predicate_threshold).
 
+%% These variables are used in the miner to determine which function should be called to provide
+%% whatever it is that is checked by the predicate.
+%% At the current time they provide a monotonic stream of integers.
+-define(predicate_callback_mod, predicate_callback_mod). %% Currently set to: miner
+-define(predicate_callback_fun, predicate_callback_fun). %% Currently set to: version
+
 %%%
 %%% miner vars
 %%%
 
+%% The number of consensus members that collectively mine a block. Specified as a positive int.
 -define(num_consensus_members, num_consensus_members).
+
+%% The interval between blocks that the chain attempts to maintain. Specified in milliseconds.
+-define(block_time, block_time).
+
 
 %%%
 %%% burn vars
 %%%
 
 -define(token_burn_exchange_rate, token_burn_exchange_rate).
+
+%%%
+%%% poc pathing vars
+%%%
+
+%% H3 Ring size to exclude when considering the next neighbor hop
+-define(h3_exclusion_ring_dist, h3_exclusion_ring_dist).
+
+%% Maximum number of hexagons to consider for neighbors
+-define(h3_max_grid_dist, h3_max_grid_dist).
+
+%% Scaling resolution for all poc path neighbors
+-define(h3_neighbor_res, h3_neighbor_res).
+
+%% Required minimum score for neighbors to be included in poc path
+-define(min_score, min_score).
+
+%% Required minimum h3 assert location resolution for assert_loc txn
+-define(min_assert_h3_res, min_assert_h3_res).
+
+%%%
+%%% score vars
+%%%
+
+%% Rate of decay for score alpha parameter
+%% This acts like network gravity and keeps hotspots from staying at the top of the score graph
+%% for longer periods of time without actually participating in POC
+-define(alpha_decay, alpha_decay).
+
+%% Rate of decay for score beta parameter
+%% This acts like network gravity and keeps hotspots from staying at the bottom of the score graph
+%% for longer periods of time without actually participating in POC
+-define(beta_decay, beta_decay).
+
+%% Acts as a limiting factor to avoid overflowing the decay
+-define(max_staleness, max_staleness).
+
+%%%
+%%% reward vars
+%%%
+
+%% Pretty much all of these are self-explanatory
+-define(monthly_reward, monthly_reward).
+-define(securities_percent, securities_percent).
+-define(consensus_percent, consensus_percent).
+-define(poc_challengees_percent, poc_challengees_percent).
+-define(poc_witnesses_percent, poc_witnesses_percent).
+-define(poc_challengers_percent, poc_challengers_percent).
