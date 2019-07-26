@@ -3,13 +3,6 @@
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
 %%%
-%%% chain vars
-%%%
-
-%% Block time
--define(block_time, block_time).
-
-%%%
 %%% election vars
 %%%
 
@@ -54,23 +47,32 @@
 %% predicate value in order for a particular var txn to be applied.
 -define(predicate_threshold, predicate_threshold).
 
-%% Defaults to `miner`
--define(predicate_callback_mod, predicate_callback_mod).
-
-%% Defaults to `version`
--define(predicate_callback_fun, predicate_callback_fun).
+%% These variables are used in the miner to determine which function should be called to provide
+%% whatever it is that is checked by the predicate.
+%% At the current time they provide a monotonic stream of integers.
+-define(predicate_callback_mod, predicate_callback_mod). %% Currently set to: miner
+-define(predicate_callback_fun, predicate_callback_fun). %% Currently set to: version
 
 %%%
 %%% miner vars
 %%%
 
+%% The number of consensus members that collectively mine a block. Specified as a positive int.
 -define(num_consensus_members, num_consensus_members).
+
+%% The interval between blocks that the chain attempts to maintain. Specified in milliseconds.
+-define(block_time, block_time).
+
 
 %%%
 %%% burn vars
 %%%
 
 -define(token_burn_exchange_rate, token_burn_exchange_rate).
+
+%%%
+%%% poc pathing vars
+%%%
 
 %% H3 Ring size to exclude when considering the next neighbor hop
 -define(h3_exclusion_ring_dist, h3_exclusion_ring_dist).
@@ -84,11 +86,7 @@
 %% Required minimum score for neighbors to be included in poc path
 -define(min_score, min_score).
 
-%%%
-%%% txn vars
-%%%
-
-%% Required minimum h3 assert location resolution
+%% Required minimum h3 assert location resolution for assert_loc txn
 -define(min_assert_h3_res, min_assert_h3_res).
 
 %%%
