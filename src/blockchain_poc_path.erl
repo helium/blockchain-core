@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_path).
 
+-include("blockchain_vars.hrl").
+
 -export([
          build/5,
          shortest/3,
@@ -181,11 +183,12 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 neighbors(PubkeyBin, Gateways, Height, Ledger) ->
     Gw = maps:get(PubkeyBin, Gateways),
     GwH3 = blockchain_ledger_gateway_v1:location(Gw),
-    {ok, H3ExclusionRingDist} = blockchain:config(h3_exclusion_ring_dist, Ledger),
-    {ok, H3MaxGridDistance} = blockchain:config(h3_max_grid_distance, Ledger),
-    {ok, H3NeighborRes} = blockchain:config(h3_neighbor_res, Ledger),
-    {ok, MinScore} = blockchain:config(min_score, Ledger),
+    {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
+    {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_dist, Ledger),
+    {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
+    {ok, MinScore} = blockchain:config(?min_score, Ledger),
     CorrectMinScore =
+        %% TODO: Remove this and fix it correctly
         case blockchain:config(correct_min_score, Ledger) of
             {ok, Val} ->
                 Val;
@@ -298,7 +301,7 @@ entropy(Entropy) ->
 active_gateways(Ledger, Challenger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, MinScore} = blockchain:config(min_score, Ledger),
+    {ok, MinScore} = blockchain:config(?min_score, Ledger),
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
@@ -786,7 +789,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.2};
                    (h3_exclusion_ring_dist, _) ->
                         {ok, ExclusionRingDist};
-                   (h3_max_grid_distance, _) ->
+                   (h3_max_grid_dist, _) ->
                         {ok, MaxGridDist};
                    (h3_neighbor_res, _) ->
                         {ok, 12};

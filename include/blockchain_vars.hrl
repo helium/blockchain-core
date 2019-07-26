@@ -3,6 +3,13 @@
 %%%% `git grep :config\( | grep -v \?` should not return any lines
 
 %%%
+%%% chain vars
+%%%
+
+%% Block time
+-define(block_time, block_time).
+
+%%%
 %%% election vars
 %%%
 
@@ -47,6 +54,12 @@
 %% predicate value in order for a particular var txn to be applied.
 -define(predicate_threshold, predicate_threshold).
 
+%% Defaults to `miner`
+-define(predicate_callback_mod, predicate_callback_mod).
+
+%% Defaults to `version`
+-define(predicate_callback_fun, predicate_callback_fun).
+
 %%%
 %%% miner vars
 %%%
@@ -58,3 +71,51 @@
 %%%
 
 -define(token_burn_exchange_rate, token_burn_exchange_rate).
+
+%% H3 Ring size to exclude when considering the next neighbor hop
+-define(h3_exclusion_ring_dist, h3_exclusion_ring_dist).
+
+%% Maximum number of hexagons to consider for neighbors
+-define(h3_max_grid_dist, h3_max_grid_dist).
+
+%% Scaling resolution for all poc path neighbors
+-define(h3_neighbor_res, h3_neighbor_res).
+
+%% Required minimum score for neighbors to be included in poc path
+-define(min_score, min_score).
+
+%%%
+%%% txn vars
+%%%
+
+%% Required minimum h3 assert location resolution
+-define(min_assert_h3_res, min_assert_h3_res).
+
+%%%
+%%% score vars
+%%%
+
+%% Rate of decay for score alpha parameter
+%% This acts like network gravity and keeps hotspots from staying at the top of the score graph
+%% for longer periods of time without actually participating in POC
+-define(alpha_decay, alpha_decay).
+
+%% Rate of decay for score beta parameter
+%% This acts like network gravity and keeps hotspots from staying at the bottom of the score graph
+%% for longer periods of time without actually participating in POC
+-define(beta_decay, beta_decay).
+
+%% Acts as a limiting factor to avoid overflowing the decay
+-define(max_staleness, max_staleness).
+
+%%%
+%%% reward vars
+%%%
+
+%% Pretty much all of these are self-explanatory
+-define(monthly_reward, monthly_reward).
+-define(securities_percent, securities_percent).
+-define(consensus_percent, consensus_percent).
+-define(poc_challengees_percent, poc_challengees_percent).
+-define(poc_witnesses_percent, poc_witnesses_percent).
+-define(poc_challengers_percent, poc_challengers_percent).

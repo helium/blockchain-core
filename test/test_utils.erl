@@ -57,7 +57,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
                           election_interval => 30,
                           poc_challenge_interval => 30,
                           h3_exclusion_ring_dist => 2,
-                          h3_max_grid_distance => 13,
+                          h3_max_grid_dist => 13,
                           h3_neighbor_res => 12,
                           correct_min_score => true
                          }),
