@@ -737,7 +737,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     end.
 
 gateway_versions(Ledger) ->
-    {ok, DeathThreshold} = blockchain:config(?var_gw_inactivity_thresh, Ledger),
+    {ok, DeathThreshold} = config(?var_gw_inactivity_thresh, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gateways = filter_dead(active_gateways(Ledger), Height, DeathThreshold),
     Inc = fun(X) -> X + 1 end,

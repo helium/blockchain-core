@@ -2,6 +2,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("blockchain_vars.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -437,7 +438,7 @@ poc_request_test(Config) ->
         end,
         lists:seq(1, 20)
     ),
-    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
     % Step 2: Token burn txn should pass now
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -651,7 +652,7 @@ export_test(Config) ->
         end,
         lists:seq(1, 20)
     ),
-    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
     Owner = libp2p_crypto:pubkey_to_bin(PayerPubKey1),
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey1),
@@ -1231,7 +1232,7 @@ chain_vars_test(Config) ->
     InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, N, self()),
 
-    {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
+    {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
     ct:pal("commit delay ~p", [Delay]),
     %% Add some blocks,
     lists:foreach(
@@ -1239,7 +1240,7 @@ chain_vars_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(chain_var, Ledger) of
+                case blockchain:config(?chain_var, Ledger) of
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, foo} when Height >= (Delay + 1) ->
@@ -1318,7 +1319,7 @@ token_burn_test(Config) ->
         end,
         lists:seq(1, 20)
     ),
-    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
     % Step 4: Retry token burn txn should pass now
     Block24 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
@@ -1392,7 +1393,7 @@ payer_test(Config) ->
         end,
         lists:seq(1, 20)
     ),
-    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger)),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
 
     % Step 2: Token burn txn should pass now

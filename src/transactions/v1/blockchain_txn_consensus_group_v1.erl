@@ -22,6 +22,8 @@
     absorb/2
 ]).
 
+-include("blockchain_vars.hrl").
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -135,7 +137,7 @@ is_valid(Txn, Chain) ->
                         throw({error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}})
                 end,
                 {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
-                {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
+                {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
                 %% The next election should be at least ElectionInterval blocks past the last election
                 %% This check prevents elections ahead of schedule
                 case TxnHeight >= LastElectionHeight + ElectionInterval of
@@ -144,7 +146,7 @@ is_valid(Txn, Chain) ->
                         EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
-                        {ok, RestartInterval} = blockchain:config(election_restart_interval, Ledger),
+                        {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
                         %% The next election should occur within RestartInterval blocks of when the election started
                         NextRestart = LastElectionHeight + ElectionInterval + Delay + RestartInterval,
                         case CurrHeight > NextRestart of
@@ -153,7 +155,7 @@ is_valid(Txn, Chain) ->
                             _ ->
                                 ok
                         end,
-                        {ok, N} = blockchain:config(num_consensus_members, Ledger),
+                        {ok, N} = blockchain:config(?num_consensus_members, Ledger),
                         case length(Members) == N of
                             true -> ok;
                             _ -> throw({error, {wrong_members_size, N, length(Members)}})

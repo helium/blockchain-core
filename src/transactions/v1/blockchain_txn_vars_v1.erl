@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("pb/blockchain_txn_vars_v1_pb.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
          new/3, new/4,
@@ -224,7 +225,7 @@ is_valid(Txn, Chain) ->
         end,
         lists:foreach(
           fun(VarName) ->
-                  case blockchain:config(VarName, Ledger) of
+                  case blockchain:config(VarName, Ledger) of % ignore this one using "?"
                       {ok, _} -> ok;
                       {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
                   end
@@ -234,35 +235,11 @@ is_valid(Txn, Chain) ->
         %% TODO: validate that a cancelled transaction is actually on
         %% the chain
 
-        case Gen of
-            false ->
-                %% this is broken for non-miner users of the
-                %% blockchain application, comment out till I can
-                %% rework it later.
+        %% TODO: figure out how to validate that predicate functions
+        %% actually exist when set, without breaking applications like
+        %% the router and the API that only want to validate vars.
 
-
-                %% try
-                %%     {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-                %%     {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
-                %%     Curr = Mod:Fun(),
-                %%     case version_predicate(Txn) of
-                %%         %% not required, commit.
-                %%         0 ->
-                %%             ok;
-                %%         V when V < (Curr + 1) ->
-                %%             throw({error, predicate_too_low});
-                %%         _ -> ok
-                %%     end
-                %% catch throw:E ->
-                %%         %% rethrow validation errors
-                %%         throw(E);
-                %%       _:_ ->
-                %%         %% assume anything else is a bad function specification
-                %%         throw({error, bad_predicate_fun})
-                %% end;
-                ok;
-            _ -> ok
-        end
+        ok
     catch throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
             false
@@ -293,14 +270,14 @@ maybe_absorb(Txn, Ledger, Chain) ->
             true;
         _ ->
             {ok, Height} = blockchain:height(Chain),
-            {ok, Delay} = blockchain:config(vars_commit_delay, Ledger),
+            {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
             Effective = Delay + Height,
             case version_predicate(Txn) of
                 0 ->
                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                     true;
                 V ->
-                    {ok, Threshold} = blockchain:config(predicate_threshold, Ledger),
+                    {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
                     Versions = blockchain_ledger_v1:gateway_versions(Ledger),
                     case sum_higher(V, Versions) of
                         Pct when Pct >= Threshold ->
