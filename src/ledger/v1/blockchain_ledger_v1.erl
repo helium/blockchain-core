@@ -756,8 +756,8 @@ gateway_versions(Ledger) ->
     [{V, Ct / Tot} || {V, Ct} <- L].
 
 filter_dead(Gws, Height, Threshold) ->
-    lists:filter(
-      fun(Gw) ->
+    maps:filter(
+      fun(_Addr, Gw) ->
               Last = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
               %% calculate the number of blocks since we last saw a challenge
               Since = Height - Last,
