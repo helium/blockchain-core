@@ -277,17 +277,35 @@ maybe_absorb(Txn, Ledger, Chain) ->
                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                     true;
                 V ->
-                    {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
-                    Versions = blockchain_ledger_v1:gateway_versions(Ledger),
-                    case sum_higher(V, Versions) of
-                        Pct when Pct >= Threshold ->
-                            ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
-                            true;
+                    {ok, Members} = blockchain_ledger_v1:consensus_members(Ledger),
+                    %% TODO: combine these checks for efficiency?
+                    case check_members(Members, V, Ledger) of
+                        true ->
+                            {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
+                            Versions = blockchain_ledger_v1:gateway_versions(Ledger),
+                            case sum_higher(V, Versions) of
+                                Pct when Pct >= Threshold ->
+                                    ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
+                                    true;
+                                _ ->
+                                    false
+                            end;
                         _ ->
                             false
                     end
             end
     end.
+
+check_members(Members, Target, Ledger) ->
+    lists:all(fun(M) ->
+                      case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
+                          {ok, Gw} ->
+                              V = blockchain_ledger_gateway_v1:version(Gw),
+                              V >= Target;
+                          _ -> false
+                      end
+              end,
+              Members).
 
 delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
