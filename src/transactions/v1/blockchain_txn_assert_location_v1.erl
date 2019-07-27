@@ -255,15 +255,18 @@ is_valid_location(#blockchain_txn_assert_location_v1_pb{location=Location}, MinH
 %%--------------------------------------------------------------------
 -spec is_valid_payer(txn_assert_location()) -> boolean().
 is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=undefined}) ->
+    %% no payer
     true;
-is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin, payer_signature= <<>>}) when PubKeyBin /= undefined ->
-    false;
+is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer= <<>>,
+                                                     payer_signature= <<>>}) ->
+    %% empty payer, empty signature
+    true;
 is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin,
                                                      payer_signature=Signature}=Txn) ->
 
     BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature= <<>>,
-                                                        gateway_signature= <<>>,
-                                                        payer_signature= <<>>},
+                                                       gateway_signature= <<>>,
+                                                       payer_signature= <<>>},
     EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
@@ -407,10 +410,11 @@ invalid_new() ->
       }.
 
 missing_payer_signature_new() ->
+    #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     #blockchain_txn_assert_location_v1_pb{
        gateway= <<"gateway_address">>,
        owner= <<"owner_address">>,
-       payer= <<"some payer">>,
+       payer= libp2p_crypto:pubkey_to_bin(PubKey),
        payer_signature = <<>>,
        gateway_signature= <<>>,
        owner_signature= << >>,
