@@ -731,7 +731,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     end.
 
 gateway_versions(Ledger) ->
-    case config(?var_gw_inactivity_thresh, Ledger) of
+    case config(?var_gw_inactivity_threshold, Ledger) of
         {error, not_found} ->
             gateway_versions_fallback(Ledger);
         {ok, DeathThreshold} ->
