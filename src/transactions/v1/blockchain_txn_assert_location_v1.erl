@@ -256,8 +256,8 @@ is_valid_location(#blockchain_txn_assert_location_v1_pb{location=Location}, MinH
 -spec is_valid_payer(txn_assert_location()) -> boolean().
 is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=undefined}) ->
     true;
-is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer_signature= <<>>}) ->
-    true;
+is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin, payer_signature= <<>>}) when PubKeyBin /= undefined ->
+    false;
 is_valid_payer(#blockchain_txn_assert_location_v1_pb{payer=PubKeyBin,
                                                      payer_signature=Signature}=Txn) ->
 
@@ -298,7 +298,7 @@ is_valid(Txn, Chain) ->
             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
             case ExpectedStakingFee == StakingFee of
                 false ->
-                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
                 true ->
                     case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger) of
                         {error, _}=Error ->
@@ -406,6 +406,20 @@ invalid_new() ->
        fee = 1
       }.
 
+missing_payer_signature_new() ->
+    #blockchain_txn_assert_location_v1_pb{
+       gateway= <<"gateway_address">>,
+       owner= <<"owner_address">>,
+       payer= <<"some payer">>,
+       payer_signature = <<>>,
+       gateway_signature= <<>>,
+       owner_signature= << >>,
+       location= h3:to_string(599685771850416127),
+       nonce = 1,
+       staking_fee = 1,
+       fee = 1
+      }.
+
 new_test() ->
     Tx = new(),
     ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1, 1)).
@@ -445,6 +459,10 @@ owner_signature_test() ->
 gateway_signature_test() ->
     Tx = new(),
     ?assertEqual(<<>>, gateway_signature(Tx)).
+
+payer_signature_missing_test() ->
+    Tx = missing_payer_signature_new(),
+    ?assertNot(is_valid_payer(Tx)).
 
 payer_signature_test() ->
     Tx = new(),
