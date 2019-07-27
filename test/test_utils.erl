@@ -2,6 +2,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     init/1, init_chain/2,
@@ -40,25 +41,25 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     % Create genesis block
     {VTxn, Keys} = blockchain_ct_utils:create_vars(
                         #{
-                          num_consensus_members => 7,
-                          monthly_reward => 50000 * 1000000,
-                          securities_percent => 0.35,
-                          poc_challengees_percent => 0.19 + 0.16,
-                          poc_challengers_percent => 0.09 + 0.06,
-                          poc_witnesses_percent => 0.02 + 0.03,
-                          consensus_percent => 0.10,
-                          election_selection_pct => 60,
-                          election_replacement_factor => 4,
-                          min_assert_h3_res => 12,
-                          max_staleness => 100000,
-                          alpha_decay => 0.007,
-                          beta_decay => 0.0005,
-                          block_time => 30000,
-                          election_interval => 30,
-                          poc_challenge_interval => 30,
-                          h3_exclusion_ring_dist => 2,
-                          h3_max_grid_distance => 13,
-                          h3_neighbor_res => 12,
+                          ?num_consensus_members => 7,
+                          ?monthly_reward => 50000 * 1000000,
+                          ?securities_percent => 0.35,
+                          ?poc_challengees_percent => 0.19 + 0.16,
+                          ?poc_challengers_percent => 0.09 + 0.06,
+                          ?poc_witnesses_percent => 0.02 + 0.03,
+                          ?consensus_percent => 0.10,
+                          ?election_selection_pct => 60,
+                          ?election_replacement_factor => 4,
+                          ?min_assert_h3_res => 12,
+                          ?max_staleness => 100000,
+                          ?alpha_decay => 0.007,
+                          ?beta_decay => 0.0005,
+                          ?block_time => 30000,
+                          ?election_interval => 30,
+                          ?poc_challenge_interval => 30,
+                          ?h3_exclusion_ring_dist => 2,
+                          ?h3_max_grid_dist => 13,
+                          ?h3_neighbor_res => 12,
                           correct_min_score => true
                          }),
 

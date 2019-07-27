@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("pb/blockchain_txn_poc_request_v1_pb.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     new/5,
@@ -51,8 +52,8 @@ new(Challenger, SecretHash, OnionKeyHash, BlockHash, Version) ->
 
 -spec get_version(blockchain:ledger()) -> integer().
 get_version(Ledger) ->
-    {ok, Mod} = blockchain:config(predicate_callback_mod, Ledger),
-    {ok, Fun} = blockchain:config(predicate_callback_fun, Ledger),
+    {ok, Mod} = blockchain:config(?predicate_callback_mod, Ledger),
+    {ok, Fun} = blockchain:config(?predicate_callback_fun, Ledger),
     Mod:Fun().
 
 %%--------------------------------------------------------------------

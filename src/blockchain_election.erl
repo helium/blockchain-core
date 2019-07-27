@@ -5,17 +5,19 @@
          has_new_group/1
         ]).
 
+-include("blockchain_vars.hrl").
+
 new_group(Ledger, Hash, Size, Delay) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
-    {ok, SelectPct} = blockchain_ledger_v1:config(election_selection_pct, Ledger),
-    {ok, ReplacementFactor} = blockchain_ledger_v1:config(election_replacement_factor, Ledger),
+    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+    {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
     %% increase this to make removal more gradual, decrease to make it less so
-    {ok, ReplacementSlope} = blockchain_ledger_v1:config(election_replacement_slope, Ledger),
-    {ok, Interval} = blockchain:config(election_restart_interval, Ledger),
+    {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
+    {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
 
     OldLen = length(OldGroup0),
     case Size == OldLen of

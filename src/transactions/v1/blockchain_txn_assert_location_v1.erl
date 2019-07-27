@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("pb/blockchain_txn_assert_location_v1_pb.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     new/6, new/7,
@@ -313,7 +314,7 @@ is_valid(Txn, Chain) ->
                                         false ->
                                             {error, {bad_owner, {assert_location, Owner, GwOwner}}};
                                         true ->
-                                            {ok, MinAssertH3Res} = blockchain:config(min_assert_h3_res, Ledger),
+                                            {ok, MinAssertH3Res} = blockchain:config(?min_assert_h3_res, Ledger),
                                             Location = ?MODULE:location(Txn),
                                             case ?MODULE:is_valid_location(Txn, MinAssertH3Res) of
                                                 false ->

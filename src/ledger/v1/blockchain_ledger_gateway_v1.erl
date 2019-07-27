@@ -25,6 +25,7 @@
 -import(blockchain_utils, [normalize_float/1]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -132,9 +133,9 @@ score(Address,
       Ledger) ->
     e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
                fun() ->
-                       {ok, AlphaDecay} = blockchain:config(alpha_decay, Ledger),
-                       {ok, BetaDecay} = blockchain:config(beta_decay, Ledger),
-                       {ok, MaxStaleness} = blockchain:config(max_staleness, Ledger),
+                       {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
+                       {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
+                       {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
                        NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
                        NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
                        RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),

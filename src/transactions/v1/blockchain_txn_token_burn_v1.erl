@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("pb/blockchain_txn_token_burn_v1_pb.hrl").
+-include("blockchain_vars.hrl").
 
   -export([
     new/3, new/4,
@@ -151,12 +152,12 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
+            case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 {ok, _Rate} ->
                     Amount = ?MODULE:amount(Txn),
-                    blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)     
+                    blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
             end
     end.
 
@@ -167,7 +168,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:config(token_burn_exchange_rate, Ledger) of
+    case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
         {error, _Reason}=Error ->
             Error;
         {ok, Rate} ->

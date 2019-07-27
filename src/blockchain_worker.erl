@@ -8,6 +8,8 @@
 
 -behavior(gen_server).
 
+-include("blockchain_vars.hrl").
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -199,7 +201,7 @@ init(Args) ->
             {no_genesis, _Chain}=R ->
                 R;
             {ok, Chain} ->
-                {ok, N} = blockchain:config(num_consensus_members, blockchain:ledger(Chain)),
+                {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
                 ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
@@ -213,7 +215,7 @@ init(Args) ->
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
-    {ok, N} = blockchain:config(num_consensus_members, blockchain:ledger(Chain)),
+    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
     {reply, N, State};
 handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
@@ -328,7 +330,7 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
                 false ->
                     ok;
                 true ->
-                    {ok, N} = blockchain:config(num_consensus_members, blockchain:ledger(Chain)),
+                    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
                     case libp2p_swarm:dial_framed_stream(Swarm,
                                                          libp2p_crypto:pubkey_bin_to_p2p(Sender),
                                                          ?SYNC_PROTOCOL,
@@ -370,7 +372,7 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
             {noreply, State#state{sync_timer=Ref}};
         {ok, Head} ->
             BlockTime = blockchain_block:time(Head),
-            {ok, N} = blockchain:config(num_consensus_members, blockchain:ledger(Chain)),
+            {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
             case erlang:system_time(seconds) - BlockTime of
                 X when X > 300 ->
                     %% figure out our gossip peers
@@ -456,7 +458,7 @@ sync(Swarm, N, Chain, Peer) ->
     Parent = self(),
     spawn(fun() ->
         Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
-        {ok, N} = blockchain:config(num_consensus_members, blockchain:ledger(Chain)),
+        {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,

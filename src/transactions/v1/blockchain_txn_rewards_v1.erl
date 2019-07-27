@@ -7,6 +7,7 @@
 
 -behavior(blockchain_txn).
 
+-include("blockchain_vars.hrl").
 -include("pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
@@ -26,7 +27,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-% monthly_reward          50000 * 1000000  In bones 
+% monthly_reward          50000 * 1000000  In bones
 % securities_percent      0.35
 % dc_percent              0.25 Unused for now so give to POC
 % poc_challengees_percent 0.19 + 0.16
@@ -228,14 +229,14 @@ get_txns_for_epoch(Current, End, Chain, Txns) ->
 %%--------------------------------------------------------------------
 -spec get_reward_vars(blockchain_ledger_v1:ledger()) -> map().
 get_reward_vars(Ledger) ->
-    {ok, MonthlyReward} = blockchain:config(monthly_reward, Ledger),
-    {ok, SecuritiesPercent} = blockchain:config(securities_percent, Ledger),
-    {ok, PocChallengeesPercent} = blockchain:config(poc_challengees_percent, Ledger),
-    {ok, PocChallengersPercent} = blockchain:config(poc_challengers_percent, Ledger),
-    {ok, PocWitnessesPercent} = blockchain:config(poc_witnesses_percent, Ledger),
-    {ok, ConsensusPercent} = blockchain:config(consensus_percent, Ledger),
-    {ok, ElectionInterval} = blockchain:config(election_interval, Ledger),
-    {ok, BlockTime0} = blockchain:config(block_time, Ledger),
+    {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
+    {ok, SecuritiesPercent} = blockchain:config(?securities_percent, Ledger),
+    {ok, PocChallengeesPercent} = blockchain:config(?poc_challengees_percent, Ledger),
+    {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
+    {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
+    {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
+    {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
+    {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     % blocktime is in ms, so we get blocks in seconds
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min

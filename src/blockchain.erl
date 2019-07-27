@@ -425,7 +425,7 @@ delete_block(Block, #blockchain{db=DB, default=DefaultCF,
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 config(ConfigName, Ledger) ->
-    blockchain_ledger_v1:config(ConfigName, Ledger).
+    blockchain_ledger_v1:config(ConfigName, Ledger). % ignore using "?"
 
 %%--------------------------------------------------------------------
 %% @doc
