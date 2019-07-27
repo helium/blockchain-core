@@ -731,9 +731,30 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
     end.
 
 gateway_versions(Ledger) ->
-    {ok, DeathThreshold} = config(?var_gw_inactivity_thresh, Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    Gateways = filter_dead(active_gateways(Ledger), Height, DeathThreshold),
+    case config(?var_gw_inactivity_thresh, Ledger) of
+        {error, not_found} ->
+            gateway_versions_fallback(Ledger);
+        {ok, DeathThreshold} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            Gateways = filter_dead(active_gateways(Ledger), Height, DeathThreshold),
+            Inc = fun(X) -> X + 1 end,
+            Versions =
+            maps:fold(
+              fun(_, Gw, Acc) ->
+                      V = blockchain_ledger_gateway_v1:version(Gw),
+                      maps:update_with(V, Inc, 1, Acc)
+              end,
+              #{},
+              Gateways),
+            L = maps:to_list(Versions),
+            Tot = lists:sum([Ct || {_V, Ct} <- L]),
+
+            %% reformat counts as percentages
+            [{V, Ct / Tot} || {V, Ct} <- L]
+    end.
+
+gateway_versions_fallback(Ledger) ->
+    Gateways = active_gateways(Ledger),
     Inc = fun(X) -> X + 1 end,
     Versions =
         maps:fold(
