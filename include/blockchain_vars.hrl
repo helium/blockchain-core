@@ -32,7 +32,7 @@
 
 %% the number of blocks before keep a gateway from affecting the
 %% outcome of threshold var application.
--define(var_gw_inactivity_thresh, var_gw_inactivity_thresh).
+-define(var_gw_inactivity_threshold, var_gw_inactivity_threshold).
 
 %%%
 %%% meta vars
