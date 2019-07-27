@@ -184,7 +184,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
     Gw = maps:get(PubkeyBin, Gateways),
     GwH3 = blockchain_ledger_gateway_v1:location(Gw),
     {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
-    {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_dist, Ledger),
+    {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
     {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
     CorrectMinScore =
@@ -789,7 +789,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.2};
                    (h3_exclusion_ring_dist, _) ->
                         {ok, ExclusionRingDist};
-                   (h3_max_grid_dist, _) ->
+                   (h3_max_grid_distance, _) ->
                         {ok, MaxGridDist};
                    (h3_neighbor_res, _) ->
                         {ok, 12};

@@ -87,7 +87,7 @@
 -define(h3_exclusion_ring_dist, h3_exclusion_ring_dist).
 
 %% Maximum number of hexagons to consider for neighbors
--define(h3_max_grid_dist, h3_max_grid_dist).
+-define(h3_max_grid_distance, h3_max_grid_distance).
 
 %% Scaling resolution for all poc path neighbors
 -define(h3_neighbor_res, h3_neighbor_res).
