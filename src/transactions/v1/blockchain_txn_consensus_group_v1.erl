@@ -185,9 +185,8 @@ absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
     {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
     ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
-    blockchain_ledger_v1:consensus_members(Members, Ledger),
-    blockchain_ledger_v1:election_height(Height, Ledger).
-
+    ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
+    ok = blockchain_ledger_v1:election_height(Height, Ledger).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

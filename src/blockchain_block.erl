@@ -15,11 +15,22 @@
 -callback is_genesis(block()) -> boolean().
 -callback signatures(block()) -> [signature()].
 -callback set_signatures(block(), [signature()]) -> block().
+
+%% arity 4 is for external users of this function who don't need to
+%% care about whether or not something is a rescue block.
 -callback verify_signatures(Block::binary() | block(),
                             ConsensueMembers::[libp2p_crypto:pubkey_bin()],
                             Signatures::[signature()],
-                            Threshold::pos_integer()) -> false |
-                                                         {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+                            Threshold::pos_integer()) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+%% arity 5 is for blockchain core's validation routines, which might
+%% need to do special processing for rescue blocks.
+-callback verify_signatures(Block::binary() | block(),
+                            ConsensueMembers::[libp2p_crypto:pubkey_bin()],
+                            Signatures::[signature()],
+                            Threshold::pos_integer(),
+                            Key::ignore | binary()) ->
+    false | {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 
 -include("pb/blockchain_block_pb.hrl").
 
@@ -32,7 +43,7 @@
          is_genesis/1,
          type/1,
          signatures/1, set_signatures/2,
-         verify_signatures/4,
+         verify_signatures/4, verify_signatures/5,
          transactions/1,
          serialize/1,
          deserialize/1
@@ -107,6 +118,9 @@ set_signatures(Block, Signatures) ->
                                                      {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
     (type(Block)):verify_signatures(Block, ConsensusMembers, Signatures, Threshold).
+
+verify_signatures(Block, ConsensusMembers, Signatures, Threshold, Key) ->
+    (type(Block)):verify_signatures(Block, ConsensusMembers, Signatures, Threshold, Key).
 
 -spec transactions(block()) -> blockchain_txn:txns().
 transactions(Block) ->
