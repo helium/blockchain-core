@@ -458,7 +458,6 @@ sync(Swarm, N, Chain, Peer) ->
     Parent = self(),
     spawn(fun() ->
         Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
-        {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,
