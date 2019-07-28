@@ -207,8 +207,10 @@ is_valid_owner(#blockchain_txn_add_gateway_v1_pb{owner=PubKeyBin,
 %%--------------------------------------------------------------------
 -spec is_valid_payer(txn_add_gateway()) -> boolean().
 is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=undefined}) ->
+    %% no payer
     true;
-is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer_signature= <<>>}) ->
+is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer= <<>>, payer_signature= <<>>}) ->
+    %% payer and payer_signature are empty
     true;
 is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
                                                  payer_signature=Signature}=Txn) ->
@@ -301,6 +303,31 @@ calculate_staking_fee(_Chain) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+missing_payer_signature_new() ->
+    #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #blockchain_txn_add_gateway_v1_pb{
+        owner= <<"owner_address">>,
+        gateway= <<"gateway_address">>,
+        owner_signature= <<>>,
+        gateway_signature = <<>>,
+        payer= libp2p_crypto:pubkey_to_bin(PubKey),
+        payer_signature = <<>>,
+        staking_fee = 1,
+        fee = 1
+      }.
+
+valid_payer_new() ->
+    #blockchain_txn_add_gateway_v1_pb{
+        owner= <<"owner_address">>,
+        gateway= <<"gateway_address">>,
+        owner_signature= <<>>,
+        payer= <<>>,
+        payer_signature= <<>>,
+        gateway_signature = <<>>,
+        staking_fee = 1,
+        fee = 1
+      }.
+
 new_test() ->
     Tx = #blockchain_txn_add_gateway_v1_pb{
         owner= <<"owner_address">>,
@@ -345,6 +372,14 @@ gateway_signature_test() ->
 payer_signature_test() ->
     Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>, 1, 1),
     ?assertEqual(<<>>, payer_signature(Tx)).
+
+payer_signature_missing_test() ->
+    Tx = missing_payer_signature_new(),
+    ?assertNot(is_valid_payer(Tx)).
+
+valid_new_payer_test() ->
+    Tx = valid_payer_new(),
+    ?assert(is_valid_payer(Tx)).
 
 sign_request_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
