@@ -301,7 +301,7 @@ is_valid(Txn, Chain) ->
             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
             case ExpectedStakingFee == StakingFee of
                 false ->
-                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
+                    {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
                 true ->
                     case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger) of
                         {error, _}=Error ->
