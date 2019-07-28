@@ -167,8 +167,10 @@ is_valid_owner(#blockchain_txn_oui_v1_pb{owner=PubKeyBin,
 %%--------------------------------------------------------------------
 -spec is_valid_payer(txn_oui()) -> boolean().
 is_valid_payer(#blockchain_txn_oui_v1_pb{payer=undefined}) ->
+    %% no payer
     true;
-is_valid_payer(#blockchain_txn_oui_v1_pb{payer_signature= <<>>}) ->
+is_valid_payer(#blockchain_txn_oui_v1_pb{payer= <<>>, payer_signature= <<>>}) ->
+    %% empty payer, empty payer_signature
     true;
 is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
                                          payer_signature=Signature}=Txn) ->
@@ -276,6 +278,18 @@ is_p2p(Address) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+missing_payer_signature_new() ->
+    #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #blockchain_txn_oui_v1_pb{
+       owner= <<"owner">>,
+       addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+       payer= libp2p_crypto:pubkey_to_bin(PubKey),
+       payer_signature= <<>>,
+       staking_fee=1,
+       fee=1,
+       owner_signature= <<>>
+      }.
+
 new_test() ->
     Tx = #blockchain_txn_oui_v1_pb{
         owner= <<"owner">>,
@@ -316,6 +330,10 @@ owner_signature_test() ->
 payer_signature_test() ->
     Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 1),
     ?assertEqual(<<>>, payer_signature(Tx)).
+
+missing_payer_signature_test() ->
+    Tx = missing_payer_signature_new(),
+    ?assertNot(is_valid_payer(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
