@@ -187,14 +187,6 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
     {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
     {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
-    CorrectMinScore =
-        %% TODO: Remove this and fix it correctly
-        case blockchain:config(correct_min_score, Ledger) of
-            {ok, Val} ->
-                Val;
-            {error, not_found} ->
-                false
-        end,
     ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
     ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
@@ -203,7 +195,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                         undefined -> Acc;
                                         Index ->
                                             case blockchain_ledger_v1:gateway_score(A, Ledger) of
-                                                {ok, S} when CorrectMinScore == false orelse S >= MinScore ->
+                                                {ok, S} when S >= MinScore ->
                                                     ScaledIndex = case h3:get_resolution(Index) of
                                                                       R when R > H3NeighborRes ->
                                                                           h3:parent(Index, H3NeighborRes);
@@ -797,8 +789,6 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.007};
                    (beta_decay, _) ->
                         {ok, 0.0005};
-                   (correct_min_score, _) ->
-                        {ok, true};
                    (max_staleness, _) ->
                         {ok, 100000}
                 end),
