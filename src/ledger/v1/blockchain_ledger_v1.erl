@@ -442,6 +442,9 @@ process_delayed_txns(Block, Ledger, Chain) ->
       PendingTxns),
     ok.
 
+%% avoid the rescheduling machinery if we're immediately applying stuff
+delay_vars(0, Vars, Ledger) ->
+    ok = blockchain_txn_vars_v1:delayed_absorb(Vars, Ledger);
 delay_vars(Effective, Vars, Ledger) ->
     DefaultCF = default_cf(Ledger),
     %% save the vars txn to disk
