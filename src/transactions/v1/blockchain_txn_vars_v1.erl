@@ -284,6 +284,9 @@ maybe_absorb(Txn, Ledger, Chain) ->
                             {ok, Threshold} = blockchain:config(?predicate_threshold, Ledger),
                             Versions = blockchain_ledger_v1:gateway_versions(Ledger),
                             case sum_higher(V, Versions) of
+                                Pct when Pct >= Threshold andalso Delay =:= 0 ->
+                                    delayed_absorb(Txn, Ledger),
+                                    true;
                                 Pct when Pct >= Threshold ->
                                     ok = blockchain_ledger_v1:delay_vars(Effective, Txn, Ledger),
                                     true;
