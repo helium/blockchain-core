@@ -78,29 +78,32 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                                          end,
                                          blockchain_utils:shuffle_from_hash(Hash, GraphList)
                                         ),
+            Limit = case blockchain:config(?poc_path_limit, Ledger) of
+                        {error, not_found} ->
+                            infinity;
+                        {ok, Val} ->
+                            Val
+                    end,
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
             Path3 = Path1 ++ Path2,
-            case erlang:length(Path3) > 2 of
+            PathLength = erlang:length(Path3),
+            case PathLength > 2 of
                 false ->
                     lager:error("target/gateways ~p", [{Target, Gateways}]),
                     lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
                     lager:error("path: ~p", [Path3]),
                     {error, path_too_small};
+                true when PathLength > Limit ->
+                    {error, path_too_long};
                 true ->
                     blockchain_utils:rand_from_hash(Hash),
-                    Path4 = case rand:uniform(2) of
-                                1 ->
-                                    Path3;
-                                2 ->
-                                    lists:reverse(Path3)
-                            end,
-                    case blockchain:config(?poc_path_limit, Ledger) of
-                        {error, not_found} ->
-                            {ok, Path4};
-                        {ok, Val} ->
-                            {ok, lists:sublist(Path4, Val)}
+                    case rand:uniform(2) of
+                        1 ->
+                            {ok, Path3};
+                        2 ->
+                            {ok, lists:reverse(Path3)}
                     end
             end
     end.
@@ -839,6 +842,7 @@ no_neighbor_test() ->
     unload_meck(),
     ok.
 max_path_length_without_limit_test() ->
+    %% This should be allowed since the chain var hasn't been set in the fake ledger
     BaseDir = test_utils:tmp_dir("max_path_length_test_without_limit"),
     Indices = [
                {631210968876178431, 1.0, 1.0},
@@ -859,6 +863,8 @@ max_path_length_without_limit_test() ->
     ok.
 
 max_path_length_with_limit_test() ->
+    %% Since the limit var is set in the fake ledger, this should error out
+    %% And we won't construct the challenge to begin with
     BaseDir = test_utils:tmp_dir("max_path_length_test_with_limit"),
     Indices = [
                {631210968876178431, 1.0, 1.0},
@@ -872,9 +878,50 @@ max_path_length_with_limit_test() ->
     Target = hd(maps:keys(Gateways)),
     Ledger = build_fake_ledger_from_indices_with_path_limit(BaseDir, Indices, 0.25, 6, 120),
 
+    ?assertEqual({error, path_too_long}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
+
+    unload_meck(),
+    ok.
+
+max_path_length_success_with_limit_test() ->
+    %% This builds a path of length 6 with path limit set, it should succeed
+    BaseDir = test_utils:tmp_dir("max_path_length_success_test"),
+    Indices = [
+               {631210968876178431, 1.0, 1.0},
+               {631210968874634239, 1.0, 1.0},
+               {631210968943528447, 1.0, 1.0},
+               {631210968840452607, 1.0, 1.0},
+               {631210968874529791, 1.0, 1.0}
+              ],
+    Gateways = build_gatewas_from_indices(Indices),
+    Target = hd(maps:keys(Gateways)),
+    Ledger = build_fake_ledger_from_indices_with_path_limit(BaseDir, Indices, 0.25, 6, 120),
+
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
-    ?assertEqual(7, length(Path)),
+    ?assertEqual(6, length(Path)),
+
+    unload_meck(),
+    ok.
+
+max_path_length_success_without_limit_test() ->
+    %% This builds a path of length 6 without path limit set, it should still succeed
+    BaseDir = test_utils:tmp_dir("max_path_length_success_test"),
+    Indices = [
+               {631210968876178431, 1.0, 1.0},
+               {631210968874634239, 1.0, 1.0},
+               {631210968943528447, 1.0, 1.0},
+               {631210968840452607, 1.0, 1.0},
+               {631210968874529791, 1.0, 1.0}
+              ],
+    Gateways = build_gatewas_from_indices(Indices),
+    Target = hd(maps:keys(Gateways)),
+    Ledger = build_fake_ledger_from_indices_without_path_limit(BaseDir, Indices, 0.25, 6, 120),
+
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+
+    ?assertEqual(6, length(Path)),
+
     unload_meck(),
     ok.
 
