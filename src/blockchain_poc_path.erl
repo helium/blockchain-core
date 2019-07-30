@@ -885,7 +885,7 @@ max_path_length_with_limit_test() ->
 
 max_path_length_success_with_limit_test() ->
     %% This builds a path of length 6 with path limit set, it should succeed
-    BaseDir = test_utils:tmp_dir("max_path_length_success_test"),
+    BaseDir = test_utils:tmp_dir("max_path_length_success_with_limit_test"),
     Indices = [
                {631210968876178431, 1.0, 1.0},
                {631210968874634239, 1.0, 1.0},
@@ -906,7 +906,7 @@ max_path_length_success_with_limit_test() ->
 
 max_path_length_success_without_limit_test() ->
     %% This builds a path of length 6 without path limit set, it should still succeed
-    BaseDir = test_utils:tmp_dir("max_path_length_success_test"),
+    BaseDir = test_utils:tmp_dir("max_path_length_success_without_limit_test"),
     Indices = [
                {631210968876178431, 1.0, 1.0},
                {631210968874634239, 1.0, 1.0},
