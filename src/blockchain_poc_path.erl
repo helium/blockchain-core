@@ -90,11 +90,17 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                     {error, path_too_small};
                 true ->
                     blockchain_utils:rand_from_hash(Hash),
-                    case rand:uniform(2) of
-                        1 ->
-                            {ok, Path3};
-                        2 ->
-                            {ok, lists:reverse(Path3)}
+                    Path4 = case rand:uniform(2) of
+                                1 ->
+                                    Path3;
+                                2 ->
+                                    lists:reverse(Path3)
+                            end,
+                    case blockchain:config(?poc_path_limit, Ledger) of
+                        {error, not_found} ->
+                            {ok, Path4};
+                        {ok, Val} ->
+                            {ok, lists:sublist(Path4, Val)}
                     end
             end
     end.
@@ -805,7 +811,7 @@ active_gateways_low_score_test() ->
     ok.
 
 no_neighbor_test() ->
-    BaseDir = test_utils:tmp_dir("lone_target_test"),
+    BaseDir = test_utils:tmp_dir("no_neighbor_test"),
     LatLongs = [
                 %% All these points are wayyy far from each other
                 {{27.175301, 78.042144}, 1.0, 1.0},
@@ -830,6 +836,45 @@ no_neighbor_test() ->
     Neighbors = filter_neighbors(Target, neighbors(Target, Gateways, Ledger), Gateways, 1, Ledger),
     ?assertEqual([], Neighbors),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
+    unload_meck(),
+    ok.
+max_path_length_without_limit_test() ->
+    BaseDir = test_utils:tmp_dir("max_path_length_test_without_limit"),
+    Indices = [
+               {631210968876178431, 1.0, 1.0},
+               {631210968874634239, 1.0, 1.0},
+               {631210968943528447, 1.0, 1.0},
+               {631210968840452607, 1.0, 1.0},
+               {631210968850123263, 1.0, 1.0},
+               {631210968874529791, 1.0, 1.0}
+              ],
+    Gateways = build_gatewas_from_indices(Indices),
+    Target = hd(maps:keys(Gateways)),
+    Ledger = build_fake_ledger_from_indices_without_path_limit(BaseDir, Indices, 0.25, 6, 120),
+
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+
+    ?assertEqual(8, length(Path)),
+    unload_meck(),
+    ok.
+
+max_path_length_with_limit_test() ->
+    BaseDir = test_utils:tmp_dir("max_path_length_test_with_limit"),
+    Indices = [
+               {631210968876178431, 1.0, 1.0},
+               {631210968874634239, 1.0, 1.0},
+               {631210968943528447, 1.0, 1.0},
+               {631210968840452607, 1.0, 1.0},
+               {631210968850123263, 1.0, 1.0},
+               {631210968874529791, 1.0, 1.0}
+              ],
+    Gateways = build_gatewas_from_indices(Indices),
+    Target = hd(maps:keys(Gateways)),
+    Ledger = build_fake_ledger_from_indices_with_path_limit(BaseDir, Indices, 0.25, 6, 120),
+
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+
+    ?assertEqual(7, length(Path)),
     unload_meck(),
     ok.
 
@@ -886,6 +931,20 @@ set_score(LLs, A, G, Ledger) ->
                   end, LLs).
 
 
+build_gatewas_from_indices(Indices) ->
+    lists:foldl(
+      fun({Index, Alpha, Beta}, Acc) ->
+              Owner = <<"test">>,
+              Address = crypto:hash(sha256, erlang:term_to_binary(Index)),
+              G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
+              G1 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, G0),
+              maps:put(Address, G1, Acc)
+
+      end,
+      maps:new(),
+      Indices
+     ).
+
 build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDist) ->
     Ledger = blockchain_ledger_v1:new(TestDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
@@ -939,9 +998,11 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.0005};
                    (max_staleness, _) ->
                         {ok, 100000};
-                   (poc_version, _) ->
+                   poc_version, _) ->
                         {ok, 2};
                    (poc_challenge_sync_interval, _) ->
+                        {error, not_found};
+                   (poc_path_limit, _) ->
                         {error, not_found}
                 end),
     meck:expect(blockchain_ledger_v1,
@@ -959,6 +1020,102 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                           {ok, _} = blockchain_ledger_v1:find_gateway_info(Gw, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
+
+build_fake_ledger_from_indices_without_path_limit(TestDir, Indices, DefaultScore, ExclusionRingDist, MaxGridDist) ->
+    Ledger = blockchain_ledger_v1:new(TestDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm,
+                pubkey_bin,
+                fun() ->
+                        <<"yolo">>
+                end),
+    meck:expect(blockchain_ledger_v1,
+                current_height,
+                fun(_) ->
+                        {ok, 1}
+                end),
+    meck:expect(blockchain,
+                config,
+                fun(min_score, _) ->
+                        {ok, 0.2};
+                   (h3_exclusion_ring_dist, _) ->
+                        {ok, ExclusionRingDist};
+                   (h3_max_grid_distance, _) ->
+                        {ok, MaxGridDist};
+                   (h3_neighbor_res, _) ->
+                        {ok, 12};
+                   (alpha_decay, _) ->
+                        {ok, 0.007};
+                   (beta_decay, _) ->
+                        {ok, 0.0005};
+                   (max_staleness, _) ->
+                        {ok, 100000};
+                   (poc_path_limit, _) ->
+                        {error, not_found}
+                end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        {ok, DefaultScore}
+                end),
+
+    N = length(Indices),
+    OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(N), test_utils:generate_keys(N))],
+
+    _ = lists:map(fun({{Owner, Gw}, {Index, _, _}}) ->
+                          blockchain_ledger_v1:add_gateway(Owner, Gw, Index, DefaultScore, Ledger1)
+                  end, lists:zip(OwnerAndGateways, Indices)),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
+
+build_fake_ledger_from_indices_with_path_limit(TestDir, Indices, DefaultScore, ExclusionRingDist, MaxGridDist) ->
+    Ledger = blockchain_ledger_v1:new(TestDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm,
+                pubkey_bin,
+                fun() ->
+                        <<"yolo">>
+                end),
+    meck:expect(blockchain_ledger_v1,
+                current_height,
+                fun(_) ->
+                        {ok, 1}
+                end),
+    meck:expect(blockchain,
+                config,
+                fun(min_score, _) ->
+                        {ok, 0.2};
+                   (h3_exclusion_ring_dist, _) ->
+                        {ok, ExclusionRingDist};
+                   (h3_max_grid_distance, _) ->
+                        {ok, MaxGridDist};
+                   (h3_neighbor_res, _) ->
+                        {ok, 12};
+                   (alpha_decay, _) ->
+                        {ok, 0.007};
+                   (beta_decay, _) ->
+                        {ok, 0.0005};
+                   (max_staleness, _) ->
+                        {ok, 100000};
+                   (poc_path_limit, _) ->
+                        {ok, 7}
+                end),
+    meck:expect(blockchain_ledger_v1,
+                gateway_score,
+                fun(_, _) ->
+                        {ok, DefaultScore}
+                end),
+
+    N = length(Indices),
+    OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(N), test_utils:generate_keys(N))],
+
+    _ = lists:map(fun({{Owner, Gw}, {Index, _, _}}) ->
+                          blockchain_ledger_v1:add_gateway(Owner, Gw, Index, DefaultScore, Ledger1)
+                  end, lists:zip(OwnerAndGateways, Indices)),
+    blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
 
 unload_meck() ->
