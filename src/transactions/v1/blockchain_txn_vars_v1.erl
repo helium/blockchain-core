@@ -166,6 +166,8 @@ nonce(Txn) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Vars = decode_vars(vars(Txn)),
+    %% reconstruct the proof artifact from the decoded vars so we can
+    %% determine if it is signed correctly by the master key.
     Artifact = term_to_binary(lists:sort(maps:to_list(Vars)), [{compressed, 9}]),
     lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
     try
@@ -355,6 +357,10 @@ verify_key(Artifact, Key, Vars, Proof) ->
         true ->
             true;
         false ->
+            %% we used to use straight maps before we discovered that
+            %% they do not stably serialize when they're larger than
+            %% 32 entries.  this fallback is to support re-validation
+            %% of those old transactions.
             ArtifactOld = term_to_binary(Vars, [{compressed, 9}]),
             libp2p_crypto:verify(ArtifactOld, Proof, libp2p_crypto:bin_to_pubkey(Key))
     end.
