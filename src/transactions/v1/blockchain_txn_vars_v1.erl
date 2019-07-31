@@ -166,7 +166,7 @@ nonce(Txn) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Vars = decode_vars(vars(Txn)),
-    Artifact = term_to_binary(Vars, [{compressed, 9}]),
+    Artifact = term_to_binary(lists:sort(maps:to_list(Vars)), [{compressed, 9}]),
     lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
     try
         Gen =
@@ -202,7 +202,7 @@ is_valid(Txn, Chain) ->
                         P ->
                             P
                     end,
-                case verify_key(Artifact, Key, KeyProof) of
+                case verify_key(Artifact, Key, Vars, KeyProof) of
                     true ->
                         ok;
                     _ ->
@@ -216,7 +216,7 @@ is_valid(Txn, Chain) ->
                 ok;
             _ ->
                 {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-                case verify_key(Artifact, MasterKey, proof(Txn)) of
+                case verify_key(Artifact, MasterKey, Vars, proof(Txn)) of
                     true ->
                         ok;
                     _ ->
@@ -242,7 +242,7 @@ is_valid(Txn, Chain) ->
         ok
     catch throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
-            false
+            Ret
     end.
 
 -spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -342,21 +342,32 @@ decode_unsets(Unsets) ->
 %%%
 
 create_proof(Key, Vars) ->
-    B = term_to_binary(Vars, [{compressed, 9}]),
+    B = term_to_binary(lists:sort(maps:to_list(Vars)), [{compressed, 9}]),
     SignFun = libp2p_crypto:mk_sig_fun(Key),
     SignFun(B).
 
 %%% helper functions
 
-verify_key(_Artifact, _Key, <<>>) ->
+verify_key(_Artifact, _Key, _Vars, <<>>) ->
     throw({error, no_proof});
-verify_key(Artifact, Key, Proof) ->
-    libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
+verify_key(Artifact, Key, Vars, Proof) ->
+    case libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)) of
+        true ->
+            true;
+        false ->
+            ArtifactOld = term_to_binary(Vars, [{compressed, 9}]),
+            libp2p_crypto:verify(ArtifactOld, Proof, libp2p_crypto:bin_to_pubkey(Key))
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+create_proof_old(Key, Vars) ->
+    B = term_to_binary(Vars, [{compressed, 9}]),
+    SignFun = libp2p_crypto:mk_sig_fun(Key),
+    SignFun(B).
 
 key_test() ->
     #{secret := Priv, public := Pub} =
@@ -367,10 +378,14 @@ key_test() ->
              c => 2.5,
              d => <<"have to include a string">>},
     Proof = create_proof(Priv, Vars),
+    ProofOld = create_proof_old(Priv, Vars),
     %% run vars through encode decode cycle
     Vars1 = encode_vars(Vars),
     Vars2 = decode_vars(Vars1),
     B = term_to_binary(Vars2, [{compressed, 9}]),
-    ?assert(verify_key(B, BPub, Proof)).
+    B1 = term_to_binary(lists:sort(maps:to_list(Vars2)), [{compressed, 9}]),
+    ?assert(verify_key(B, BPub, Vars, ProofOld)),
+    ?assert(verify_key(B1, BPub, Vars, ProofOld)),
+    ?assert(verify_key(B1, BPub, Vars, Proof)).
 
 -endif.
