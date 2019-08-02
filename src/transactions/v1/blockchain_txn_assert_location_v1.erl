@@ -11,7 +11,7 @@
 -include("blockchain_vars.hrl").
 
 -export([
-    new/6, new/7,
+    new/3, new/6, new/7,
     hash/1,
     gateway/1,
     owner/1,
@@ -47,6 +47,17 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          GatewaySignature :: binary(),
+          Location :: location()) -> txn_assert_location().
+new(Gateway, GatewaySignature, Location) ->
+    #blockchain_txn_assert_location_v1_pb{
+        gateway=Gateway,
+        gateway_signature=GatewaySignature,
+        location=h3:to_string(Location)
+    }.
+
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
