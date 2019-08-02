@@ -435,6 +435,21 @@ missing_payer_signature_new() ->
        fee = 1
       }.
 
+new_3_test() -> 
+    Tx = #blockchain_txn_assert_location_v1_pb{
+       gateway= <<"gateway_address">>,
+       owner= <<>>,
+       payer= <<>>,
+       gateway_signature= <<"gateway_sign">>,
+       owner_signature= <<>>,
+       payer_signature= <<>>,
+       location= h3:to_string(?TEST_LOCATION),
+       nonce = 0,
+       staking_fee = 0,
+       fee = 0
+    },
+    ?assertEqual(Tx,  new(<<"gateway_address">>,  <<"gateway_sign">>, ?TEST_LOCATION)).
+
 new_test() ->
     Tx = new(),
     ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1, 1)).
