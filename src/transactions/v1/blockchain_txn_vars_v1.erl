@@ -420,6 +420,13 @@ prop_deterministic_map_to_bin() ->
                 EncodedMap = deterministic_map_to_bin(RandomMap, []),
                 EncodedShuffledMap = deterministic_map_to_bin(shuffle_map(RandomMap), []),
                 EncodedRoundTrippedMap = deterministic_map_to_bin(binary_to_term(term_to_binary(RandomMap)), []),
+                ExpectedStability = case maps:size(RandomMap) =< 32 of
+                                        true ->
+                                            EncodedMap == term_to_binary(RandomMap) andalso EncodedShuffledMap == term_to_binary(shuffle_map(RandomMap));
+                                        false ->
+                                            true
+                                    end,
+
                 ?WHENFAIL(begin
                               io:format("Original map ~w~n", [RandomMap]),
                               io:format("Encoded map ~w~n", [EncodedMap]),
@@ -428,7 +435,8 @@ prop_deterministic_map_to_bin() ->
                           conjunction([
                                        {t2b_equality, eqc:equals(RandomMap, binary_to_term(EncodedMap))},
                                        {binary_equality, eqc:equals(EncodedMap, EncodedShuffledMap)},
-                                       {binary_roundtrip_equality, eqc:equals(EncodedMap, EncodedRoundTrippedMap)}
+                                       {binary_roundtrip_equality, eqc:equals(EncodedMap, EncodedRoundTrippedMap)},
+                                       {small_map_stability, eqc:equals(true, ExpectedStability)}
                                        %% this will cause the test to fail, showing that t2b is not deterministic
                                        %{encode_decode_equality_t2b, eqc:equals(EncodedMap, term_to_binary(RandomMap))}
                                       ]))
