@@ -426,8 +426,9 @@ prop_deterministic_map_to_bin() ->
                               io:format("Encoded shuffled map ~w~n", [EncodedShuffledMap])
                           end,
                           conjunction([
-                                       {encode_decode_equality, eqc:equals(EncodedMap, EncodedShuffledMap)},
-                                       {encode_decode_equality, eqc:equals(EncodedMap, EncodedRoundTrippedMap)}
+                                       {t2b_equality, eqc:equals(RandomMap, binary_to_term(EncodedMap))},
+                                       {binary_equality, eqc:equals(EncodedMap, EncodedShuffledMap)},
+                                       {binary_roundtrip_equality, eqc:equals(EncodedMap, EncodedRoundTrippedMap)}
                                        %% this will cause the test to fail, showing that t2b is not deterministic
                                        %{encode_decode_equality_t2b, eqc:equals(EncodedMap, term_to_binary(RandomMap))}
                                       ]))
