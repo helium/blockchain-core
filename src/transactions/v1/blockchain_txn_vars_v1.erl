@@ -166,7 +166,7 @@ nonce(Txn) ->
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Vars = decode_vars(vars(Txn)),
-    Artifact = term_to_binary(Vars, [{compressed, 9}]),
+    Artifact = deterministic_map_to_bin(Vars, [{compressed, 9}]),
     lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
     try
         Gen =
@@ -342,7 +342,7 @@ decode_unsets(Unsets) ->
 %%%
 
 create_proof(Key, Vars) ->
-    B = term_to_binary(Vars, [{compressed, 9}]),
+    B = deterministic_map_to_bin(Vars, [{compressed, 9}]),
     SignFun = libp2p_crypto:mk_sig_fun(Key),
     SignFun(B).
 
@@ -352,6 +352,36 @@ verify_key(_Artifact, _Key, <<>>) ->
     throw({error, no_proof});
 verify_key(Artifact, Key, Proof) ->
     libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
+
+deterministic_map_to_bin(Map, Options) ->
+    Compression = case proplists:get_value(compressed, Options, false) of
+        true -> 6;
+        L when is_integer(L), L > 0, L =< 9 ->
+            L;
+        false ->
+            false;
+        0 ->
+            false
+    end,
+    Proplist = lists:sort(maps:to_list(Map)),
+    Fields = lists:map(fun({K, V}) ->
+                               <<131, Key/binary>> = term_to_binary(K),
+                               <<131, Value/binary>> = term_to_binary(V),
+                               <<Key/binary, Value/binary>>
+                       end, Proplist),
+    EncodedMap = list_to_binary([<<116, (maps:size(Map)):32/integer-unsigned-big>>| Fields]),
+    case Compression of
+        false ->
+            <<131, EncodedMap/binary>>;
+        Level ->
+            UncompressedSize = byte_size(EncodedMap),
+            Z = zlib:open(),
+            zlib:deflateInit(Z, Level),
+            Compressed = list_to_binary(zlib:deflate(Z, EncodedMap, finish)),
+            ok = zlib:deflateEnd(Z),
+            zlib:close(Z),
+            <<131, 80, UncompressedSize:32/integer-unsigned-big, Compressed/binary>>
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -370,7 +400,7 @@ key_test() ->
     %% run vars through encode decode cycle
     Vars1 = encode_vars(Vars),
     Vars2 = decode_vars(Vars1),
-    B = term_to_binary(Vars2, [{compressed, 9}]),
+    B = deterministic_map_to_bin(Vars2, [{compressed, 9}]),
     ?assert(verify_key(B, BPub, Proof)).
 
 -endif.
