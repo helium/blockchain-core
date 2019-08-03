@@ -34,6 +34,11 @@
          delayed_absorb/2
         ]).
 
+-ifdef(EQC).
+-include_lib("eqc/include/eqc.hrl").
+-export([prop_deterministic_map_to_bin/0]).
+-endif.
+
 -ifdef(TEST).
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -353,6 +358,8 @@ verify_key(_Artifact, _Key, <<>>) ->
 verify_key(Artifact, Key, Proof) ->
     libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
 
+%% This function deterministically encodes a map to a binary that binary_to_term can still deserialize
+%% Normal term_to_binary is not deterministic for maps because they don't have a defined order
 deterministic_map_to_bin(Map, Options) ->
     Compression = case proplists:get_value(compressed, Options, false) of
         true -> 6;
@@ -402,5 +409,38 @@ key_test() ->
     Vars2 = decode_vars(Vars1),
     B = deterministic_map_to_bin(Vars2, [{compressed, 9}]),
     ?assert(verify_key(B, BPub, Proof)).
+
+-endif.
+
+-ifdef(EQC).
+
+prop_deterministic_map_to_bin() ->
+    ?FORALL(RandomMap, gen_random_map(),
+            begin
+                EncodedMap = deterministic_map_to_bin(RandomMap, []),
+                EncodedShuffledMap = deterministic_map_to_bin(shuffle_map(RandomMap), []),
+                EncodedRoundTrippedMap = deterministic_map_to_bin(binary_to_term(term_to_binary(RandomMap)), []),
+                ?WHENFAIL(begin
+                              io:format("Original map ~w~n", [RandomMap]),
+                              io:format("Encoded map ~w~n", [EncodedMap]),
+                              io:format("Encoded shuffled map ~w~n", [EncodedShuffledMap])
+                          end,
+                          conjunction([
+                                       {encode_decode_equality, eqc:equals(EncodedMap, EncodedShuffledMap)},
+                                       {encode_decode_equality, eqc:equals(EncodedMap, EncodedRoundTrippedMap)}
+                                       %% this will cause the test to fail, showing that t2b is not deterministic
+                                       %{encode_decode_equality_t2b, eqc:equals(EncodedMap, term_to_binary(RandomMap))}
+                                      ]))
+            end).
+
+gen_random_map() ->
+    %% size 300 makes maps in the sizes we're interested in
+    eqc_gen:resize(300, eqc_gen:map(eqc_gen:oneof([gen_atom(), eqc_gen:binary()]), eqc_gen:oneof([gen_atom(), eqc_gen:int(), eqc_gen:largeint(), eqc_gen:binary()]))).
+
+shuffle_map(Map) ->
+    maps:from_list( [ {A, B} || {_, A, B} <-  lists:sort(fun({A, _, _}, {B, _, _}) -> A < B end, [ {rand:uniform(), K, V} || {K, V} <- maps:to_list(Map) ]) ] ).
+
+gen_atom() ->
+    eqc_gen:elements([foo, bar, baz, bam, quux, sharkfed, unicorn, chalice]).
 
 -endif.
