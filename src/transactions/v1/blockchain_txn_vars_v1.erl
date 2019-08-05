@@ -482,7 +482,7 @@ validate_var(?block_time, Value) ->
             throw({error, non_integral_block_time});
         _ -> ok
     end,
-    case Value >= 1 andalso Value < timer:minute(10) of
+    case Value >= 1 andalso Value < timer:minutes(10) of
         false ->
             throw({error, block_time_out_of_range});
         _ -> ok
