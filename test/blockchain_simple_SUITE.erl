@@ -184,9 +184,7 @@ reload_test(Config) ->
     true = erlang:exit(Sup, normal),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
 
-    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => N0}),
-
-    InitialVars = [ VTxn ],
+    {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => N0}),
 
     % Create new genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance + 1)
@@ -422,9 +420,10 @@ poc_request_test(Config) ->
     Rate = 1000000,
     {Priv, _} = proplists:get_value(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
-    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
-    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
@@ -636,9 +635,10 @@ export_test(Config) ->
     Rate = 1000000,
     {Priv, _} = proplists:get_value(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
-    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
-    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
@@ -1222,14 +1222,13 @@ chain_vars_test(Config) ->
 
     Vars = #{chain_var => foo},
 
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
-
     ct:pal("priv_key ~p", [Priv]),
 
-    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
 
-
-    InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, N, self()),
 
     {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
@@ -1303,9 +1302,10 @@ token_burn_test(Config) ->
     Rate = 1000000,
     {Priv, _} = proplists:get_value(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
-    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
-    Block3 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    Block3 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
@@ -1377,9 +1377,11 @@ payer_test(Config) ->
     Rate = 1000000,
     {Priv, _} = proplists:get_value(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Vars),
-    VarTxn = blockchain_txn_vars_v1:new(Vars, Proof, 2, #{}),
-    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),

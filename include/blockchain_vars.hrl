@@ -43,6 +43,10 @@
 %% the var actually being set in the ledger.
 -define(vars_commit_delay, vars_commit_delay).
 
+%% the initial version of the chain vars txn only signed the vars,
+%% which would allow for replay attacks and nonce advancement attacks.
+-define(chain_vars_version, chain_vars_version).
+
 %% the percentage of active hotspots that need to have passed the
 %% predicate value in order for a particular var txn to be applied.
 -define(predicate_threshold, predicate_threshold).
