@@ -11,13 +11,13 @@
 -include("blockchain_vars.hrl").
 
 -export([
-         new/3, new/4,
+         new/2, new/3,
          hash/1,
          fee/1,
          is_valid/2,
          master_key/1,
-         key_proof/1,
-         proof/1,
+         key_proof/1, key_proof/2,
+         proof/1, proof/2,
          vars/1,
          version_predicate/1,
          unsets/1,
@@ -59,25 +59,22 @@
 %% }
 
 
--spec new(#{}, binary(), integer()) -> txn_vars().
-new(Vars, Proof, Nonce) ->
-    new(Vars, Proof, Nonce, #{}).
+-spec new(#{}, integer()) -> txn_vars().
+new(Vars, Nonce) ->
+    new(Vars, Nonce, #{}).
 
--spec new(#{atom() => any()}, binary(), integer(), #{atom() => any()}) -> txn_vars().
-new(Vars, Proof, Nonce, Optional) ->
+-spec new(#{atom() => any()}, integer(), #{atom() => any()}) -> txn_vars().
+new(Vars, Nonce, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
-    KeyProof = maps:get(key_proof, Optional, <<>>),
     Unsets = maps:get(unsets, Optional, []),
     Cancels = maps:get(cancels, Optional, []),
     %% note that string inputs are normalized on creation, which has
     %% an effect on proof encoding :/
 
-    #blockchain_txn_vars_v1_pb{vars = encode_vars(Vars),
-                               proof = Proof,
+    #blockchain_txn_vars_v1_pb{vars = lists:sort(encode_vars(Vars)),
                                version_predicate = VersionP,
                                master_key = MasterKey,
-                               key_proof = KeyProof,
                                unsets = encode_unsets(Unsets),
                                cancels = Cancels,
                                nonce = Nonce}.
@@ -144,8 +141,18 @@ master_key(Txn) ->
 key_proof(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.key_proof.
 
+key_proof(Txn, Proof) ->
+    Txn#blockchain_txn_vars_v1_pb{key_proof = Proof}.
+
 proof(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.proof.
+
+proof(Txn, Proof) ->
+    Txn#blockchain_txn_vars_v1_pb{proof = Proof}.
+
+unset_proofs(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb{proof = <<>>,
+                                  key_proof = <<>>}.
 
 vars(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.vars.
@@ -164,6 +171,97 @@ nonce(Txn) ->
 
 -spec is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gen =
+        case blockchain_ledger_v1:current_height(Ledger) of
+            {ok, 0} ->
+                true;
+            _ ->
+                false
+        end,
+    case blockchain:config(?chain_vars_version, Ledger) of
+        Vers when Vers == {ok, 2} orelse
+                  (Vers == {error, not_found} andalso Gen == true) ->
+            Vars = decode_vars(vars(Txn)),
+            Artifact = create_artifact(Txn),
+            lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
+            try
+                Nonce = nonce(Txn),
+                case blockchain_ledger_v1:vars_nonce(Ledger) of
+                    {ok, LedgerNonce} when Nonce == (LedgerNonce + 1) ->
+                        ok;
+                    {error, not_found} when Gen == true ->
+                        ok;
+                    {error, not_found} ->
+                        throw({error, missing_ledger_nonce});
+                    {ok, LedgerNonce} ->
+                        throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
+                end,
+
+                %% here we can accept a valid master key
+                case master_key(Txn) of
+                    <<>> when Gen == true ->
+                        throw({error, genesis_requires_master_key});
+                    <<>> ->
+                        ok;
+                    Key ->
+                        KeyProof =
+                            case key_proof(Txn) of
+                                <<>> ->
+                                    throw({error, no_master_key_proof}),
+                                    <<>>;
+                                P ->
+                                    P
+                            end,
+                        case verify_key(Artifact, Key, KeyProof) of
+                            true ->
+                                ok;
+                            _ ->
+                                throw({error, bad_master_key})
+                        end
+                end,
+                case Gen of
+                    true ->
+                        %% genesis block requires master key and has already
+                        %% validated the proof if it has made it here.
+                        ok;
+                    _ ->
+                        {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                        case verify_key(Artifact, MasterKey, proof(Txn)) of
+                            true ->
+                                ok;
+                            _ ->
+                                throw({error, bad_block_proof})
+                        end
+                end,
+                maps:map(fun validate_var/2, Vars),
+                lists:foreach(
+                  fun(VarName) ->
+                          case blockchain:config(VarName, Ledger) of % ignore this one using "?"
+                              {ok, _} -> ok;
+                              {error, not_found} -> throw({error, {unset_var_not_set, VarName}})
+                          end
+                  end,
+                  decode_unsets(unsets(Txn))),
+
+                %% TODO: validate that a cancelled transaction is actually on
+                %% the chain
+
+                %% TODO: figure out how to validate that predicate functions
+                %% actually exist when set, without breaking applications like
+                %% the router and the API that only want to validate vars.
+
+                ok
+            catch throw:Ret ->
+                    lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
+                    Ret
+            end;
+        {error, not_found} ->
+            legacy_is_valid(Txn, Chain)
+    end.
+
+-spec legacy_is_valid(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
+legacy_is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Vars = decode_vars(vars(Txn)),
     Artifact = term_to_binary(Vars, [{compressed, 9}]),
@@ -242,8 +340,9 @@ is_valid(Txn, Chain) ->
         ok
     catch throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
-            false
+            Ret
     end.
+
 
 -spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -341,17 +440,26 @@ decode_unsets(Unsets) ->
 %%% Helper API
 %%%
 
-create_proof(Key, Vars) ->
-    B = term_to_binary(Vars, [{compressed, 9}]),
+create_proof(Key, Txn) ->
+    B = create_artifact(Txn),
     SignFun = libp2p_crypto:mk_sig_fun(Key),
     SignFun(B).
 
 %%% helper functions
 
+create_artifact(Txn) ->
+    Txn1 = unset_proofs(Txn),
+    blockchain_txn_vars_v1_pb:encode_msg(Txn1).
+
 verify_key(_Artifact, _Key, <<>>) ->
     throw({error, no_proof});
 verify_key(Artifact, Key, Proof) ->
     libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
+
+validate_var(Var, Value) ->
+    lager:debug("checking ~p ~p", [Var, Value]),
+    %% TODO: hang individual var validations here
+    ok.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -366,7 +474,34 @@ key_test() ->
              b => 2000,
              c => 2.5,
              d => <<"have to include a string">>},
-    Proof = create_proof(Priv, Vars),
+    %% run vars through encode decode cycle
+    Vars1 = encode_vars(Vars),
+    Vars2 = decode_vars(Vars1),
+    ?assertEqual(Vars, Vars2),
+
+    Txn = blockchain_txn_vars_v1:new(Vars, <<>>, 1, #{master_key => BPub}),
+    Proof = create_proof(Priv, Txn),
+
+    B = create_artifact(Txn),
+    ?assert(verify_key(B, BPub, Proof)),
+
+    ok.
+
+
+legacy_create_proof(Key, Vars) ->
+    B = term_to_binary(Vars, [{compressed, 9}]),
+    SignFun = libp2p_crypto:mk_sig_fun(Key),
+    SignFun(B).
+
+legacy_key_test() ->
+    #{secret := Priv, public := Pub} =
+        libp2p_crypto:generate_keys(ecc_compact),
+    BPub = libp2p_crypto:pubkey_to_bin(Pub),
+    Vars = #{a => 1,
+             b => 2000,
+             c => 2.5,
+             d => <<"have to include a string">>},
+    Proof = legacy_create_proof(Priv, Vars),
     %% run vars through encode decode cycle
     Vars1 = encode_vars(Vars),
     Vars2 = decode_vars(Vars1),
