@@ -193,7 +193,13 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
-    Port = erlang:integer_to_list(proplists:get_value(port, Args, 0)),
+    Ports = case proplists:get_value(ports, Args) of
+                undefined ->
+                    %% fallback to the single 'port' app env var
+                    [proplists:get_value(port, Args, 0)];
+                PortList when is_list(PortList) ->
+                    PortList
+            end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
     GenDir = proplists:get_value(update_dir, Args, undefined),
     Blockchain =
@@ -209,7 +215,8 @@ init(Args) ->
                 true = libp2p_swarm:network_id(Swarm, GenesisHash),
                 Chain
         end,
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ Port),
+    true = lists:all(fun(E) -> E == ok end,
+                     [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
     {ok, #state{swarm=Swarm, blockchain=Blockchain}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
