@@ -196,7 +196,7 @@ init(Args) ->
     Ports = case proplists:get_value(ports, Args) of
                 undefined ->
                     %% fallback to the single 'port' app env var
-                    [proplists:get_value(port, Args)];
+                    [proplists:get_value(port, Args, 0)];
                 PortList when is_list(PortList) ->
                     PortList
             end,
