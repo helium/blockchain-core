@@ -62,9 +62,8 @@ keys_test(_Config) ->
 
 
     % Create genesis block
-    {VTxn, _Cfg} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+    {InitialVars, _Cfg} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
 
-    InitialVars = [ VTxn ],
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
     ConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),

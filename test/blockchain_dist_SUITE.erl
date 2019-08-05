@@ -48,9 +48,7 @@ init_per_testcase(_TestCase, Config0) ->
 
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
-    {VTxn, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
-
-    InitialVars = [ VTxn ],
+    {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
 
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],

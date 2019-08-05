@@ -1,5 +1,6 @@
 -module(blockchain_ct_utils).
 -include_lib("eunit/include/eunit.hrl").
+-include("include/blockchain_vars.hrl").
 
 -export([pmap/2,
          wait_until/1,
@@ -265,19 +266,25 @@ create_vars(Vars) ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
 
-    DefVars = #{vars_commit_delay => 10,
-                election_restart_interval => 5,
-                election_replacement_slope => 20,
-                block_version => v1,
-                predicate_threshold => 0.85},
+    DefVars = #{?vars_commit_delay => 10,
+                ?election_restart_interval => 5,
+                ?election_replacement_slope => 20,
+                ?block_version => v1,
+                ?predicate_threshold => 0.85},
 
     Vars1 = maps:merge(DefVars, Vars),
 
     ct:pal("vars ~p", [Vars1]),
 
     BinPub = libp2p_crypto:pubkey_to_bin(Pub),
-    KeyProof = blockchain_txn_vars_v1:create_proof(Priv, Vars1),
 
-    Txn = blockchain_txn_vars_v1:new(Vars1, <<>>, 1, #{master_key => BinPub,
-                                                       key_proof => KeyProof}),
-    {Txn, {master_key, {Priv, Pub}}}.
+    Txn = blockchain_txn_vars_v1:new(Vars, 2, #{master_key => BinPub}),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+    Txn1 = blockchain_txn_vars_v1:key_proof(Txn, Proof),
+
+    Bootstrap = #{?chain_vars_version => 2},
+    BootstrapProof = blockchain_txn_vars_v1:legacy_create_proof(Priv, Bootstrap),
+    BootstrapTxn = blockchain_txn_vars_v1:new(Bootstrap, 1, #{master_key => BinPub,
+                                                              key_proof => BootstrapProof}),
+
+    {[BootstrapTxn, Txn1], {master_key, {Priv, Pub}}}.

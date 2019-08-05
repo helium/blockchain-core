@@ -39,30 +39,30 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    {VTxn, Keys} = blockchain_ct_utils:create_vars(
-                        #{
-                          ?num_consensus_members => 7,
-                          ?monthly_reward => 50000 * 1000000,
-                          ?securities_percent => 0.35,
-                          ?poc_challengees_percent => 0.19 + 0.16,
-                          ?poc_challengers_percent => 0.09 + 0.06,
-                          ?poc_witnesses_percent => 0.02 + 0.03,
-                          ?consensus_percent => 0.10,
-                          ?election_selection_pct => 60,
-                          ?election_replacement_factor => 4,
-                          ?min_assert_h3_res => 12,
-                          ?max_staleness => 100000,
-                          ?alpha_decay => 0.007,
-                          ?beta_decay => 0.0005,
-                          ?block_time => 30000,
-                          ?election_interval => 30,
-                          ?poc_challenge_interval => 30,
-                          ?h3_exclusion_ring_dist => 2,
-                          ?h3_max_grid_distance => 13,
-                          ?h3_neighbor_res => 12
-                         }),
+    {InitialVars, Keys} =
+        blockchain_ct_utils:create_vars(
+          #{
+            ?num_consensus_members => 7,
+            ?monthly_reward => 50000 * 1000000,
+            ?securities_percent => 0.35,
+            ?poc_challengees_percent => 0.19 + 0.16,
+            ?poc_challengers_percent => 0.09 + 0.06,
+            ?poc_witnesses_percent => 0.02 + 0.03,
+            ?consensus_percent => 0.10,
+            ?election_selection_pct => 60,
+            ?election_replacement_factor => 4,
+            ?min_assert_h3_res => 12,
+            ?max_staleness => 100000,
+            ?alpha_decay => 0.007,
+            ?beta_decay => 0.0005,
+            ?block_time => 30000,
+            ?election_interval => 30,
+            ?poc_challenge_interval => 30,
+            ?h3_exclusion_ring_dist => 2,
+            ?h3_max_grid_distance => 13,
+            ?h3_neighbor_res => 12
+           }),
 
-    InitialVars = [ VTxn ],
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- ConsensusMembers],
 
@@ -80,6 +80,8 @@ init_chain(Balance, {PrivKey, PubKey}) ->
         GenSecPaymentTxs ++
         InitialGatewayTxn ++
         [GenConsensusGroupTx],
+    lager:info("initial transactions: ~p", [Txs]),
+
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
