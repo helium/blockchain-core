@@ -25,7 +25,7 @@
          nonce/1,
          absorb/2,
          sign/2
-]).
+        ]).
 
 %% helper API
 -export([
@@ -236,6 +236,7 @@ is_valid(Txn, Chain) ->
                                 throw({error, bad_block_proof})
                         end
                 end,
+                %% NB: validation errors MUST throw
                 maps:map(fun validate_var/2, Vars),
                 lists:foreach(
                   fun(VarName) ->
@@ -463,6 +464,29 @@ verify_key(_Artifact, _Key, <<>>) ->
 verify_key(Artifact, Key, Proof) ->
     libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
 
+%% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
+validate_var(?election_interval, Value) ->
+    case is_integer(Value) of
+        false ->
+            throw({error, non_integral_election_interval});
+        _ -> ok
+    end,
+    case Value > 10 andalso Value < 100 of
+        false ->
+            throw({error, election_interval_out_of_range});
+        _ -> ok
+    end;
+validate_var(?block_time, Value) ->
+    case is_integer(Value) of
+        false ->
+            throw({error, non_integral_block_time});
+        _ -> ok
+    end,
+    case Value >= 1 andalso Value < timer:minute(10) of
+        false ->
+            throw({error, block_time_out_of_range});
+        _ -> ok
+    end;
 validate_var(Var, Value) ->
     lager:debug("checking ~p ~p", [Var, Value]),
     %% TODO: hang individual var validations here
@@ -486,7 +510,7 @@ key_test() ->
     Vars2 = decode_vars(Vars1),
     ?assertEqual(Vars, Vars2),
 
-    Txn = blockchain_txn_vars_v1:new(Vars, <<>>, 1, #{master_key => BPub}),
+    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BPub}),
     Proof = create_proof(Priv, Txn),
 
     B = create_artifact(Txn),
