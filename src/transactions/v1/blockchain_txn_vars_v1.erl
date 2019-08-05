@@ -30,6 +30,7 @@
 %% helper API
 -export([
          create_proof/2,
+         legacy_create_proof/2,
          maybe_absorb/3,
          delayed_absorb/2
         ]).
@@ -67,6 +68,7 @@ new(Vars, Nonce) ->
 new(Vars, Nonce, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
+    KeyProof = maps:get(key_proof, Optional, <<>>),
     Unsets = maps:get(unsets, Optional, []),
     Cancels = maps:get(cancels, Optional, []),
     %% note that string inputs are normalized on creation, which has
@@ -75,6 +77,7 @@ new(Vars, Nonce, Optional) ->
     #blockchain_txn_vars_v1_pb{vars = lists:sort(encode_vars(Vars)),
                                version_predicate = VersionP,
                                master_key = MasterKey,
+                               key_proof = KeyProof,
                                unsets = encode_unsets(Unsets),
                                cancels = Cancels,
                                nonce = Nonce}.
@@ -180,8 +183,7 @@ is_valid(Txn, Chain) ->
                 false
         end,
     case blockchain:config(?chain_vars_version, Ledger) of
-        Vers when Vers == {ok, 2} orelse
-                  (Vers == {error, not_found} andalso Gen == true) ->
+        {ok, 2} ->
             Vars = decode_vars(vars(Txn)),
             Artifact = create_artifact(Txn),
             lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
@@ -445,6 +447,11 @@ create_proof(Key, Txn) ->
     SignFun = libp2p_crypto:mk_sig_fun(Key),
     SignFun(B).
 
+legacy_create_proof(Key, Vars) ->
+    B = term_to_binary(Vars, [{compressed, 9}]),
+    SignFun = libp2p_crypto:mk_sig_fun(Key),
+    SignFun(B).
+
 %%% helper functions
 
 create_artifact(Txn) ->
@@ -486,12 +493,6 @@ key_test() ->
     ?assert(verify_key(B, BPub, Proof)),
 
     ok.
-
-
-legacy_create_proof(Key, Vars) ->
-    B = term_to_binary(Vars, [{compressed, 9}]),
-    SignFun = libp2p_crypto:mk_sig_fun(Key),
-    SignFun(B).
 
 legacy_key_test() ->
     #{secret := Priv, public := Pub} =
