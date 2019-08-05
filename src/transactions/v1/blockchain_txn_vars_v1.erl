@@ -471,7 +471,7 @@ validate_var(?election_interval, Value) ->
             throw({error, non_integral_election_interval});
         _ -> ok
     end,
-    case Value > 10 andalso Value < 100 of
+    case Value >= 5 andalso Value < 100 of
         false ->
             throw({error, election_interval_out_of_range});
         _ -> ok
