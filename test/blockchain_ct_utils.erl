@@ -266,7 +266,8 @@ create_vars(Vars) ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
 
-    DefVars = #{?vars_commit_delay => 10,
+    DefVars = #{?chain_vars_version => 2,
+                ?vars_commit_delay => 10,
                 ?election_restart_interval => 5,
                 ?election_replacement_slope => 20,
                 ?block_version => v1,
@@ -281,10 +282,4 @@ create_vars(Vars) ->
     Txn = blockchain_txn_vars_v1:new(Vars1, 2, #{master_key => BinPub}),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
     Txn1 = blockchain_txn_vars_v1:key_proof(Txn, Proof),
-
-    Bootstrap = #{?chain_vars_version => 2},
-    BootstrapProof = blockchain_txn_vars_v1:legacy_create_proof(Priv, Bootstrap),
-    BootstrapTxn = blockchain_txn_vars_v1:new(Bootstrap, 1, #{master_key => BinPub,
-                                                              key_proof => BootstrapProof}),
-
-    {[BootstrapTxn, Txn1], {master_key, {Priv, Pub}}}.
+    {[Txn1], {master_key, {Priv, Pub}}}.

@@ -182,9 +182,20 @@ is_valid(Txn, Chain) ->
             _ ->
                 false
         end,
-    case blockchain:config(?chain_vars_version, Ledger) of
-        {ok, 2} ->
-            Vars = decode_vars(vars(Txn)),
+    Vars = decode_vars(vars(Txn)),
+    Version =
+        case blockchain:config(?chain_vars_version, Ledger) of
+            {ok, 2} ->
+                2;
+            {error, not_found} when Gen == true ->
+                %% if this isn't on the ledger, allow the contents of
+                %% the genesis block to choose the validation type
+                maps:get(?chain_vars_version, Vars, 1);
+            _ ->
+                1
+        end,
+    case Version of
+        2 ->
             Artifact = create_artifact(Txn),
             lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
             try
@@ -259,7 +270,7 @@ is_valid(Txn, Chain) ->
                     lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
                     Ret
             end;
-        {error, not_found} ->
+        1 ->
             legacy_is_valid(Txn, Chain)
     end.
 
