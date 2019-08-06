@@ -478,6 +478,8 @@ verify_key(Artifact, Key, Proof) ->
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 validate_var(?election_interval, Value) ->
     case is_integer(Value) of
+        false when Value == infinity ->
+            ok;
         false ->
             throw({error, non_integral_election_interval});
         _ -> ok
