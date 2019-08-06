@@ -475,31 +475,25 @@ verify_key(_Artifact, _Key, <<>>) ->
 verify_key(Artifact, Key, Proof) ->
     libp2p_crypto:verify(Artifact, Proof, libp2p_crypto:bin_to_pubkey(Key)).
 
-%% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
-validate_var(?election_interval, Value) ->
+validate_int(Value, Name, Min, Max, InfOK) ->
     case is_integer(Value) of
-        false when Value == infinity ->
+        false when InfOK == true andalso Value == infinity ->
             ok;
         false ->
-            throw({error, non_integral_election_interval});
-        _ -> ok
-    end,
-    case Value >= 5 andalso Value < 100 of
-        false ->
-            throw({error, election_interval_out_of_range});
-        _ -> ok
-    end;
+            throw({error, list_to_atom("non_integral_" ++ Name)});
+        true ->
+            case Value >= Min andalso Value =< Max of
+                false ->
+                    throw({error, list_to_atom(Name ++ "_out_of_range")});
+                _ -> ok
+            end
+    end.
+
+%% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
+validate_var(?election_interval, Value) ->
+    validate_int(Value, "election_interval", 5, 100, true);
 validate_var(?block_time, Value) ->
-    case is_integer(Value) of
-        false ->
-            throw({error, non_integral_block_time});
-        _ -> ok
-    end,
-    case Value >= 1 andalso Value < timer:minutes(10) of
-        false ->
-            throw({error, block_time_out_of_range});
-        _ -> ok
-    end;
+    validate_int(Value, "election_interval", 1, timer:minutes(10), false);
 validate_var(Var, Value) ->
     lager:debug("checking ~p ~p", [Var, Value]),
     %% TODO: hang individual var validations here
