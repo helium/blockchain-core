@@ -193,7 +193,7 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
-    Ports = case proplists:get_value(ports, Args) of
+    Ports = case application:get_env(blockchain, ports, undefined) of
                 undefined ->
                     %% fallback to the single 'port' app env var
                     [proplists:get_value(port, Args, 0)];
