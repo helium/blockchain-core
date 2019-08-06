@@ -24,6 +24,7 @@
          cancels/1,
          nonce/1,
          absorb/2,
+         rescue_absorb/2,
          sign/2
         ]).
 
@@ -372,6 +373,11 @@ absorb(Txn, Chain) ->
         false ->
             ok = blockchain_ledger_v1:save_threshold_txn(Txn, Ledger)
     end.
+
+%% in a rescue situation, we apply vars immediately.
+rescue_absorb(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    delayed_absorb(Txn, Ledger).
 
 maybe_absorb(Txn, Ledger, Chain) ->
     %% the sorting order makes sure that this txn will be sorted after

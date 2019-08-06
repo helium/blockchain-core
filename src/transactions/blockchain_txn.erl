@@ -39,14 +39,17 @@
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
+-callback rescue_absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
+
+-optional_callbacks([rescue_absorb/2]).
 
 -export([
     hash/1,
-    validate/2,
+    validate/2, validate/3,
     absorb/2,
     sign/2,
-    absorb_and_commit/3,
-    absorb_block/2,
+    absorb_and_commit/3, absorb_and_commit/4,
+    absorb_block/2, absorb_block/3,
     sort/2,
     type/1,
     serialize/1,
@@ -147,7 +150,14 @@ unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec validate(txns(), blockchain:blockchain()) -> {blockchain_txn:txns(), blockchain_txn:txns()}.
-validate(Transactions, Chain0) ->
+validate(Transactions, Chain) ->
+    validate(Transactions, Chain, false).
+
+-spec validate(txns(), blockchain:blockchain(), boolean()) ->
+                      {blockchain_txn:txns(), blockchain_txn:txns()}.
+validate(Transactions, _Chain, true) ->
+    {Transactions, []};
+validate(Transactions, Chain0, false) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
@@ -183,15 +193,21 @@ validate([Txn | Tail], Valid, Invalid, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) -> ok | {error, any()}.
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) ->
+                               ok | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit) ->
+    absorb_and_commit(Block, Chain0, BeforeCommit, false).
+
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
+                               ok | {error, any()}.
+absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Transactions = blockchain_block:transactions(Block),
-    case ?MODULE:validate(Transactions, Chain1) of
+    case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
-            case ?MODULE:absorb_block(Block, Chain1) of
+            case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     case BeforeCommit() of
@@ -214,12 +230,18 @@ absorb_and_commit(Block, Chain0, BeforeCommit) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_block(blockchain_block:block(), blockchain:blockchain()) -> {ok, blockchain:blockchain()} | {error, any()}.
+-spec absorb_block(blockchain_block:block(), blockchain:blockchain()) ->
+                          {ok, blockchain:blockchain()} | {error, any()}.
 absorb_block(Block, Chain) ->
+    absorb_block(Block, false, Chain).
+
+-spec absorb_block(blockchain_block:block(), boolean(), blockchain:blockchain()) ->
+                          {ok, blockchain:blockchain()} | {error, any()}.
+absorb_block(Block, Rescue, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Transactions = blockchain_block:transactions(Block),
     Height = blockchain_block:height(Block),
-    case absorb_txns(Transactions, Chain) of
+    case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
@@ -331,13 +353,24 @@ type_order(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_txns(txns(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb_txns([], _Chain) ->
+-spec absorb_txns(txns(), boolean(), blockchain:blockchain()) ->
+                         ok | {error, any()}.
+absorb_txns([], _Rescue, _Chain) ->
     ok;
-absorb_txns([Txn|Txns], Chain) ->
-    case ?MODULE:absorb(Txn, Chain) of
-        {error, _Reason}=Error -> Error;
-        ok -> absorb_txns(Txns, Chain)
+absorb_txns([Txn|Txns], Rescue, Chain) ->
+    Type = ?MODULE:type(Txn),
+    case Rescue andalso
+        erlang:function_exported(Type, rescue_absorb, 2) of
+        true ->
+            case Type:rescue_absorb(Txn, Chain) of
+                ok -> absorb_txns(Txns, Rescue, Chain);
+                {error, _} = E -> E
+            end;
+        false ->
+            case ?MODULE:absorb(Txn, Chain) of
+                {error, _Reason}=Error -> Error;
+                ok -> absorb_txns(Txns, Rescue, Chain)
+            end
     end.
 
 %%--------------------------------------------------------------------

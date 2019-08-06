@@ -9,6 +9,7 @@
 
 -export([
     new/1,
+    rescue/1,
     prev_hash/1,
     height/1,
     transactions/1,
@@ -16,11 +17,13 @@
     time/1,
     election_info/1,
     hbbft_round/1,
-    set_signatures/2,
+    set_signatures/2, set_signatures/3,
     new_genesis_block/1,
     is_genesis/1,
     hash_block/1,
-    verify_signatures/4
+    rescue_signature/1,
+    verify_signatures/4, verify_signatures/5,
+    is_rescue_block/1
 ]).
 
 -include("blockchain.hrl").
@@ -38,7 +41,8 @@
                        transactions => blockchain_txn:txns(),
                        signatures => [blockchain_block:signature()],
                        election_epoch => non_neg_integer(),
-                       epoch_start => non_neg_integer()
+                       epoch_start => non_neg_integer(),
+                       rescue_signature => binary()
                       }.
 
 -export_type([block/0, block_map/0]).
@@ -65,8 +69,25 @@ new(#{prev_hash := PrevHash,
        hbbft_round=HBBFTRound,
        election_epoch = ElectionEpoch,
        epoch_start = EpochStart
-    }.
+      }.
 
+-spec rescue(block_map())-> block().
+rescue(#{prev_hash := PrevHash,
+         height := Height,
+         time := Time,
+         hbbft_round := HBBFTRound,
+         transactions := Transactions,
+         election_epoch := ElectionEpoch,
+         epoch_start := EpochStart}) ->
+    #blockchain_block_v1_pb{
+       prev_hash = PrevHash,
+       height = Height,
+       transactions = [blockchain_txn:wrap_txn(Tx) || Tx <- Transactions],
+       time = Time,
+       hbbft_round=HBBFTRound,
+       election_epoch = ElectionEpoch,
+       epoch_start = EpochStart
+      }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -113,6 +134,10 @@ transactions(Block) ->
 signatures(Block) ->
     [unwrap_signature(S) || S <- Block#blockchain_block_v1_pb.signatures].
 
+-spec rescue_signature(block()) -> binary().
+rescue_signature(Block) ->
+    Block#blockchain_block_v1_pb.rescue_signature.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -129,6 +154,12 @@ hbbft_round(Block) ->
 set_signatures(Block, Signatures) ->
     Block#blockchain_block_v1_pb{signatures=[wrap_signature(S) || S <- Signatures]}.
 
+-spec set_signatures(block(), [blockchain_block:signature()], binary()) ->
+                            block().
+set_signatures(Block, Signatures, Rescue) ->
+    Block#blockchain_block_v1_pb{signatures = [wrap_signature(S)
+                                               || S <- Signatures],
+                                 rescue_signature = Rescue}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -162,21 +193,57 @@ is_genesis(Block) ->
 %%--------------------------------------------------------------------
 -spec hash_block(block()) -> blockchain_block:hash().
 hash_block(Block) ->
-    EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [])),
+    EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>)),
     crypto:hash(sha256, EncodedBlock).
 
 %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+%% @doc The two arities for `verify_signatures` are meant to allow for
+%% rescue block validation in the inner loop without affecting the
+%% other user of the function (the hbbft handler), which will never
+%% need to verify a rescue block.
+%%  @end
+%% --------------------------------------------------------------------
 -spec verify_signatures(Block::binary() | block(),
                         ConsensusMembers::[libp2p_crypto:pubkey_bin()],
                         Signatures::[blockchain_block:signature()],
-                        Threshold::pos_integer()) -> false | {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
-verify_signatures(#blockchain_block_v1_pb{}=Block, ConsensusMembers, Signatures, Threshold) ->
-    EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [])),
-    verify_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold);
-verify_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
+                        Threshold::pos_integer()
+                       ) ->
+                               false |
+                               {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
+    case verify_signatures(Block, ConsensusMembers, Signatures, Threshold, ignore) of
+        {true, Sigs, _Rescue} ->
+            {true, Sigs};
+        Else -> Else
+    end.
+
+
+-spec verify_signatures(Block::binary() | block(),
+                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
+                        Signatures::[blockchain_block:signature()],
+                        Threshold::pos_integer(),
+                        ignore | binary()
+                       ) ->
+                               false |
+                               {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
+%% rescue blocks have no signatures and a rescue signature.
+verify_signatures(#blockchain_block_v1_pb{}=Block, ConsensusMembers, [], _Threshold, Key)
+  when ConsensusMembers /= [] -> % force the other path for old tests :/
+    EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>)),
+    RescueSig = blockchain_block_v1:rescue_signature(Block),
+    verify_rescue_signature(EncodedBlock, RescueSig, Key);
+%% normal blocks should never have a rescue signature.
+verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
+    EncodedBlock =
+        case Block of
+            #blockchain_block_v1_pb{} ->
+                blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>));
+            _ ->
+                Block
+        end,
+    verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
+
+verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
     ValidSignatures = lists:foldl(
         fun({Addr, Sig}, Acc) ->
             case
@@ -188,15 +255,27 @@ verify_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
                 false -> Acc
             end
         end, [], Signatures),
-    case length(ValidSignatures) >= Threshold of
+     case length(ValidSignatures) >= Threshold of
         true ->
             %% at least N-F consensus members signed the block
-            {true, ValidSignatures};
+            {true, ValidSignatures, false};
         false ->
             %% missing some signatures?
             false
     end.
 
+verify_rescue_signature(EncodedBlock, RescueSig, Key) ->
+    case libp2p_crypto:verify(EncodedBlock, RescueSig, libp2p_crypto:bin_to_pubkey(Key)) of
+        true ->
+            {true, RescueSig, true};
+        false ->
+            false
+    end.
+
+-spec is_rescue_block(block()) -> boolean().
+is_rescue_block(Block) ->
+    Block#blockchain_block_v1_pb.signatures == [] andalso
+        Block#blockchain_block_v1_pb.rescue_signature /= <<>>.
 
 %%
 %% Internal
