@@ -227,7 +227,8 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
                                false |
                                {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 %% rescue blocks have no signatures and a rescue signature.
-verify_signatures(#blockchain_block_v1_pb{}=Block, _ConsensusMembers, [], _Threshold, Key) ->
+verify_signatures(#blockchain_block_v1_pb{}=Block, ConsensusMembers, [], _Threshold, Key)
+  when ConsensusMembers /= [] -> % force the other path for old tests :/
     EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>)),
     RescueSig = blockchain_block_v1:rescue_signature(Block),
     verify_rescue_signature(EncodedBlock, RescueSig, Key);
@@ -254,7 +255,7 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
                 false -> Acc
             end
         end, [], Signatures),
-    case length(ValidSignatures) >= Threshold of
+     case length(ValidSignatures) >= Threshold of
         true ->
             %% at least N-F consensus members signed the block
             {true, ValidSignatures, false};

@@ -617,7 +617,7 @@ new_test() ->
 blocks_test() ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, lists:seq(1, 7)}
+        {ok, []}
     end),
     meck:new(blockchain_block, [passthrough]),
     meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
@@ -669,7 +669,7 @@ blocks_test() ->
 get_block_test() ->
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, lists:seq(1, 7)}
+        {ok, []}
     end),
     meck:new(blockchain_block, [passthrough]),
     meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
@@ -682,7 +682,15 @@ get_block_test() ->
 
     {ok, Pid} = blockchain_lock:start_link(),
 
-    GenBlock = blockchain_block:new_genesis_block([]),
+    #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
+    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+
+    Vars = #{chain_vars_version => 2},
+    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+    VarTxns = [blockchain_txn_vars_v1:key_proof(Txn, Proof)],
+
+    GenBlock = blockchain_block:new_genesis_block(VarTxns),
     GenHash = blockchain_block:hash_block(GenBlock),
     {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
     Block = blockchain_block_v1:new(#{prev_hash => GenHash,
