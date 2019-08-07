@@ -78,32 +78,32 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                                          end,
                                          blockchain_utils:shuffle_from_hash(Hash, GraphList)
                                         ),
-            Limit = case blockchain:config(?poc_path_limit, Ledger) of
-                        {error, not_found} ->
-                            infinity;
-                        {ok, Val} ->
-                            Val
-                    end,
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
             Path3 = Path1 ++ Path2,
-            PathLength = erlang:length(Path3),
-            case PathLength > 2 of
+            case erlang:length(Path3) > 2 of
                 false ->
                     lager:error("target/gateways ~p", [{Target, Gateways}]),
                     lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
                     lager:error("path: ~p", [Path3]),
                     {error, path_too_small};
-                true when PathLength > Limit ->
-                    {error, path_too_long};
                 true ->
                     blockchain_utils:rand_from_hash(Hash),
-                    case rand:uniform(2) of
-                        1 ->
-                            {ok, Path3};
-                        2 ->
-                            {ok, lists:reverse(Path3)}
+                    Path4 = case rand:uniform(2) of
+                                1 ->
+                                    Path3;
+                                2 ->
+                                    lists:reverse(Path3)
+                            end,
+                    case blockchain:config(?poc_path_limit, Ledger) of
+                        {error, not_found} ->
+                            {ok, Path4};
+                        {ok, Val} ->
+                            %% NOTE: The tradeoff here is that we may potentially lose target and end
+                            %% from the path, but the fact that we would still have constructed it should
+                            %% suffice to build interesting paths which conform to the given path_limit
+                            {ok, lists:sublist(Path4, Val)}
                     end
             end
     end.
@@ -863,8 +863,7 @@ max_path_length_without_limit_test() ->
     ok.
 
 max_path_length_with_limit_test() ->
-    %% Since the limit var is set in the fake ledger, this should error out
-    %% And we won't construct the challenge to begin with
+    %% Since the limit var is set in the fake ledger, we should get a path of max length poc_path_limit
     BaseDir = test_utils:tmp_dir("max_path_length_test_with_limit"),
     Indices = [
                {631210968876178431, 1.0, 1.0},
@@ -877,8 +876,10 @@ max_path_length_with_limit_test() ->
     Gateways = build_gatewas_from_indices(Indices),
     Target = hd(maps:keys(Gateways)),
     Ledger = build_fake_ledger_from_indices_with_path_limit(BaseDir, Indices, 0.25, 6, 120),
+    {ok, Limit} = blockchain:config(?poc_path_limit, Ledger),
+    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
-    ?assertEqual({error, path_too_long}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
+    ?assertEqual(Limit, erlang:length(Path)),
 
     unload_meck(),
     ok.
