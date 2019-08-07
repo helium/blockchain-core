@@ -99,7 +99,7 @@ format_peer_sessions(Swarm) ->
                         end, SessionInfos),
 
     FormatEntry = fun({MA, {SockAddr, PeerAddr}, B58}) ->
-                          AName = erl_angry_purple_tiger:animal_name(B58),
+                          {ok, AName} = erl_angry_purple_tiger:animal_name(B58),
                           [
                            {"local", SockAddr},
                            {"remote", PeerAddr},
@@ -331,8 +331,9 @@ format_peers(Peers) ->
                 NatType = libp2p_peer:nat_type(Peer),
                 Timestamp = libp2p_peer:timestamp(Peer),
                 Bin = libp2p_peer:pubkey_bin(Peer),
+                {ok, AName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Bin)),
                 [{address, libp2p_crypto:pubkey_bin_to_p2p(Bin)},
-                 {name, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Bin))},
+                 {name, AName},
                  {listen_addrs, io_lib:format("~p", [length(ListenAddrs)])},
                  {connections, io_lib:format("~p", [length(ConnectedTo)])},
                  {nat, io_lib:format("~s", [NatType])},
