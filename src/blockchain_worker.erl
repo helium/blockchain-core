@@ -405,15 +405,18 @@ handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
     end;
 handle_info({update_timer, Ref}, State) ->
     {noreply, State#state{sync_timer=Ref}};
-handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, #state{swarm=Swarm, blockchain=Chain} = State) ->
+handle_info({blockchain_event, {add_block, Hash, Sync, _Ledger}}, #state{swarm=Swarm, blockchain=Chain} = State) ->
     %% we added a new block to the chain, send it to all our peers
     case blockchain:get_block(Hash, Chain) of
-        {ok, Block} ->
+        {ok, Block} when Sync == false ->
             libp2p_group_gossip:send(
               libp2p_swarm:gossip_group(Swarm),
               ?GOSSIP_PROTOCOL,
               blockchain_gossip_handler:gossip_data(Swarm, Block)
              );
+        {ok, _} ->
+            %% don't gossip blocks we're syncing
+            ok;
         {error, Reason} ->
             lager:warning("unable to find new block ~p in blockchain: ~p", [Hash, Reason])
     end,
