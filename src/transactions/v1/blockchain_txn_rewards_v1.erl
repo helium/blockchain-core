@@ -167,29 +167,32 @@ calculate_rewards(Start, End, Chain) ->
                     POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
                     POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
                     POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
-                    {ok, lists:foldl(
-                        fun(Map, Acc0) ->
-                            maps:fold(
-                                fun({owner, Type, Owner}, Amount, Acc1) ->
-                                    Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
-                                    [Reward|Acc1];
-                                ({gateway, Type, Gateway}, Amount, Acc1) ->
-                                    case get_gateway_owner(Gateway, Ledger) of
-                                        {error, _} ->
-                                            Acc1;
-                                        {ok, Owner} ->
-                                            Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
-                                            [Reward|Acc1]
-                                    end
-                                end,
-                                Acc0,
-                                Map
-                            )
-                        end,
-                        [],
-                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
-                         POCChallengeesRewards, POCWitnessesRewards]
-                    )};
+                    Result = lists:foldl(
+                               fun(Map, Acc0) ->
+                                       maps:fold(
+                                         fun({owner, Type, Owner}, Amount, Acc1) ->
+                                                 Reward = blockchain_txn_reward_v1:new(Owner, undefined, Amount, Type),
+                                                 [Reward|Acc1];
+                                            ({gateway, Type, Gateway}, Amount, Acc1) ->
+                                                 case get_gateway_owner(Gateway, Ledger) of
+                                                     {error, _} ->
+                                                         Acc1;
+                                                     {ok, Owner} ->
+                                                         Reward = blockchain_txn_reward_v1:new(Owner, Gateway, Amount, Type),
+                                                         [Reward|Acc1]
+                                                 end
+                                         end,
+                                         Acc0,
+                                         Map
+                                        )
+                               end,
+                               [],
+                               [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
+                                POCChallengeesRewards, POCWitnessesRewards]
+                              ),
+                    %% clean up ledger context
+                    blockchain_ledger_v1:delete_context(Ledger),
+                    {ok, Result};
                 [_RewardTxn|_] ->
                     {error, already_existing_rewards}
             end
