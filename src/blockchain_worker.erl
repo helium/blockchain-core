@@ -193,7 +193,7 @@ signed_metadata_fun() ->
                 undefined ->
                     C = blockchain_worker:blockchain(),
                     put(peerbook_md_fun_blockchain, C),
-                    C
+                    C;
                 C ->
                     C
             end,
