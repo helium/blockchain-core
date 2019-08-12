@@ -196,22 +196,30 @@ ledger(Ledger, Chain) ->
     Chain#blockchain{ledger=Ledger}.
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Obtain a version of the ledger at a given height.
+%%
+%% NOTE this function, if it suceeds will ALWAYS create a new context.
+%% This is to help prevent side effects and contamination and to help
+%% with the cleanup assumptions. Any ledger successfully obtained with
+%% this function should be deleted when it's no longer needed by using
+%% `delete_context'.
 %% @end
 %%--------------------------------------------------------------------
 -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Chain0) ->
     Ledger = ?MODULE:ledger(Chain0),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, Height} ->
-            {ok, Ledger};
+      case blockchain_ledger_v1:current_height(Ledger) of
         {ok, CurrentHeight} when Height > CurrentHeight->
             {error, invalid_height};
+        {ok, Height} ->
+            %% Current height is the height we want, just return a new context
+            {ok, blockchain_ledger_v1:new_context(Ledger)};
         {ok, CurrentHeight} ->
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             case blockchain_ledger_v1:current_height(DelayedLedger) of
                 {ok, Height} ->
-                    {ok, DelayedLedger};
+                    %% Delayed height is the height we want, just return a new context
+                    {ok, blockchain_ledger_v1:new_context(DelayedLedger), Chain0};
                 {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
                     Chain1 = lists:foldl(
                         fun(H, ChainAcc) ->
