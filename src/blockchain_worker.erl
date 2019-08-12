@@ -27,7 +27,8 @@
     redeem_htlc_txn/3,
     peer_height/3,
     notify/1,
-    mismatch/0
+    mismatch/0,
+    signed_metadata_fun/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -184,6 +185,34 @@ notify(Msg) ->
 -spec mismatch() -> ok.
 mismatch() ->
     gen_server:cast(?SERVER, mismatch).
+
+
+signed_metadata_fun() ->
+    %% cache the chain handle in the peerbook processes' dictionary
+    Chain = case get(peerbook_md_fun_blockchain) of
+                undefined ->
+                    C = blockchain_worker:blockchain(),
+                    put(peerbook_md_fun_blockchain, C),
+                    C
+            end,
+    case Chain of
+        undefined ->
+            %% don't have a chain, no metadata to add
+            #{};
+        _ ->
+            %% check if the rocksdb handle has died
+            try blockchain:height(Chain) of
+                {ok, Height} ->
+                    #{<<"height">> => list_to_binary(integer_to_list(Height))};
+                {error, _} ->
+                    #{}
+            catch
+                _:_ ->
+                    %% probably have an expired blockchain handle
+                    %% don't retry here, to avoid looping, but delete our cached handle for next time
+                    put(peerbook_md_fun_blockchain, undefined)
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
