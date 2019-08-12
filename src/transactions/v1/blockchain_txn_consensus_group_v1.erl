@@ -144,7 +144,6 @@ is_valid(Txn, Chain) ->
                     true ->
                         Proof = binary_to_term(Proof0),
                         EffectiveHeight = LastElectionHeight + ElectionInterval + Delay,
-                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         {ok, Block} = blockchain:get_block(EffectiveHeight, Chain),
                         {ok, RestartInterval} = blockchain:config(?election_restart_interval, Ledger),
                         %% The next election should occur within RestartInterval blocks of when the election started
@@ -161,6 +160,7 @@ is_valid(Txn, Chain) ->
                             _ -> throw({error, {wrong_members_size, N, length(Members)}})
                         end,
                         Hash = blockchain_block:hash_block(Block),
+                        {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
                         case verify_proof(Proof, Members, Hash, Delay, OldLedger) of
                             ok -> ok;
                             {error, _} = VerifyErr -> throw(VerifyErr)
@@ -200,6 +200,8 @@ verify_proof(Proof, Members, Hash, Delay, OldLedger) ->
     %% verify that the list is the proper list
     L = length(Members),
     HashMembers = blockchain_election:new_group(OldLedger, Hash, L, Delay),
+    %% clean up ledger context
+    blockchain_ledger_v1:delete_context(OldLedger),
     Artifact = term_to_binary(Members),
     case HashMembers of
         Members ->
