@@ -205,7 +205,7 @@ signed_metadata_fun() ->
             %% check if the rocksdb handle has died
             try blockchain:height(Chain) of
                 {ok, Height} ->
-                    #{<<"height">> => list_to_binary(integer_to_list(Height))};
+                    #{<<"height">> => Height;
                 {error, _} ->
                     #{}
             catch
