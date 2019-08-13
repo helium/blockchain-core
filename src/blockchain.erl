@@ -372,16 +372,16 @@ add_block_(Block, Blockchain, Syncing) ->
                                     N = length(ConsensusAddrs),
                                     F = (N-1) div 3,
                                     {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                                    Txns = blockchain_block:transactions(Block),
                                     case blockchain_block:verify_signatures(Block,
                                                                             ConsensusAddrs,
                                                                             blockchain_block:signatures(Block),
-                                                                            N-F,
+                                                                            N - F,
                                                                             MasterKey)
                                     of
                                         false ->
                                             {error, failed_verify_signatures};
                                         {true, _, Rescue} ->
-                                            Txns = blockchain_block:transactions(Block),
                                             SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
                                             case Txns == SortedTxns of
                                                 false ->
@@ -631,9 +631,16 @@ blocks_test() ->
     meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
         {true, undefined}
     end),
+    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _, _) ->
+        {true, undefined, false}
+    end),
     meck:new(blockchain_worker, [passthrough]),
     meck:expect(blockchain_worker, notify, fun(_) ->
         ok
+    end),
+    meck:new(blockchain_election, [passthrough]),
+    meck:expect(blockchain_election, has_new_group, fun(_) ->
+        false
     end),
     {ok, Pid} = blockchain_lock:start_link(),
 
@@ -672,7 +679,10 @@ blocks_test() ->
     ?assert(meck:validate(blockchain_block)),
     meck:unload(blockchain_block),
     ?assert(meck:validate(blockchain_worker)),
-    meck:unload(blockchain_worker).
+    meck:unload(blockchain_worker),
+    ?assert(meck:validate(blockchain_election)),
+    meck:unload(blockchain_election).
+
 
 get_block_test() ->
     meck:new(blockchain_ledger_v1, [passthrough]),
@@ -683,10 +693,18 @@ get_block_test() ->
     meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
         {true, undefined}
     end),
+    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _, _) ->
+        {true, undefined, false}
+    end),
     meck:new(blockchain_worker, [passthrough]),
     meck:expect(blockchain_worker, notify, fun(_) ->
         ok
     end),
+    meck:new(blockchain_election, [passthrough]),
+    meck:expect(blockchain_election, has_new_group, fun(_) ->
+        false
+    end),
+
 
     {ok, Pid} = blockchain_lock:start_link(),
 
@@ -721,7 +739,9 @@ get_block_test() ->
     ?assert(meck:validate(blockchain_block)),
     meck:unload(blockchain_block),
     ?assert(meck:validate(blockchain_worker)),
-    meck:unload(blockchain_worker).
+    meck:unload(blockchain_worker),
+    ?assert(meck:validate(blockchain_election)),
+    meck:unload(blockchain_election).
 
 
 -endif.

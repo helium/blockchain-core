@@ -72,7 +72,7 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
-    {ok, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -96,6 +96,7 @@ init_per_testcase(TestCase, Config) ->
         {swarm, Swarm},
         {n, N},
         {consensus_members, ConsensusMembers},
+        {genesis_members, GenesisMembers},
         Keys
         | Config
     ].
@@ -618,6 +619,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
 
 export_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
+    GenesisMembers = proplists:get_value(genesis_members, Config),
     Balance = proplists:get_value(balance, Config),
     [_,
      {Payer1, {PayerPubKey1, PayerPrivKey1, _}},
@@ -741,8 +743,8 @@ export_test(Config) ->
                       (Balance - Amount - Fee) == proplists:get_value(balance, Account)
               end, FilteredExportedAccounts),
 
-    %% check all consensus members are included in the exported securities
-    ?assertEqual(length(Securities), N),
+    %% check all genesis members are included in the exported securities
+    ?assertEqual(length(Securities), length(GenesisMembers)),
 
     %% check security balance for each member
     lists:all(fun(Security) ->
