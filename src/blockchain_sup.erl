@@ -70,6 +70,8 @@ init(Args) ->
          {base_dir, proplists:get_value(base_dir, Args, "data")},
          {libp2p_proxy,
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
+         {libp2p_peerbook,
+          [{signed_metadata_fun, fun blockchain_worker:signed_metadata_fun/0}]},
          {libp2p_group_gossip,
           [
            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
