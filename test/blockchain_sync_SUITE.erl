@@ -40,7 +40,7 @@ basic(_Config) ->
     Balance = 5000,
     BlocksN = 100,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
