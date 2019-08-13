@@ -93,7 +93,7 @@ format_peer_sessions(Swarm) ->
     SessionInfos = libp2p_swarm:sessions(Swarm),
     R = lists:filtermap(fun({A, S}) ->
                                 case multiaddr:protocols(A) of
-                                    [{"p2p", B58}] -> {true, {A, libp2p_session:addr_info(S), B58}};
+                                    [{"p2p", B58}] -> {true, {A, libp2p_session:addr_info(libp2p_swarm:tid(Swarm), S), B58}};
                                     _ -> false
                                 end
                         end, SessionInfos),
