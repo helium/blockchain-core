@@ -79,9 +79,9 @@ init(Args) ->
            {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
            %% in should be ~2/3 out, otherwise nodes with good
            %% connections will hog all the gossip
-           {peerbook_connections, proplists:get_value(outbound_gossip_connections, Args, 10)},
-           {inbound_connections, proplists:get_value(max_inbound_connections, Args, 6)},
-           {peer_cache_timeout, proplists:get_value(peer_cache_timeout, Args, 10 * 1000)}
+           {peerbook_connections, application:get_env(blockchain, outbound_gossip_connections, 2)},
+           {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
+           {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
         ],
     BWorkerOpts = [
