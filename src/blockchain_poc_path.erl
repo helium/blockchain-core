@@ -12,7 +12,8 @@
          shortest/3,
          length/3,
          build_graph/4,
-         target/3
+         target/3,
+         entropy/1
         ]).
 
 -ifdef(TEST).
@@ -122,36 +123,54 @@ length(Graph, Start, End) ->
                   Height :: non_neg_integer(),
                   Ledger :: blockchain_ledger_v1:ledger()) -> graph().
 build_graph(Address, Gateways, Height, Ledger) ->
-    build_graph([Address], Gateways, Height, Ledger, maps:new()).
+    Neighbors = all_neighbors(Address, Gateways, Height, Ledger),
+    build_graph_int([Address], Gateways, Neighbors, #{}).
 
--spec build_graph([binary()],
-                  Gateways :: map(),
-                  Height :: non_neg_integer(),
-                  Ledger :: blockchain_ledger_v1:ledger(),
-                  Graph :: graph()) -> graph().
-build_graph([], _Gateways, _Height, _Ledger, Graph) ->
+-spec build_graph_int([binary()],
+                      Gateways :: map(),
+                      Neighbors :: map(),
+                      Graph :: graph()) -> graph().
+build_graph_int([], _Gateways, _Neighbors, Graph) ->
     Graph;
-build_graph([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
-    Neighbors0 = neighbors(Address0, Gateways, Height, Ledger),
-    Graph1 = lists:foldl(
-               fun({_W, Address1}, Acc) ->
-                       case maps:is_key(Address1, Acc) of
-                           true ->
-                               Acc;
-                           false ->
-                               Neighbors1 = neighbors(Address1, Gateways, Height, Ledger),
-                               Graph1 = maps:put(Address1, Neighbors1, Acc),
-                               build_graph([A || {_, A} <- Neighbors1], Gateways, Height, Ledger, Graph1)
-                       end
-               end,
-               maps:put(Address0, Neighbors0, Graph0),
-               Neighbors0
-              ),
-    case maps:size(Graph1) > 100 of
-        false ->
-            build_graph(Addresses, Gateways, Height, Ledger, Graph1);
-        true ->
-            Graph1
+build_graph_int([Address0|Addresses], Gateways, Neighbors, Graph0) ->
+    %% find all the neighbors of address 0
+    case Neighbors of
+        #{Address0 := Neighbors0} ->
+            %% fold over the list of neighbors
+            Graph1 = lists:foldl(
+                       fun({_W, Address1}, Acc) ->
+                               %% if the neighbor address is already in the
+                               %% graph, skip it.
+                               case maps:is_key(Address1, Acc) of
+                                   true ->
+                                       Acc;
+                                   false ->
+                                       %% otherwise, calculate its neighbors
+                                       #{Address1 := Neighbors1} = Neighbors,
+                                       Graph1 = maps:put(Address1, Neighbors1, Acc),
+                                       %% and append all of its neighbor's neighbors?
+                                       build_graph_int([A || {_, A} <- Neighbors1,
+                                                             A /= maps:is_key(A, Graph1)],
+                                                       Gateways, Neighbors, Graph1)
+                               end
+                       end,
+                       %% first, map address to neighbors
+                       maps:put(Address0, Neighbors0, Graph0),
+                       Neighbors0
+                      ),
+            %% randomly limit the size of the graph in a relatively
+            %% unprincipled way!
+            case maps:size(Graph1) > 100 of
+                false ->
+                    FilteredAddresses = lists:filter(fun(A) -> not maps:is_key(A, Graph1) end,
+                                                     Addresses),
+                    build_graph_int(FilteredAddresses, Gateways, Neighbors, Graph1);
+                true ->
+                    error(noooooes),
+                    Graph1
+            end;
+        _ ->
+            Graph0
     end.
 
 %% ------------------------------------------------------------------
@@ -177,7 +196,8 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
     path(Graph, lists:sort(NewRoutes ++ Routes), End, Seen#{Node => true}).
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc neighbors iterates through `Gateways` to find any Gateways
+%% that are within max grid distance from the address in pubkeybin
 %% @end
 %%--------------------------------------------------------------------
 neighbors(PubkeyBin, Gateways, Height, Ledger) ->
@@ -196,12 +216,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                         Index ->
                                             case blockchain_ledger_v1:gateway_score(A, Ledger) of
                                                 {ok, S} when S >= MinScore ->
-                                                    ScaledIndex = case h3:get_resolution(Index) of
-                                                                      R when R > H3NeighborRes ->
-                                                                          h3:parent(Index, H3NeighborRes);
-                                                                      _ ->
-                                                                          Index
-                                                                  end,
+                                                    ScaledIndex = scale(Index, H3NeighborRes),
                                                     case lists:member(ScaledIndex, ExclusionIndices) of
                                                         false ->
                                                             case (catch h3:grid_distance(ScaledGwH3, ScaledIndex)) of
@@ -221,6 +236,38 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
 
     [{edge_weight(PubkeyBin, Gw, A, G, Height, Ledger), A} || {A, G} <- ToInclude].
 
+-define(GROSS_FILTER_RES, 6).
+
+all_neighbors(_Addr, Gateways, Height, Ledger) ->
+    %% Gw = maps:get(Addr, Gateways),
+    %% StartLoc0 = blockchain_ledger_gateway_v1:location(Gw),
+    %% StartLoc = scale(StartLoc0, ?GROSS_FILTER_RES),
+    %% InclusionIndices = h3:k_ring(StartLoc, 6),
+    maps:fold(
+      fun(A, G, Acc) ->
+              case blockchain_ledger_gateway_v1:location(G) of
+                  undefined -> Acc;
+                  _Index ->
+                      %% ScaledIndex = scale(Index, ?GROSS_FILTER_RES),
+                      %% case lists:member(ScaledIndex, InclusionIndices) of
+                          %% false ->
+                          %%     Acc;
+                          %% _ ->
+                      Neighbors = neighbors(A, Gateways, Height, Ledger),
+                      Acc#{A => Neighbors}
+              end
+      end,
+      #{},
+      Gateways).
+
+scale(Index, Res) ->
+    case h3:get_resolution(Index) of
+        R when R > Res ->
+            h3:parent(Index, Res);
+        _ ->
+            Index
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -234,7 +281,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
 edge_weight(A1, Gw1, A2, Gw2, Height, Ledger) ->
     {_, _, S1} = blockchain_ledger_gateway_v1:score(A1, Gw1, Height, Ledger),
     {_, _, S2} = blockchain_ledger_gateway_v1:score(A2, Gw2, Height, Ledger),
-    1 - abs(prob_fun(S1) -  prob_fun(S2)).
+    1 - abs(prob_fun(S1) - prob_fun(S2)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -294,10 +341,15 @@ active_gateways(Ledger, Challenger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    %% fold over all the gateways
+    NeighborsMap = all_neighbors(Challenger, Gateways, Height, Ledger),
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
               case
+                  %% if we're some other gateway who has a location
+                  %% and hasn't been added to the graph and our score
+                  %% is good enough
                   PubkeyBin == Challenger orelse
                   blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
                   maps:is_key(PubkeyBin, Acc0) orelse
@@ -306,19 +358,26 @@ active_gateways(Ledger, Challenger) ->
                   true ->
                       Acc0;
                   false ->
-                      Graph = ?MODULE:build_graph(PubkeyBin, Gateways, Height, Ledger),
+                      %% build the graph originating at this location
+                      Graph = build_graph_int([PubkeyBin], Gateways, NeighborsMap, #{}),
                       case maps:size(Graph) > 2 of
                           false ->
                               Acc0;
                           true ->
+                              %% then filter the graph, removing the challenger for some
+                              %% reason.  is challenger here the path start?
                               maps:fold(
                                 fun(Addr, Neighbors, Acc1) ->
                                         Acc2 = case Addr == Challenger of
                                                    true ->
                                                        Acc1;
                                                    false ->
+                                                       %% if we're not the challenger, add
+                                                       %% our full gw information into the acc
                                                        maps:put(Addr, maps:get(Addr, Gateways), Acc1)
                                                end,
+                                        %% fold over the neighbors, adding them to the
+                                        %% list if they're not the challenger
                                         lists:foldl(
                                           fun({_, Neighbor}, Acc3) ->
                                                   case Neighbor == Challenger of
@@ -399,6 +458,7 @@ target_test_() ->
              ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
              Challenger = hd(maps:keys(ActiveGateways)),
+             io:fwrite("challenger ~p", [Challenger]),
              Iterations = 1000,
              Results = dict:to_list(lists:foldl(fun(_, Acc) ->
                                                         {Target, _} = target(crypto:strong_rand_bytes(32), Ledger, Challenger),
@@ -471,7 +531,7 @@ build_graph_test() ->
                ],
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     {Target, Gateways} = build_gateways(LatLongs),
-
+    io:fwrite("target ~p~n", [Target]),
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
 
@@ -751,6 +811,7 @@ build_gateways(LatLongs) ->
                          Index = h3:from_geo(LatLong, Res),
                          G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
                          G1 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, G0),
+                         io:fwrite("~p : ~p~n", [Address, LatLong]),
                          maps:put(Address, G1, Acc)
 
                  end,
