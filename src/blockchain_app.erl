@@ -36,6 +36,8 @@ start(_StartType, _StartArgs) ->
         {key, Key},
         {port, Port}
     ],
+
+    ok = e2qc:setup(neighbors_cache, [{size, 8*1024*1024}]),
     case blockchain_sup:start_link(Args) of
         {ok, Pid} ->
             blockchain_cli_registry:register_cli(),

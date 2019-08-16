@@ -194,7 +194,7 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% @end
 %%--------------------------------------------------------------------
 neighbors(PubkeyBin, Gateways, Height, Ledger) ->
-    e2qc:cache(neighbors_cache, {PubkeyBin, Gateways, Height, Ledger},
+    e2qc:cache(neighbors_cache, {PubkeyBin, Height},
                fun() ->
                        Gw = maps:get(PubkeyBin, Gateways),
                        GwH3 = blockchain_ledger_gateway_v1:location(Gw),
