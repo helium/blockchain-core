@@ -364,13 +364,21 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
                     lists:foldl(
                         fun(Elem, {Map, Total}=Acc1) ->
-                            case blockchain_poc_path_element_v1:receipt(Elem) =/= undefined of
-                                false ->
+                            case blockchain_poc_path_element_v1:receipt(Elem) of
+                                undefined ->
                                     Acc1;
-                                true ->
+                                Receipt ->
                                     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
                                     I = maps:get(Challengee, Map, 0),
-                                    {maps:put(Challengee, I+1, Map), Total+1}
+                                    case blockchain_poc_receipt_v1:origin(Receipt) of
+                                        radio ->
+                                            {maps:put(Challengee, I+1, Map), Total+1};
+                                        _ ->
+                                            case blockchain_poc_path_element_v1:witnesses(Elem) of
+                                                [] -> Acc1;
+                                                _ -> {maps:put(Challengee, I+1, Map), Total+1}
+                                            end
+                                    end
                             end
                         end,
                         Acc0,
@@ -537,11 +545,17 @@ poc_challengers_rewards_test() ->
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
 poc_challengees_rewards_test() ->
-    Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, <<"Receipt not undefined">>, []),
-    Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, <<"Receipt not undefined">>, []),
+    Receipt1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
+    Receipt2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
+    Witness1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
+
+    Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, Receipt1, [Witness1]),
+    Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, Receipt2, []),
+    Elem3 = blockchain_poc_path_element_v1:new(<<"3">>, Receipt1, []),
     Txns = [
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2])
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem3])
     ],
     Vars = #{
         epoch_reward => 1000,

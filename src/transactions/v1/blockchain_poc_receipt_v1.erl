@@ -22,7 +22,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type origin() :: 'p2p' | 'radio' | integer() | undefined.
+-type origin() :: p2p | radio | integer() | undefined.
 -type poc_receipt() :: #blockchain_poc_receipt_v1_pb{}.
 -type poc_receipts() :: [poc_receipt()].
 
