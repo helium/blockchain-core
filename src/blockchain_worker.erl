@@ -517,7 +517,7 @@ sync(Swarm, N, Chain, Peer) ->
                                              [N, Chain])
         of
             {ok, Stream} ->
-                {ok, HeadHash} = blockchain:head_hash(Chain),
+                {ok, HeadHash} = blockchain:sync_hash(Chain),
                 Stream ! {hash, HeadHash},
                 %% this timer will likely get cancelled when the sync response comes in
                 %% but if that never happens, we don't forget to sync

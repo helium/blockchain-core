@@ -9,6 +9,7 @@
     new/3, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
+    sync_hash/1,
     height/1,
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
@@ -152,6 +153,19 @@ head_hash(#blockchain{db=DB, default=DefaultCF}) ->
         Error ->
             Error
     end.
+
+
+-spec sync_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
+sync_hash(Blockchain=#blockchain{db=DB, default=DefaultCF}) ->
+    case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+       {ok, BinHashes} ->
+            Hashes = binary_to_term(BinHashes),
+            RandomHash = lists:nth(rand:uniform(length(Hashes)), Hashes),
+            {ok, RandomHash};
+        _ ->
+            ?MODULE:head_hash(Blockchain)
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -454,14 +468,7 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, t
                     %% already, so check for that
                     case blockchain:get_block(ParentHash, Blockchain) of
                         {ok, _} ->
-                            case add_block_(Block, Blockchain, Syncing) of
-                                ok ->
-                                    %% we're past the assumed valid block
-                                    persistent_term:erase(?ASSUMED_VALID),
-                                    ok;
-                                Error ->
-                                    Error
-                            end;
+                            absorb_temp_blocks([Block], Blockchain, Syncing);
                         _ ->
                             lager:notice("Saw the assumed_valid block, but don't have its parent"),
                             {error, disjoint_assumed_valid_block}
@@ -477,9 +484,12 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, t
             end
     end.
 
-absorb_temp_blocks([], _Blockchain, _Syncing) ->
+absorb_temp_blocks([],#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}, _Syncing) ->
     %% we did it!
     persistent_term:erase(?ASSUMED_VALID),
+    ok = rocksdb:delete(DB, DefaultCF, ?TEMP_HEADS, [{sync, true}]),
+    ok = rocksdb:drop_column_family(TempBlocksCF),
+    ok = rocksdb:destroy_column_family(TempBlocksCF),
     ok;
 absorb_temp_blocks([Block|Chain], Blockchain, Syncing) ->
     Height = blockchain_block:height(Block),
