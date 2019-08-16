@@ -97,7 +97,7 @@ init(Args) ->
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
-        ?WORKER(blockchain_graph, []),
+        %% ?WORKER(blockchain_graph, []),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts])
     ],

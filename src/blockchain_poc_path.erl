@@ -48,7 +48,8 @@
             Height :: non_neg_integer(),
             Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, any()}.
 build(Hash, Target, Gateways, Height, Ledger) ->
-    Graph = ?MODULE:build_graph(Target, Gateways, Height, Ledger),
+    Neighbors = all_neighbors(Target, Gateways, Height, Ledger),
+    Graph = build_graph_int([Target], Gateways, Neighbors, #{}),
     GraphList = maps:fold(
                   fun(Addr, _, Acc) ->
                           case Addr == Target of
@@ -123,7 +124,7 @@ length(Graph, Start, End) ->
                   Height :: non_neg_integer(),
                   Ledger :: blockchain_ledger_v1:ledger()) -> graph().
 build_graph(Address, Gateways, Height, Ledger) ->
-    Neighbors = all_neighbors(Address, Gateways, Height, Ledger),
+    Neighbors = all_neighbors(none, Gateways, Height, Ledger),
     build_graph_int([Address], Gateways, Neighbors, #{}).
 
 -spec build_graph_int([binary()],
@@ -158,17 +159,9 @@ build_graph_int([Address0|Addresses], Gateways, Neighbors, Graph0) ->
                        maps:put(Address0, Neighbors0, Graph0),
                        Neighbors0
                       ),
-            %% randomly limit the size of the graph in a relatively
-            %% unprincipled way!
-            case maps:size(Graph1) > 100 of
-                false ->
-                    FilteredAddresses = lists:filter(fun(A) -> not maps:is_key(A, Graph1) end,
-                                                     Addresses),
-                    build_graph_int(FilteredAddresses, Gateways, Neighbors, Graph1);
-                true ->
-                    error(noooooes),
-                    Graph1
-            end;
+            FilteredAddresses = lists:filter(fun(A) -> not maps:is_key(A, Graph1) end,
+                                             Addresses),
+            build_graph_int(FilteredAddresses, Gateways, Neighbors, Graph1);
         _ ->
             Graph0
     end.
@@ -238,23 +231,31 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
 
 -define(GROSS_FILTER_RES, 6).
 
-all_neighbors(_Addr, Gateways, Height, Ledger) ->
-    %% Gw = maps:get(Addr, Gateways),
-    %% StartLoc0 = blockchain_ledger_gateway_v1:location(Gw),
-    %% StartLoc = scale(StartLoc0, ?GROSS_FILTER_RES),
-    %% InclusionIndices = h3:k_ring(StartLoc, 6),
+all_neighbors(Addr, Gateways, Height, Ledger) ->
+    InclusionIndices =
+        case Addr of
+            none ->
+                [];
+            _ ->
+                Gw = maps:get(Addr, Gateways),
+                StartLoc0 = blockchain_ledger_gateway_v1:location(Gw),
+                StartLoc = scale(StartLoc0, ?GROSS_FILTER_RES),
+                h3:k_ring(StartLoc, 6)
+        end,
     maps:fold(
       fun(A, G, Acc) ->
               case blockchain_ledger_gateway_v1:location(G) of
                   undefined -> Acc;
-                  _Index ->
-                      %% ScaledIndex = scale(Index, ?GROSS_FILTER_RES),
-                      %% case lists:member(ScaledIndex, InclusionIndices) of
-                          %% false ->
-                          %%     Acc;
-                          %% _ ->
-                      Neighbors = neighbors(A, Gateways, Height, Ledger),
-                      Acc#{A => Neighbors}
+                  Index ->
+                      ScaledIndex = scale(Index, ?GROSS_FILTER_RES),
+                      case Addr == none orelse
+                          lists:member(ScaledIndex, InclusionIndices) of
+                          false ->
+                              Acc;
+                          _ ->
+                              Neighbors = neighbors(A, Gateways, Height, Ledger),
+                              Acc#{A => Neighbors}
+                      end
               end
       end,
       #{},
@@ -342,7 +343,7 @@ active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
     %% fold over all the gateways
-    NeighborsMap = all_neighbors(Challenger, Gateways, Height, Ledger),
+    NeighborsMap = all_neighbors(none, Gateways, Height, Ledger),
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
