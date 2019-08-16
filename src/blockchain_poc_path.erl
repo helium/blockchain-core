@@ -48,7 +48,7 @@
             Height :: non_neg_integer(),
             Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, any()}.
 build(Hash, Target, Gateways, Height, Ledger) ->
-    Neighbors = all_neighbors(Target, Gateways, Height, Ledger),
+    Neighbors = all_neighbors(none, Gateways, Height, Ledger),
     Graph = build_graph_int([Target], Gateways, Neighbors, #{}),
     GraphList = maps:fold(
                   fun(Addr, _, Acc) ->
