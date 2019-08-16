@@ -46,7 +46,7 @@
 -define(GEN_HASH_FILE, "genesis").
 -define(DB_FILE, "blockchain.db").
 -define(HEAD, <<"head">>).
--define(TEMP_HEADS, <<"temp_head">>).
+-define(TEMP_HEADS, <<"temp_heads">>).
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash).
 
@@ -157,15 +157,19 @@ head_hash(#blockchain{db=DB, default=DefaultCF}) ->
 
 -spec sync_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
 sync_hash(Blockchain=#blockchain{db=DB, default=DefaultCF}) ->
-    case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
-       {ok, BinHashes} ->
-            Hashes = binary_to_term(BinHashes),
-            RandomHash = lists:nth(rand:uniform(length(Hashes)), Hashes),
-            {ok, RandomHash};
+    case persistent_term:get(?ASSUMED_VALID, undefined) of
+        undefined ->
+            ?MODULE:head_hash(Blockchain);
         _ ->
-            ?MODULE:head_hash(Blockchain)
+            case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                {ok, BinHashes} ->
+                    Hashes = binary_to_term(BinHashes),
+                    RandomHash = lists:nth(rand:uniform(length(Hashes)), Hashes),
+                    {ok, RandomHash};
+                _ ->
+                    ?MODULE:head_hash(Blockchain)
+            end
     end.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -727,24 +731,30 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
 save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}) ->
-    {ok, Batch} = rocksdb:batch(),
     Hash = blockchain_block:hash_block(Block),
-    PrevHash = blockchain_block:prev_hash(Block),
-    ok = rocksdb:batch_put(Batch, TempBlocks, Hash, blockchain_block:serialize(Block)),
-    %% So, we have to be careful here because we might have multiple seemingly valid chains
-    %% only one of which will lead to the assumed valid block. We need to keep track of all
-    %% the potentials heads and use each of them randomly as our 'sync hash' until we can
-    %% get a valid chain to the 'assumed valid` block. Ugh.
-    TempHeads = case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
-                    {ok, BinHeadsList} ->
-                        binary_to_term(BinHeadsList);
-                    _ ->
-                        []
-                end,
-    Height = blockchain_block:height(Block),
-    lager:info("temp block height is at least ~p", [Height]),
-    ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
-    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
+    case rocksdb:get(DB, TempBlocks, Hash, []) of
+        {ok, _} ->
+            %% already got it, thanks
+            ok;
+        _ ->
+            {ok, Batch} = rocksdb:batch(),
+            PrevHash = blockchain_block:prev_hash(Block),
+            ok = rocksdb:batch_put(Batch, TempBlocks, Hash, blockchain_block:serialize(Block)),
+            %% So, we have to be careful here because we might have multiple seemingly valid chains
+            %% only one of which will lead to the assumed valid block. We need to keep track of all
+            %% the potentials heads and use each of them randomly as our 'sync hash' until we can
+            %% get a valid chain to the 'assumed valid` block. Ugh.
+            TempHeads = case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                            {ok, BinHeadsList} ->
+                                binary_to_term(BinHeadsList);
+                            _ ->
+                                []
+                        end,
+            Height = blockchain_block:height(Block),
+            lager:info("temp block height is at least ~p", [Height]),
+            ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
+            ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
+    end.
 
 init_assumed_valid(Blockchain, undefined) ->
     Blockchain;
