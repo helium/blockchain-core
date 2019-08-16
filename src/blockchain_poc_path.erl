@@ -232,7 +232,7 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                        [{edge_weight(PubkeyBin, Gw, A, G, Height, Ledger), A} || {A, G} <- ToInclude]
                end).
 
--define(GROSS_FILTER_RES, 6).
+-define(GROSS_FILTER_RES, 5).
 
 all_neighbors(Addr, Gateways, Height, Ledger) ->
     InclusionIndices =
