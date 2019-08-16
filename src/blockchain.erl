@@ -459,8 +459,10 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
                             %% Ok, this looks like we have everything we need.
                             %% Absorb all the transactions without validating them
                             absorb_temp_blocks(Chain, Blockchain, Syncing);
-                        _ ->
-                            lager:warning("Saw assumed valid block, but cannot connect it to the main chain"),
+                        Res ->
+                            lager:info("temp Chain ~p", [length(Chain)]),
+                            lager:info("parent hash ~p", [ParentOfOldestTempBlock]),
+                            lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
                             {error, disjoint_assumed_valid_block}
                     end;
                 _ ->
