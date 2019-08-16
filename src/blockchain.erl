@@ -6,7 +6,7 @@
 -module(blockchain).
 
 -export([
-    new/2, integrate_genesis/2,
+    new/3, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
     height/1,
@@ -38,13 +38,16 @@
     default :: rocksdb:cf_handle(),
     blocks :: rocksdb:cf_handle(),
     heights :: rocksdb:cf_handle(),
+    temp_blocks :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
 -define(GEN_HASH_FILE, "genesis").
 -define(DB_FILE, "blockchain.db").
 -define(HEAD, <<"head">>).
+-define(TEMP_HEADS, <<"temp_head">>).
 -define(GENESIS, <<"genesis">>).
+-define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -56,39 +59,40 @@
 %% blockchain_worker:integrate_genesis_block
 %% @end
 %%--------------------------------------------------------------------
--spec new(file:filename_all(), file:filename_all()
-                               | blockchain_block:block()
-                               | undefined) -> {ok, blockchain()} | {no_genesis, blockchain()}.
-new(Dir, Genesis) when is_list(Genesis) ->
+-spec new(Dir :: file:filename_all(),
+          Genesis :: file:filename_all() | blockchain_block:block() | undefined,
+          AssumedValidBlockHash :: blockchain_block:hash()
+         ) -> {ok, blockchain()} | {no_genesis, blockchain()}.
+new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
     case load_genesis(Genesis) of
         {error, _} ->
-            ?MODULE:new(Dir, undefined);
+            ?MODULE:new(Dir, undefined, AssumedValidBlockHash);
         {ok, Block} ->
-            ?MODULE:new(Dir, Block)
+            ?MODULE:new(Dir, Block, AssumedValidBlockHash)
     end;
-new(Dir, undefined) ->
+new(Dir, undefined, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p", [Dir]),
     case load(Dir) of
         {Blockchain, {error, _}} ->
             lager:info("no genesis block found"),
-            {no_genesis, Blockchain};
+            {no_genesis, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _GenBlock}} ->
-            {ok, Blockchain}
+            {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)}
     end;
-new(Dir, GenBlock) ->
+new(Dir, GenBlock, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p and checking ~p", [Dir, GenBlock]),
     case load(Dir) of
         {Blockchain, {error, _}} ->
             lager:warning("failed to load genesis, integrating new one"),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
-            {ok, Blockchain};
+            {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
-            {ok, Blockchain};
+            {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _OldGenBlock}} ->
             lager:info("replacing old genesis block"),
             ok = clean(Blockchain),
-            new(Dir, GenBlock)
+            new(Dir, GenBlock, AssumedValidBlockHash)
     end.
 
 %%--------------------------------------------------------------------
@@ -315,7 +319,12 @@ add_block(Block, Blockchain) ->
 -spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
 add_block(Block, Blockchain, Syncing) ->
     blockchain_lock:acquire(),
-    Res = add_block_(Block, Blockchain, Syncing),
+    Res = case persistent_term:get(?ASSUMED_VALID, undefined) of
+              undefined ->
+                  add_block_(Block, Blockchain, Syncing);
+              AssumedValidHash ->
+                  add_assumed_valid_block(AssumedValidHash, Block, Blockchain, Syncing)
+          end,
     blockchain_lock:release(),
     Res.
 
@@ -412,6 +421,90 @@ add_block_(Block, Blockchain, Syncing) ->
             end
     end.
 
+add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, temp_blocks=TempBlocksCF}, Syncing) ->
+    Hash = blockchain_block:hash_block(Block),
+    %% check if this is the block we've been waiting for
+    case AssumedValidHash == Hash of
+        true ->
+            ParentHash = blockchain_block:prev_hash(Block),
+            %% check if we have the parent of this block in the temp_block storage
+            %% which would mean we have obtained all the assumed valid blocks
+            case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
+                {ok, _BinBlock} ->
+                    %% ok, now build the chain back to the oldest block in the temporary
+                    %% storage
+                    Chain = build_temp(Block, Blockchain),
+                    %% note that 'Chain' includes 'Block' here.
+                    %%
+                    %% check the oldest block in the temporary chain connects with
+                    %% the HEAD block in the main chain
+                    OldestTempBlock = hd(Chain),
+                    ParentOfOldestTempBlock = blockchain_block:prev_hash(OldestTempBlock),
+                    case blockchain:head_hash(Blockchain) of
+                        {ok, ParentOfOldestTempBlock} ->
+                            %% Ok, this looks like we have everything we need.
+                            %% Absorb all the transactions without validating them
+                            absorb_temp_blocks(Chain, Blockchain, Syncing);
+                        _ ->
+                            lager:warning("Saw assumed valid block, but cannot connect it to the main chain"),
+                            {error, disjoint_assumed_valid_block}
+                    end;
+                _ ->
+                    %% it's possible that we've seen everything BUT the assumed valid block, and done a full validate + absorb
+                    %% already, so check for that
+                    case blockchain:get_block(ParentHash, Blockchain) of
+                        {ok, _} ->
+                            case add_block_(Block, Blockchain, Syncing) of
+                                ok ->
+                                    %% we're past the assumed valid block
+                                    persistent_term:erase(?ASSUMED_VALID),
+                                    ok;
+                                Error ->
+                                    Error
+                            end;
+                        _ ->
+                            lager:notice("Saw the assumed_valid block, but don't have its parent"),
+                            {error, disjoint_assumed_valid_block}
+                    end
+            end;
+        false ->
+            ParentHash = blockchain_block:prev_hash(Block),
+            case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
+                {ok, _} ->
+                    save_temp_block(Block, Blockchain);
+                _Error ->
+                    {error, disjoint_assumed_valid_block}
+            end
+    end.
+
+absorb_temp_blocks([], _Blockchain, _Syncing) ->
+    %% we did it!
+    persistent_term:erase(?ASSUMED_VALID),
+    ok;
+absorb_temp_blocks([Block|Chain], Blockchain, Syncing) ->
+    Height = blockchain_block:height(Block),
+    Hash = blockchain_block:hash_block(Block),
+    Ledger = blockchain:ledger(Blockchain),
+    BeforeCommit = fun() ->
+                           lager:info("adding block ~p", [Height]),
+                           ok = ?save_block(Block, Blockchain)
+                   end,
+    case blockchain_ledger_v1:new_snapshot(Ledger) of
+        {error, Reason}=Error ->
+            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+            Error;
+        {ok, NewLedger} ->
+            case blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
+                {error, Reason}=Error ->
+                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                    Error;
+                ok ->
+                    lager:info("Notifying new block ~p", [Height]),
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+            end,
+            absorb_temp_blocks(Chain, Blockchain, Syncing)
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -492,6 +585,21 @@ build(StartingBlock, Blockchain, N, Acc) ->
             lists:reverse(Acc)
     end.
 
+
+-spec build_temp(blockchain_block:block(), blockchain()) -> [blockchain_block:block()].
+build_temp(StartingBlock, Blockchain) ->
+    build_temp_(Blockchain, [StartingBlock]).
+
+-spec build_temp_(blockchain(), [blockchain_block:block()]) -> [blockchain_block:block()].
+build_temp_(Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [H|_]=Acc) ->
+    ParentHash = blockchain_block:prev_hash(H),
+    case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
+        {ok, BinBlock} ->
+            build_temp_(Blockchain, [blockchain_block:deserialize(BinBlock)|Acc]);
+        _ ->
+            lists:reverse(Acc)
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -520,7 +628,7 @@ clean(#blockchain{dir=Dir, db=DB}=Blockchain) ->
 %%--------------------------------------------------------------------
 -spec load(file:filename_all()) -> {blockchain(), {ok, blockchain_block:block()} | {error, any()}}.
 load(Dir) ->
-    {ok, DB, [DefaultCF, BlocksCF, HeightsCF]} = open_db(Dir),
+    {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF]} = open_db(Dir),
     Ledger = blockchain_ledger_v1:new(Dir),
     Blockchain = #blockchain{
         dir=Dir,
@@ -528,6 +636,7 @@ load(Dir) ->
         default=DefaultCF,
         blocks=BlocksCF,
         heights=HeightsCF,
+        temp_blocks=TempBlocksCF,
         ledger=Ledger
     },
     {Blockchain, ?MODULE:genesis_block(Blockchain)}.
@@ -556,7 +665,7 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -588,7 +697,7 @@ open_db(Dir) ->
 -spec save_block(blockchain_block:block(), blockchain()) -> ok.
 save_block(Block, Chain = #blockchain{db=DB}) ->
     {ok, Batch} = rocksdb:batch(),
-    save_block(Block, Batch, Chain),
+    save_block(Block, Batch,  Chain),
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
 
 -spec save_block(blockchain_block:block(), rocksdb:batch_handle(), blockchain()) -> ok.
@@ -600,6 +709,37 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
+save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}) ->
+    {ok, Batch} = rocksdb:batch(),
+    Hash = blockchain_block:hash_block(Block),
+    PrevHash = blockchain_block:prev_hash(Block),
+    ok = rocksdb:batch_put(Batch, TempBlocks, Hash, blockchain_block:serialize(Block)),
+    %% So, we have to be careful here because we might have multiple seemingly valid chains
+    %% only one of which will lead to the assumed valid block. We need to keep track of all
+    %% the potentials heads and use each of them randomly as our 'sync hash' until we can
+    %% get a valid chain to the 'assumed valid` block. Ugh.
+    TempHeads = case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                    {ok, BinHeadsList} ->
+                        binary_to_term(BinHeadsList);
+                    _ ->
+                        []
+                end,
+    ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+init_assumed_valid(Blockchain, undefined) ->
+    Blockchain;
+init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
+    case ?MODULE:get_block(Hash, Blockchain) of
+        {ok, _} ->
+            %% already got it, chief
+            ok;
+        _ ->
+            %% need to wait for it
+            ok = persistent_term:put(?ASSUMED_VALID, Hash)
+    end,
+    Blockchain.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -609,7 +749,7 @@ new_test() ->
     BaseDir = test_utils:tmp_dir("new_test"),
     Block = blockchain_block:new_genesis_block([]),
     Hash = blockchain_block:hash_block(Block),
-    {ok, Chain} = new(BaseDir, Block),
+    {ok, Chain} = new(BaseDir, Block, undefined),
     ?assertEqual({ok, Hash}, genesis_hash(Chain)),
     ?assertEqual({ok, Block}, genesis_block(Chain)),
     ?assertEqual({ok, Hash}, head_hash(Chain)),
@@ -647,7 +787,7 @@ blocks_test() ->
 
     GenBlock = blockchain_block:new_genesis_block(VarTxns),
     GenHash = blockchain_block:hash_block(GenBlock),
-    {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock),
+    {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock, undefined),
     Block = blockchain_block_v1:new(#{prev_hash => GenHash,
                                       height => 2,
                                       transactions => [],
@@ -700,7 +840,7 @@ get_block_test() ->
 
     GenBlock = blockchain_block:new_genesis_block(VarTxns),
     GenHash = blockchain_block:hash_block(GenBlock),
-    {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock),
+    {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock, undefined),
     Block = blockchain_block_v1:new(#{prev_hash => GenHash,
                                       height => 2,
                                       transactions => [],

@@ -49,6 +49,7 @@
     absorb/2,
     sign/2,
     absorb_and_commit/3, absorb_and_commit/4,
+    unvalidated_absorb_and_commit/4,
     absorb_block/2, absorb_block/3,
     sort/2,
     type/1,
@@ -224,6 +225,27 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
         {_ValidTxns, InvalidTxns} ->
             lager:error("found invalid transactions: ~p", [InvalidTxns]),
             {error, invalid_txns}
+    end.
+
+-spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
+                               ok | {error, any()}.
+unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
+    Ledger0 = blockchain:ledger(Chain0),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+    Chain1 = blockchain:ledger(Ledger1, Chain0),
+    case ?MODULE:absorb_block(Block, Rescue, Chain1) of
+        {ok, Chain2} ->
+            Ledger2 = blockchain:ledger(Chain2),
+            case BeforeCommit() of
+                ok ->
+                    ok = blockchain_ledger_v1:commit_context(Ledger2),
+                    absorb_delayed(Block, Chain0);
+                Any ->
+                    Any
+            end;
+        Error ->
+            blockchain_ledger_v1:delete_context(Ledger1),
+            Error
     end.
 
 %%--------------------------------------------------------------------

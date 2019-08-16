@@ -48,7 +48,7 @@ basic(_Config) ->
     {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     SimDir = "data/sync_SUITE/basic_sim",
-    Chain = blockchain:new(SimDir, Genesis),
+    Chain = blockchain:new(SimDir, Genesis, undefined),
 
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
