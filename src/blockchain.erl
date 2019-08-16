@@ -614,7 +614,7 @@ build_temp_(Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [H|_]=Acc
         {ok, BinBlock} ->
             build_temp_(Blockchain, [blockchain_block:deserialize(BinBlock)|Acc]);
         _ ->
-            lists:reverse(Acc)
+            Acc
     end.
 
 %%--------------------------------------------------------------------
