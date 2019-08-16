@@ -48,7 +48,7 @@
             Height :: non_neg_integer(),
             Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, any()}.
 build(Hash, Target, Gateways, Height, Ledger) ->
-    Neighbors = all_neighbors(none, Gateways, Height, Ledger),
+    Neighbors = all_neighbors(Target, Gateways, Height, Ledger),
     Graph = build_graph_int([Target], Gateways, Neighbors, #{}),
     GraphList = maps:fold(
                   fun(Addr, _, Acc) ->
@@ -194,7 +194,7 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% @end
 %%--------------------------------------------------------------------
 neighbors(PubkeyBin, Gateways, Height, Ledger) ->
-    e2qc:cache(neighbors_cache, {PubkeyBin, Height},
+    e2qc:cache(neighbors_cache, {PubkeyBin, Gateways, Height},
                fun() ->
                        Gw = maps:get(PubkeyBin, Gateways),
                        GwH3 = blockchain_ledger_gateway_v1:location(Gw),
