@@ -194,21 +194,19 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% @end
 %%--------------------------------------------------------------------
 neighbors(PubkeyBin, Gateways, Height, Ledger) ->
-    e2qc:cache(neighbors_cache, {PubkeyBin, Gateways, Height},
-               fun() ->
-                       Gw = maps:get(PubkeyBin, Gateways),
-                       GwH3 = blockchain_ledger_gateway_v1:location(Gw),
-                       {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
-                       {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
-                       {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
-                       {ok, MinScore} = blockchain:config(?min_score, Ledger),
-                       ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
-                       ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
+    Gw = maps:get(PubkeyBin, Gateways),
+    GwH3 = blockchain_ledger_gateway_v1:location(Gw),
+    {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
+    {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
+    {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
+    {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
+    ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
-                       ToInclude = lists:foldl(fun({A, G}, Acc) ->
-                                                       case blockchain_ledger_gateway_v1:location(G) of
-                                                           undefined -> Acc;
-                                                           Index ->
+    ToInclude = lists:foldl(fun({A, G}, Acc) ->
+                                    case blockchain_ledger_gateway_v1:location(G) of
+                                        undefined -> Acc;
+                                        Index ->
                                             case blockchain_ledger_v1:gateway_score(A, Ledger) of
                                                 {ok, S} when S >= MinScore ->
                                                     ScaledIndex = scale(Index, H3NeighborRes),
@@ -224,15 +222,14 @@ neighbors(PubkeyBin, Gateways, Height, Ledger) ->
                                                     end;
                                                 _ -> Acc
                                             end
-                                                       end
-                                               end,
-                                               [],
-                                               maps:to_list(Gateways)),
+                                    end
+                            end,
+                            [],
+                            maps:to_list(Gateways)),
 
-                       [{edge_weight(PubkeyBin, Gw, A, G, Height, Ledger), A} || {A, G} <- ToInclude]
-               end).
+    [{edge_weight(PubkeyBin, Gw, A, G, Height, Ledger), A} || {A, G} <- ToInclude].
 
--define(GROSS_FILTER_RES, 5).
+-define(GROSS_FILTER_RES, 6).
 
 all_neighbors(Addr, Gateways, Height, Ledger) ->
     InclusionIndices =
