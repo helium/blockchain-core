@@ -22,8 +22,8 @@
 
 -record(state,
         {
-         chain :: blockchain:blockchain(),
-         height :: pos_integer(),
+         chain :: undefined | blockchain:blockchain(),
+         height = 1 :: pos_integer(),
          map = #{} :: #{binary() => any()},
          old_maps = [] :: [{pos_integer(), #{}}]
         }).
@@ -97,10 +97,10 @@ handle_info({blockchain_event, {add_block, Hash, _Sync, Ledger}},
                             OldMaps1 = OldMaps ++ [{Height, Map}],
                             %% calculate the new map
                             Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-                            Map1 = construct_map(Gateways, Ledger, State),
+                            State1 = construct_map(Gateways, Ledger, State),
                             {noreply,
-                             State#state{map = Map1, old_maps = OldMaps1,
-                                         height = BHeight}};
+                             State1#state{old_maps = OldMaps1,
+                                          height = BHeight}};
                         false ->
                             case has_gws(Block) of
                                 {true, Gws} ->
