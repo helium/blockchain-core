@@ -597,6 +597,7 @@ build_graph_in_line_test() ->
 
 build_test() ->
     e2qc:teardown(score_cache),
+    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -623,6 +624,7 @@ build_test() ->
 
 build_only_2_test() ->
     e2qc:teardown(score_cache),
+    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_only_2_test"),
     % All these point are in a line one after the other
     LatLongs = [
@@ -647,6 +649,7 @@ build_prob_test_() ->
      fun() ->
              BaseDir = test_utils:tmp_dir("build_prob_test_"),
              e2qc:teardown(score_cache),
+             e2qc:teardown(gateways_cache),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
                          {{37.782604, -122.447857}, 1.0, 1.0},
@@ -725,6 +728,7 @@ build_with_default_score_test() ->
     ok.
 
 active_gateways_test() ->
+    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
     % 2 First points are grouped together and next ones form a group also
     LatLongs = [

@@ -508,16 +508,20 @@ scan_threshold_txns(CF, DB) ->
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
 active_gateways(Ledger) ->
+    {ok, Height} = current_height(Ledger),
     AGwsCF = active_gateways_cf(Ledger),
-    cache_fold(
-        Ledger,
-        AGwsCF,
-        fun({Address, Binary}, Acc) ->
-            Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
-            maps:put(Address, Gw, Acc)
-        end,
-        #{}
-    ).
+    e2qc:cache(gateways_cache, {Height},
+               fun() ->
+                       cache_fold(
+                         Ledger,
+                         AGwsCF,
+                         fun({Address, Binary}, Acc) ->
+                                 Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
+                                 maps:put(Address, Gw, Acc)
+                         end,
+                         #{}
+                        )
+               end).
 
 %%--------------------------------------------------------------------
 %% @doc
