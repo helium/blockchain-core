@@ -435,7 +435,7 @@ add_block_(Block, Blockchain, Syncing) ->
             end
     end.
 
-add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, temp_blocks=TempBlocksCF}, Syncing) ->
+add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, blocks=BlocksCF, temp_blocks=TempBlocksCF}, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
     %% check if this is the block we've been waiting for
     case AssumedValidHash == Hash of
@@ -480,7 +480,12 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, t
                 {ok, _} ->
                     save_temp_block(Block, Blockchain);
                 _Error ->
-                    {error, disjoint_assumed_valid_block}
+                    case rocksdb:get(DB, BlocksCF, ParentHash, []) of
+                        {ok, _} ->
+                            save_temp_block(Block, Blockchain);
+                        _ ->
+                            {error, disjoint_assumed_valid_block}
+                    end
             end
     end.
 
