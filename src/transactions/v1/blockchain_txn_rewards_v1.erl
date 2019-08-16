@@ -240,6 +240,10 @@ get_reward_vars(Ledger) ->
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
+    POCVersion = case blockchain:config(?poc_version, Ledger) of
+        {ok, V} -> V;
+        _ -> undefined
+    end,
     % blocktime is in ms, so we get blocks in seconds
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
@@ -255,7 +259,8 @@ get_reward_vars(Ledger) ->
         poc_challengees_percent => PocChallengeesPercent,
         poc_challengers_percent => PocChallengersPercent,
         poc_witnesses_percent => PocWitnessesPercent,
-        consensus_percent => ConsensusPercent
+        consensus_percent => ConsensusPercent,
+        poc_version => POCVersion
     }.
 
 %%--------------------------------------------------------------------
@@ -353,7 +358,8 @@ poc_challengers_rewards(Transactions, #{epoch_reward := EpochReward,
 -spec poc_challengees_rewards(blockchain_txn:txns(),
                               map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
-                                        poc_challengees_percent := PocChallengeesPercent}) ->
+                                        poc_challengees_percent := PocChallengeesPercent,
+                                        poc_version := Version}) ->
     ChallengeesReward = EpochReward * PocChallengeesPercent,
     {Challengees, TotalChallenged} = lists:foldl(
         fun(Txn, Acc0) ->
@@ -370,14 +376,19 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                                 Receipt ->
                                     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
                                     I = maps:get(Challengee, Map, 0),
-                                    case blockchain_poc_receipt_v1:origin(Receipt) of
-                                        radio ->
-                                            {maps:put(Challengee, I+1, Map), Total+1};
+                                    case Version of
+                                        2 ->
+                                            case blockchain_poc_receipt_v1:origin(Receipt) of
+                                                radio ->
+                                                    {maps:put(Challengee, I+1, Map), Total+1};
+                                                _ ->
+                                                    case blockchain_poc_path_element_v1:witnesses(Elem) of
+                                                        [] -> Acc1;
+                                                        _ -> {maps:put(Challengee, I+1, Map), Total+1}
+                                                    end
+                                            end;
                                         _ ->
-                                            case blockchain_poc_path_element_v1:witnesses(Elem) of
-                                                [] -> Acc1;
-                                                _ -> {maps:put(Challengee, I+1, Map), Total+1}
-                                            end
+                                            {maps:put(Challengee, I+1, Map), Total+1}
                                     end
                             end
                         end,
@@ -544,7 +555,28 @@ poc_challengers_rewards_test() ->
     },
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
-poc_challengees_rewards_test() ->
+poc_challengees_rewards_1_test() ->
+    Receipt1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
+    Receipt2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
+
+    Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, Receipt1, []),
+    Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, Receipt2, []),
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2])
+    ],
+    Vars = #{
+        epoch_reward => 1000,
+        poc_challengees_percent => 0.19 + 0.16,
+        poc_version => undefined
+    },
+    Rewards = #{
+        {gateway, poc_challengees, <<"1">>} => 175,
+        {gateway, poc_challengees, <<"2">>} => 175
+    },
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
+
+poc_challengees_rewards_2_test() ->
     Receipt1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
     Receipt2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
     Witness1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
@@ -559,7 +591,8 @@ poc_challengees_rewards_test() ->
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengees_percent => 0.19 + 0.16
+        poc_challengees_percent => 0.19 + 0.16,
+        poc_version => 2
     },
     Rewards = #{
         {gateway, poc_challengees, <<"1">>} => 175,
