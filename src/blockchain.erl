@@ -483,24 +483,28 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
             case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
                 {ok, _BinBlock} ->
                     %% ok, now build the chain back to the oldest block in the temporary
-                    %% storage
-                    Chain = build_temp(Block, Blockchain),
-                    %% note that 'Chain' includes 'Block' here.
-                    %%
-                    %% check the oldest block in the temporary chain connects with
-                    %% the HEAD block in the main chain
-                    OldestTempBlock = hd(Chain),
-                    ParentOfOldestTempBlock = blockchain_block:prev_hash(OldestTempBlock),
+                    %% storage or to the head of the main chain, whichever comes first
                     case blockchain:head_hash(Blockchain) of
-                        {ok, ParentOfOldestTempBlock} ->
-                            %% Ok, this looks like we have everything we need.
-                            %% Absorb all the transactions without validating them
-                            absorb_temp_blocks(Chain, Blockchain, Syncing);
-                        Res ->
-                            lager:info("temp Chain ~p", [length(Chain)]),
-                            lager:info("parent hash ~p", [ParentOfOldestTempBlock]),
-                            lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
-                            {error, disjoint_assumed_valid_block}
+                        {ok, MainChainHeadHash} ->
+                            Chain = build_temp(MainChainHeadHash, Block, Blockchain),
+                            %% note that 'Chain' includes 'Block' here.
+                            %%
+                            %% check the oldest block in the temporary chain connects with
+                            %% the HEAD block in the main chain
+                            OldestTempBlock = hd(Chain),
+                            case blockchain_block:prev_hash(OldestTempBlock) of
+                                MainChainHeadHash ->
+                                    %% Ok, this looks like we have everything we need.
+                                    %% Absorb all the transactions without validating them
+                                    absorb_temp_blocks(Chain, Blockchain, Syncing);
+                                Res ->
+                                    lager:info("temp Chain ~p", [length(Chain)]),
+                                    lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
+                                    {error, disjoint_assumed_valid_block}
+                            end;
+                        _Error ->
+                            lager:warning("Unable to get head hash of main chain ~p", [_Error]),
+                            {error, unobtainable_head_hash}
                     end;
                 _ ->
                     %% it's possible that we've seen everything BUT the assumed valid block, and done a full validate + absorb
@@ -640,18 +644,24 @@ build(StartingBlock, Blockchain, N, Acc) ->
     end.
 
 
--spec build_temp(blockchain_block:block(), blockchain()) -> [blockchain_block:block()].
-build_temp(StartingBlock, Blockchain) ->
-    build_temp_(Blockchain, [StartingBlock]).
+-spec build_temp(blockchain_block:hash(), blockchain_block:block(), blockchain()) -> [blockchain_block:block()].
+build_temp(StopHash,StartingBlock, Blockchain) ->
+    build_temp_(StopHash, Blockchain, [StartingBlock]).
 
--spec build_temp_(blockchain(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build_temp_(Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [H|_]=Acc) ->
+-spec build_temp_(blockchain_block:hash(), blockchain(), [blockchain_block:block()]) -> [blockchain_block:block()].
+build_temp_(StopHash, Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [H|_]=Acc) ->
     ParentHash = blockchain_block:prev_hash(H),
-    case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
-        {ok, BinBlock} ->
-            build_temp_(Blockchain, [blockchain_block:deserialize(BinBlock)|Acc]);
-        _ ->
-            Acc
+    case ParentHash == StopHash of
+        true ->
+            %% reached the end
+            Acc;
+        false ->
+            case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
+                {ok, BinBlock} ->
+                    build_temp_(StopHash, Blockchain, [blockchain_block:deserialize(BinBlock)|Acc]);
+                _ ->
+                    Acc
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -795,6 +805,7 @@ init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
     case ?MODULE:get_block(Hash, Blockchain) of
         {ok, _} ->
             %% already got it, chief
+            %% TODO make sure we delete the column family, in case it has stale crap in it!
             ok;
         _ ->
             %% need to wait for it
