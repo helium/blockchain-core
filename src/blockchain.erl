@@ -11,6 +11,7 @@
     head_hash/1, head_block/1,
     sync_hash/1,
     height/1,
+    sync_height/1,
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
     blocks/1, get_block/2,
@@ -198,6 +199,38 @@ height(Blockchain) ->
                 {error, _Reason}=Error -> Error;
                 {ok, Block} ->
                     {ok, blockchain_block:height(Block)}
+            end
+    end.
+
+%% like height/1 but takes accumulated 'assumed valid' blocks into account
+-spec sync_height(blockchain()) -> {ok, non_neg_integer()} | {error, any()}.
+sync_height(Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}) ->
+    case persistent_term:get(?ASSUMED_VALID, undefined) of
+        undefined ->
+            ?MODULE:height(Blockchain);
+        _ ->
+            case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                {ok, BinHashes} ->
+                    Hashes = binary_to_term(BinHashes),
+                    MinHeight = case ?MODULE:height(Blockchain) of
+                                    {ok, H} ->
+                                        H;
+                                    _ ->
+                                        0
+                                end,
+                    MaxHeight = lists:foldl(fun(Hash, AccHeight) ->
+                                                    case rocksdb:get(DB, TempBlocksCF, Hash, []) of
+                                                        {ok, BinBlock} ->
+                                                            Block = blockchain_block:deserialize(BinBlock),
+                                                            max(AccHeight, blockchain_block:height(Block));
+                                                        _ ->
+                                                            %% this is unlikely to happen, but roll with it
+                                                            AccHeight
+                                                    end
+                                            end, MinHeight, Hashes),
+                    {ok, MaxHeight};
+                _ ->
+                    ?MODULE:height(Blockchain)
             end
     end.
 

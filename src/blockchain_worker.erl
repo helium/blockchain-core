@@ -203,7 +203,7 @@ signed_metadata_fun() ->
             #{};
         _ ->
             %% check if the rocksdb handle has died
-            try blockchain:height(Chain) of
+            try blockchain:sync_height(Chain) of
                 {ok, Height} ->
                     #{<<"height">> => Height};
                 {error, _} ->
