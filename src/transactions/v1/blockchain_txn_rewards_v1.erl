@@ -562,8 +562,8 @@ poc_challengees_rewards_1_test() ->
     Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, Receipt1, []),
     Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, Receipt2, []),
     Txns = [
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2])
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem2])
     ],
     Vars = #{
         epoch_reward => 1000,
