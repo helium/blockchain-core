@@ -245,19 +245,27 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
 
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
     ValidSignatures = lists:foldl(
-        fun({Addr, Sig}, Acc) ->
+        fun(_, error) ->
+                %% fail one signature check and we're done
+                error;
+            ({Addr, Sig}, Acc) ->
             case
                 lists:member(Addr, ConsensusMembers)
                 andalso (not lists:keymember(Addr, 1, Acc))
                 andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
             of
                 true -> [{Addr, Sig} | Acc];
-                false -> Acc
+                false ->
+                    error
             end
-        end, [], Signatures),
-     case length(ValidSignatures) >= Threshold of
+        end, [], lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
+    F = (length(ConsensusMembers) - 1) div 3,
+    case length(Signatures) >= (2*F)+1 andalso
+         length(Signatures) =< (3*F)+1 andalso
+         ValidSignatures /= error andalso
+         length(ValidSignatures) >= Threshold of
         true ->
-            %% at least N-F consensus members signed the block
+            %% at least `Threshold' consensus members signed the block
             {true, ValidSignatures, false};
         false ->
             %% missing some signatures?

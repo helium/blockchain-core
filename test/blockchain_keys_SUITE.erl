@@ -52,8 +52,8 @@ keys_test(_Config) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
 
     % Generate fake blockchains (just the keys)
-    RandomKeys1 = test_utils:generate_keys(5, ecc_compact) ,
-    RandomKeys2 = test_utils:generate_keys(5, ed25519),
+    RandomKeys1 = test_utils:generate_keys(3, ecc_compact) ,
+    RandomKeys2 = test_utils:generate_keys(3, ed25519),
     Address = blockchain_swarm:pubkey_bin(),
     ConsensusMembers = [
         {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}

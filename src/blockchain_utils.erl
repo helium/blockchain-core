@@ -7,6 +7,7 @@
 
 -export([
     shuffle_from_hash/2,
+    shuffle/1,
     rand_from_hash/1,
     normalize_float/1,
     challenge_interval/1,
@@ -21,13 +22,20 @@
 -define(CHALLENGE_INTERVAL, poc_challenge_interval).
 
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Shuffle a list deterministically using a random binary as the seed.
 %% @end
 %%--------------------------------------------------------------------
 -spec shuffle_from_hash(binary(), list()) -> list().
 shuffle_from_hash(Hash, L) ->
     ?MODULE:rand_from_hash(Hash),
     [X ||{_, X} <- lists:sort([{rand:uniform(), E} || E <- L])].
+
+%%--------------------------------------------------------------------
+%% @doc Shuffle a list randomly.
+%% @end
+%%--------------------------------------------------------------------
+shuffle(List) ->
+    [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -34,7 +34,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     % Generate fake blockchains (just the keys)
     RandomKeys = test_utils:generate_keys(10),
     Address = blockchain_swarm:pubkey_bin(),
-    ConsensusMembers = [
+    GenesisMembers = [
         {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
     ] ++ RandomKeys,
 
@@ -64,17 +64,18 @@ init_chain(Balance, {PrivKey, PubKey}) ->
            }),
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- ConsensusMembers],
+                     || {Addr, _} <- GenesisMembers],
 
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
-                     || {Addr, _} <- ConsensusMembers],
+                     || {Addr, _} <- GenesisMembers],
 
     InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr,
                                                            16#8c283475d4e89ff, 0)
-                         || {Addr, _} <- ConsensusMembers ],
+                         || {Addr, _} <- GenesisMembers ],
 
+    ConsensusMembers = lists:sublist(GenesisMembers, 7),
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
-                            [Addr || {Addr, _} <- lists:sublist(ConsensusMembers, 7)], <<"proof">>, 1, 0),
+                            [Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = InitialVars ++
         GenPaymentTxs ++
         GenSecPaymentTxs ++
@@ -92,7 +93,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    {ok, ConsensusMembers, Keys}.
+    {ok, GenesisMembers, ConsensusMembers, Keys}.
 
 generate_keys(N) ->
     generate_keys(N, ecc_compact).
