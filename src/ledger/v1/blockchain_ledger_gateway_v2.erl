@@ -3,7 +3,7 @@
 %% == Blockchain Ledger Gateway ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_gateway_v1).
+-module(blockchain_ledger_gateway_v2).
 
 -export([
     new/2, new/3,
@@ -11,6 +11,8 @@
     location/1, location/2,
     score/4,
     version/1, version/2,
+    add_neighbor/2, remove_neighbor/2,
+    neighbors/1, neighbors/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -31,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(gateway_v1, {
+-record(gateway_v2, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     alpha = 1.0 :: float(),
@@ -44,7 +46,7 @@
     neighbors = [] :: [libp2p_crypto:pubkey_bin()]
 }).
 
--type gateway() :: #gateway_v1{}.
+-type gateway() :: #gateway_v2{}.
 -export_type([gateway/0]).
 
 %%--------------------------------------------------------------------
@@ -54,7 +56,7 @@
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
-    #gateway_v1{
+    #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
         delta=1
@@ -64,7 +66,7 @@ new(OwnerAddress, Location) ->
           Location :: pos_integer() | undefined,
           Nonce :: non_neg_integer()) -> gateway().
 new(OwnerAddress, Location, Nonce) ->
-    #gateway_v1{
+    #gateway_v2{
         owner_address=OwnerAddress,
         location=Location,
         nonce=Nonce,
@@ -77,7 +79,7 @@ new(OwnerAddress, Location, Nonce) ->
 %%--------------------------------------------------------------------
 -spec owner_address(Gateway :: gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Gateway) ->
-    Gateway#gateway_v1.owner_address.
+    Gateway#gateway_v2.owner_address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -86,7 +88,7 @@ owner_address(Gateway) ->
 -spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                     Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
-    Gateway#gateway_v1{owner_address=OwnerAddress}.
+    Gateway#gateway_v2{owner_address=OwnerAddress}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -94,7 +96,7 @@ owner_address(OwnerAddress, Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Gateway :: gateway()) ->  undefined | pos_integer().
 location(Gateway) ->
-    Gateway#gateway_v1.location.
+    Gateway#gateway_v2.location.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -102,13 +104,28 @@ location(Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
-    Gateway#gateway_v1{location=Location}.
+    Gateway#gateway_v2{location=Location}.
 
 version(Gateway) ->
-    Gateway#gateway_v1.version.
+    Gateway#gateway_v2.version.
 
 version(Version, Gateway) ->
-    Gateway#gateway_v1{version = Version}.
+    Gateway#gateway_v2{version = Version}.
+
+add_neighbor(Neighbor, Gateway) ->
+    N = Gateway#gateway_v2.neighbors,
+    Gateway#gateway_v2{neighbors = lists:usort([Neighbor | N])}.
+
+remove_neighbor(Neighbor, Gateway) ->
+    N = Gateway#gateway_v2.neighbors,
+    Gateway#gateway_v2{neighbors = lists:delete(Neighbor, N)}.
+
+neighbors(Gateway) ->
+    Gateway#gateway_v2.neighbors.
+
+neighbors(Neighbors, Gateway) ->
+    Gateway#gateway_v2{neighbors = Neighbors}.
+
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
@@ -127,9 +144,9 @@ version(Version, Gateway) ->
 -spec score(Address :: libp2p_crypto:pubkey_bin(),
             Gateway :: gateway(),
             Height :: pos_integer(),
-            Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
+            Ledger :: blockchain_ledger_v2:ledger()) -> {float(), float(), float()}.
 score(Address,
-      #gateway_v1{alpha=Alpha, beta=Beta, delta=Delta},
+      #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
       Ledger) ->
     e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
@@ -171,7 +188,7 @@ scale_shape_param(ShapeParam) ->
 %%--------------------------------------------------------------------
 -spec alpha(Gateway :: gateway()) -> float().
 alpha(Gateway) ->
-    Gateway#gateway_v1.alpha.
+    Gateway#gateway_v2.alpha.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -179,7 +196,7 @@ alpha(Gateway) ->
 %%--------------------------------------------------------------------
 -spec beta(Gateway :: gateway()) -> float().
 beta(Gateway) ->
-    Gateway#gateway_v1.beta.
+    Gateway#gateway_v2.beta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -187,7 +204,7 @@ beta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec delta(Gateway :: gateway()) -> undefined | non_neg_integer().
 delta(Gateway) ->
-    Gateway#gateway_v1.delta.
+    Gateway#gateway_v2.delta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -195,7 +212,7 @@ delta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v1{alpha=normalize_float(scale_shape_param(Alpha)),
+    Gateway#gateway_v2{alpha=normalize_float(scale_shape_param(Alpha)),
                        beta=normalize_float(scale_shape_param(Beta)),
                        delta=Delta}.
 
@@ -205,7 +222,7 @@ set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
-    Gateway#gateway_v1.last_poc_challenge.
+    Gateway#gateway_v2.last_poc_challenge.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -213,7 +230,7 @@ last_poc_challenge(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(LastPocChallenge :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
-    Gateway#gateway_v1{last_poc_challenge=LastPocChallenge}.
+    Gateway#gateway_v2{last_poc_challenge=LastPocChallenge}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -221,7 +238,7 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
 last_poc_onion_key_hash(Gateway) ->
-    Gateway#gateway_v1.last_poc_onion_key_hash.
+    Gateway#gateway_v2.last_poc_onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -229,7 +246,7 @@ last_poc_onion_key_hash(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
-    Gateway#gateway_v1{last_poc_onion_key_hash=LastPocOnionKeyHash}.
+    Gateway#gateway_v2{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -237,7 +254,7 @@ last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
 %%--------------------------------------------------------------------
 -spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
-    Gateway#gateway_v1.nonce.
+    Gateway#gateway_v2.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -245,7 +262,7 @@ nonce(Gateway) ->
 %%--------------------------------------------------------------------
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
-    Gateway#gateway_v1{nonce=Nonce}.
+    Gateway#gateway_v2{nonce=Nonce}.
 
 -spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
             Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -311,7 +328,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -ifdef(TEST).
 
 new_test() ->
-    Gw = #gateway_v1{
+    Gw = #gateway_v2{
         owner_address = <<"owner_address">>,
         location = 12,
         last_poc_challenge = undefined,

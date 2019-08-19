@@ -337,7 +337,7 @@ format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
     [{gateway_address, libp2p_crypto:pubkey_bin_to_p2p(GatewayAddr)},
      {name, Name},
      {effective_score, Score} |
-     blockchain_ledger_gateway_v1:print(GatewayAddr, Gateway, Ledger, Verbose)].
+     blockchain_ledger_gateway_v2:print(GatewayAddr, Gateway, Ledger, Verbose)].
 
 %% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
 %% Presumably none of the flags would be _having_ a leading "=" intentionally!

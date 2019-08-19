@@ -85,6 +85,9 @@ init_per_testcase(TestCase, Config) ->
         Balance = blockchain_ledger_entry_v1:balance(Entry),
         0 = blockchain_ledger_entry_v1:nonce(Entry)
     end, maps:values(Entries)),
+
+    e2qc:teardown(gateways_cache),
+
     [
         {basedir, BaseDir},
         {balance, Balance},
@@ -476,7 +479,7 @@ poc_request_test(Config) ->
 
     % Check that the Gateway is there
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 1),
@@ -484,7 +487,7 @@ poc_request_test(Config) ->
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     Block25 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
     timer:sleep(500),
 
     {ok, HeadHash2} = blockchain:head_hash(Chain),
@@ -510,8 +513,8 @@ poc_request_test(Config) ->
     ?assertEqual({ok, Block26}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(26, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo2)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo2)),
+    ?assertEqual(26, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo2)),
 
     % Check that the PoC info
     {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger),
@@ -557,8 +560,8 @@ poc_request_test(Config) ->
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(63, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo3)),
-    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo3)),
+    ?assertEqual(63, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo3)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
@@ -678,7 +681,6 @@ export_test(Config) ->
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    
 
     % Add a Gateway
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 0),
@@ -704,7 +706,7 @@ export_test(Config) ->
     ?assertEqual({ok, 24}, blockchain:height(Chain)),
     ?assertEqual({ok, Block24}, blockchain:get_block(24, Chain)),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
 
     timer:sleep(500),
 
@@ -713,6 +715,8 @@ export_test(Config) ->
      {gateways, Gateways},
      {dcs, DCs}
     ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
+
+    ct:pal("gateways ~p", [Gateways]),
 
     %% check DC balance for Payer1
     [[{address, A}, {dc_balance, DCBalance}]] = DCs,
@@ -725,7 +729,7 @@ export_test(Config) ->
     Gateways1 = [G || [_, _, _, {nonce, Nonce}] = G <- Gateways, Nonce == 1],
 
     ?assertEqual([[{gateway_address, libp2p_crypto:pubkey_to_b58(GatewayPubKey)},
-                   {owner_address,libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
+                   {owner_address, libp2p_crypto:pubkey_to_b58(PayerPubKey1)},
                    {location,?TEST_LOCATION},
                    {nonce,1}]], Gateways1),
 
@@ -1110,7 +1114,7 @@ epoch_reward_test(Config) ->
 
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
-        {ok, blockchain_ledger_gateway_v1:new(Address, 12)}
+        {ok, blockchain_ledger_gateway_v2:new(Address, 12)}
     end),
 
     % Add few empty blocks to fake epoch
@@ -1175,7 +1179,7 @@ election_test(Config) ->
          {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
          Alpha = (rand:uniform() * 10.0) + 1.0,
          Beta = (rand:uniform() * 10.0) + 1.0,
-         I2 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
      || {Addr, _} <- ConsensusMembers],
@@ -1197,7 +1201,7 @@ election_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, I, 1, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],
@@ -1451,6 +1455,6 @@ payer_test(Config) ->
     ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v1:owner_address(GwInfo)),
-    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v1:location(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v2:location(GwInfo)),
     ok.

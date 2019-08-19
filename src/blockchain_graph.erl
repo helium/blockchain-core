@@ -17,6 +17,12 @@
 
 -define(SERVER, ?MODULE).
 
+-ifdef(TEST).
+-export([active_gateways/2]).
+active_gateways(Ledger, Challenger) ->
+    gen_server:call(?SERVER, {active_gateways, Ledger, Challenger}).
+-endif.
+
 %% TODO: from blockchain_txn, should maybe? become a chain variable.
 -define(BLOCK_DELAY, 50).
 
@@ -53,7 +59,7 @@ build(Hash, Target, Gateways, Height, Ledger) ->
 
 init([]) ->
     %% timeout into async setup
-    ok = blockchain_event:add_handler(self()),
+    %%ok = blockchain_event:add_handler(self()),
     {ok, #state{chain = blockchain_worker:blockchain()}, 0}.
 
 %% handle_call({target, Hash, Ledger, Challenger}, _From,
@@ -73,6 +79,10 @@ init([]) ->
 %%         end,
 
 %%     {reply, Ret, State};
+handle_call({active_gateways, Ledger, Challenger}, _From,
+            #state{map = Map} = State) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {reply, {ok, active_gateways(Map, Height, Ledger, Challenger)}, State};
 handle_call(_Request, _From, State) ->
     lager:warning("unexpected call ~p from ~p", [_Request, _From]),
     Reply = ok,
@@ -135,6 +145,10 @@ handle_info(timeout, #state{chain = Chain} = State) ->
     Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
     {ok, BottomHeight} = blockchain_ledger_v1:current_height(Ledger),
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    io:fwrite("gateways ~p~n", [Gateways]),
+    io:fwrite("ledger0 ~p~n", [Ledger0]),
+    io:fwrite("ledger ~p~n", [Ledger]),
+
     State1= construct_map(Gateways, Ledger, State),
     %% get current height, replay the any potential txns
     State2 = lists:foldl(fun(Ht, S) ->
@@ -170,7 +184,7 @@ construct_map(Gateways, Ledger, State) ->
     InitMap =
         maps:fold(
           fun(Addr, Gw, Acc) ->
-                  case blockchain_ledger_gateway_v1:location(Gw) of
+                  case blockchain_ledger_gateway_v2:location(Gw) of
                       undefined ->
                           Acc;
                       Loc ->
@@ -180,7 +194,8 @@ construct_map(Gateways, Ledger, State) ->
           #{},
           Gateways),
     Gws = [{Addr, G#gw.location} || {Addr, G} <- maps:to_list(InitMap)],
-    insert_gws(Gws, Ledger, State).
+    io:fwrite("~p ~p", [InitMap, Gws]),
+    insert_gws(Gws, Ledger, State#state{map = InitMap}).
 
 has_vars(Block) ->
     case lists:filter(fun(T) ->
@@ -250,9 +265,12 @@ update_map({Addr, Location}, Map, Ledger) ->
 
 del_neighbor(Addr, Neighbors, Map) ->
     lists:foldl(fun(N, M) ->
-                        G = maps:get(N, M),
-                        G1 = G#gw{neighbors = lists:delete(Addr, G#gw.neighbors)},
-                        M#{N => G1}
+                        case M of
+                            #{N := G = #gw{neighbors = N1}} ->
+                                M#{N => G#gw{neighbors = lists:delete(Addr, N1)}};
+                            _ ->
+                                M
+                        end
                 end,
                 Map,
                 Neighbors).
@@ -290,37 +308,66 @@ add_neighbor(Addr, Location, Map, Ledger) ->
 %% poc-path equivalent
 %% effectively we're filtering the active gateways in a very
 %% particular way
-%% active_gateways(Map, Height, Ledger, Challenger) ->
-%%     {ok, MinScore} = blockchain:config(?min_score, Ledger),
-%%     Scores0 =
-%%         [{A,
-%%           begin
-%%               {ok, LGw} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
-%%               {_A, _B, Score} = blockchain_ledger_gateway_v1:score(A, LGw, Height, Ledger),
-%%               Score
-%%           end}
-%%          || A <- maps:keys(Map)],
-%%     Scores = maps:from_list(Scores0),
-%%     maps:fold(
-%%       fun(A, _G, Acc) when A == Challenger ->
-%%               Acc;
-%%          (A, _G, Acc) ->
-%%               #{A := Score} = Scores,
-%%               case maps:is_key(A, Acc) orelse Score =< MinScore of
-%%                   true ->
-%%                       Acc;
-%%                   _ ->
-%%                       _Graph = build_graph([A], Map, Scores, #{}),
-%%                       Acc
-%%               end
-%%       end,
-%%       #{},
-%%       %% we may need to do some work to get this into the right order
-%%       %% for determinism reasons, or just use the real active gateways?
-%%       Map).
+active_gateways(Map, Height, Ledger, Challenger) ->
+    {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    %% unique per height as well, good caching candidate
+    Scores0 =
+        [{A,
+          begin
+              {ok, LGw} = blockchain_ledger_v1:find_gateway_info(A, Ledger),
+              {_A, _B, Score} = blockchain_ledger_gateway_v2:score(A, LGw, Height, Ledger),
+              Score
+          end}
+         || A <- maps:keys(Map)],
+    Scores = maps:from_list(Scores0),
+    maps:fold(
+      fun(A, _G, Acc) when A == Challenger ->
+              Acc;
+         (A, _G, Acc) ->
+              #{A := Score} = Scores,
+              case maps:is_key(A, Acc) orelse Score =< MinScore of
+                  true ->
+                      Acc;
+                  _ ->
+                      build_graph([A], Map, Scores, #{}),
+                      Acc
+              end
+      end,
+      #{},
+      %% we may need to do some work to get this into the right order
+      %% for determinism reasons, or just use the real active gateways?
+      Map).
 
-%% build_graph([], _Map, _Scores, Acc) ->
-%%     Acc;
-%% build_graph([H|_T], Map, _Scores, Acc) ->
-%%     #gw{neighbors = _N} = maps:get(H, Map),
-%%     Acc.
+build_graph([], _Map, _Scores, Acc) ->
+    Acc;
+build_graph([H|T], Map, Scores, Acc) ->
+    case Map of
+        #{H := #gw{neighbors = N}} ->
+            %% fold over the list of neighbors
+            Acc1 = lists:foldl(
+                     fun({_W, Address1}, FoldAcc) ->
+                             %% if the neighbor address is already in the
+                             %% graph, skip it.
+                             case maps:is_key(Address1, FoldAcc) of
+                                 true ->
+                                     Acc;
+                                 false ->
+                                       %% otherwise, calculate its neighbors
+                                     #{Address1 := #gw{neighbors = N1}} = Map,
+                                     FoldAcc1 = maps:put(Address1, N1, FoldAcc),
+                                     %% and append all of its neighbor's neighbors?
+                                     build_graph([A || A <- N1,
+                                                       A /= maps:is_key(A, FoldAcc1)],
+                                                 Map, Scores, FoldAcc1)
+                             end
+                     end,
+                       %% first, map address to neighbors
+                     maps:put(H, N, Acc),
+                     N
+                    ),
+            FilteredAddresses = lists:filter(fun(A) -> not maps:is_key(A, Acc1) end,
+                                             T),
+            build_graph(FilteredAddresses, Map, Scores, Acc1);
+        _ ->
+            Acc
+    end.

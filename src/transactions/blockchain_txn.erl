@@ -171,13 +171,13 @@ validate([], Valid,  Invalid, Chain) ->
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Chain) ->
     Type = ?MODULE:type(Txn),
-    case catch Type:is_valid(Txn, Chain) of
+    try Type:is_valid(Txn, Chain) of
         ok ->
             case ?MODULE:absorb(Txn, Chain) of
                 ok ->
                     validate(Tail, [Txn|Valid], Invalid, Chain);
                 {error, _Reason} ->
-                    lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
+                    lager:error_unsafe("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
                     validate(Tail, Valid, [Txn | Invalid], Chain)
             end;
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -186,6 +186,10 @@ validate([Txn | Tail], Valid, Invalid, Chain) ->
             validate(Tail, Valid, Invalid, Chain);
         Error ->
             lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
+            %% any other error means we drop it
+            validate(Tail, Valid, [Txn | Invalid], Chain)
+    catch notcatch:Why:Stack ->
+            lager:error_unsafe("invalid txn ~p : ~p / ~p", [Type, Why, Stack]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Chain)
     end.
@@ -205,7 +209,8 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
-    Transactions = blockchain_block:transactions(Block),
+    Transactions0 = blockchain_block:transactions(Block),
+    Transactions = lists:sort(fun sort/2, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
         {_ValidTxns, []} ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
@@ -261,7 +266,8 @@ absorb_block(Block, Chain) ->
                           {ok, blockchain:blockchain()} | {error, any()}.
 absorb_block(Block, Rescue, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Transactions = blockchain_block:transactions(Block),
+    Transactions0 = blockchain_block:transactions(Block),
+    Transactions = lists:sort(fun sort/2, (Transactions0)),
     Height = blockchain_block:height(Block),
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
@@ -285,6 +291,7 @@ absorb(Txn, Chain) ->
         ok -> ok
     catch
         What:Why:Stack ->
+            lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
             {error, {Type, What, {Why, Stack}}}
     end.
 
@@ -300,6 +307,7 @@ is_valid(Txn, Chain) ->
             Res
     catch
         What:Why:Stack ->
+            lager:warning("crash during validation: ~p ~p", [Why, Stack]),
             {error, {Type, What, {Why, Stack}}}
 end.
 
