@@ -368,33 +368,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
                     Acc0;
                 true ->
                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-                    lists:foldl(
-                        fun(Elem, {Map, Total}=Acc1) ->
-                            case blockchain_poc_path_element_v1:receipt(Elem) of
-                                undefined ->
-                                    Acc1;
-                                Receipt ->
-                                    Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-                                    I = maps:get(Challengee, Map, 0),
-                                    case Version of
-                                        2 ->
-                                            case blockchain_poc_receipt_v1:origin(Receipt) of
-                                                radio ->
-                                                    {maps:put(Challengee, I+1, Map), Total+1};
-                                                _ ->
-                                                    case blockchain_poc_path_element_v1:witnesses(Elem) of
-                                                        [] -> Acc1;
-                                                        _ -> {maps:put(Challengee, I+1, Map), Total+1}
-                                                    end
-                                            end;
-                                        _ ->
-                                            {maps:put(Challengee, I+1, Map), Total+1}
-                                    end
-                            end
-                        end,
-                        Acc0,
-                        Path
-                    )
+                    poc_challengees_rewards_(Version, Path, Acc0)
             end
         end,
         {#{}, 0},
@@ -410,6 +384,43 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
         #{},
         Challengees
     ).
+
+
+poc_challengees_rewards_(_Version, [], Acc) ->
+    Acc;
+poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version == 2  ->
+    case blockchain_poc_path_element_v1:receipt(Elem) of
+        undefined ->
+            poc_challengees_rewards_(Version, Path, Acc0);
+        Receipt ->
+            Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+            I = maps:get(Challengee, Map, 0),
+            case blockchain_poc_receipt_v1:origin(Receipt) of
+                radio ->
+                    Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
+                    poc_challengees_rewards_(Version, Path, Acc1);
+                _ ->
+                    case
+                        blockchain_poc_path_element_v1:witnesses(Elem) =/= []
+                    of
+                        false ->
+                            poc_challengees_rewards_(Version, Path, Acc0);
+                        true ->
+                            Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
+                            poc_challengees_rewards_(Version, Path, Acc1)
+                    end
+            end
+    end;
+poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) ->
+    case blockchain_poc_path_element_v1:receipt(Elem) of
+        undefined ->
+            poc_challengees_rewards_(Version, Path, Acc0);
+        _Receipt ->
+            Challengee = blockchain_poc_path_element_v1:challengee(Elem),
+            I = maps:get(Challengee, Map, 0),
+            Acc1 =  {maps:put(Challengee, I+1, Map), Total+1},
+            poc_challengees_rewards_(Version, Path, Acc1)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
