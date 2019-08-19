@@ -19,6 +19,7 @@
          key_proof/1, key_proof/2,
          proof/1, proof/2,
          vars/1,
+         decoded_vars/1,
          version_predicate/1,
          unsets/1,
          cancels/1,
@@ -160,6 +161,9 @@ unset_proofs(Txn) ->
 
 vars(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.vars.
+
+decoded_vars(Txn) ->
+    decode_vars(Txn#blockchain_txn_vars_v1_pb.vars).
 
 version_predicate(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.version_predicate.
