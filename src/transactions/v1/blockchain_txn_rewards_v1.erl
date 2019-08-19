@@ -399,9 +399,12 @@ poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version =
                 radio ->
                     Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
                     poc_challengees_rewards_(Version, Path, Acc1);
-                _ ->
+                p2p ->
+                    NextElem = case Path of [] -> undefined; E -> E end,
                     case
-                        blockchain_poc_path_element_v1:witnesses(Elem) =/= []
+                        blockchain_poc_path_element_v1:witnesses(Elem) =/= [] orelse
+                        (NextElem =/= undefined andalso
+                         blockchain_poc_path_element_v1:receipt(NextElem) =/= undefined)
                     of
                         false ->
                             poc_challengees_rewards_(Version, Path, Acc0);
