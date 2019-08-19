@@ -459,7 +459,6 @@ target_test_() ->
              ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
              Challenger = hd(maps:keys(ActiveGateways)),
-             io:fwrite("challenger ~p", [Challenger]),
              Iterations = 1000,
              Results = dict:to_list(lists:foldl(fun(_, Acc) ->
                                                         {Target, _} = target(crypto:strong_rand_bytes(32), Ledger, Challenger),
@@ -532,7 +531,6 @@ build_graph_test() ->
                ],
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
     {Target, Gateways} = build_gateways(LatLongs),
-    io:fwrite("target ~p~n", [Target]),
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
 
@@ -816,7 +814,6 @@ build_gateways(LatLongs) ->
                          Index = h3:from_geo(LatLong, Res),
                          G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
                          G1 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, G0),
-                         io:fwrite("~p : ~p~n", [Address, LatLong]),
                          maps:put(Address, G1, Acc)
 
                  end,
