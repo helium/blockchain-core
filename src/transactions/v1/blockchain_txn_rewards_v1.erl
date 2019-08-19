@@ -400,11 +400,13 @@ poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version =
                     Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
                     poc_challengees_rewards_(Version, Path, Acc1);
                 p2p ->
-                    NextElem = case Path of [] -> undefined; E -> E end,
+                    NextElemReceipt = case Path of
+                        [] -> undefined;
+                        [E|_] -> blockchain_poc_path_element_v1:receipt(E)
+                    end,
                     case
                         blockchain_poc_path_element_v1:witnesses(Elem) =/= [] orelse
-                        (NextElem =/= undefined andalso
-                         blockchain_poc_path_element_v1:receipt(NextElem) =/= undefined)
+                        NextElemReceipt =/= undefined
                     of
                         false ->
                             poc_challengees_rewards_(Version, Path, Acc0);
@@ -569,7 +571,7 @@ poc_challengers_rewards_test() ->
     },
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
-poc_challengees_rewards_1_test() ->
+poc_challengees_rewards_version_1_test() ->
     Receipt1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
     Receipt2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
 
@@ -590,18 +592,26 @@ poc_challengees_rewards_1_test() ->
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
 
-poc_challengees_rewards_2_test() ->
-    Receipt1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
-    Receipt2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
-    Witness1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
+poc_challengees_rewards_version_2_test() ->
+    ReceiptFor1 = blockchain_poc_receipt_v1:new(<<"1">>, 1, 1, <<"data">>, p2p),
+    WitnessFor1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
+    ReceiptFor2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
+    WitnessFor2 = blockchain_poc_witness_v1:new(<<"2">>, 1, 1, <<>>),
+    
+    ElemFor1 = blockchain_poc_path_element_v1:new(<<"1">>, ReceiptFor1, []),
+    ElemFor1WithWitness = blockchain_poc_path_element_v1:new(<<"1">>, ReceiptFor1, [WitnessFor1]),
+    ElemFor2 = blockchain_poc_path_element_v1:new(<<"2">>, ReceiptFor2, []),
+    ElemFor2WithWitness = blockchain_poc_path_element_v1:new(<<"2">>, ReceiptFor2, [WitnessFor2]),
 
-    Elem1 = blockchain_poc_path_element_v1:new(<<"1">>, Receipt1, [Witness1]),
-    Elem2 = blockchain_poc_path_element_v1:new(<<"2">>, Receipt2, []),
-    Elem3 = blockchain_poc_path_element_v1:new(<<"3">>, Receipt1, []),
     Txns = [
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem1, Elem2]),
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem3])
+        %% No rewards here, Only receipt with no witness or subsequent receipt
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1]),
+        %% Reward because of witness
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1WithWitness]),
+        %% Reward because of next ele has receipt
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1, ElemFor2]),
+        %% Reward because of witness (adding to make reward 50/50)
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor2WithWitness])
     ],
     Vars = #{
         epoch_reward => 1000,
