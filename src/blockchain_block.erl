@@ -15,6 +15,7 @@
 -callback is_genesis(block()) -> boolean().
 -callback signatures(block()) -> [signature()].
 -callback set_signatures(block(), [signature()]) -> block().
+-callback is_rescue_block(block()) -> boolean().
 
 %% arity 4 is for external users of this function who don't need to
 %% care about whether or not something is a rescue block.
@@ -46,7 +47,8 @@
          verify_signatures/4, verify_signatures/5,
          transactions/1,
          serialize/1,
-         deserialize/1
+         deserialize/1,
+         is_rescue_block/1
         ]).
 
 new_genesis_block(Transactions) ->
@@ -86,6 +88,10 @@ serialize(Block) ->
 -spec deserialize(binary()) -> block().
 deserialize(Bin) ->
     unwrap_block(blockchain_block_pb:decode_msg(Bin, blockchain_block_pb)).
+
+-spec is_rescue_block(block()) -> boolean().
+is_rescue_block(Block) ->
+    (type(Block)):is_rescue_block(Block).
 
 %% @private wraps a block with it's version/type wrapper to ready it
 %% for serialization.
