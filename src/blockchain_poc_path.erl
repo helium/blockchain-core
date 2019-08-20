@@ -443,6 +443,8 @@ target_test_() ->
     {timeout,
      60000,
      fun() ->
+             e2qc:teardown(score_cache),
+             e2qc:teardown(gateways_cache),
              BaseDir = test_utils:tmp_dir("target_test"),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -488,6 +490,8 @@ target_test_() ->
 
 
 neighbors_test() ->
+    e2qc:teardown(score_cache),
+    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("neighbors_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -517,6 +521,8 @@ neighbors_test() ->
     ok.
 
 build_graph_test() ->
+    e2qc:teardown(score_cache),
+    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_graph_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
