@@ -51,6 +51,15 @@
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash).
 
+%% upgrades are listed here as a two-tuple of a key (stored in the
+%% ledger), and a function to run with the ledger as an argument.  if
+%% the key is already true, then the function will not be run.  when
+%% we start a clean chain, we mark all existing keys are true and do
+%% not run their code later.
+-define(upgrades,
+        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1}]).
+
+
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
 -export_type([blockchain/0, blocks/0]).
@@ -79,6 +88,8 @@ new(Dir, undefined, AssumedValidBlockHash) ->
             lager:info("no genesis block found"),
             {no_genesis, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _GenBlock}} ->
+            Ledger = blockchain:ledger(Blockchain),
+            process_upgrades(?upgrades, Ledger),
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)}
     end;
 new(Dir, GenBlock, AssumedValidBlockHash) ->
@@ -87,15 +98,61 @@ new(Dir, GenBlock, AssumedValidBlockHash) ->
         {Blockchain, {error, _}} ->
             lager:warning("failed to load genesis, integrating new one"),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
+            Ledger = blockchain:ledger(Blockchain),
+            mark_upgrades(?upgrades, Ledger),
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
+            Ledger = blockchain:ledger(Blockchain),
+            process_upgrades(?upgrades, Ledger),
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _OldGenBlock}} ->
             lager:info("replacing old genesis block"),
             ok = clean(Blockchain),
             new(Dir, GenBlock, AssumedValidBlockHash)
     end.
+
+process_upgrades([], _Ledger) ->
+    ok;
+process_upgrades([{Key, Fun} | Tail], Ledger) ->
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    case blockchain_ledger_v1:check_key(Key, Ledger1) of
+        true ->
+            process_upgrades(Tail, Ledger1);
+        false ->
+            Fun(Ledger1),
+            blockchain_ledger_v1:mark_key(Key, Ledger1)
+    end,
+    blockchain_ledger_v1:commit_context(Ledger1),
+    ok.
+
+mark_upgrades(Upgrades, Ledger) ->
+    lists:foreach(fun({Key, _}) ->
+                          blockchain_ledger_v1:mark_key(Key, Ledger)
+                  end, Upgrades).
+
+upgrade_gateways_v2(Ledger) ->
+    upgrade_gateways_v2_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    upgrade_gateways_v2_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+upgrade_gateways_v2_(Ledger) ->
+    %% the initial load here will automatically convert these into v2 records
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    %% find all neighbors for everyone
+    maps:map(
+      fun(A, G) ->
+              G1 = case blockchain_ledger_gateway_v2:location(G) of
+                       undefined -> G;
+                       _ ->
+                           Neighbors = blockchain_poc_path:neighbors(A, Gateways, Ledger),
+                           blockchain_ledger_gateway_v2:neighbors(Neighbors, G)
+                   end,
+              blockchain_ledger_v1:update_gateway(G1, A, Ledger)
+      end, Gateways),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc

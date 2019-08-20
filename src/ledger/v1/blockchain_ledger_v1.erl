@@ -10,6 +10,8 @@
     mode/1, mode/2,
     dir/1,
 
+    check_key/2, mark_key/2,
+
     new_context/1, delete_context/1, commit_context/1, context_cache/1,
     new_snapshot/1, release_snapshot/1, snapshot/1,
 
@@ -182,6 +184,21 @@ mode(Mode, Ledger) ->
 -spec dir(ledger()) -> file:filename_all().
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
+
+check_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, Key, []) of
+        {ok, <<"true">>} ->
+            true;
+        not_found ->
+            false;
+        Error ->
+            Error
+    end.
+
+mark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, Key, <<"true">>).
 
 %%--------------------------------------------------------------------
 %% @doc

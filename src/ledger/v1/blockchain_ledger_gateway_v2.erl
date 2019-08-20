@@ -305,22 +305,60 @@ print(Address, Gateway, Ledger, Verbose) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Version 1
+%% Version 2
 %% @end
 %%--------------------------------------------------------------------
 -spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
     BinGw = erlang:term_to_binary(Gw),
-    <<1, BinGw/binary>>.
+    <<2, BinGw/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Later _ could becomre 1, 2, 3 for different versions.
 %% @end
 %%--------------------------------------------------------------------
 -spec deserialize(binary()) -> gateway().
-deserialize(<<_:1/binary, Bin/binary>>) ->
+deserialize(<<1, Bin/binary>>) ->
+    V1 = erlang:binary_to_term(Bin),
+    convert(V1);
+deserialize(<<2, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+%% OK to include here, v1 should now be immutable.
+-record(gateway_v1, {
+    owner_address :: libp2p_crypto:pubkey_bin(),
+    location :: undefined | pos_integer(),
+    alpha = 1.0 :: float(),
+    beta = 1.0 :: float(),
+    delta :: non_neg_integer(),
+    last_poc_challenge :: undefined | non_neg_integer(),
+    last_poc_onion_key_hash :: undefined | binary(),
+    nonce = 0 :: non_neg_integer(),
+    version = 0 :: non_neg_integer()
+}).
+
+convert(#gateway_v1{
+          owner_address = Owner,
+          location = Location,
+          alpha = Alpha,
+          beta = Beta,
+          delta = Delta,
+          last_poc_challenge = LastPoC,
+          last_poc_onion_key_hash = LastHash,
+          nonce = Nonce,
+          version = Version}) ->
+    #gateway_v2{
+       owner_address = Owner,
+       location = Location,
+       alpha = Alpha,
+       beta = Beta,
+       delta = Delta,
+       last_poc_challenge = LastPoC,
+       last_poc_onion_key_hash = LastHash,
+       nonce = Nonce,
+       version = Version,
+       %% this gets set in the upgrade path
+       neighbors = []}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
