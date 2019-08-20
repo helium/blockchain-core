@@ -260,8 +260,7 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
             end
         end, [], lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
     F = (length(ConsensusMembers) - 1) div 3,
-    case length(Signatures) >= (2*F)+1 andalso
-         length(Signatures) =< (3*F)+1 andalso
+    case length(Signatures) =< (3*F)+1 andalso
          ValidSignatures /= error andalso
          length(ValidSignatures) >= Threshold of
         true ->
