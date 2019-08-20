@@ -71,7 +71,9 @@ init(Args) ->
          {libp2p_proxy,
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
          {libp2p_peerbook,
-          [{signed_metadata_fun, fun blockchain_worker:signed_metadata_fun/0}]},
+          [{signed_metadata_fun, fun blockchain_worker:signed_metadata_fun/0},
+           {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))}
+          ]},
          {libp2p_group_gossip,
           [
            {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
