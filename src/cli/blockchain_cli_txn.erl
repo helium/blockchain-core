@@ -19,6 +19,8 @@ register_all_usage() ->
                           apply(clique, register_usage, Args)
                   end,
                   [
+                   txn_add_gateway_usage(),
+                   txn_assert_location_usage(),
                    txn_queue_usage(),
                    txn_usage()
                   ]).
@@ -28,6 +30,8 @@ register_all_cmds() ->
                           [apply(clique, register_command, Cmd) || Cmd <- Cmds]
                   end,
                   [
+                   txn_add_gateway_cmd(),
+                   txn_assert_location_cmd(),
                    txn_queue_cmd(),
                    txn_cmd()
                   ]).
@@ -39,6 +43,8 @@ txn_usage() ->
     [["txn"],
      ["blockchain txn commands\n\n",
       "  txn queue             - Show enqueued transactions in the txn_queue.\n"
+      "  txn add_gateway       - Create an add gateway transaction.\n"
+      "  txn assert_location   - Create an assert location transaction.\n"
      ]
     ].
 
@@ -90,3 +96,199 @@ format_txn_list(TxnList) ->
                        {accepted_block_height, RecvBlockHeight}]
                       | Acc]
               end, [], TxnList).
+
+%%
+%% txn add_gateway
+%%
+txn_add_gateway_cmd() ->
+    [
+     [["txn", "add_gateway"],
+      [
+       {owner, [{shortname, "o"}, {longname, "owner"},
+                {datatype, string}, {validator, fun validate_b58/1}]},
+       {amount,  [{shortname, "a"}, {longname, "amount"},
+                  {datatype, integer}, {validator, fun validate_pos/1}]}
+      ],
+      [
+       {payer, [{shortname, "p"}, {longname, "payer"},
+                {datatype, string}, {validator, fun validate_b58/1}]},
+       {fee,   [{shortname, "f"}, {longname, "fee"},
+                {datatype, integer}, {validator, fun validate_non_neg/1}]}
+      ],
+      fun txn_add_gateway/3]
+    ].
+
+txn_add_gateway_usage() ->
+    [["txn", "add_gateway"],
+     ["txn add_gateway owner=<owner> amount=<amount> [--payer <payer>] [--fee <fee>]\n\n",
+      "  Creates a signed add gateway transaction required to add a new Gateway to the Helium network.\n"
+      "  Requires an owner address, a cost (amount in Data Credits), and a transaction fee for the miners\n"
+      "  (in Data Credits).  Optionally takes a payer address if the payer of the cost and fee is not the same\n"
+      "  as the owner.\n\n"
+      "  Returns a Base64 encoded transaction to be used as an input to either the\n"
+      "  Helium mobile application or the wallet CLI for signing by the owner, and payer if provided, and \n"
+      "  final submission to the blockchain.\n\n"
+      "Required:\n\n"
+      "  <owner>\n"
+      "    The b58 address of the owner of the gateway to be added.\n"
+      "  <amount>\n"
+      "    The requried cost for adding the gateway, in data credits\n\n"
+      "Options:\n\n"
+      "  -p, --payer <address>\n",
+      "    The b58 address of the payer of the fees. Defaults to the provided owner address\n"
+      "  -f --fee <fee>\n"
+      "    The fee for the miners, in data credits. Defaults to 0 which is likely the wrong value\n"
+     ]
+    ].
+
+txn_add_gateway(_CmdBase, [], _) ->
+    usage;
+txn_add_gateway(_CmdBase, Keys, Flags) ->
+    try
+        %% Get key arguments
+        Owner = proplists:get_value(owner, Keys),
+        Amount = proplists:get_value(amount, Keys),
+        %% Get options
+        Payer = case proplists:get_value(payer, Flags) of
+                    undefined -> Owner;
+                    V -> V
+                end,
+        Fee = proplists:get_value(fee, Flags, 0),
+
+        {ok, TxnBin} = blockchain:add_gateway_txn(Owner, Payer, Fee, Amount),
+        TxnB64 = base64:encode_to_string(TxnBin),
+        print_txn_result(TxnB64)
+    catch
+        What:Why:Stack ->
+            Fmt = io_lib:format("error: ~p~n", [{What, Why, Stack}]),
+            [clique_status:alert([clique_status:text(Fmt)])]
+    end.
+
+%%
+%% txn assert_location
+%%
+
+txn_assert_location_cmd() ->
+    [
+     [["txn", "assert_location"],
+      [
+       {location, [{shortname, "l"}, {longname, "location"},
+                   {typecast, fun list_to_location/1}, {validator, fun validate_location/1}]},
+       {owner, [{shortname, "o"}, {longname, "owner"},
+                {datatype, string}, {validator, fun validate_b58/1}]},
+       {nonce, [{shortname, "n"}, {longname, "nonce"},
+                {datatype, integer}, {validator, fun validate_non_neg/1}]},
+       {amount,  [{shortname, "a"}, {longname, "amount"},
+                  {datatype, integer}, {validator, fun validate_pos/1}]}
+      ],
+      [
+       {payer, [{shortname, "p"}, {longname, "payer"},
+                {datatype, string}, {validator, fun validate_b58/1}]},
+       {fee,   [{shortname, "f"}, {longname, "fee"},
+                {datatype, integer}, {validator, fun validate_non_neg/1}]}
+      ],
+      fun txn_assert_location/3]
+    ].
+
+txn_assert_location_usage() ->
+    [["txn", "assert_location"],
+     ["txn assert_location owner=<owner> location=<location> nonce=<nonce> amount=<amount> [--fee <fee>] [--payer <payer>]\n\n",
+      "  Creates a signed location assertion required to declare the location of a n Gateway on the Helium network.\n"
+      "  Requires a location (in lat/lon or h3 form), an owner address, a cost (amount in Data Credits), \n"
+      "  a transaction fee for the miners (in Data Credits), and a nonce to use. \n"
+      "  Optionally takes a payer address if the payer of the cost and fee is not the same as the owner.\n\n"
+      "  Returns a Base64 encoded transaction to be used as an input to either the\n"
+      "  Helium mobile application or the wallet CLI for signing by the owner, and payer if provided, and \n"
+      "  final submission to the blockchain.\n\n"
+      "Required:\n\n"
+      "  <owner>\n"
+      "    The b58 address of the owner of the gateway to be asserted.\n"
+      "  <location>\n"
+      "    Either a h3 index or a comma separated geo location of the form <lat>,<lon>\n"
+      "  <nonce>\n"
+      "    The nonce to use for the location assertion\n"
+      "  <amount>\n"
+      "    The requried cost for asserting the gateway, in data credits\n\n"
+      "Options:\n\n"
+      "  -p, --payer <address>\n"
+      "    The b58 address of the payer of the fees. Defaults to the provided owner address\n"
+      "  -f --fee <fee>\n"
+      "    The fee for the miners, in data credits. Defaults to 0 which is likely the wrong value\n"
+     ]
+    ].
+
+txn_assert_location(_CmdBase, [], _) ->
+    usage;
+txn_assert_location(_CmdBase, Keys, Flags) ->
+    try
+        %% Get keys
+        Owner = proplists:get_value(owner, Keys),
+        Amount = proplists:get_value(amount, Keys),
+        Nonce = proplists:get_value(nonce, Keys),
+        H3String = proplists:get_value(location, Keys),
+        %% Get options
+        Payer = case proplists:get_value(payer, Flags) of
+                    undefined -> Owner;
+                    V -> V
+                end,
+        Fee = proplists:get_value(fee, Flags, 0),
+        %% Construct txn and encode as b64
+        {ok, TxnBin} = blockchain:assert_loc_txn(H3String, Owner, Payer, Nonce, Amount, Fee),
+        TxnB64 = base64:encode_to_string(TxnBin),
+        print_txn_result(TxnB64)
+    catch
+        What:Why:Stack ->
+            Fmt = io_lib:format("error: ~p~n", [{What, Why, Stack}]),
+            [clique_status:alert([clique_status:text(Fmt)])]
+    end.
+
+
+%%
+%% Validators/Typecasts
+%%
+
+validate_pos(N) when N > 0 ->
+    ok;
+validate_pos(N) ->
+    {error, {invalid_value, N}}.
+
+validate_non_neg(N) when N >= 0 ->
+    ok;
+validate_non_neg(N) ->
+    {error, {invalid_value, N}}.
+
+validate_b58(Str) ->
+    try
+        libp2p_crypto:b58_to_bin(Str),
+        ok
+    catch
+        _:_ ->
+            {error, {invalid_value, Str}}
+    end.
+
+list_to_location(Str) ->
+    try string:split(Str, ",") of
+        [LatStr, LonStr] ->
+            Lat = list_to_float(LatStr),
+            Lon = list_to_float(LonStr),
+            h3:to_string(h3:from_geo({Lat, Lon}, 12));
+        [Str] ->
+            h3:from_string(Str),
+            Str;
+         _ ->
+            {error, {invalid_value, Str}}
+    catch
+        _:_ ->
+            {error, {invalid_value, Str}}
+    end.
+
+validate_location(Str) ->
+    case list_to_location(Str) of
+        {error, Error} ->
+            {error, Error};
+        _ ->
+            ok
+    end.
+
+print_txn_result(V) ->
+    [clique_status:text(V)].
