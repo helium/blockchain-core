@@ -363,9 +363,6 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end,
 
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    e2qc:evict(gateways_cache, {Height}),
-
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
     {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),

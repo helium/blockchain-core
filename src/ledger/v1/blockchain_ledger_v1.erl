@@ -525,13 +525,6 @@ scan_threshold_txns(CF, DB) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
-%% active_gateways(Ledger) ->
-%%     {ok, Height} = current_height(Ledger),
-%%     e2qc:cache(gateways_cache, {Height},
-%%                fun() ->
-%%                        active_gateways_nocache(Ledger)
-%%                end).
-
 active_gateways(Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     cache_fold(
@@ -724,11 +717,10 @@ add_gateway(OwnerAddr,
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
             Gateways = active_gateways(Ledger),
-            %% io:fwrite("gws = ~p~n", [Gateways]),
             Neighbors = blockchain_poc_path:neighbors(NewGw, Gateways, Ledger),
             NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw),
             fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
-            %% io:fwrite("new gw = ~p~n", [NewGw1]),
+
             Bin = blockchain_ledger_gateway_v2:serialize(NewGw1),
             AGwsCF = active_gateways_cf(Ledger),
             ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)

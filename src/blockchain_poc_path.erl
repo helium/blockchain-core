@@ -440,7 +440,6 @@ target_test_() ->
      60000,
      fun() ->
              e2qc:teardown(score_cache),
-             e2qc:teardown(gateways_cache),
              BaseDir = test_utils:tmp_dir("target_test"),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -487,7 +486,6 @@ target_test_() ->
 
 neighbors_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("neighbors_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -518,7 +516,6 @@ neighbors_test() ->
 
 build_graph_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_graph_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -597,7 +594,6 @@ build_graph_in_line_test() ->
 
 build_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -624,7 +620,6 @@ build_test() ->
 
 build_only_2_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_only_2_test"),
     % All these point are in a line one after the other
     LatLongs = [
@@ -649,7 +644,6 @@ build_prob_test_() ->
      fun() ->
              BaseDir = test_utils:tmp_dir("build_prob_test_"),
              e2qc:teardown(score_cache),
-             e2qc:teardown(gateways_cache),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
                          {{37.782604, -122.447857}, 1.0, 1.0},
@@ -728,7 +722,6 @@ build_with_default_score_test() ->
     ok.
 
 active_gateways_test() ->
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
     % 2 First points are grouped together and next ones form a group also
     LatLongs = [
@@ -752,42 +745,6 @@ active_gateways_test() ->
 
     unload_meck(),
     ok.
-
-%% active_gateways_server_test() ->
-%%     e2qc:teardown(gateways_cache),
-%%     BaseDir = test_utils:tmp_dir("active_gateways_test"),
-%%     % 2 First points are grouped together and next ones form a group also
-%%     LatLongs = [
-%%                 {{48.858391, 2.294469}, 1.0, 1.0},
-%%                 {{48.856696, 2.293997}, 1.0, 1.0},
-%%                 {{48.852969, 2.349872}, 1.0, 1.0},
-%%                 {{48.855425, 2.344980}, 1.0, 1.0},
-%%                 {{48.854127, 2.344637}, 1.0, 1.0},
-%%                 {{48.855228, 2.347126}, 1.0, 1.0}
-%%                ],
-%%     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
-
-%%     io:fwrite("ledger ~p~n", [Ledger]),
-%%     timer:sleep(100),
-
-%%     %% this should automatically build a graph with the above points
-%%     {ok, _Pid} = blockchain_graph:start_link(),
-%%     %% Pid ! {blockchain_event, {add_block, ign, ign, Ledger}},
-
-%%     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
-%%     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
-%%     ActiveGateways = active_gateways(Ledger, Challenger),
-%%     {ok, GraphGateways} = blockchain_graph:active_gateways(Ledger, Challenger),
-
-%%     ?assertEqual(ActiveGateways, GraphGateways),
-
-%%     ?assertNot(maps:is_key(Challenger, ActiveGateways)),
-%%     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL0)), ActiveGateways)),
-%%     ?assertNot(maps:is_key(crypto:hash(sha256, erlang:term_to_binary(LL1)), ActiveGateways)),
-%%     ?assertEqual(4, maps:size(ActiveGateways)),
-
-%%     unload_meck(),
-%%     ok.
 
 active_gateways_low_score_test() ->
     BaseDir = test_utils:tmp_dir("active_gateways_low_score_test"),
@@ -865,7 +822,6 @@ build_gateways(LatLongs, Ledger) ->
                   not_found,
                   Gateways),
     blockchain_ledger_v1:commit_context(Ledger1),
-    e2qc:teardown(gateways_cache),
 
     {Target,
      %% append a location undefined garbage value, TODO replace with "real" unlocated gateway

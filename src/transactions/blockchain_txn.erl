@@ -171,13 +171,13 @@ validate([], Valid,  Invalid, Chain) ->
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Chain) ->
     Type = ?MODULE:type(Txn),
-    try Type:is_valid(Txn, Chain) of
+    case catch Type:is_valid(Txn, Chain) of
         ok ->
             case ?MODULE:absorb(Txn, Chain) of
                 ok ->
                     validate(Tail, [Txn|Valid], Invalid, Chain);
                 {error, _Reason} ->
-                    lager:error_unsafe("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
+                    lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
                     validate(Tail, Valid, [Txn | Invalid], Chain)
             end;
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -186,10 +186,6 @@ validate([Txn | Tail], Valid, Invalid, Chain) ->
             validate(Tail, Valid, Invalid, Chain);
         Error ->
             lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
-            %% any other error means we drop it
-            validate(Tail, Valid, [Txn | Invalid], Chain)
-    catch notcatch:Why:Stack ->
-            lager:error_unsafe("invalid txn ~p : ~p / ~p", [Type, Why, Stack]),
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Chain)
     end.

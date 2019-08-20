@@ -86,8 +86,6 @@ init_per_testcase(TestCase, Config) ->
         0 = blockchain_ledger_entry_v1:nonce(Entry)
     end, maps:values(Entries)),
 
-    e2qc:teardown(gateways_cache),
-
     [
         {basedir, BaseDir},
         {balance, Balance},
