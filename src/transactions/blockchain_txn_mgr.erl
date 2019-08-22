@@ -191,9 +191,21 @@ invoke_callback(Callback, Msg) ->
 signatory_rand_member(Chain) ->
     {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatures = blockchain_block:signatures(PrevBlock) -- [blockchain_swarm:pubkey_bin()],
-    Index = rand:uniform(length(Signatures)),
-    {Signer, _} = lists:nth(Index, Signatures),
-    {ok, Signer}.
+    case Signatures of
+        [] ->
+            %% rescue block! no signatures we can use
+            %% so use a random consensus member
+            Ledger = blockchain:ledger(Chain),
+            {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
+            Members = Members0 -- [blockchain_swarm:pubkey_bin()],
+            Index = rand:uniform(length(Members)),
+            Member = lists:nth(Index, Members),
+            {ok, Member};
+        _ ->
+            Index = rand:uniform(length(Signatures)),
+            {Signer, _} = lists:nth(Index, Signatures),
+            {ok, Signer}
+    end.
 
 retry(Txn, State=#state{txn_map=TxnMap, chain=Chain}) ->
     case maps:get(Txn, TxnMap, undefined) of
