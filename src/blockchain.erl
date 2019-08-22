@@ -127,9 +127,12 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
     ok.
 
 mark_upgrades(Upgrades, Ledger) ->
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     lists:foreach(fun({Key, _}) ->
-                          blockchain_ledger_v1:mark_key(Key, Ledger)
-                  end, Upgrades).
+                          blockchain_ledger_v1:mark_key(Key, Ledger1)
+                  end, Upgrades),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    ok.
 
 upgrade_gateways_v2(Ledger) ->
     upgrade_gateways_v2_(Ledger),
