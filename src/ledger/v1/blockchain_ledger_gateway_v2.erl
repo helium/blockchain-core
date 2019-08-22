@@ -43,7 +43,8 @@
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
-    neighbors = [] :: [libp2p_crypto:pubkey_bin()]
+    neighbors = [] :: [libp2p_crypto:pubkey_bin()],
+    witnesses = #{} %% added for the future
 }).
 
 -type gateway() :: #gateway_v2{}.
