@@ -312,7 +312,7 @@ is_valid(Txn, Chain) ->
                                 {error, _} ->
                                     {error, {unknown_gateway, Gateway, Ledger}};
                                 {ok, GwInfo} ->
-                                    GwOwner = blockchain_ledger_gateway_v1:owner_address(GwInfo),
+                                    GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
                                     case Owner == GwOwner of
                                         false ->
                                             {error, {bad_owner, {assert_location, Owner, GwOwner}}};
@@ -323,7 +323,7 @@ is_valid(Txn, Chain) ->
                                                 false ->
                                                     {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
                                                 true ->
-                                                    LedgerNonce = blockchain_ledger_gateway_v1:nonce(GwInfo),
+                                                    LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
                                                     case Nonce =:= LedgerNonce + 1 of
                                                         false ->
                                                             {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
@@ -355,12 +355,20 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
+
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _Reason}=Error ->
             Error;
         ok ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
-    end.
+    end,
+
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
+    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
+    Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
+    ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

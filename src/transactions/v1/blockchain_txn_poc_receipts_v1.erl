@@ -153,7 +153,7 @@ is_valid(Txn, Chain) ->
                                         {error, _Reason}=Error ->
                                             Error;
                                         {ok, GwInfo} ->
-                                            LastChallenge = blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo),
+                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                                             case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, _}=Error ->
                                                     Error;
@@ -399,7 +399,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                                  {ok, _} when Gateway == WitnessGateway ->
                                                                      false;
                                                                  {ok, GWInfo} ->
-                                                                     blockchain_ledger_gateway_v1:location(GWInfo) /= undefined andalso
+                                                                     blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
                                                                      blockchain_poc_witness_v1:is_valid(Witness) andalso
                                                                      blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
                                                              end

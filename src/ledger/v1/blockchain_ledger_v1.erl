@@ -10,6 +10,8 @@
     mode/1, mode/2,
     dir/1,
 
+    check_key/2, mark_key/2,
+
     new_context/1, delete_context/1, commit_context/1, context_cache/1,
     new_snapshot/1, release_snapshot/1, snapshot/1,
 
@@ -33,6 +35,7 @@
     find_gateway_info/2,
     add_gateway/3, add_gateway/5,
     update_gateway/3,
+    fixup_neighbors/4,
     add_gateway_location/4,
 
     gateway_versions/1,
@@ -120,7 +123,7 @@
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
 -type dc_entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_data_credits_entry_v1:data_credits_entry()}.
--type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
+-type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 
@@ -181,6 +184,21 @@ mode(Mode, Ledger) ->
 -spec dir(ledger()) -> file:filename_all().
 dir(Ledger) ->
     Ledger#ledger_v1.dir.
+
+check_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, Key, []) of
+        {ok, <<"true">>} ->
+            true;
+        not_found ->
+            false;
+        Error ->
+            Error
+    end.
+
+mark_key(Key, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, Key, <<"true">>).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -508,20 +526,16 @@ scan_threshold_txns(CF, DB) ->
 %%--------------------------------------------------------------------
 -spec active_gateways(ledger()) -> active_gateways().
 active_gateways(Ledger) ->
-    {ok, Height} = current_height(Ledger),
     AGwsCF = active_gateways_cf(Ledger),
-    e2qc:cache(gateways_cache, {Height},
-               fun() ->
-                       cache_fold(
-                         Ledger,
-                         AGwsCF,
-                         fun({Address, Binary}, Acc) ->
-                                 Gw = blockchain_ledger_gateway_v1:deserialize(Binary),
-                                 maps:put(Address, Gw, Acc)
-                         end,
-                         #{}
-                        )
-               end).
+    cache_fold(
+      Ledger,
+      AGwsCF,
+      fun({Address, Binary}, Acc) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
+              maps:put(Address, Gw, Acc)
+      end,
+      #{}
+     ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -647,13 +661,13 @@ vars_nonce(NewNonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec find_gateway_info(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_gateway_v1:gateway()}
+-spec find_gateway_info(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_gateway_v2:gateway()}
                                                                  | {error, any()}.
 find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     case cache_get(Ledger, AGwsCF, Address, []) of
         {ok, BinGw} ->
-            {ok, blockchain_ledger_gateway_v1:deserialize(BinGw)};
+            {ok, blockchain_ledger_gateway_v2:deserialize(BinGw)};
         not_found ->
             {error, not_found};
         Error ->
@@ -671,8 +685,8 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
-            Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr, undefined),
-            Bin = blockchain_ledger_gateway_v1:serialize(Gateway),
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined),
+            Bin = blockchain_ledger_gateway_v2:serialize(Gateway),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
@@ -698,20 +712,55 @@ add_gateway(OwnerAddr,
             {error, gateway_already_active};
         _ ->
             {ok, Height} = ?MODULE:current_height(Ledger),
-            Gateway = blockchain_ledger_gateway_v1:new(OwnerAddr,
-                                                       Location,
-                                                       Nonce),
-            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
-            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
+            Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Nonce),
+
+            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
+
+            Gateways = active_gateways(Ledger),
+            Neighbors = blockchain_poc_path:neighbors(NewGw, Gateways, Ledger),
+            NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw),
+            fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw1),
             AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+            ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
--spec update_gateway(Gw :: blockchain_ledger_gateway_v1:gateway(),
+fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
+    Remove = maps:filter(
+               fun(A, _G) when A == Addr ->
+                       false;
+                  (A, G) ->
+                       (not lists:member(A, Neighbors)) andalso
+                           lists:member(Addr, blockchain_ledger_gateway_v2:neighbors(G))
+               end,
+               Gateways),
+    Add = maps:filter(
+            fun(A, _G) when A == Addr ->
+                    false;
+               (A, G) ->
+                    lists:member(A, Neighbors) andalso
+                        (not lists:member(Addr, blockchain_ledger_gateway_v2:neighbors(G)))
+            end,
+            Gateways),
+
+    R1 = maps:map(fun(_A, G) ->
+                          blockchain_ledger_gateway_v2:remove_neighbor(Addr, G)
+                  end, Remove),
+    A1 = maps:map(fun(_A, G) ->
+                          blockchain_ledger_gateway_v2:add_neighbor(Addr, G)
+                  end, Add),
+    maps:map(fun(A, G) ->
+                     %% io:fwrite("bleh ~p ~p~n", [A, G]),
+                     update_gateway(G, A, Ledger)
+             end, maps:merge(R1, A1)),
+    ok.
+
+-spec update_gateway(Gw :: blockchain_ledger_gateway_v2:gateway(),
                      GwAddr :: libp2p_crypto:pubkey_bin(),
                      Ledger :: ledger()) -> ok | {error, _}.
 update_gateway(Gw, GwAddr, Ledger) ->
-    Bin = blockchain_ledger_gateway_v1:serialize(Gw),
+    Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin).
 
@@ -726,10 +775,10 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {error, no_active_gateway};
         {ok, Gw} ->
             {ok, Height} = ?MODULE:current_height(Ledger),
-            Gw1 = blockchain_ledger_gateway_v1:location(Location, Gw),
-            Gw2 = blockchain_ledger_gateway_v1:nonce(Nonce, Gw1),
-            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
-            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
+            Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
+            Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
+            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
@@ -745,7 +794,7 @@ gateway_versions(Ledger) ->
             Versions =
             maps:fold(
               fun(_, Gw, Acc) ->
-                      V = blockchain_ledger_gateway_v1:version(Gw),
+                      V = blockchain_ledger_gateway_v2:version(Gw),
                       maps:update_with(V, Inc, 1, Acc)
               end,
               #{},
@@ -763,7 +812,7 @@ gateway_versions_fallback(Ledger) ->
     Versions =
         maps:fold(
           fun(_, Gw, Acc) ->
-                  V = blockchain_ledger_gateway_v1:version(Gw),
+                  V = blockchain_ledger_gateway_v2:version(Gw),
                   maps:update_with(V, Inc, 1, Acc)
           end,
          #{},
@@ -777,7 +826,7 @@ gateway_versions_fallback(Ledger) ->
 filter_dead(Gws, Height, Threshold) ->
     maps:filter(
       fun(_Addr, Gw) ->
-              Last = last(blockchain_ledger_gateway_v1:last_poc_challenge(Gw)),
+              Last = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
               %% calculate the number of blocks since we last saw a challenge
               Since = Height - Last,
               %% if since is bigger than the threshold, invert to exclude
@@ -812,9 +861,9 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            {Alpha0, Beta0, _} = blockchain_ledger_gateway_v1:score(GatewayAddress, Gw, Height, Ledger),
-            NewGw = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha0 + Alpha, Beta0 + Beta, Height, Gw),
-            Bin = blockchain_ledger_gateway_v1:serialize(NewGw),
+            {Alpha0, Beta0, _} = blockchain_ledger_gateway_v2:score(GatewayAddress, Gw, Height, Ledger),
+            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha0 + Alpha, Beta0 + Beta, Height, Gw),
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
@@ -830,7 +879,7 @@ gateway_score(GatewayAddress, Ledger) ->
             Error;
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            {_Alpha, _Beta, Score} = blockchain_ledger_gateway_v1:score(GatewayAddress, Gw, Height, Ledger),
+            {_Alpha, _Beta, Score} = blockchain_ledger_gateway_v2:score(GatewayAddress, Gw, Height, Ledger),
             {ok, Score}
     end.
 
@@ -875,12 +924,12 @@ request_poc(OnionKeyHash, SecretHash, Challenger, Ledger) ->
     end.
 
 request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
-    case blockchain_ledger_gateway_v1:last_poc_onion_key_hash(Gw0) of
+    case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height+1, Gw0),
-            Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-            GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
+            Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+            Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+            GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
             AGwsCF = active_gateways_cf(Ledger),
             ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
 
@@ -895,9 +944,9 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, Ledger, Gw0, PoCs) ->
                     Error;
                 ok ->
                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                    Gw1 = blockchain_ledger_gateway_v1:last_poc_challenge(Height+1, Gw0),
-                    Gw2 = blockchain_ledger_gateway_v1:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-                    GwBin = blockchain_ledger_gateway_v1:serialize(Gw2),
+                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+                    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+                    GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
                     AGwsCF = active_gateways_cf(Ledger),
                     ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
 
@@ -1827,10 +1876,24 @@ poc_test() ->
     OnionKeyHash1 = <<"onion_key_hash1">>,
 
     OwnerAddr = <<"owner_address">>,
-    Location = 123456789,
+    Location = h3:from_geo({37.78101, -122.465372}, 12),
     Nonce = 1,
 
     SecretHash = <<"secret_hash">>,
+
+
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain,
+                config,
+                fun(min_score, _) ->
+                        {ok, 0.2};
+                   (h3_exclusion_ring_dist, _) ->
+                        {ok, 3};
+                   (h3_max_grid_distance, _) ->
+                        {ok, 60};
+                   (h3_neighbor_res, _) ->
+                        {ok, 12}
+                end),
 
     ?assertEqual({error, not_found}, find_poc(OnionKeyHash0, Ledger)),
 
@@ -1845,8 +1908,8 @@ poc_test() ->
     PoC0 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash0, Challenger0),
     ?assertEqual({ok, [PoC0]} ,find_poc(OnionKeyHash0, Ledger)),
     {ok, GwInfo0} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(1, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo0)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo0)),
+    ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo0)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo0)),
 
     commit(
         fun(L) ->
@@ -1891,8 +1954,10 @@ poc_test() ->
     PoC2 = blockchain_ledger_poc_v1:new(SecretHash, OnionKeyHash1, Challenger0),
     ?assertEqual({ok, [PoC2]}, find_poc(OnionKeyHash1, Ledger)),
     {ok, GwInfo1} = find_gateway_info(Challenger0, Ledger),
-    ?assertEqual(1, blockchain_ledger_gateway_v1:last_poc_challenge(GwInfo1)),
-    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v1:last_poc_onion_key_hash(GwInfo1)),
+    ?assertEqual(1, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo1)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo1)),
+    meck:unload(blockchain_swarm),
+    meck:unload(blockchain),
 
     ok.
 

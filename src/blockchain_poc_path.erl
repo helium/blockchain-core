@@ -13,6 +13,7 @@
          length/3,
          build_graph/4,
          target/3,
+         neighbors/3,
          entropy/1
         ]).
 
@@ -48,8 +49,7 @@
             Height :: non_neg_integer(),
             Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, any()}.
 build(Hash, Target, Gateways, Height, Ledger) ->
-    Neighbors = all_neighbors(Target, Gateways, Height, Ledger),
-    Graph = build_graph_int([Target], Gateways, Neighbors, #{}),
+    Graph = build_graph_int([Target], Gateways, Height, Ledger, #{}),
     GraphList = maps:fold(
                   fun(Addr, _, Acc) ->
                           case Addr == Target of
@@ -57,7 +57,7 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                                   Acc;
                               false ->
                                   G = maps:get(Addr, Gateways),
-                                  {_, _, Score} = blockchain_ledger_gateway_v1:score(Addr, G, Height, Ledger),
+                                  {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, G, Height, Ledger),
                                   [{Score, Addr}|Acc]
                           end
                   end,
@@ -124,19 +124,21 @@ length(Graph, Start, End) ->
                   Height :: non_neg_integer(),
                   Ledger :: blockchain_ledger_v1:ledger()) -> graph().
 build_graph(Address, Gateways, Height, Ledger) ->
-    Neighbors = all_neighbors(none, Gateways, Height, Ledger),
-    build_graph_int([Address], Gateways, Neighbors, #{}).
+    build_graph_int([Address], Gateways, Height, Ledger, #{}).
 
 -spec build_graph_int([binary()],
                       Gateways :: map(),
-                      Neighbors :: map(),
+                      Height :: non_neg_integer(),
+                      Ledger :: blockchain_ledger_v1:ledger(),
                       Graph :: graph()) -> graph().
-build_graph_int([], _Gateways, _Neighbors, Graph) ->
+build_graph_int([], _Gateways, _Height, _Ledger, Graph) ->
     Graph;
-build_graph_int([Address0|Addresses], Gateways, Neighbors, Graph0) ->
+build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
     %% find all the neighbors of address 0
-    case Neighbors of
-        #{Address0 := Neighbors0} ->
+    case Gateways of
+        #{Address0 := Gw0} ->
+            Neighbors0_0 = blockchain_ledger_gateway_v2:neighbors(Gw0),
+            Neighbors0 = filter_neighbors(Address0, Neighbors0_0, Gateways, Height, Ledger),
             %% fold over the list of neighbors
             Graph1 = lists:foldl(
                        fun({_W, Address1}, Acc) ->
@@ -147,12 +149,14 @@ build_graph_int([Address0|Addresses], Gateways, Neighbors, Graph0) ->
                                        Acc;
                                    false ->
                                        %% otherwise, calculate its neighbors
-                                       #{Address1 := Neighbors1} = Neighbors,
+                                       #{Address1 := Gw1} = Gateways,
+                                       Neighbors1_0 = blockchain_ledger_gateway_v2:neighbors(Gw1),
+                                       Neighbors1 = filter_neighbors(Address1, Neighbors1_0, Gateways, Height, Ledger),
                                        Graph1 = maps:put(Address1, Neighbors1, Acc),
                                        %% and append all of its neighbor's neighbors?
                                        build_graph_int([A || {_, A} <- Neighbors1,
                                                              A /= maps:is_key(A, Graph1)],
-                                                       Gateways, Neighbors, Graph1)
+                                                       Gateways, Height, Ledger, Graph1)
                                end
                        end,
                        %% first, map address to neighbors
@@ -161,7 +165,7 @@ build_graph_int([Address0|Addresses], Gateways, Neighbors, Graph0) ->
                       ),
             FilteredAddresses = lists:filter(fun(A) -> not maps:is_key(A, Graph1) end,
                                              Addresses),
-            build_graph_int(FilteredAddresses, Gateways, Neighbors, Graph1);
+            build_graph_int(FilteredAddresses, Gateways, Height, Ledger, Graph1);
         _ ->
             Graph0
     end.
@@ -193,73 +197,66 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
 %% that are within max grid distance from the address in pubkeybin
 %% @end
 %%--------------------------------------------------------------------
-neighbors(PubkeyBin, Gateways, Height, Ledger) ->
-    Gw = maps:get(PubkeyBin, Gateways),
-    GwH3 = blockchain_ledger_gateway_v1:location(Gw),
+neighbors(PubkeyBin, Gateways, Ledger) when is_binary(PubkeyBin) ->
+    case maps:get(PubkeyBin, Gateways, undefined) of
+        undefined ->
+            {error, bad_gateway};
+        Gw ->
+            neighbors(Gw, Gateways, Ledger)
+    end;
+neighbors(Gw, Gateways, Ledger) ->
+    GwH3 = blockchain_ledger_gateway_v2:location(Gw),
     {ok, H3ExclusionRingDist} = blockchain:config(?h3_exclusion_ring_dist, Ledger),
     {ok, H3MaxGridDistance} = blockchain:config(?h3_max_grid_distance, Ledger),
     {ok, H3NeighborRes} = blockchain:config(?h3_neighbor_res, Ledger),
-    {ok, MinScore} = blockchain:config(?min_score, Ledger),
     ExclusionIndices = h3:k_ring(GwH3, H3ExclusionRingDist),
     ScaledGwH3 = h3:parent(GwH3, H3NeighborRes),
 
-    ToInclude = lists:foldl(fun({A, G}, Acc) ->
-                                    case blockchain_ledger_gateway_v1:location(G) of
-                                        undefined -> Acc;
-                                        Index ->
-                                            case blockchain_ledger_v1:gateway_score(A, Ledger) of
-                                                {ok, S} when S >= MinScore ->
-                                                    ScaledIndex = scale(Index, H3NeighborRes),
-                                                    case lists:member(ScaledIndex, ExclusionIndices) of
-                                                        false ->
-                                                            case (catch h3:grid_distance(ScaledGwH3, ScaledIndex)) of
-                                                                {'EXIT', _} -> Acc;
-                                                                D when D > H3MaxGridDistance -> Acc;
-                                                                _ ->
-                                                                    [{A, G} | Acc]
-                                                            end;
-                                                        true -> Acc
-                                                    end;
-                                                _ -> Acc
-                                            end
-                                    end
-                            end,
-                            [],
-                            maps:to_list(Gateways)),
-
-    [{edge_weight(PubkeyBin, Gw, A, G, Height, Ledger), A} || {A, G} <- ToInclude].
-
--define(GROSS_FILTER_RES, 6).
-
-all_neighbors(Addr, Gateways, Height, Ledger) ->
-    InclusionIndices =
-        case Addr of
-            none ->
-                [];
-            _ ->
-                Gw = maps:get(Addr, Gateways),
-                StartLoc0 = blockchain_ledger_gateway_v1:location(Gw),
-                StartLoc = scale(StartLoc0, ?GROSS_FILTER_RES),
-                h3:k_ring(StartLoc, 6)
-        end,
-    maps:fold(
-      fun(A, G, Acc) ->
-              case blockchain_ledger_gateway_v1:location(G) of
+    lists:foldl(
+      fun({A, G}, Acc) ->
+              case blockchain_ledger_gateway_v2:location(G) of
                   undefined -> Acc;
                   Index ->
-                      ScaledIndex = scale(Index, ?GROSS_FILTER_RES),
-                      case Addr == none orelse
-                          lists:member(ScaledIndex, InclusionIndices) of
+                      ScaledIndex = scale(Index, H3NeighborRes),
+                      case lists:member(ScaledIndex, ExclusionIndices) of
                           false ->
-                              Acc;
-                          _ ->
-                              Neighbors = neighbors(A, Gateways, Height, Ledger),
-                              Acc#{A => Neighbors}
-                      end
+                              case (catch h3:grid_distance(ScaledGwH3, ScaledIndex)) of
+                                  {'EXIT', _} -> Acc;
+                                  D when D > H3MaxGridDistance -> Acc;
+                                  _ ->
+                                      [A | Acc]
+                              end;
+                          true -> Acc
+                              end
               end
       end,
-      #{},
-      Gateways).
+      [],
+      maps:to_list(Gateways)).
+
+filter_neighbors(Addr, Neighbors, Gateways, Height, Ledger) ->
+    Gw = maps:get(Addr, Gateways),
+    {ok, MinScore} = blockchain:config(?min_score, Ledger),
+    ToInclude =
+        lists:filter(
+          fun(A) ->
+                  case maps:get(A, Gateways, undefined) of
+                      undefined -> false;
+                      G ->
+                          case blockchain_ledger_gateway_v2:score(A, G, Height, Ledger) of
+                              {_, _, S} when S >= MinScore ->
+                                  true;
+                              _ ->
+                                  false
+                          end
+                  end
+          end,
+          Neighbors),
+
+    [begin
+         G = maps:get(A, Gateways),
+         {edge_weight(Addr, Gw, A, G, Height, Ledger), A}
+     end
+     || A <- ToInclude].
 
 scale(Index, Res) ->
     case h3:get_resolution(Index) of
@@ -274,14 +271,14 @@ scale(Index, Res) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec edge_weight(A1 :: libp2p_crypto:pubkey_bin(),
-                  Gw1 :: blockchain_ledger_gateway_v1:gateway(),
+                  Gw1 :: blockchain_ledger_gateway_v2:gateway(),
                   A2 :: libp2p_crypto:pubkey_bin(),
-                  Gw2 :: blockchain_ledger_gateway_v1:gateway(),
+                  Gw2 :: blockchain_ledger_gateway_v2:gateway(),
                   Height :: non_neg_integer(),
                   Ledger :: blockchain_ledger_v1:ledger()) -> float().
 edge_weight(A1, Gw1, A2, Gw2, Height, Ledger) ->
-    {_, _, S1} = blockchain_ledger_gateway_v1:score(A1, Gw1, Height, Ledger),
-    {_, _, S2} = blockchain_ledger_gateway_v1:score(A2, Gw2, Height, Ledger),
+    {_, _, S1} = blockchain_ledger_gateway_v2:score(A1, Gw1, Height, Ledger),
+    {_, _, S2} = blockchain_ledger_gateway_v2:score(A2, Gw2, Height, Ledger),
     1 - abs(prob_fun(S1) - prob_fun(S2)).
 
 %%--------------------------------------------------------------------
@@ -313,7 +310,7 @@ target(Hash, Ledger, Challenger) ->
                    Ledger :: blockchain_ledger_v1:ledger()) -> [{float(), libp2p_crypto:pubkey_bin()}].
 create_probs(Gateways, Height, Ledger) ->
     GwScores = lists:foldl(fun({A, G}, Acc) ->
-                                   {_, _, Score} = blockchain_ledger_gateway_v1:score(A, G, Height, Ledger),
+                                   {_, _, Score} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
                                    [{A, prob_fun(Score)} | Acc]
                            end,
                            [],
@@ -337,13 +334,12 @@ entropy(Entropy) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->  #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v1:gateway()}.
+-spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) ->  #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 active_gateways(Ledger, Challenger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
     %% fold over all the gateways
-    NeighborsMap = all_neighbors(none, Gateways, Height, Ledger),
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
@@ -352,7 +348,7 @@ active_gateways(Ledger, Challenger) ->
                   %% and hasn't been added to the graph and our score
                   %% is good enough
                   PubkeyBin == Challenger orelse
-                  blockchain_ledger_gateway_v1:location(Gateway) == undefined orelse
+                  blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
                   maps:is_key(PubkeyBin, Acc0) orelse
                   Score =< MinScore
               of
@@ -360,7 +356,7 @@ active_gateways(Ledger, Challenger) ->
                       Acc0;
                   false ->
                       %% build the graph originating at this location
-                      Graph = build_graph_int([PubkeyBin], Gateways, NeighborsMap, #{}),
+                      Graph = build_graph_int([PubkeyBin], Gateways, Height, Ledger, #{}),
                       case maps:size(Graph) > 2 of
                           false ->
                               Acc0;
@@ -444,7 +440,6 @@ target_test_() ->
      60000,
      fun() ->
              e2qc:teardown(score_cache),
-             e2qc:teardown(gateways_cache),
              BaseDir = test_utils:tmp_dir("target_test"),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -491,7 +486,6 @@ target_test_() ->
 
 neighbors_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("neighbors_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -504,9 +498,9 @@ neighbors_test() ->
                 {{37.780827, -122.44716}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
-    Neighbors = neighbors(Target, Gateways, 1, Ledger),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
+    Neighbors = filter_neighbors(Target, neighbors(Target, Gateways, Ledger), Gateways, 1, Ledger),
     ?assertEqual(6, erlang:length(Neighbors)),
     {LL1, _, _} = lists:last(LatLongs),
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
@@ -522,7 +516,6 @@ neighbors_test() ->
 
 build_graph_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_graph_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -536,7 +529,7 @@ build_graph_test() ->
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
-    {Target, Gateways} = build_gateways(LatLongs),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
 
@@ -560,8 +553,8 @@ build_graph_in_line_test() ->
                 {{37.781637, -122.4543}, 1000.0, 0.1},
                 {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
@@ -570,7 +563,7 @@ build_graph_in_line_test() ->
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
 
-    Addresses = lists:droplast([crypto:hash(sha256, erlang:term_to_binary(X)) || {X, _, _} <- LatLongs]),
+    Addresses = ll_to_addr(lists:droplast(LatLongs), Gateways),
     Size = erlang:length(Addresses),
 
     lists:foldl(
@@ -601,7 +594,6 @@ build_graph_in_line_test() ->
 
 build_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -615,8 +607,8 @@ build_test() ->
                 {{37.781637, -122.4543}, 1000.0, 20.0},
                 {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -628,7 +620,6 @@ build_test() ->
 
 build_only_2_test() ->
     e2qc:teardown(score_cache),
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("build_only_2_test"),
     % All these point are in a line one after the other
     LatLongs = [
@@ -636,8 +627,8 @@ build_only_2_test() ->
                 {{37.78101, -122.465372}, 10.0, 1000.0},
                 {{37.780586, -122.469471}, 100.0, 20.0}
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
@@ -653,7 +644,6 @@ build_prob_test_() ->
      fun() ->
              BaseDir = test_utils:tmp_dir("build_prob_test_"),
              e2qc:teardown(score_cache),
-             e2qc:teardown(gateways_cache),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
                          {{37.782604, -122.447857}, 1.0, 1.0},
@@ -665,8 +655,8 @@ build_prob_test_() ->
                          {{37.780827, -122.44716}, 1.0, 1.0},
                          {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                         ],
-             {Target, Gateways} = build_gateways(LatLongs),
              Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+             {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
              Iteration = 1000,
              Size = erlang:length(LatLongs)-2,
@@ -704,8 +694,8 @@ build_failed_test() ->
                 {{37.78101, -122.465372}, 10.0, 1000.0},
                 {{12.780586, -122.469471}, 1000.0, 20.0}
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     ok.
@@ -724,15 +714,14 @@ build_with_default_score_test() ->
                 {{37.781637, -122.4543}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assert(lists:member(Target, Path)),
     unload_meck(),
     ok.
 
 active_gateways_test() ->
-    e2qc:teardown(gateways_cache),
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
     % 2 First points are grouped together and next ones form a group also
     LatLongs = [
@@ -803,37 +792,94 @@ no_neighbor_test() ->
                 {{37.781468, -122.456617}, 1.0, 1.0},
                 {{37.781637, -122.4543}, 1.0, 1.0}
                ],
-    {Target, Gateways} = build_gateways(LatLongs),
     Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
-    Neighbors = neighbors(Target, Gateways, 1, Ledger),
+    {Target, Gateways} = build_gateways(LatLongs, Ledger),
+    Neighbors = filter_neighbors(Target, neighbors(Target, Gateways, Ledger), Gateways, 1, Ledger),
     ?assertEqual([], Neighbors),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     ok.
 
-build_gateways(LatLongs) ->
-    Gateways = lists:foldl(
-                 fun({LatLong, Alpha, Beta}, Acc) ->
-                         Owner = <<"test">>,
-                         Address = crypto:hash(sha256, erlang:term_to_binary(LatLong)),
-                         Res = 12,
-                         Index = h3:from_geo(LatLong, Res),
-                         G0 = blockchain_ledger_gateway_v1:new(Owner, Index),
-                         G1 = blockchain_ledger_gateway_v1:set_alpha_beta_delta(Alpha, Beta, 1, G0),
-                         maps:put(Address, G1, Acc)
-
-                 end,
-                 maps:new(),
-                 LatLongs
-                ),
+build_gateways(LatLongs, Ledger) ->
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     [{LL, _, _}|_] = LatLongs,
-    Target = crypto:hash(sha256, erlang:term_to_binary(LL)),
-    {Target, Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v1:new(<<"test">>, undefined)}}.
+    TargetLoc = h3:from_geo(LL, 12),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    {done, Target} =
+        maps:fold(fun(A, G, {done, T}) ->
+                          set_score(LatLongs, A, G, Ledger1),
+                          {done, T};
+                     (A, G, not_found) ->
+                          set_score(LatLongs, A, G, Ledger1),
+                          io:fwrite("a ~p t ~p L ~p~n", [A, TargetLoc, blockchain_ledger_gateway_v2:location(G)]),
+                          case TargetLoc == blockchain_ledger_gateway_v2:location(G) of
+                             true ->
+                                  {done, A};
+                              _ ->
+                                  not_found
+                          end
+                  end,
+                  not_found,
+                  Gateways),
+    blockchain_ledger_v1:commit_context(Ledger1),
+
+    {Target,
+     %% append a location undefined garbage value, TODO replace with "real" unlocated gateway
+     Gateways#{crypto:strong_rand_bytes(32) => blockchain_ledger_gateway_v2:new(<<"test">>, undefined)}}.
+
+ll_to_addr(LLs, Gws) ->
+    [begin
+         M = maps:filter(
+               fun(_A, G) ->
+                       h3:from_geo(LL, 12) == blockchain_ledger_gateway_v2:location(G)
+               end, Gws),
+         ?assertEqual(1, maps:size(M)),
+         [Addr] = maps:keys(M),
+         Addr
+     end
+     || {LL, _, _} <- LLs].
+
+set_score(LLs, A, G, Ledger) ->
+    Loc = blockchain_ledger_gateway_v2:location(G),
+    lists:foreach(fun({LatLong, Alpha, Beta}) ->
+                          Index = h3:from_geo(LatLong, 12),
+                          case Index == Loc of
+                              true ->
+                                  G1 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, G),
+                                  blockchain_ledger_v1:update_gateway(G1, A, Ledger);
+                              false ->
+                                  ok
+                          end
+                  end, LLs).
+
 
 build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDist) ->
     Ledger = blockchain_ledger_v1:new(TestDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_worker,
+                blockchain,
+                fun() ->
+                        not_undefined
+                end),
+    meck:expect(blockchain,
+                ledger,
+                fun(_) ->
+                        Ledger1
+                end),
+    meck:expect(blockchain,
+                get_block,
+                fun(_, _) ->
+                        {ok,
+                         blockchain_block_v1:new(#{prev_hash => <<>>,
+                                                   height => 1,
+                                                   time => 0,
+                                                   hbbft_round => 1,
+                                                   transactions => [],
+                                                   signatures => [],
+                                                   election_epoch => 1,
+                                                   epoch_start => 1})}
+                end),
     meck:expect(blockchain_swarm,
                 pubkey_bin,
                 fun() ->
@@ -871,10 +917,11 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
     Res = 12,
     OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(test_utils:generate_keys(N), test_utils:generate_keys(N))],
 
-    _ = lists:map(fun({{Owner, Gw}, {Coordinate, _, _}}) ->
-                          blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1)
+    lists:foreach(fun({{Owner, Gw}, {Coordinate, _, _}}) ->
+                          ok = blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1),
+                          {ok, _} = blockchain_ledger_v1:find_gateway_info(Gw, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
-    blockchain_ledger_v1:commit_context(Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
 
 unload_meck() ->

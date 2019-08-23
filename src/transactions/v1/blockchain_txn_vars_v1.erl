@@ -362,7 +362,8 @@ legacy_is_valid(Txn, Chain) ->
             Ret
     end.
 
-
+%% TODO: we need a generalized hook here for when chain vars change
+%% and invalidate something in the ledger, to enable stuff to stay consistent
 -spec absorb(txn_vars(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -426,7 +427,7 @@ check_members(Members, Target, Ledger) ->
     lists:all(fun(M) ->
                       case blockchain_ledger_v1:find_gateway_info(M, Ledger) of
                           {ok, Gw} ->
-                              V = blockchain_ledger_gateway_v1:version(Gw),
+                              V = blockchain_ledger_gateway_v2:version(Gw),
                               V >= Target;
                           _ -> false
                       end

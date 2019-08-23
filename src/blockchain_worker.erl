@@ -247,9 +247,11 @@ init(Args) ->
     Blockchain =
         case blockchain:new(BaseDir, GenDir, AssumedValidBlockHash) of
             {no_genesis, _Chain}=R ->
+                %% mark all upgrades done
                 R;
             {ok, Chain} ->
                 {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
+                %% do ledger upgrade
                 ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
