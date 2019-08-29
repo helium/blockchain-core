@@ -212,7 +212,8 @@ signed_metadata_fun() ->
                 _:_ ->
                     %% probably have an expired blockchain handle
                     %% don't retry here, to avoid looping, but delete our cached handle for next time
-                    put(peerbook_md_fun_blockchain, undefined)
+                    put(peerbook_md_fun_blockchain, undefined),
+                    #{}
             end
     end.
 
