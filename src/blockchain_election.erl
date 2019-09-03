@@ -170,3 +170,15 @@ election_info(Ledger, Chain) ->
       election_height => ElectionHeight,
       election_delay => ElectionDelay
      }.
+
+get_election_txn(Block) ->
+    Txns = blockchain_block:transactions(Block),
+    case lists:filter(
+           fun(T) ->
+                   blockchain_txn:type(T) == blockchain_txn_consensus_group_v1
+           end, Txns) of
+        [Txn] ->
+            {ok, Txn};
+        _ ->
+            {error, no_group_txn}
+    end.
