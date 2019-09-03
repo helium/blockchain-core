@@ -2,7 +2,8 @@
 
 -export([
          new_group/4,
-         has_new_group/1
+         has_new_group/1,
+         election_info/2
         ]).
 
 -include("blockchain_vars.hrl").
@@ -144,3 +145,28 @@ has_new_group(Txns) ->
         [] ->
             false
     end.
+
+
+election_info(Ledger, Chain) ->
+    %% grab the current height and get the block.
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, Block} = blockchain:get_block(Height, Chain),
+
+    %% get the election info
+    {Epoch, StartHeight} = blockchain_block_v1:election_info(Block),
+
+    %% get the election txn
+    {ok, StartBlock} = blockchain:get_block(StartHeight, Chain),
+    {ok, Txn} = get_election_txn(StartBlock),
+    lager:debug("txn ~p", [Txn]),
+    ElectionHeight = blockchain_txn_consensus_group_v1:height(Txn),
+    ElectionDelay = blockchain_txn_consensus_group_v1:delay(Txn),
+
+    %% wrap it all up as a map
+
+    #{
+      epoch => Epoch,
+      start_height => StartHeight,
+      election_height => ElectionHeight,
+      election_delay => ElectionDelay
+     }.
