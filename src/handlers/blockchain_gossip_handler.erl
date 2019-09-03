@@ -22,9 +22,9 @@
         ]).
 
 init_gossip_data([Swarm, _N, Blockchain]) ->
-    lager:info("gossiping init"),
+    lager:debug("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
-    lager:info("gossiping block to peers on init"),
+    lager:debug("gossiping block to peers on init"),
     {send, gossip_data(Swarm, Block)};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
