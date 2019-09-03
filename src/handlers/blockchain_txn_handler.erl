@@ -54,7 +54,7 @@ handle_data(client, <<"error">>, State=#state{parent=Parent, txn_hash=TxnHash}) 
 handle_data(server, Data, State=#state{group=Group}) ->
     try
         Txn = blockchain_txn:deserialize(Data),
-        lager:info("Got ~p type transaction: ~p", [blockchain_txn:type(Txn), Txn]),
+        lager:debug("Got ~p type transaction: ~p", [blockchain_txn:type(Txn), Txn]),
         case libp2p_group_relcast:handle_command(Group, Txn) of
             ok ->
                 {stop, normal, State, <<"ok">>};
