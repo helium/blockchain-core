@@ -362,8 +362,7 @@ create_secret_hash(Secret, X, Acc) ->
                [binary(), ...], [binary(), ...], blockchain_ledger_v1:ledger()) -> ok | {error, atom()}.
 validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     Result = lists:foldl(
-               fun(_, {error, Reason} = Error) ->
-                       lager:error("poc_receipts error, Reason: ~p", [Reason]),
+               fun(_, {error, _} = Error) ->
                        Error;
                   ({Elem, Gateway, {LayerDatum, LayerHash}}, _Acc) ->
                        case blockchain_poc_path_element_v1:challengee(Elem) == Gateway of
@@ -375,56 +374,48 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                     false -> radio
                                                 end,
                                %% check the receipt
-                               case Receipt == undefined of
+                               case
+                                   Receipt == undefined orelse
+                                   (blockchain_poc_receipt_v1:is_valid(Receipt) andalso
+                                    blockchain_poc_receipt_v1:gateway(Receipt) == Gateway andalso
+                                    blockchain_poc_receipt_v1:data(Receipt) == LayerDatum andalso
+                                    blockchain_poc_receipt_v1:origin(Receipt) == ExpectedOrigin)
+                               of
                                    true ->
-                                       {error, undefined_receipt};
-                                   false ->
-                                       ReceiptGateway = blockchain_poc_receipt_v1:gateway(Receipt),
-                                       ReceiptData = blockchain_poc_receipt_v1:data(Receipt),
-                                       ReceiptOrigin = blockchain_poc_receipt_v1:origin(Receipt),
-                                       case ReceiptGateway == Gateway andalso
-                                            ReceiptData == LayerDatum andalso
-                                            ReceiptOrigin == ExpectedOrigin of
-                                           false ->
-                                               lager:error("ReceiptOrigin: ~p, ReceiptData: ~p, ReceiptGateway: ~p",
-                                                           [ReceiptOrigin, ReceiptData, ReceiptGateway]),
-                                               lager:error("ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
-                                                           [ExpectedOrigin, LayerDatum, Gateway]),
-                                               {error, invalid_receipt};
+                                       %% ok the receipt looks good, check the witnesses
+                                       Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
+                                       case erlang:length(Witnesses) > 5 of
                                            true ->
-                                               %% ok the receipt looks good, check the witnesses
-                                               Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                                               case erlang:length(Witnesses) > 5 of
-                                                   true ->
-                                                       {error, too_many_witnesses};
-                                                   false ->
-                                                       %% all the witnesses should have the right LayerHash
-                                                       %% and be valid
-                                                       case
-                                                           lists:all(
-                                                             fun(Witness) ->
-                                                                     %% the witnesses should have an asserted location
-                                                                     %% at the point when the request was mined!
-                                                                     WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
-                                                                     case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
-                                                                         {error, _} ->
-                                                                             false;
-                                                                         {ok, _} when Gateway == WitnessGateway ->
-                                                                             false;
-                                                                         {ok, GWInfo} ->
-                                                                             blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
-                                                                             blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                                             blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                                                                     end
-                                                             end,
-                                                             Witnesses
-                                                            )
-                                                       of
-                                                           true -> ok;
-                                                           false -> {error, invalid_witness}
-                                                       end
+                                               {error, too_many_witnesses};
+                                           false ->
+                                               %% all the witnesses should have the right LayerHash
+                                               %% and be valid
+                                               case
+                                                   lists:all(
+                                                     fun(Witness) ->
+                                                             %% the witnesses should have an asserted location
+                                                             %% at the point when the request was mined!
+                                                             WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
+                                                             case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
+                                                                 {error, _} ->
+                                                                     false;
+                                                                 {ok, _} when Gateway == WitnessGateway ->
+                                                                     false;
+                                                                 {ok, GWInfo} ->
+                                                                     blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
+                                                                     blockchain_poc_witness_v1:is_valid(Witness) andalso
+                                                                     blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                                                             end
+                                                     end,
+                                                     Witnesses
+                                                    )
+                                               of
+                                                   true -> ok;
+                                                   false -> {error, invalid_witness}
                                                end
-                                       end
+                                       end;
+                                   false ->
+                                       {error, invalid_receipt}
                                end;
                            _ ->
                                {error, receipt_not_in_order}
