@@ -141,7 +141,8 @@ is_valid(Txn, Chain) ->
                     {error, empty_path};
                 false ->
                     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
-                        {error, _}=Error ->
+                        {error, Reason}=Error ->
+                            lager:error("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [POCOnionKeyHash, Reason]),
                             Error;
                         {ok, PoCs} ->
                             Secret = ?MODULE:secret(Txn),
@@ -150,12 +151,14 @@ is_valid(Txn, Chain) ->
                                     {error, poc_not_found};
                                 {ok, _PoC} ->
                                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                                        {error, _Reason}=Error ->
+                                        {error, Reason}=Error ->
+                                            lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
                                             Error;
                                         {ok, GwInfo} ->
                                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                                             case blockchain:get_block(LastChallenge, Chain) of
-                                                {error, _}=Error ->
+                                                {error, Reason}=Error ->
+                                                    lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
                                                     Error;
                                                 {ok, Block1} ->
                                                     PoCInterval = blockchain_utils:challenge_interval(Ledger),
@@ -412,6 +415,19 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                end
                                        end;
                                    false ->
+                                       case Receipt == undefined of
+                                           true ->
+                                               lager:error("Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
+                                                           [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
+                                           false ->
+                                               lager:error("Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
+                                                           [blockchain_poc_receipt_v1:origin(Receipt),
+                                                            ExpectedOrigin,
+                                                            blockchain_poc_receipt_v1:data(Receipt),
+                                                            LayerDatum,
+                                                            blockchain_poc_receipt_v1:gateway(Receipt),
+                                                            Gateway])
+                                       end,
                                        {error, invalid_receipt}
                                end;
                            _ ->
