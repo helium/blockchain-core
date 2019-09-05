@@ -415,6 +415,19 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                end
                                        end;
                                    false ->
+                                       case Receipt == undefined of
+                                           true ->
+                                               lager:error("Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
+                                                           [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
+                                           false ->
+                                               lager:error("Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
+                                                           [blockchain_poc_receipt_v1:origin(Receipt),
+                                                            ExpectedOrigin,
+                                                            blockchain_poc_receipt_v1:data(Receipt),
+                                                            LayerDatum,
+                                                            blockchain_poc_receipt_v1:gateway(Receipt),
+                                                            Gateway])
+                                       end,
                                        {error, invalid_receipt}
                                end;
                            _ ->
