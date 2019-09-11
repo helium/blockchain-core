@@ -314,6 +314,25 @@ absorb(Txn, Chain) ->
      LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
      Challenger = ?MODULE:challenger(Txn),
      Ledger = blockchain:ledger(Chain),
+     Path = blockchain_txn_poc_receipts_v1:path(Txn),
+     Length = length(Path),
+     %% update the witness values for gateways in the path
+     lists:foreach(fun({N, Element}) ->
+                         Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                         Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                         %% TODO check these witnesses have valid RSSI/timestamps
+                         WitnessAddresses0 = [ blockchain_poc_witness_v1:gateway(W) || W <- Witnesses ],
+                         NextElements = lists:sublist(Path, N+1, Length),
+                         WitnessAddresses = case check_path_continuation(NextElements) of
+                                                true ->
+                                                    %% the next hop is also a witness for this
+                                                    [blockchain_poc_path_element_v1:challengee(hd(NextElements)) | WitnessAddresses0];
+                                                false ->
+                                                    WitnessAddresses0
+                                            end,
+                         blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessAddresses, Ledger)
+                 end, lists:zip(lists:seq(1, Length), Path)),
+
      case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
          {error, _}=Error ->
              Error;
