@@ -32,23 +32,28 @@ prop_path_check() ->
 
                 unload_meck(),
                 ?WHENFAIL(begin
-                              %% io:format("Scores: ~p~n", [ScoredIndices]),
                               io:format("Target: ~p~n", [Target]),
-                              %% io:format("Gateways: ~p~n", [Gateways]),
                               io:format("Path: ~p~n", [Path])
                           end,
                           conjunction([
                                        {verify_no_target,
-                                        TargetFound == false andalso
-                                        PathFound == false andalso
-                                        Target == undefined andalso
-                                        Path == undefined
+                                        (TargetFound == false andalso
+                                         PathFound == false andalso
+                                         Target == undefined andalso
+                                         Path == undefined) orelse TargetFound == true
                                        },
                                        {verify_target_found_no_path,
-                                        TargetFound andalso
-                                        PathFound == false andalso
-                                        Target /= undefined andalso
-                                        Path == undefined
+                                        (TargetFound andalso
+                                         PathFound == false andalso
+                                         Target /= undefined andalso
+                                         Path == undefined) orelse PathFound == true
+                                       },
+                                       {verify_target_found_no_path,
+                                        (TargetFound andalso
+                                         PathFound andalso
+                                         Target /= undefined andalso
+                                         Gateways /= undefined andalso
+                                         length(Path) > 0) orelse PathFound == false
                                        },
                                        {verify_target_found_with_path,
                                         TargetFound andalso
