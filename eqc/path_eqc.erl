@@ -13,39 +13,50 @@ prop_path_check() ->
                 Ledger = build_fake_ledger(BaseDir, ScoredIndices, 3, 60, not_found),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
-                %% {Index, {A, B}} = lists:nth(Target, ScoredIndices),
-                %% KnownTarget = {Index, {blockchain_utils:normalize_float(A), blockchain_utils:normalize_float(B)}},
                 Challenger = hd(maps:keys(ActiveGateways)),
-                {Target, Gateways} = case blockchain_poc_path:target(Hash, Ledger, Challenger) of
-                                         no_target ->
-                                             {undefined, undefined};
-                                         {T, Gs} ->
-                                             {T, Gs}
-                                     end,
-
-                %% Foo = hd(lists:filter(fun(Gateway) ->
-                                              %% case blockchain_ledger_gateway_v2:location(Gateway) == element(1, KnownTarget) of
-                                                  %% true ->
-                                                      %% io:format("KnownTarget: ~p~n", [KnownTarget]),
-                                                      %% io:format("Gateway: ~p~n", [Gateway]);
-                                                  %% false ->
-                                                      %% ok
-                                              %% end,
-                                              %% {blockchain_ledger_gateway_v2:location(Gateway),
-                                               %% {blockchain_utils:normalize_float(blockchain_ledger_gateway_v2:alpha(Gateway) - 1),
-                                                %% blockchain_utils:normalize_float(blockchain_ledger_gateway_v2:beta(Gateway) - 1)}} == KnownTarget
-                                      %% end,
-                                      %% maps:values(ActiveGateways))),
+                {TargetFound,
+                 PathFound,
+                 Target,
+                 Gateways,
+                 Path} = case blockchain_poc_path:target(Hash, Ledger, Challenger) of
+                             no_target ->
+                                 {false, false, undefined, undefined, undefined};
+                             {T, Gs} ->
+                                 case blockchain_poc_path:build(Hash, T, Gs, 0, Ledger) of
+                                     {error, _} ->
+                                         {true, false, T, Gs, undefined};
+                                     {ok, P} ->
+                                         {true, true, T, Gs, P}
+                                 end
+                         end,
 
                 unload_meck(),
                 ?WHENFAIL(begin
-                              io:format("Scores: ~p~n", [ScoredIndices]),
-                              %% io:format("Target: ~p~n", [lists:nth(Target, ScoredIndices)])
+                              %% io:format("Scores: ~p~n", [ScoredIndices]),
                               io:format("Target: ~p~n", [Target]),
-                              io:format("Gateways: ~p~n", [Gateways])
+                              %% io:format("Gateways: ~p~n", [Gateways]),
+                              io:format("Path: ~p~n", [Path])
                           end,
                           conjunction([
-                                       {path_equality, true}
+                                       {verify_no_target,
+                                        TargetFound == false andalso
+                                        PathFound == false andalso
+                                        Target == undefined andalso
+                                        Path == undefined
+                                       },
+                                       {verify_target_found_no_path,
+                                        TargetFound andalso
+                                        PathFound == false andalso
+                                        Target /= undefined andalso
+                                        Path == undefined
+                                       },
+                                       {verify_target_found_with_path,
+                                        TargetFound andalso
+                                        PathFound andalso
+                                        Target /= undefined andalso
+                                        Gateways /= undefined andalso
+                                        length(Path) > 0
+                                       }
                                       ]))
             end).
 
@@ -151,8 +162,8 @@ build_fake_ledger(TestDir, ScoredIndices, ExclusionRingDist, MaxGridDist, PathLi
     OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(generate_keys(N), generate_keys(N))],
 
     lists:foreach(fun({{Owner, Address}, {Index, {Alpha, Beta}}}) ->
-                          ok = blockchain_ledger_v1:add_gateway(Owner, Address, Ledger1),
-                          ok = blockchain_ledger_v1:add_gateway_location(Address, Index, 0, Ledger1),
+                          ok = blockchain_ledger_v1:add_gateway(Owner, Address, Index, 0, Ledger1),
+                          %% ok = blockchain_ledger_v1:add_gateway_location(Address, Index, 0, Ledger1),
                           ok = blockchain_ledger_v1:update_gateway_score(Address, {Alpha, Beta}, Ledger1)
                   end, lists:zip(OwnerAndGateways, ScoredIndices)),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
