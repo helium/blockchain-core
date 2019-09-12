@@ -6,56 +6,101 @@
 -export([prop_path_check/0]).
 
 prop_path_check() ->
-    ?FORALL({AlphaBetas, Hash}, {gen_scores(), gen_hash()},
+    ?FORALL({AlphaBetas,
+             Hash,
+             Index,
+             UseTarget,
+             UsePathLimit,
+             PathLimit}, {gen_scores(),
+                          gen_hash(),
+                          gen_target_index(),
+                          gen_use_target(),
+                          gen_use_path_limit(),
+                          gen_path_limit()},
             begin
                 ScoredIndices = lists:zip(indices(), AlphaBetas),
                 BaseDir = tmp_dir("path_eqc"),
-                Ledger = build_fake_ledger(BaseDir, ScoredIndices, 3, 60, not_found),
+
+                Ledger = case UsePathLimit of
+                             false ->
+                                 build_fake_ledger(BaseDir, ScoredIndices, 3, 60, not_found);
+                             true ->
+                                 build_fake_ledger(BaseDir, ScoredIndices, 3, 60, PathLimit)
+                         end,
+
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
-                Challenger = hd(maps:keys(ActiveGateways)),
-                {TargetFound,
-                 PathFound,
-                 Target,
-                 Gateways,
-                 Path} = case blockchain_poc_path:target(Hash, Ledger, Challenger) of
-                             no_target ->
-                                 {false, false, undefined, undefined, undefined};
-                             {T, Gs} ->
-                                 case blockchain_poc_path:build(Hash, T, Gs, 0, Ledger) of
-                                     {error, _} ->
-                                         {true, false, T, Gs, undefined};
-                                     {ok, P} ->
-                                         {true, true, T, Gs, P}
-                                 end
-                         end,
+                {HasLocalGeo, {PathFound, Path}} = case UseTarget of
+                                                       false ->
+                                                           {TargetIndex, {_A, _B}} = lists:nth(Index + 1, ScoredIndices),
+
+                                                           {TargetGwBin, _} = hd(lists:filter(fun({_K, V}) ->
+                                                                                                      blockchain_ledger_gateway_v2:location(V) == TargetIndex
+                                                                                              end,
+                                                                                              maps:to_list(ActiveGateways))),
+
+                                                           HasLocalGeo0 = case blockchain_poc_path:neighbors(TargetGwBin, ActiveGateways, Ledger) of
+                                                                              {error, _} ->
+                                                                                  false;
+                                                                              N when length(N) > 1 ->
+                                                                                  true;
+                                                                              _ ->
+                                                                                  false
+                                                                          end,
+
+                                                           PathFound0 = case HasLocalGeo0 of
+                                                                            false ->
+                                                                                {false, undefined};
+                                                                            true ->
+                                                                                case blockchain_poc_path:build(Hash, TargetGwBin, ActiveGateways, 1, Ledger) of
+                                                                                    {error, _} ->
+                                                                                        {false, undefined};
+                                                                                    {ok, P} ->
+                                                                                        {true, P}
+                                                                                end
+                                                                        end,
+                                                           {HasLocalGeo0, PathFound0};
+                                                       true ->
+                                                           Challenger = hd(maps:keys(ActiveGateways)),
+                                                           case blockchain_poc_path:target(Hash, Ledger, Challenger) of
+                                                               no_target ->
+                                                                   {false, {false, undefined}};
+                                                               {T, Gs} ->
+                                                                   case blockchain_poc_path:build(Hash, T, Gs, 1, Ledger) of
+                                                                       {error, _} ->
+                                                                           {true, {false, undefined}};
+                                                                       {ok, P2} ->
+                                                                           {true, {true, P2}}
+                                                                   end
+                                                           end
+                                                   end,
+
+                Check = case {HasLocalGeo, PathFound, Path} of
+                            {false, false, undefined} ->
+                                true;
+                            {true, false, undefined} ->
+                                true;
+                            {true, true, P0} when P0 /= undefined ->
+                                case UsePathLimit of
+                                    true ->
+                                        length(P0) =< PathLimit;
+                                    false ->
+                                        true
+                                end;
+                            _ ->
+                                false
+                        end,
 
                 unload_meck(),
                 ?WHENFAIL(begin
-                              io:format("Target: ~p~n", [Target]),
-                              io:format("Path: ~p~n", [Path])
+                              io:format("UseTarget: ~p~n", [UseTarget]),
+                              io:format("UsePathLimit: ~p~n", [UsePathLimit]),
+                              io:format("HasLocalGeo: ~p~n", [HasLocalGeo]),
+                              io:format("PathLimit: ~p~n", [PathLimit]),
+                              io:format("PathFound: ~p~n", [PathFound])
                           end,
-                          conjunction([
-                                       {verify_no_target,
-                                        (TargetFound == false andalso
-                                         PathFound == false andalso
-                                         Target == undefined andalso
-                                         Path == undefined) orelse TargetFound == true
-                                       },
-                                       {verify_target_found_no_path,
-                                        (TargetFound andalso
-                                         PathFound == false andalso
-                                         Target /= undefined andalso
-                                         Path == undefined) orelse PathFound == true
-                                       },
-                                       {verify_target_found_with_path,
-                                        TargetFound andalso
-                                        PathFound andalso
-                                        Target /= undefined andalso
-                                        Gateways /= undefined andalso
-                                        length(Path) > 0
-                                       }
-                                      ]))
+                          conjunction([{verify_path, Check}])
+                         )
             end).
 
 gen_beta() ->
@@ -69,6 +114,18 @@ gen_scores() ->
 
 gen_hash() ->
     binary(32).
+
+gen_target_index() ->
+    ?SUCHTHAT(S, nat(), S < length(indices())).
+
+gen_use_target() ->
+    bool().
+
+gen_use_path_limit() ->
+    bool().
+
+gen_path_limit() ->
+    ?SUCHTHAT(S, nat(), S =< 7).
 
 indices() ->
     [631188755337926143, 631210968850123263, 631713493642392063, 631210968893205503,
@@ -171,13 +228,13 @@ generate_keys(N) ->
 
 generate_keys(N, Type) ->
     lists:foldl(
-        fun(_, Acc) ->
-            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
-            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
-        end,
-        [],
-        lists:seq(1, N)).
+      fun(_, Acc) ->
+              #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(Type),
+              SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+              [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+      end,
+      [],
+      lists:seq(1, N)).
 
 tmp_dir() ->
     nonl(os:cmd("mktemp -d")).
