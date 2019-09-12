@@ -910,7 +910,7 @@ add_gateway_witnesses(GatewayAddress, Witnesses, Ledger) ->
                                       end
                               end, GW0, Witnesses),
             AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, GW1)
+            cache_put(Ledger, AGwsCF, GatewayAddress, blockchain_ledger_gateway_v2:serialize(GW1))
     end.
 
 %%--------------------------------------------------------------------
@@ -1598,7 +1598,7 @@ routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) 
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
+-spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
     CFCache = case ets:lookup(Cache, CF) of
