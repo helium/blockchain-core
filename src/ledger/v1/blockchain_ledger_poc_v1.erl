@@ -6,10 +6,11 @@
 -module(blockchain_ledger_poc_v1).
 
 -export([
-    new/3,
+    new/4,
     secret_hash/1, secret_hash/2,
     onion_key_hash/1, onion_key_hash/2,
     challenger/1, challenger/2,
+    block_hash/1, block_hash/2,
     serialize/1, deserialize/1,
     find_valid/3,
     rxtx/0, rx/0, tx/0, fail/0
@@ -24,7 +25,8 @@
 -record(poc_v1, {
     secret_hash :: binary(),
     onion_key_hash :: binary(),
-    challenger :: libp2p_crypto:pubkey_bin()
+    challenger :: libp2p_crypto:pubkey_bin(),
+    block_hash :: binary()
 }).
 
 -define(RXTX, rxtx).
@@ -42,12 +44,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(binary(), binary(), libp2p_crypto:pubkey_bin()) -> poc().
-new(SecretHash, OnionKeyHash, Challenger) ->
+-spec new(binary(), binary(), libp2p_crypto:pubkey_bin(), binary()) -> poc().
+new(SecretHash, OnionKeyHash, Challenger, BlockHash) ->
     #poc_v1{
         secret_hash=SecretHash,
         onion_key_hash=OnionKeyHash,
-        challenger=Challenger
+        challenger=Challenger,
+        block_hash=BlockHash
     }.
 
 %%--------------------------------------------------------------------
@@ -97,6 +100,22 @@ challenger(PoC) ->
 -spec challenger(libp2p_crypto:pubkey_bin(), poc()) -> poc().
 challenger(Challenger, PoC) ->
     PoC#poc_v1{challenger=Challenger}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec block_hash(poc()) -> binary().
+block_hash(PoC) ->
+    PoC#poc_v1.block_hash.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec block_hash(binary(), poc()) -> poc().
+block_hash(Challenger, PoC) ->
+    PoC#poc_v1{block_hash=Challenger}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -176,23 +195,29 @@ new_test() ->
     PoC = #poc_v1{
         secret_hash= <<"some sha256">>,
         onion_key_hash= <<"some key bin">>,
-        challenger = <<"address">>
+        challenger = <<"address">>,
+        block_hash = <<"block_hash">>
     },
-    ?assertEqual(PoC, new(<<"some sha256">>, <<"some key bin">>, <<"address">>)).
+    ?assertEqual(PoC, new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>)).
 
 secret_hash_test() ->
-    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>),
+    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>),
     ?assertEqual(<<"some sha256">>, secret_hash(PoC)),
     ?assertEqual(<<"some sha512">>, secret_hash(secret_hash(<<"some sha512">>, PoC))).
 
 onion_key_hash_test() ->
-    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>),
+    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>),
     ?assertEqual(<<"some key bin">>, onion_key_hash(PoC)),
     ?assertEqual(<<"some key bin 2">>, onion_key_hash(onion_key_hash(<<"some key bin 2">>, PoC))).
 
 challenger_test() ->
-    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>),
+    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>),
     ?assertEqual(<<"address">>, challenger(PoC)),
     ?assertEqual(<<"address 2">>, challenger(challenger(<<"address 2">>, PoC))).
+
+block_hash_test() ->
+    PoC = new(<<"some sha256">>, <<"some key bin">>, <<"address">>, <<"block_hash">>),
+    ?assertEqual(<<"block_hash">>, block_hash(PoC)),
+    ?assertEqual(<<"block_hash 2">>, block_hash(block_hash(<<"block_hash 2">>, PoC))).
 
 -endif.
