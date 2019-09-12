@@ -48,13 +48,6 @@ prop_path_check() ->
                                          Target /= undefined andalso
                                          Path == undefined) orelse PathFound == true
                                        },
-                                       {verify_target_found_no_path,
-                                        (TargetFound andalso
-                                         PathFound andalso
-                                         Target /= undefined andalso
-                                         Gateways /= undefined andalso
-                                         length(Path) > 0) orelse PathFound == false
-                                       },
                                        {verify_target_found_with_path,
                                         TargetFound andalso
                                         PathFound andalso
@@ -168,7 +161,6 @@ build_fake_ledger(TestDir, ScoredIndices, ExclusionRingDist, MaxGridDist, PathLi
 
     lists:foreach(fun({{Owner, Address}, {Index, {Alpha, Beta}}}) ->
                           ok = blockchain_ledger_v1:add_gateway(Owner, Address, Index, 0, Ledger1),
-                          %% ok = blockchain_ledger_v1:add_gateway_location(Address, Index, 0, Ledger1),
                           ok = blockchain_ledger_v1:update_gateway_score(Address, {Alpha, Beta}, Ledger1)
                   end, lists:zip(OwnerAndGateways, ScoredIndices)),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
