@@ -32,47 +32,9 @@ prop_path_check() ->
 
                 {HasLocalGeo, {PathFound, Path}} = case UseTarget of
                                                        false ->
-                                                           {TargetIndex, {_A, _B}} = lists:nth(Index + 1, ScoredIndices),
-
-                                                           {TargetGwBin, _} = hd(lists:filter(fun({_K, V}) ->
-                                                                                                      blockchain_ledger_gateway_v2:location(V) == TargetIndex
-                                                                                              end,
-                                                                                              maps:to_list(ActiveGateways))),
-
-                                                           HasLocalGeo0 = case blockchain_poc_path:neighbors(TargetGwBin, ActiveGateways, Ledger) of
-                                                                              {error, _} ->
-                                                                                  false;
-                                                                              N when length(N) > 1 ->
-                                                                                  true;
-                                                                              _ ->
-                                                                                  false
-                                                                          end,
-
-                                                           PathFound0 = case HasLocalGeo0 of
-                                                                            false ->
-                                                                                {false, undefined};
-                                                                            true ->
-                                                                                case blockchain_poc_path:build(Hash, TargetGwBin, ActiveGateways, 1, Ledger) of
-                                                                                    {error, _} ->
-                                                                                        {false, undefined};
-                                                                                    {ok, P} ->
-                                                                                        {true, P}
-                                                                                end
-                                                                        end,
-                                                           {HasLocalGeo0, PathFound0};
+                                                           indexed_target(Hash, Index, ScoredIndices, ActiveGateways, Ledger);
                                                        true ->
-                                                           Challenger = hd(maps:keys(ActiveGateways)),
-                                                           case blockchain_poc_path:target(Hash, Ledger, Challenger) of
-                                                               no_target ->
-                                                                   {false, {false, undefined}};
-                                                               {T, Gs} ->
-                                                                   case blockchain_poc_path:build(Hash, T, Gs, 1, Ledger) of
-                                                                       {error, _} ->
-                                                                           {true, {false, undefined}};
-                                                                       {ok, P2} ->
-                                                                           {true, {true, P2}}
-                                                                   end
-                                                           end
+                                                           calculated_target(Hash, ActiveGateways, Ledger)
                                                    end,
 
                 Check = case {HasLocalGeo, PathFound, Path} of
@@ -249,3 +211,47 @@ nonl([]) -> [].
 unload_meck() ->
     ?assert(meck:validate(blockchain)),
     meck:unload(blockchain).
+
+indexed_target(Hash, Index, ScoredIndices, ActiveGateways, Ledger) ->
+    {TargetIndex, {_A, _B}} = lists:nth(Index + 1, ScoredIndices),
+
+    {TargetGwBin, _} = hd(lists:filter(fun({_K, V}) ->
+                                               blockchain_ledger_gateway_v2:location(V) == TargetIndex
+                                       end,
+                                       maps:to_list(ActiveGateways))),
+
+    HasLocalGeo0 = case blockchain_poc_path:neighbors(TargetGwBin, ActiveGateways, Ledger) of
+                       {error, _} ->
+                           false;
+                       N when length(N) > 1 ->
+                           true;
+                       _ ->
+                           false
+                   end,
+
+    PathFound0 = case HasLocalGeo0 of
+                     false ->
+                         {false, undefined};
+                     true ->
+                         case blockchain_poc_path:build(Hash, TargetGwBin, ActiveGateways, 1, Ledger) of
+                             {error, _} ->
+                                 {false, undefined};
+                             {ok, P} ->
+                                 {true, P}
+                         end
+                 end,
+    {HasLocalGeo0, PathFound0}.
+
+calculated_target(Hash, ActiveGateways, Ledger) ->
+    Challenger = hd(maps:keys(ActiveGateways)),
+    case blockchain_poc_path:target(Hash, Ledger, Challenger) of
+        no_target ->
+            {false, {false, undefined}};
+        {T, Gs} ->
+            case blockchain_poc_path:build(Hash, T, Gs, 1, Ledger) of
+                {error, _} ->
+                    {true, {false, undefined}};
+                {ok, P2} ->
+                    {true, {true, P2}}
+            end
+    end.
