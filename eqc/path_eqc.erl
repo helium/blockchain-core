@@ -23,8 +23,10 @@ prop_path_check() ->
 
                 Ledger = case UsePathLimit of
                              false ->
+                                 %% path limit is not set
                                  build_fake_ledger(BaseDir, ScoredIndices, 3, 60, not_found);
                              true ->
+                                 %% path limit is set to whatever
                                  build_fake_ledger(BaseDir, ScoredIndices, 3, 60, PathLimit)
                          end,
 
@@ -32,24 +34,32 @@ prop_path_check() ->
 
                 {HasLocalGeo, {PathFound, Path}} = case UseTarget of
                                                        false ->
+                                                           %% use a known target, testing neighbors code path
                                                            indexed_target(Hash, Index, ScoredIndices, ActiveGateways, Ledger);
                                                        true ->
+                                                           %% calculate a target and use that for building a path
+                                                           %% to test select_target and relevant code path
                                                            calculated_target(Hash, ActiveGateways, Ledger)
                                                    end,
 
                 Check = case {HasLocalGeo, PathFound, Path} of
                             {false, false, undefined} ->
+                                %% no local geography, no path
                                 true;
                             {true, false, undefined} ->
+                                %% local geography found but no path
                                 true;
                             {true, true, P0} when P0 /= undefined ->
+                                %% local geography and path found
                                 case UsePathLimit of
                                     true ->
+                                        %% honor path limit if set
                                         length(P0) =< PathLimit;
                                     false ->
                                         true
                                 end;
                             _ ->
+                                %% fail in all other scenarios
                                 false
                         end,
 
@@ -90,6 +100,7 @@ gen_path_limit() ->
     elements([3, 4, 5, 6, 7]).
 
 indices() ->
+    %% currently known hotspot indices
     [631188755337926143, 631210968850123263, 631713493642392063, 631210968893205503,
      631781457161018367, 631781457224905727, 631210968941675007, 631210968926349823,
      631246149780204543, 631781457279630847, 631246129121579519, 631210968858365439,
