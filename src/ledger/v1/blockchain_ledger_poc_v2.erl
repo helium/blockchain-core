@@ -125,7 +125,7 @@ block_hash(Challenger, PoC) ->
 -spec serialize(poc()) -> binary().
 serialize(PoC) ->
     BinPoC = erlang:term_to_binary(PoC),
-    <<1, BinPoC/binary>>.
+    <<2, BinPoC/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -133,9 +133,28 @@ serialize(PoC) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec deserialize(binary()) -> poc().
-deserialize(<<_:1/binary, Bin/binary>>) ->
+deserialize(<<1, Bin/binary>>) ->
+    V1 = erlang:binary_to_term(Bin),
+    convert(V1);
+deserialize(<<2, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
+-record(poc_v1, {
+    secret_hash :: binary(),
+    onion_key_hash :: binary(),
+    challenger :: libp2p_crypto:pubkey_bin()
+}).
+
+convert(#poc_v1{secret_hash=SecretHash,
+                onion_key_hash=OnionKeyHash,
+                challenger=Challenger
+               }) ->
+    #poc_v2{
+        secret_hash=SecretHash,
+        onion_key_hash=OnionKeyHash,
+        challenger=Challenger,
+        block_hash= <<>>
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
