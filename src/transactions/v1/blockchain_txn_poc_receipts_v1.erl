@@ -148,7 +148,7 @@ is_valid(Txn, Chain) ->
                             Error;
                         {ok, PoCs} ->
                             Secret = ?MODULE:secret(Txn),
-                            case blockchain_ledger_poc_v1:find_valid(PoCs, Challenger, Secret) of
+                            case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
                                 {error, _} ->
                                     {error, poc_not_found};
                                 {ok, PoC} ->
@@ -172,13 +172,13 @@ is_valid(Txn, Chain) ->
                                                             case lists:any(fun(T) ->
                                                                                    blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                                   blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v1:block_hash(PoC)
+                                                                                   blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
                                                                            end,
                                                                            blockchain_block:transactions(Block1)) of
                                                                 false ->
                                                                     {error, onion_key_hash_mismatch};
                                                                 true ->
-                                                                    BlockHash = blockchain_ledger_poc_v1:block_hash(PoC),
+                                                                    BlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
                                                                     Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
