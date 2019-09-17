@@ -188,8 +188,8 @@ compute_ivs(InitialIV, KeysAndData) ->
 
 
 block_key(SecretKey, BlockHash, Ledger) ->
-    case blockchain:config(?poc_block_hash_entropy, Ledger) of
-        {ok, true} ->
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, 2} ->
             crypto:hash(sha256, <<SecretKey/binary, BlockHash/binary>>);
         _ ->
             SecretKey
@@ -204,7 +204,7 @@ encrypt_decrypt_test_() ->
     [{"no blockhash entropy", fun() -> encrypt_decrypt(Ledger) end},
      {"added blockhash entropy", fun() ->
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-         blockchain_ledger_v1:vars(#{?poc_block_hash_entropy => true}, [], Ledger1),
+         blockchain_ledger_v1:vars(#{?poc_version => 2}, [], Ledger1),
          encrypt_decrypt(Ledger1)
       end}].
 
