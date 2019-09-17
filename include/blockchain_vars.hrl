@@ -107,6 +107,8 @@
 
 %% Allow to switch POC version
 -define(poc_version, poc_version).
+%% Add block hash to encrypt / decrypt POC onion pakets
+-define(poc_block_hash_entropy, poc_block_hash_entropy).
 
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
