@@ -198,10 +198,17 @@ block_key(SecretKey, BlockHash, Ledger) ->
 
 -ifdef(TEST).
 
-encrypt_decrypt_test() ->
+encrypt_decrypt_test_() ->
     TestDir = test_utils:tmp_dir("encrypt_decrypt_test"),
     Ledger = blockchain_ledger_v1:new(TestDir),
+    [{"no blockhash entropy", fun() -> encrypt_decrypt(Ledger) end},
+     {"added blockhash entropy", fun() ->
+         Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+         blockchain_ledger_v1:vars(#{?poc_block_hash_entropy => true}, [], Ledger1),
+         encrypt_decrypt(Ledger1)
+      end}].
 
+encrypt_decrypt(Ledger) ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
     #{secret := PrivKey3, public := PubKey3} = libp2p_crypto:generate_keys(ecc_compact),
