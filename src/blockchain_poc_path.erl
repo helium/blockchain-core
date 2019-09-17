@@ -343,28 +343,33 @@ active_gateways(Ledger, Challenger) ->
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
-
-              AllowIfSynced = case blockchain:config(?poc_challenge_sync_interval, Ledger) of
+              AllowIfSynced = case blockchain:config(?poc_version, Ledger) of
                                   {error, not_found} ->
-                                      %% poc_challenge_sync_interval is not set, allow
+                                      %% Follow old code path, allow to be challenged
                                       true;
-                                  {ok, I} ->
-                                      case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-                                          undefined ->
-                                              %% Ignore
-                                              false;
-                                          L ->
-                                              case (Height - L) =< I of
-                                                  true ->
-                                                      %% Allow to participate in poc challenge
-                                                      true;
-                                                  false ->
+                                  {ok, 2} ->
+                                      case blockchain:config(?poc_challenge_sync_interval, Ledger) of
+                                          {error, not_found} ->
+                                              %% poc_challenge_sync_interval is not set, allow
+                                              true;
+                                          {ok, I} ->
+                                              case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                                                  undefined ->
                                                       %% Ignore
-                                                      false
+                                                      false;
+                                                  L ->
+                                                      case (Height - L) =< I of
+                                                          true ->
+                                                              %% ledger_height - last_poc_challenge is within our set interval,
+                                                              %% allow to participate in poc challenge
+                                                              true;
+                                                          false ->
+                                                              %% Ignore
+                                                              false
+                                                      end
                                               end
-                                      end
-                              end,
-
+                                      end,
+                              end
               case
                   %% if we're some other gateway who has a location
                   %% and hasn't been added to the graph and our score
@@ -929,6 +934,8 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.0005};
                    (max_staleness, _) ->
                         {ok, 100000};
+                   (poc_version, _) ->
+                        {ok, 2};
                    (poc_challenge_sync_interval, _) ->
                         {error, not_found}
                 end),
