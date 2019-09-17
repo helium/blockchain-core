@@ -1571,11 +1571,7 @@ routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) 
 -spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
-    CFCache = case ets:lookup(Cache, CF) of
-        [] -> #{};
-        [{CF, X}] -> X
-    end,
-    ets:insert(Cache, {CF, maps:put(Key, Value, CFCache)}),
+    ets:insert(Cache, {{CF, Key}, Value}),
     rocksdb:batch_put(Context, CF, Key, Value).
 
 %%--------------------------------------------------------------------
@@ -1588,19 +1584,14 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
         {_, undefined} ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
         {Context, Cache} ->
-            case ets:lookup(Cache, CF) of
+            case ets:lookup(Cache, {CF, Key}) of
                 [] ->
                     cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);
-                [{CF, CFCache}] ->
-                    case maps:find(Key, CFCache) of
-                        {ok, ?CACHE_TOMBSTONE} ->
-                            %% deleted in the cache
-                            not_found;
-                        {ok, Value} ->
-                            {ok, Value};
-                        error ->
-                            cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options)
-                    end
+                [{_, ?CACHE_TOMBSTONE}] ->
+                    %% deleted in the cache
+                    not_found;
+                [{_, Value}] ->
+                    {ok, Value}
             end
     end.
 
@@ -1611,59 +1602,65 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
 -spec cache_delete(ledger(), rocksdb:cf_handle(), any()) -> ok.
 cache_delete(Ledger, CF, Key) ->
     {Context, Cache} = context_cache(Ledger),
-    case ets:lookup(Cache, CF) of
+    case ets:lookup(Cache, {CF, Key}) of
         [] ->
             ok;
-        [{CF, CFCache}] ->
-            ets:insert(Cache, {CF, maps:put(Key, ?CACHE_TOMBSTONE, CFCache)})
+        [{_, _Value}] ->
+            ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE})
     end,
     rocksdb:batch_delete(Context, CF, Key).
 
-cache_fold(Ledger, CF, Fun, Acc) ->
+cache_fold(Ledger, CF, Fun0, Acc) ->
     case context_cache(Ledger) of
         {_, undefined} ->
             %% fold rocks directly
-            rocks_fold(Ledger, CF, Fun, Acc);
+            rocks_fold(Ledger, CF, Fun0, Acc);
         {_Context, Cache} ->
-            case ets:lookup(Cache, CF) of
-                [] ->
-                    %% fold rocks directly
-                    rocks_fold(Ledger, CF, Fun, Acc);
-                [{CF, CFCache}] ->
-                    %% fold using the cache wrapper
-                    {TrailingKeys, Res0} = rocks_fold(Ledger, CF, mk_cache_fold_fun(CFCache, Fun), {lists:usort(maps:keys(CFCache)), Acc}),
-                    process_fun(TrailingKeys, CFCache, Fun, Res0)
-            end
+            %% fold using the cache wrapper
+            Fun = mk_cache_fold_fun(Cache, CF, Fun0),
+            Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
+            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Fun, {Keys, Acc}),
+            process_fun(TrailingKeys, Cache, CF, Fun0, Res0)
     end.
 
 rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
     rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
 
-mk_cache_fold_fun(CFCache, Fun) ->
+mk_cache_fold_fun(Cache, CF, Fun) ->
     %% we want to preserve rocksdb order, but we assume it's normal lexiographic order
     fun({Key, Value}, {CacheKeys, Acc0}) ->
-            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc0),
-            case maps:find(Key, CFCache) of
-                {ok, ?CACHE_TOMBSTONE} ->
+            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, Cache, CF, Key, Fun, Acc0),
+            case ets:lookup(Cache, {CF, Key}) of
+                [{_, ?CACHE_TOMBSTONE}] ->
                     {NewCacheKeys, Acc};
-                {ok, CacheValue} ->
+                [{_, CacheValue}] ->
                     {NewCacheKeys, Fun({Key, CacheValue}, Acc)};
-                error ->
-                    {NewCacheKeys, Fun({Key, Value}, Acc)}
+                [] when Value /= cacheonly ->
+                    {NewCacheKeys, Fun({Key, Value}, Acc)};
+                [] ->
+                    {NewCacheKeys, Acc}
             end
     end.
 
-process_cache_only_keys(CacheKeys, CFCache, Key, Fun, Acc) ->
+process_cache_only_keys(CacheKeys, Cache, CF, Key, Fun, Acc) ->
     case lists:splitwith(fun(E) -> E < Key end, CacheKeys) of
         {ToProcess, [Key|Remaining]} -> ok;
         {ToProcess, Remaining} -> ok
     end,
-    {Remaining, process_fun(ToProcess, CFCache, Fun, Acc)}.
+    {Remaining, process_fun(ToProcess, Cache, CF, Fun, Acc)}.
 
-process_fun(ToProcess, CFCache, Fun, Acc) ->
-    lists:foldl(fun(K, A) ->
-                        Fun({K, maps:get(K, CFCache)}, A)
-                end, Acc, ToProcess).
+process_fun(ToProcess, Cache, CF, Fun, Acc) ->
+    lists:foldl(
+      fun(K, A) ->
+              case ets:lookup(Cache, {CF, K}) of
+                  [{_, ?CACHE_TOMBSTONE}] ->
+                      A;
+                  [{_, CacheValue}] ->
+                      Fun({K, CacheValue}, A);
+                  [] ->
+                      A
+              end
+      end, Acc, ToProcess).
 
 %%--------------------------------------------------------------------
 %% @doc
