@@ -96,14 +96,19 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                                 2 ->
                                     lists:reverse(Path3)
                             end,
-                    case blockchain:config(?poc_path_limit, Ledger) of
+                    case blockchain:config(?poc_version, Ledger) of
                         {error, not_found} ->
                             {ok, Path4};
-                        {ok, Val} ->
-                            %% NOTE: The tradeoff here is that we may potentially lose target and end
-                            %% from the path, but the fact that we would still have constructed it should
-                            %% suffice to build interesting paths which conform to the given path_limit
-                            {ok, lists:sublist(Path4, Val)}
+                        {ok, 2} ->
+                            case blockchain:config(?poc_path_limit, Ledger) of
+                                {error, not_found} ->
+                                    {ok, Path4};
+                                {ok, Val} ->
+                                    %% NOTE: The tradeoff here is that we may potentially lose target and end
+                                    %% from the path, but the fact that we would still have constructed it should
+                                    %% suffice to build interesting paths which conform to the given path_limit
+                                    {ok, lists:sublist(Path4, Val)}
+                            end
                     end
             end
     end.
