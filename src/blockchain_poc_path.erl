@@ -354,18 +354,12 @@ active_gateways(Ledger, Challenger) ->
                                               %% Ignore
                                               false;
                                           L ->
-                                              case Height > L of
+                                              case (Height - L) =< I of
                                                   true ->
-                                                      case (Height - L) =< I of
-                                                          true ->
-                                                              %% Allow to participate in poc challenge
-                                                              true;
-                                                          false ->
-                                                              %% Ignore
-                                                              false
-                                                      end;
+                                                      %% Allow to participate in poc challenge
+                                                      true;
                                                   false ->
-                                                      %% ledger height is lower than last poc challenge, impossible?
+                                                      %% Ignore
                                                       false
                                               end
                                       end
