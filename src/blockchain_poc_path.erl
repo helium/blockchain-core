@@ -349,20 +349,25 @@ active_gateways(Ledger, Challenger) ->
                                       %% poc_challenge_sync_interval is not set, allow
                                       true;
                                   {ok, I} ->
-                                      LastPocChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
-                                      case Height > LastPocChallenge of
-                                          true ->
-                                              case (Height - LastPocChallenge) =< I of
+                                      case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                                          undefined ->
+                                              %% Ignore
+                                              false;
+                                          L ->
+                                              case Height > L of
                                                   true ->
-                                                      %% Allow to participate in poc challenge
-                                                      true;
+                                                      case (Height - L) =< I of
+                                                          true ->
+                                                              %% Allow to participate in poc challenge
+                                                              true;
+                                                          false ->
+                                                              %% Ignore
+                                                              false
+                                                      end;
                                                   false ->
-                                                      %% Ignore
+                                                      %% ledger height is lower than last poc challenge, impossible?
                                                       false
-                                              end;
-                                          false ->
-                                              %% ledger height is lower than last poc challenge, impossible?
-                                              false
+                                              end
                                       end
                               end,
 
@@ -929,7 +934,9 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                    (beta_decay, _) ->
                         {ok, 0.0005};
                    (max_staleness, _) ->
-                        {ok, 100000}
+                        {ok, 100000};
+                   (poc_challenge_sync_interval, _) ->
+                        {error, not_found}
                 end),
     meck:expect(blockchain_ledger_v1,
                 gateway_score,
