@@ -242,7 +242,7 @@ get_reward_vars(Ledger) ->
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     POCVersion = case blockchain:config(?poc_version, Ledger) of
         {ok, V} -> V;
-        _ -> undefined
+        _ -> 1
     end,
     % blocktime is in ms, so we get blocks in seconds
     BlockTime1 = (BlockTime0/1000),
@@ -388,7 +388,7 @@ poc_challengees_rewards(Transactions, #{epoch_reward := EpochReward,
 
 poc_challengees_rewards_(_Version, [], Acc) ->
     Acc;
-poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version == 2  ->
+poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version >= 2 ->
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
             poc_challengees_rewards_(Version, Path, Acc0);
@@ -584,7 +584,7 @@ poc_challengees_rewards_version_1_test() ->
     Vars = #{
         epoch_reward => 1000,
         poc_challengees_percent => 0.19 + 0.16,
-        poc_version => undefined
+        poc_version => 1
     },
     Rewards = #{
         {gateway, poc_challengees, <<"1">>} => 175,
