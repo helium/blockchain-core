@@ -343,14 +343,38 @@ active_gateways(Ledger, Challenger) ->
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
+
+              AllowIfSynced = case blockchain:config(?poc_challenge_sync_interval, Ledger) of
+                                  {error, not_found} ->
+                                      %% poc_challenge_sync_interval is not set, allow
+                                      true;
+                                  {ok, I} ->
+                                      LastPocChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Gateway),
+                                      case Height > LastPocChallenge of
+                                          true ->
+                                              case (Height - LastPocChallenge) =< I of
+                                                  true ->
+                                                      %% Allow to participate in poc challenge
+                                                      true;
+                                                  false ->
+                                                      %% Ignore
+                                                      false
+                                              end;
+                                          false ->
+                                              %% ledger height is lower than last poc challenge, impossible?
+                                              false
+                                      end
+                              end,
+
               case
                   %% if we're some other gateway who has a location
                   %% and hasn't been added to the graph and our score
                   %% is good enough
-                  PubkeyBin == Challenger orelse
-                  blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
-                  maps:is_key(PubkeyBin, Acc0) orelse
-                  Score =< MinScore
+                  AllowIfSynced andalso
+                  (PubkeyBin == Challenger orelse
+                   blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
+                   maps:is_key(PubkeyBin, Acc0) orelse
+                   Score =< MinScore)
               of
                   true ->
                       Acc0;

@@ -108,6 +108,11 @@
 %% Allow to switch POC version
 -define(poc_version, poc_version).
 
+%% Number of blocks to wait before a hotspot can be eligible to participate in a poc
+%% challenge. This would avoid new hotspots getting challenged before they sync to an
+%% acceptable height.
+-define(poc_challenge_sync_interval, poc_challenge_sync_interval).
+
 %%%
 %%% score vars
 %%%
