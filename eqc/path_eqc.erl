@@ -179,6 +179,8 @@ build_fake_ledger(TestDir, ScoredIndices, ExclusionRingDist, MaxGridDist, PathLi
                         {ok, 100000};
                    (poc_version, _) ->
                         {ok, 2};
+                   (poc_challenge_sync_interval, _) ->
+                        {error, not_found};
                    (poc_path_limit, _) ->
                         case PathLimit of
                             not_found ->
