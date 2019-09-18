@@ -952,7 +952,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                         {ok, 0.0005};
                    (max_staleness, _) ->
                         {ok, 100000};
-                   poc_version, _) ->
+                   (poc_version, _) ->
                         {ok, 2};
                    (poc_challenge_sync_interval, _) ->
                         {error, not_found};
