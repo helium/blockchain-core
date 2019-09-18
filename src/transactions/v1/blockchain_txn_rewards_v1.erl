@@ -400,13 +400,9 @@ poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version >
                     Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
                     poc_challengees_rewards_(Version, Path, Acc1);
                 p2p ->
-                    NextElemReceipt = case Path of
-                        [] -> undefined;
-                        [E|_] -> blockchain_poc_path_element_v1:receipt(E)
-                    end,
-                    case
-                        blockchain_poc_path_element_v1:witnesses(Elem) =/= [] orelse
-                        NextElemReceipt =/= undefined
+                    case 
+                        blockchain_poc_path_element_v1:witnesses(Elem) /= [] orelse
+                        blockchain_txn_poc_receipts_v1:check_path_continuation(Path)
                     of
                         false ->
                             poc_challengees_rewards_(Version, Path, Acc0);
@@ -608,7 +604,7 @@ poc_challengees_rewards_version_2_test() ->
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1]),
         %% Reward because of witness
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1WithWitness]),
-        %% Reward because of next ele has receipt
+        %% Reward because of next elem has receipt
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor1, ElemFor2]),
         %% Reward because of witness (adding to make reward 50/50)
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemFor2WithWitness])

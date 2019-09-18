@@ -22,7 +22,8 @@
     absorb/2,
     create_secret_hash/2,
     connections/1,
-    deltas/1
+    deltas/1,
+    check_path_continuation/1
 ]).
 
 -ifdef(TEST).
