@@ -76,7 +76,8 @@
          ) -> {ok, blockchain()} | {no_genesis, blockchain()}.
 new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
     case load_genesis(Genesis) of
-        {error, _} ->
+        {error, _Reason} ->
+            lager:warning("could not load genesis file: ~p ~p", [Genesis, _Reason]),
             ?MODULE:new(Dir, undefined, AssumedValidBlockHash);
         {ok, Block} ->
             ?MODULE:new(Dir, Block, AssumedValidBlockHash)
@@ -84,6 +85,10 @@ new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
 new(Dir, undefined, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p", [Dir]),
     case load(Dir) of
+        {Blockchain, {error, {corruption, _Corrupted}}} ->
+            lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
+            ok = clean(Blockchain),
+            new(Dir, undefined, AssumedValidBlockHash);
         {Blockchain, {error, _}} ->
             lager:info("no genesis block found"),
             {no_genesis, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
@@ -95,6 +100,10 @@ new(Dir, undefined, AssumedValidBlockHash) ->
 new(Dir, GenBlock, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p and checking ~p", [Dir, GenBlock]),
     case load(Dir) of
+        {Blockchain, {error, {corruption, _Corrupted}}} ->
+            lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
+            ok = clean(Blockchain),
+            new(Dir, GenBlock, AssumedValidBlockHash);
         {Blockchain, {error, _}} ->
             lager:warning("failed to load genesis, integrating new one"),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
@@ -162,6 +171,7 @@ upgrade_gateways_v2_(Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
+    lager:info("integrating ~p", [GenesisBlock]),
     GenHash = blockchain_block:hash_block(GenesisBlock),
     ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun() ->
         {ok, Batch} = rocksdb:batch(),
