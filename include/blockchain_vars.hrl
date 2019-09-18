@@ -111,6 +111,7 @@
 %% Number of blocks to wait before a hotspot can be eligible to participate in a poc
 %% challenge. This would avoid new hotspots getting challenged before they sync to an
 %% acceptable height.
+%% Only trigger with poc_version >= 2.
 -define(poc_challenge_sync_interval, poc_challenge_sync_interval).
 
 %% Number of hotspots allowed in a poc path
