@@ -453,7 +453,7 @@ check_sync(Gateway, Ledger) ->
         {error, not_found} ->
             %% Follow old code path, allow to be challenged
             true;
-        {ok, 2} ->
+        {ok, POCVersion} when POCVersion >= 2 ->
             case blockchain:config(?poc_challenge_sync_interval, Ledger) of
                 {error, not_found} ->
                     %% poc_challenge_sync_interval is not set, allow
