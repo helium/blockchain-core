@@ -199,10 +199,14 @@ block_key(SecretKey, BlockHash, Ledger) ->
 -ifdef(TEST).
 
 encrypt_decrypt_test_() ->
-    TestDir = test_utils:tmp_dir("encrypt_decrypt_test"),
-    Ledger = blockchain_ledger_v1:new(TestDir),
-    [{"no blockhash entropy", fun() -> encrypt_decrypt(Ledger) end},
+    [{"no blockhash entropy", fun() ->
+        TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
+        Ledger = blockchain_ledger_v1:new(TestDir),
+        encrypt_decrypt(Ledger)
+      end},
      {"added blockhash entropy", fun() ->
+         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
+         Ledger = blockchain_ledger_v1:new(TestDir),
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
          blockchain_ledger_v1:vars(#{?poc_version => 2}, [], Ledger1),
          encrypt_decrypt(Ledger1)
