@@ -14,7 +14,8 @@
          build_graph/4,
          target/3,
          neighbors/3,
-         entropy/1
+         entropy/1,
+         check_sync/2
         ]).
 
 -ifdef(TEST).
@@ -343,14 +344,16 @@ active_gateways(Ledger, Challenger) ->
     maps:fold(
       fun(PubkeyBin, Gateway, Acc0) ->
               {ok, Score} = blockchain_ledger_v1:gateway_score(PubkeyBin, Ledger),
+              CheckSync = check_sync(Gateway, Ledger),
               case
                   %% if we're some other gateway who has a location
                   %% and hasn't been added to the graph and our score
                   %% is good enough
-                  PubkeyBin == Challenger orelse
-                  blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
-                  maps:is_key(PubkeyBin, Acc0) orelse
-                  Score =< MinScore
+                  CheckSync andalso
+                  (PubkeyBin == Challenger orelse
+                   blockchain_ledger_gateway_v2:location(Gateway) == undefined orelse
+                   maps:is_key(PubkeyBin, Acc0) orelse
+                   Score =< MinScore)
               of
                   true ->
                       Acc0;
@@ -429,6 +432,36 @@ prob_fun(Score) when Score =< 0.25 ->
     -16 * math:pow((Score - 0.25), 2) + 1;
 prob_fun(Score) ->
     -1.77 * math:pow((Score - 0.25), 2) + 1.
+
+check_sync(Gateway, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case blockchain:config(?poc_version, Ledger) of
+        {error, not_found} ->
+            %% Follow old code path, allow to be challenged
+            true;
+        {ok, 2} ->
+            case blockchain:config(?poc_challenge_sync_interval, Ledger) of
+                {error, not_found} ->
+                    %% poc_challenge_sync_interval is not set, allow
+                    true;
+                {ok, I} ->
+                    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                        undefined ->
+                            %% Ignore
+                            false;
+                        L ->
+                            case (Height - L) =< I of
+                                true ->
+                                    %% ledger_height - last_poc_challenge is within our set interval,
+                                    %% allow to participate in poc challenge
+                                    true;
+                                false ->
+                                    %% Ignore
+                                    false
+                            end
+                    end
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -905,7 +938,11 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                    (beta_decay, _) ->
                         {ok, 0.0005};
                    (max_staleness, _) ->
-                        {ok, 100000}
+                        {ok, 100000};
+                   (poc_version, _) ->
+                        {ok, 2};
+                   (poc_challenge_sync_interval, _) ->
+                        {error, not_found}
                 end),
     meck:expect(blockchain_ledger_v1,
                 gateway_score,
