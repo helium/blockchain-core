@@ -99,7 +99,7 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                     case blockchain:config(?poc_version, Ledger) of
                         {error, not_found} ->
                             {ok, Path4};
-                        {ok, 2} ->
+                        {ok, POCVersion} when POCVersion >= 2 ->
                             case blockchain:config(?poc_path_limit, Ledger) of
                                 {error, not_found} ->
                                     {ok, Path4};
