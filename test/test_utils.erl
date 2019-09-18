@@ -60,7 +60,8 @@ init_chain(Balance, {PrivKey, PubKey}) ->
             ?poc_challenge_interval => 30,
             ?h3_exclusion_ring_dist => 2,
             ?h3_max_grid_distance => 13,
-            ?h3_neighbor_res => 12
+            ?h3_neighbor_res => 12,
+            ?min_score => 0.15
            }),
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)

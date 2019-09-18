@@ -28,7 +28,8 @@
     election_test/1,
     chain_vars_test/1,
     token_burn_test/1,
-    payer_test/1
+    payer_test/1,
+    poc_sync_interval_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -61,7 +62,8 @@ all() ->
         epoch_reward_test,
         election_test,
         chain_vars_test,
-        token_burn_test
+        token_burn_test,
+        poc_sync_interval_test
     ].
 
 %%--------------------------------------------------------------------
@@ -1456,3 +1458,136 @@ payer_test(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
     ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v2:location(GwInfo)),
     ok.
+
+poc_sync_interval_test(Config) ->
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    PubKey = proplists:get_value(pubkey, Config),
+    PrivKey = proplists:get_value(privkey, Config),
+    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    N = proplists:get_value(n, Config),
+    Balance = proplists:get_value(balance, Config),
+
+    Ledger = blockchain:ledger(Chain),
+    Rate = 1000000,
+    {Priv, _} = proplists:get_value(master_key, Config),
+    VarTxn = fake_var_txn(Priv, 3, #{token_burn_exchange_rate => Rate}),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+
+    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
+
+    % Step 2: Token burn txn should pass now
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+    Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 23}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+
+    %% Get gateways before adding a new gateway
+    ActiveGateways0 = blockchain_ledger_v1:active_gateways(blockchain:ledger(Chain)),
+
+    %% Add gateway with a location
+    {Gateway, GatewaySigFun} = create_gateway(),
+    SignedAddGatewayTx = add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun),
+    SignedAssertLocTx = assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, ?TEST_LOCATION),
+    Txns = [SignedAddGatewayTx, SignedAssertLocTx],
+
+    %% Put the txns in a block
+    Block24 = test_utils:create_block(ConsensusMembers, Txns),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+
+    %% Check chain moved ahead
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block24), HeadHash),
+    ?assertEqual({ok, Block24}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 24}, blockchain:height(Chain)),
+
+    %% Check that gateway made in, there should be 1 new
+    ActiveGateways = blockchain_ledger_v1:active_gateways(blockchain:ledger(Chain)),
+    {ok, AddedGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(1, maps:size(ActiveGateways) - maps:size(ActiveGateways0)),
+
+    %% Check that the add gateway is _eligible_ for POC before chain vars kick in
+    ?assertEqual(true, blockchain_poc_path:check_sync(AddedGw, Ledger)),
+
+    %% Prep chain vars
+    POCVersion = 2,
+    POCChallengeSyncInterval = 10,
+    VarTxn2 = fake_var_txn(Priv,
+                           4,
+                           #{poc_version => POCVersion,
+                             poc_challenge_sync_interval => POCChallengeSyncInterval}
+                          ),
+
+    %% Forge a chain var block
+    Block25 = test_utils:create_block(ConsensusMembers, [VarTxn2]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
+
+    %% Wait for things to settle
+    timer:sleep(500),
+
+    %% Dump some more blocks
+    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+
+    %% Chain vars should have kicked in by now
+    ?assertEqual({ok, POCVersion},
+                 blockchain_ledger_v1:config(?poc_version, Ledger)),
+    ?assertEqual({ok, POCChallengeSyncInterval},
+                 blockchain_ledger_v1:config(?poc_challenge_sync_interval, Ledger)),
+
+    %% Chain should have moved further up
+    ?assertEqual({ok, 45}, blockchain:height(Chain)),
+
+    %% Added gateways poc eligibility should no longer be valid
+    ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw, Ledger)),
+
+    ok.
+
+create_gateway() ->
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    {Gateway, GatewaySigFun}.
+
+add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun) ->
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun).
+
+assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, Loc) ->
+    % Assert the Gateways location
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Loc, 1, 1, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun).
+
+fake_var_txn(Priv, Nonce, Vars) ->
+    VarTxn = blockchain_txn_vars_v1:new(Vars, Nonce),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    blockchain_txn_vars_v1:proof(VarTxn, Proof).
+
+dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, Count) ->
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+        end,
+        lists:seq(1, Count)
+    ).
