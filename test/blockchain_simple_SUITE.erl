@@ -1525,7 +1525,7 @@ poc_sync_interval_test(Config) ->
     {ok, AddedGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(1, maps:size(ActiveGateways) - maps:size(ActiveGateways0)),
 
-    %% Check that the add gateway is _eligible_ for POC before chain vars kick in
+    %% Check that the add gateway is eligible for POC before chain vars kick in
     ?assertEqual(true, blockchain_poc_path:check_sync(AddedGw, Ledger)),
 
     %% Prep chain vars
@@ -1556,7 +1556,7 @@ poc_sync_interval_test(Config) ->
     %% Chain should have moved further up
     ?assertEqual({ok, 45}, blockchain:height(Chain)),
 
-    %% Added gateways poc eligibility should no longer be valid
+    %% Added gateway's poc eligibility should no longer be valid
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw, Ledger)),
 
     %% Fake a poc_request
@@ -1573,9 +1573,14 @@ poc_sync_interval_test(Config) ->
     LastPOCChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(AddedGw2),
     ?assert(LastPOCChallenge > 45),
 
-    %% Added gateways poc eligibility should become valid
+    %% Added gateway's poc eligibility should become valid
     {ok, AddedGw3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(true, blockchain_poc_path:check_sync(AddedGw3, Ledger)),
+
+    %% Dump even more blocks to make it ineligible again
+    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+    {ok, AddedGw4} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
     ok.
 
