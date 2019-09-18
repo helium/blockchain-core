@@ -1506,8 +1506,8 @@ poc_sync_interval_test(Config) ->
 
     %% Add gateway with a location
     {Gateway, GatewaySigFun} = create_gateway(),
-    SignedAddGatewayTx = add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun),
-    SignedAssertLocTx = assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, ?TEST_LOCATION),
+    SignedAddGatewayTx = fake_add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun),
+    SignedAssertLocTx = fake_assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, ?TEST_LOCATION),
     Txns = [SignedAddGatewayTx, SignedAssertLocTx],
 
     %% Put the txns in a block
@@ -1559,6 +1559,24 @@ poc_sync_interval_test(Config) ->
     %% Added gateways poc eligibility should no longer be valid
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw, Ledger)),
 
+    %% Fake a poc_request
+    {ok, BlockHash} = blockchain:head_hash(Chain),
+    POCReqTxn = fake_poc_request(Gateway, GatewaySigFun, BlockHash),
+    Block46 = test_utils:create_block(ConsensusMembers, [POCReqTxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block46, Chain, N, self()),
+
+    %% Dump a couple more blocks
+    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 2),
+
+    %% Check last_poc_challenge for added gateway is updated
+    {ok, AddedGw2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    LastPOCChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(AddedGw2),
+    ?assert(LastPOCChallenge > 45),
+
+    %% Added gateways poc eligibility should become valid
+    {ok, AddedGw3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(true, blockchain_poc_path:check_sync(AddedGw3, Ledger)),
+
     ok.
 
 create_gateway() ->
@@ -1567,12 +1585,12 @@ create_gateway() ->
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
     {Gateway, GatewaySigFun}.
 
-add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun) ->
+fake_add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun) ->
     AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun).
 
-assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, Loc) ->
+fake_assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, Loc) ->
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Loc, 1, 1, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
@@ -1591,3 +1609,12 @@ dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, Count) ->
         end,
         lists:seq(1, Count)
     ).
+
+fake_poc_request(Gateway, GatewaySigFun, BlockHash) ->
+    Keys0 = libp2p_crypto:generate_keys(ecc_compact),
+    Secret0 = libp2p_crypto:keys_to_bin(Keys0),
+    #{public := OnionCompactKey0} = Keys0,
+    SecretHash0 = crypto:hash(sha256, Secret0),
+    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, BlockHash, 1),
+    blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun).
