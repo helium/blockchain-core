@@ -89,8 +89,8 @@ new(Dir, undefined, AssumedValidBlockHash) ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
             new(Dir, undefined, AssumedValidBlockHash);
-        {Blockchain, {error, _}} ->
-            lager:info("no genesis block found"),
+        {Blockchain, {error, _Reason}} ->
+            lager:info("no genesis block found: ~p", [_Reason]),
             {no_genesis, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _GenBlock}} ->
             Ledger = blockchain:ledger(Blockchain),
@@ -104,8 +104,8 @@ new(Dir, GenBlock, AssumedValidBlockHash) ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
             new(Dir, GenBlock, AssumedValidBlockHash);
-        {Blockchain, {error, _}} ->
-            lager:warning("failed to load genesis, integrating new one"),
+        {Blockchain, {error, _Reason}} ->
+            lager:warning("failed to load genesis, integrating new one: ~p", [_Reason]),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
             Ledger = blockchain:ledger(Blockchain),
             mark_upgrades(?upgrades, Ledger),
@@ -171,7 +171,6 @@ upgrade_gateways_v2_(Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 integrate_genesis(GenesisBlock, #blockchain{db=DB, default=DefaultCF}=Blockchain) ->
-    lager:info("integrating ~p", [GenesisBlock]),
     GenHash = blockchain_block:hash_block(GenesisBlock),
     ok = blockchain_txn:absorb_and_commit(GenesisBlock, Blockchain, fun() ->
         {ok, Batch} = rocksdb:batch(),
