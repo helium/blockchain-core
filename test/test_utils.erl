@@ -39,30 +39,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     ] ++ RandomKeys,
 
     % Create genesis block
-    {InitialVars, Keys} =
-        blockchain_ct_utils:create_vars(
-          #{
-            ?num_consensus_members => 7,
-            ?monthly_reward => 50000 * 1000000,
-            ?securities_percent => 0.35,
-            ?poc_challengees_percent => 0.19 + 0.16,
-            ?poc_challengers_percent => 0.09 + 0.06,
-            ?poc_witnesses_percent => 0.02 + 0.03,
-            ?consensus_percent => 0.10,
-            ?election_selection_pct => 60,
-            ?election_replacement_factor => 4,
-            ?min_assert_h3_res => 12,
-            ?max_staleness => 100000,
-            ?alpha_decay => 0.007,
-            ?beta_decay => 0.0005,
-            ?block_time => 30000,
-            ?election_interval => 30,
-            ?poc_challenge_interval => 30,
-            ?h3_exclusion_ring_dist => 2,
-            ?h3_max_grid_distance => 13,
-            ?h3_neighbor_res => 12,
-            ?min_score => 0.15
-           }),
+    {InitialVars, Keys} = blockchain_ct_utils:create_vars(#{}),
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
@@ -70,9 +47,17 @@ init_chain(Balance, {PrivKey, PubKey}) ->
     GenSecPaymentTxs = [blockchain_txn_security_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],
 
-    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr,
-                                                           16#8c283475d4e89ff, 0)
-                         || {Addr, _} <- GenesisMembers ],
+    Addresses = [Addr || {Addr, _} <- GenesisMembers],
+
+    Locations = lists:foldl(
+        fun(I, Acc) ->
+            [h3:from_geo({37.780586, -122.469470 + I/1000}, 12)|Acc]
+        end,
+        [],
+        lists:seq(1, length(Addresses))
+    ),
+    InitialGatewayTxn = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, Loc, 0)
+                         || {Addr, Loc} <- lists:zip(Addresses, Locations)],
 
     ConsensusMembers = lists:sublist(GenesisMembers, 7),
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(
