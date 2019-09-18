@@ -320,16 +320,10 @@ absorb(Txn, Chain) ->
          {error, not_found} ->
              %% Older poc version, don't add witnesses
              ok;
-         {ok, POCVersion} when POCVersion >= 2 ->
-             case blockchain:config(?poc_insert_witnesses, Ledger) of
-                 {error, not_found} ->
-                     %% Don't insert because poc_insert_witnesses not set
-                     ok;
-                 {ok, true} ->
-                     %% Insert the witnesses for gateways in the path into ledger
-                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-                     ok = insert_witnesses(Path, Ledger)
-             end
+         {ok, POCVersion} when POCVersion > 1 ->
+             %% Insert the witnesses for gateways in the path into ledger
+             Path = blockchain_txn_poc_receipts_v1:path(Txn),
+             ok = insert_witnesses(Path, Ledger)
      end,
 
      case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of

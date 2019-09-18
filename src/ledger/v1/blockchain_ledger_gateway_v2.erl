@@ -54,7 +54,7 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}} %% added for the future
+    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
 }).
 
 -type gateway() :: #gateway_v2{}.
