@@ -76,7 +76,8 @@
          ) -> {ok, blockchain()} | {no_genesis, blockchain()}.
 new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
     case load_genesis(Genesis) of
-        {error, _} ->
+        {error, _Reason} ->
+            lager:warning("could not load genesis file: ~p ~p", [Genesis, _Reason]),
             ?MODULE:new(Dir, undefined, AssumedValidBlockHash);
         {ok, Block} ->
             ?MODULE:new(Dir, Block, AssumedValidBlockHash)
@@ -84,8 +85,12 @@ new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
 new(Dir, undefined, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p", [Dir]),
     case load(Dir) of
-        {Blockchain, {error, _}} ->
-            lager:info("no genesis block found"),
+        {Blockchain, {error, {corruption, _Corrupted}}} ->
+            lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
+            ok = clean(Blockchain),
+            new(Dir, undefined, AssumedValidBlockHash);
+        {Blockchain, {error, _Reason}} ->
+            lager:info("no genesis block found: ~p", [_Reason]),
             {no_genesis, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _GenBlock}} ->
             Ledger = blockchain:ledger(Blockchain),
@@ -95,8 +100,12 @@ new(Dir, undefined, AssumedValidBlockHash) ->
 new(Dir, GenBlock, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p and checking ~p", [Dir, GenBlock]),
     case load(Dir) of
-        {Blockchain, {error, _}} ->
-            lager:warning("failed to load genesis, integrating new one"),
+        {Blockchain, {error, {corruption, _Corrupted}}} ->
+            lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
+            ok = clean(Blockchain),
+            new(Dir, GenBlock, AssumedValidBlockHash);
+        {Blockchain, {error, _Reason}} ->
+            lager:warning("failed to load genesis, integrating new one: ~p", [_Reason]),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
             Ledger = blockchain:ledger(Blockchain),
             mark_upgrades(?upgrades, Ledger),
