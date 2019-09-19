@@ -23,6 +23,6 @@ ci:
 	codecov --required -f _build/test/covertool/blockchain.covertool.xml
 
 ci-nightly:
-	$(REBAR) as test do eunit,ct,eqc -t 1200,cover
+	$(REBAR) as test do eunit,ct,eqc -t 600,cover
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/blockchain.covertool.xml
