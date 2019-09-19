@@ -895,7 +895,9 @@ gateway_score(GatewayAddress, Ledger) ->
             {ok, Score}
     end.
 
-%-spec add_gateway_witnesses(
+-spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
+                            Witnesses :: [libp2p_crypto:pubkey_bin()],
+                            Ledger :: ledger()) -> ok | {error, any()}.
 add_gateway_witnesses(GatewayAddress, Witnesses, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
