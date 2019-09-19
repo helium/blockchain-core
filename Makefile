@@ -11,13 +11,18 @@ clean:
 test: compile
 	$(REBAR) as test do eunit, ct,xref && $(REBAR) dialyzer
 
-ci:
-	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct,cover
-	$(REBAR) covertool generate
-	codecov --required -f _build/test/covertool/blockchain.covertool.xml
-
 typecheck:
 	$(REBAR) dialyzer
 
 cover:
 	$(REBAR) cover
+
+ci:
+	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct,cover
+	$(REBAR) covertool generate
+	codecov --required -f _build/test/covertool/blockchain.covertool.xml
+
+ci-nightly:
+	$(REBAR) as test do eunit,ct,eqc -t 1200,cover
+	$(REBAR) covertool generate
+	codecov --required -f _build/test/covertool/blockchain.covertool.xml

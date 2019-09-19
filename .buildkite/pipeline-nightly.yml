@@ -1,0 +1,7 @@
+steps:
+  - commands:
+      - "make ci-nightly"
+    name: ":hammer: build"
+    agents:
+      queue: "erlang"
+    timeout_in_minutes: 180
