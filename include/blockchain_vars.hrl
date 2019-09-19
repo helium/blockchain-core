@@ -113,6 +113,9 @@
 %% acceptable height.
 -define(poc_challenge_sync_interval, poc_challenge_sync_interval).
 
+%% Number of hotspots allowed in a poc path
+-define(poc_path_limit, poc_path_limit).
+
 %%%
 %%% score vars
 %%%

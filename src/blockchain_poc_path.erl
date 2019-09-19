@@ -90,11 +90,25 @@ build(Hash, Target, Gateways, Height, Ledger) ->
                     {error, path_too_small};
                 true ->
                     blockchain_utils:rand_from_hash(Hash),
-                    case rand:uniform(2) of
-                        1 ->
-                            {ok, Path3};
-                        2 ->
-                            {ok, lists:reverse(Path3)}
+                    Path4 = case rand:uniform(2) of
+                                1 ->
+                                    Path3;
+                                2 ->
+                                    lists:reverse(Path3)
+                            end,
+                    case blockchain:config(?poc_version, Ledger) of
+                        {error, not_found} ->
+                            {ok, Path4};
+                        {ok, POCVersion} when POCVersion >= 2 ->
+                            case blockchain:config(?poc_path_limit, Ledger) of
+                                {error, not_found} ->
+                                    {ok, Path4};
+                                {ok, Val} ->
+                                    %% NOTE: The tradeoff here is that we may potentially lose target and end
+                                    %% from the path, but the fact that we would still have constructed it should
+                                    %% suffice to build interesting paths which conform to the given path_limit
+                                    {ok, lists:sublist(Path4, Val)}
+                            end
                     end
             end
     end.
@@ -439,7 +453,7 @@ check_sync(Gateway, Ledger) ->
         {error, not_found} ->
             %% Follow old code path, allow to be challenged
             true;
-        {ok, 2} ->
+        {ok, POCVersion} when POCVersion >= 2 ->
             case blockchain:config(?poc_challenge_sync_interval, Ledger) of
                 {error, not_found} ->
                     %% poc_challenge_sync_interval is not set, allow
@@ -485,7 +499,7 @@ target_test_() ->
                          {{37.780827, -122.44716}, 1.0, 1.0},
                          {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                         ],
-             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
              ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
 
              Challenger = hd(maps:keys(ActiveGateways)),
@@ -531,7 +545,7 @@ neighbors_test() ->
                 {{37.780827, -122.44716}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     Neighbors = filter_neighbors(Target, neighbors(Target, Gateways, Ledger), Gateways, 1, Ledger),
     ?assertEqual(6, erlang:length(Neighbors)),
@@ -561,7 +575,7 @@ build_graph_test() ->
                 {{37.780827, -122.44716}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     Graph = build_graph(Target, Gateways, 1, Ledger),
     ?assertEqual(8, maps:size(Graph)),
@@ -586,7 +600,7 @@ build_graph_in_line_test() ->
                 {{37.781637, -122.4543}, 1000.0, 0.1},
                 {{38.897675, -77.036530}, 100.0, 10.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     Graph = build_graph(Target, Gateways, 1, Ledger),
@@ -640,7 +654,7 @@ build_test() ->
                 {{37.781637, -122.4543}, 1000.0, 20.0},
                 {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
@@ -660,7 +674,7 @@ build_only_2_test() ->
                 {{37.78101, -122.465372}, 10.0, 1000.0},
                 {{37.780586, -122.469471}, 100.0, 20.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
@@ -688,7 +702,7 @@ build_prob_test_() ->
                          {{37.780827, -122.44716}, 1.0, 1.0},
                          {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                         ],
-             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
              {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
              Iteration = 1000,
@@ -727,7 +741,7 @@ build_failed_test() ->
                 {{37.78101, -122.465372}, 10.0, 1000.0},
                 {{12.780586, -122.469471}, 1000.0, 20.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
@@ -747,7 +761,7 @@ build_with_default_score_test() ->
                 {{37.781637, -122.4543}, 1.0, 1.0},
                 {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assert(lists:member(Target, Path)),
@@ -765,7 +779,7 @@ active_gateways_test() ->
                 {{48.854127, 2.344637}, 1.0, 1.0},
                 {{48.855228, 2.347126}, 1.0, 1.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
 
     [{LL0, _, _}, {LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -790,7 +804,7 @@ active_gateways_low_score_test() ->
                 {{48.854127, 2.344637}, 1.0, 1.0},
                 {{48.855228, 2.347126}, 1.0, 1.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.01, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.01, 3, 60, not_found),
 
     [{_LL0, _, _}, {_LL1, _, _}, {LL2, _, _}|_] = LatLongs,
     Challenger = crypto:hash(sha256, erlang:term_to_binary(LL2)),
@@ -805,7 +819,7 @@ active_gateways_low_score_test() ->
     ok.
 
 no_neighbor_test() ->
-    BaseDir = test_utils:tmp_dir("lone_target_test"),
+    BaseDir = test_utils:tmp_dir("no_neighbor_test"),
     LatLongs = [
                 %% All these points are wayyy far from each other
                 {{27.175301, 78.042144}, 1.0, 1.0},
@@ -825,7 +839,7 @@ no_neighbor_test() ->
                 {{37.781468, -122.456617}, 1.0, 1.0},
                 {{37.781637, -122.4543}, 1.0, 1.0}
                ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60),
+    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     Neighbors = filter_neighbors(Target, neighbors(Target, Gateways, Ledger), Gateways, 1, Ledger),
     ?assertEqual([], Neighbors),
@@ -885,8 +899,7 @@ set_score(LLs, A, G, Ledger) ->
                           end
                   end, LLs).
 
-
-build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDist) ->
+build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDist, PathLimit) ->
     Ledger = blockchain_ledger_v1:new(TestDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     meck:new(blockchain_swarm, [passthrough]),
@@ -942,7 +955,14 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                    (poc_version, _) ->
                         {ok, 2};
                    (poc_challenge_sync_interval, _) ->
-                        {error, not_found}
+                        {error, not_found};
+                   (poc_path_limit, _) ->
+                        case PathLimit of
+                            not_found ->
+                                {error, not_found};
+                            L ->
+                                {ok, L}
+                        end
                 end),
     meck:expect(blockchain_ledger_v1,
                 gateway_score,
