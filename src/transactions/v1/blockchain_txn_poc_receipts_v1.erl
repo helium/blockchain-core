@@ -178,12 +178,10 @@ is_valid(Txn, Chain) ->
                                                                 false ->
                                                                     {error, onion_key_hash_mismatch};
                                                                 true ->
-                                                                    lager:notice("MARKER POC ~p", [PoC]),
                                                                     BlockHash = case blockchain_ledger_poc_v2:block_hash(PoC) of
                                                                         <<>> -> blockchain_block:hash_block(Block1);
                                                                         POCBlockHash -> POCBlockHash
                                                                     end,
-                                                                    lager:notice("MARKER BlockHash ~p", [BlockHash]),
                                                                     Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
