@@ -71,13 +71,11 @@ build(Hash, Target, Gateways, Height, Ledger) ->
             lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
             {error, not_enough_gateways};
         true ->
-            [{_, Start}, {_, End}|_] = lists:sort(
-                                         fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
-                                                 ScoreA * ?MODULE:length(Graph, Target, AddrA) >
-                                                 ScoreB * ?MODULE:length(Graph, Target, AddrB)
-                                         end,
-                                         blockchain_utils:shuffle_from_hash(Hash, GraphList)
-                                        ),
+            Lengths =
+                [{Score * ?MODULE:length(Graph, Target, Addr), G}
+                 || {Score, Addr} = G <- blockchain_utils:shuffle_from_hash(Hash, GraphList)],
+            [{_, {_, Start}}, {_, {_, End}}|_] = lists:sort(fun({S1, _}, {S2, _}) -> S1 > S2 end,
+                                                            Lengths),
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
@@ -189,10 +187,6 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec path(Graph :: graph(),
            Path :: list(),
            End :: any(),
