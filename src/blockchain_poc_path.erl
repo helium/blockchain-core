@@ -71,13 +71,11 @@ build(Hash, Target, Gateways, Height, Ledger) ->
             lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
             {error, not_enough_gateways};
         true ->
-            [{_, Start}, {_, End}|_] = lists:sort(
-                                         fun({ScoreA, AddrA}, {ScoreB, AddrB}) ->
-                                                 ScoreA * ?MODULE:length(Graph, Target, AddrA) >
-                                                 ScoreB * ?MODULE:length(Graph, Target, AddrB)
-                                         end,
-                                         blockchain_utils:shuffle_from_hash(Hash, GraphList)
-                                        ),
+            Lengths =
+                [{Score * ?MODULE:length(Graph, Target, Addr), G}
+                 || {Score, Addr} = G <- blockchain_utils:shuffle_from_hash(Hash, GraphList)],
+            [{_, {_, Start}}, {_, {_, End}}|_] = lists:sort(fun({S1, _}, {S2, _}) -> S1 > S2 end,
+                                                            Lengths),
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
             {_, [Target|Path2]} = ?MODULE:shortest(Graph, Target, End),
             %% NOTE: It is possible the path contains dupes, these are also considered valid
@@ -189,12 +187,8 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec path(Graph :: graph(),
-           Path :: list(),
+           Path :: [{number(), list()}],
            End :: any(),
            Seen :: map()) -> {number(), list()}.
 path(_Graph, [], _End, _Seen) ->
@@ -204,8 +198,26 @@ path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
     % base case
     {Cost, lists:reverse(Path)};
 path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
-    NewRoutes = [{Cost + NewCost, [NewNode | Path]} || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]), not maps:get(NewNode, Seen, false)],
-    path(Graph, lists:sort(NewRoutes ++ Routes), End, Seen#{Node => true}).
+    NewRoutes0 = [{Cost + NewCost, [NewNode | Path]}
+                 || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]),
+                    not maps:is_key(NewNode, Seen)],
+    NewRoutes = NewRoutes0 ++ Routes,
+    NewRoutes1 = cheapest_to_front(NewRoutes),
+    path(Graph, NewRoutes1, End, Seen#{Node => true}).
+
+cheapest_to_front([]) -> [];
+cheapest_to_front([H | T]) ->
+    cheapest_to_front(H, T, []).
+
+cheapest_to_front(C, [], Acc) ->
+    [C | Acc];
+cheapest_to_front(C, [H | T], Acc) ->
+    case C > H of
+        true ->
+            cheapest_to_front(H, T, [C | Acc]);
+        _ ->
+            cheapest_to_front(C, T, [H | Acc])
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc neighbors iterates through `Gateways` to find any Gateways
