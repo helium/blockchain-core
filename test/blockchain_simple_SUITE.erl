@@ -518,9 +518,9 @@ poc_request_test(Config) ->
 
     % Check that the PoC info
     {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger),
-    ?assertEqual(SecretHash0, blockchain_ledger_poc_v1:secret_hash(PoC)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_poc_v1:onion_key_hash(PoC)),
-    ?assertEqual(Gateway, blockchain_ledger_poc_v1:challenger(PoC)),
+    ?assertEqual(SecretHash0, blockchain_ledger_poc_v2:secret_hash(PoC)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_poc_v2:onion_key_hash(PoC)),
+    ?assertEqual(Gateway, blockchain_ledger_poc_v2:challenger(PoC)),
 
     meck:new(blockchain_txn_poc_receipts_v1, [passthrough]),
     meck:expect(blockchain_txn_poc_receipts_v1, is_valid, fun(_Txn, _Chain) -> ok end),

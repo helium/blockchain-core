@@ -194,7 +194,8 @@ absorb(Txn, Chain) ->
                 ok ->
                     SecretHash = ?MODULE:secret_hash(Txn),
                     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
-                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, Ledger)
+                    BlockHash = ?MODULE:block_hash(Txn),
+                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger)
             end;
         {error, _Reason}=Error ->
             Error
