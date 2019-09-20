@@ -195,7 +195,12 @@ absorb(Txn, Chain) ->
                     SecretHash = ?MODULE:secret_hash(Txn),
                     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
                     BlockHash = ?MODULE:block_hash(Txn),
-                    blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger)
+                    case blockchain:config(?poc_version, Ledger) of
+                        {ok, V} when V >= 2 ->
+                            blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger);
+                        _ ->
+                            blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, <<>>, Ledger)
+                    end
             end;
         {error, _Reason}=Error ->
             Error
