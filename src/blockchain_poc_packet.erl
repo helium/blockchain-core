@@ -186,7 +186,8 @@ compute_ivs(InitialIV, KeysAndData) ->
                         [(H bxor Xor) band 16#ffff | Acc]
                 end, [InitialIV], lists:reverse(KeysAndData)).
 
-
+block_key(SecretKey, <<>>, _Ledger) ->
+    SecretKey;
 block_key(SecretKey, BlockHash, Ledger) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 2 ->
