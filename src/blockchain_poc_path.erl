@@ -191,6 +191,9 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
            Path :: [{number(), list()}],
            End :: any(),
            Seen :: map()) -> {number(), list()}.
+path(_Graph, [], _End, _Seen) ->
+    % nowhere to go
+    {0, []};
 path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
     % base case
     {Cost, lists:reverse(Path)};
@@ -202,6 +205,7 @@ path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
     NewRoutes1 = cheapest_to_front(NewRoutes),
     path(Graph, NewRoutes1, End, Seen#{Node => true}).
 
+cheapest_to_front([]) -> [];
 cheapest_to_front([H | T]) ->
     cheapest_to_front(H, T, []).
 
