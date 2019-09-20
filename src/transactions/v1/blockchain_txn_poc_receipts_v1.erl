@@ -7,6 +7,7 @@
 -behavior(blockchain_txn).
 
 -include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
     new/4,
@@ -315,6 +316,17 @@ absorb(Txn, Chain) ->
      LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
      Challenger = ?MODULE:challenger(Txn),
      Ledger = blockchain:ledger(Chain),
+
+     case blockchain:config(?poc_version, Ledger) of
+         {error, not_found} ->
+             %% Older poc version, don't add witnesses
+             ok;
+         {ok, POCVersion} when POCVersion > 1 ->
+             %% Insert the witnesses for gateways in the path into ledger
+             Path = blockchain_txn_poc_receipts_v1:path(Txn),
+             ok = insert_witnesses(Path, Ledger)
+     end,
+
      case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
          {error, _}=Error ->
              Error;
@@ -325,6 +337,30 @@ absorb(Txn, Chain) ->
                        ok,
                        ?MODULE:deltas(Txn))
      end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Insert witnesses for gateways in the path into the ledger
+%% @end
+%%--------------------------------------------------------------------
+-spec insert_witnesses(blockchain_poc_path_element_v1:path(), blockchain_ledger_v1:ledger()) -> ok.
+insert_witnesses(Path, Ledger) ->
+    Length = length(Path),
+    lists:foreach(fun({N, Element}) ->
+                          Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                          Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                          %% TODO check these witnesses have valid RSSI/timestamps
+                          WitnessAddresses0 = [ blockchain_poc_witness_v1:gateway(W) || W <- Witnesses ],
+                          NextElements = lists:sublist(Path, N+1, Length),
+                          WitnessAddresses = case check_path_continuation(NextElements) of
+                                                 true ->
+                                                     %% the next hop is also a witness for this
+                                                     [blockchain_poc_path_element_v1:challengee(hd(NextElements)) | WitnessAddresses0];
+                                                 false ->
+                                                     WitnessAddresses0
+                                             end,
+                          blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessAddresses, Ledger)
+                  end, lists:zip(lists:seq(1, Length), Path)).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -21,7 +21,12 @@
     alpha/1,
     beta/1,
     delta/1,
-    set_alpha_beta_delta/4
+    set_alpha_beta_delta/4,
+    add_witness/3,
+    has_witness/2,
+    clear_witnesses/1,
+    remove_witness/2,
+    witnesses/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -32,6 +37,11 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-record(witness, {
+          nonce :: non_neg_integer(),
+          count :: non_neg_integer()
+         }).
 
 -record(gateway_v2, {
     owner_address :: libp2p_crypto:pubkey_bin(),
@@ -44,7 +54,7 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} %% added for the future
+    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
 }).
 
 -type gateway() :: #gateway_v2{}.
@@ -303,6 +313,29 @@ print(Address, Gateway, Ledger, Verbose) ->
      {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
      {nonce, nonce(Gateway)}
     ] ++ Scoring.
+
+add_witness(Address, Nonce, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    case maps:find(Address, Witnesses) of
+        {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
+            %% nonce is the same, increment the count
+            Gateway#gateway_v2{witnesses=maps:put(Address, Witness#witness{count=Count + 1}, Witnesses)};
+        _ ->
+            %% nonce mismatch or first witnesses for this peer
+            %% replace any old witness record with this new one
+            Gateway#gateway_v2{witnesses=maps:put(Address, #witness{count=1, nonce=Nonce}, Witnesses)}
+    end.
+
+clear_witnesses(Gateway) ->
+    Gateway#gateway_v2{witnesses=#{}}.
+
+remove_witness(Gateway, Witness) ->
+    Gateway#gateway_v2{witnesses=maps:remove(Witness, Gateway#gateway_v2.witnesses)}.
+
+has_witness(#gateway_v2{witnesses=Witnesses}, Witness) ->
+    maps:is_key(Witness, Witnesses).
+
+witnesses(Gateway) ->
+    Gateway#gateway_v2.witnesses.
 
 %%--------------------------------------------------------------------
 %% @doc

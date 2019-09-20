@@ -37,6 +37,7 @@
     update_gateway/3,
     fixup_neighbors/4,
     add_gateway_location/4,
+    add_gateway_witnesses/3,
 
     gateway_versions/1,
 
@@ -778,9 +779,20 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
+            %% we need to clear all our old witnesses out
+            Bin = blockchain_ledger_gateway_v2:serialize(blockchain_ledger_gateway_v2:clear_witnesses(NewGw)),
             AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin),
+            %% we need to also remove any old witness links for this device's previous location on other gateways
+            lists:foreach(fun({Addr, GW}) ->
+                                  case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
+                                      true ->
+                                          GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
+                                          cache_put(Ledger, AGwsCF, Addr, blockchain_ledger_gateway_v2:serialize(GW1));
+                                      false ->
+                                          ok
+                                  end
+                          end, maps:to_list(active_gateways(Ledger)))
     end.
 
 gateway_versions(Ledger) ->
@@ -881,6 +893,26 @@ gateway_score(GatewayAddress, Ledger) ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             {_Alpha, _Beta, Score} = blockchain_ledger_gateway_v2:score(GatewayAddress, Gw, Height, Ledger),
             {ok, Score}
+    end.
+
+-spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
+                            Witnesses :: [libp2p_crypto:pubkey_bin()],
+                            Ledger :: ledger()) -> ok | {error, any()}.
+add_gateway_witnesses(GatewayAddress, Witnesses, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, GW0} ->
+            GW1 = lists:foldl(fun(WitnessAddress, GW) ->
+                                      case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+                                          {ok, Witness} ->
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, blockchain_ledger_gateway_v2:nonce(Witness), GW);
+                                          {error, _} ->
+                                              GW
+                                      end
+                              end, GW0, Witnesses),
+            AGwsCF = active_gateways_cf(Ledger),
+            cache_put(Ledger, AGwsCF, GatewayAddress, blockchain_ledger_gateway_v2:serialize(GW1))
     end.
 
 %%--------------------------------------------------------------------
@@ -1568,7 +1600,7 @@ routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) 
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec cache_put(ledger(), rocksdb:cf_handle(), any(), any()) -> ok.
+-spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Context, Cache} = context_cache(Ledger),
     ets:insert(Cache, {{CF, Key}, Value}),
