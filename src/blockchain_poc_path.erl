@@ -188,12 +188,9 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
 %% ------------------------------------------------------------------
 
 -spec path(Graph :: graph(),
-           Path :: list(),
+           Path :: [{number(), list()}],
            End :: any(),
            Seen :: map()) -> {number(), list()}.
-path(_Graph, [], _End, _Seen) ->
-    % nowhere to go
-    {0, []};
 path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
     % base case
     {Cost, lists:reverse(Path)};
