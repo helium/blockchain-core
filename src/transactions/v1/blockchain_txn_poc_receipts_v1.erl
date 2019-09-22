@@ -178,15 +178,28 @@ is_valid(Txn, Chain) ->
                                                                 false ->
                                                                     {error, onion_key_hash_mismatch};
                                                                 true ->
-                                                                    BlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
-                                                                    Entropy = <<Secret/binary, BlockHash/binary, Challenger/binary>>,
+                                                                    %% Note there are 2 block hashes here; one is the block hash encoded into the original
+                                                                    %% PoC request used to establish a lower bound on when that PoC request was made,
+                                                                    %% and one is the block hash at which the PoC was absorbed onto the chain.
+                                                                    %%
+                                                                    %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
+                                                                    %% of the onion to ensure that nodes cannot deceypt the onion layer if they are not synced
+                                                                    %% with the chain.
+                                                                    %%
+                                                                    %% The second of these is combined with the PoC secret to produce the combined entropy
+                                                                    %% from both the chain and from the PoC requester.
+                                                                    %%
+                                                                    %% Keeping these distinct and using them for their intended purpose is important.
+                                                                    PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
+                                                                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                                                                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                                     {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
                                                                     N = erlang:length(Path),
                                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, BlockHash, Ledger),
+                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
                                                                     %% no witness will exist with the first layer hash
                                                                     [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                                                                     validate(Txn, Path, LayerData, LayerHashes, OldLedger)
