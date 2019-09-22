@@ -183,7 +183,7 @@ is_valid(Txn, Chain) ->
                                                                     %% and one is the block hash at which the PoC was absorbed onto the chain.
                                                                     %%
                                                                     %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
-                                                                    %% of the onion to ensure that nodes cannot deceypt the onion layer if they are not synced
+                                                                    %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
                                                                     %% with the chain.
                                                                     %%
                                                                     %% The second of these is combined with the PoC secret to produce the combined entropy
