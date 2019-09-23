@@ -46,8 +46,13 @@ server(Connection, Path, _TID, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [N, Blockchain]) ->
-    lager:debug("started sync_handler client"),
-    {ok, #state{n=N, blockchain=Blockchain}};
+    case blockchain_worker:sync_paused() of
+        true ->
+            {stop, sync_paused};
+        false ->
+            lager:debug("started sync_handler client"),
+            {ok, #state{n=N, blockchain=Blockchain}}
+    end;
 init(server, _Conn, [_Path, _, N, Blockchain]) ->
     lager:debug("started sync_handler server"),
     {ok, #state{n=N, blockchain=Blockchain}}.
@@ -59,7 +64,7 @@ handle_data(client, Data, #state{blockchain=Chain}=State) ->
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     case blockchain:add_blocks(Blocks, Chain) of
         ok ->
-            blockchain_worker:synced_blocks();
+            ok;
         Error ->
             %% TODO: maybe dial for sync again?
             lager:error("Couldn't sync blocks, error: ~p", [Error])

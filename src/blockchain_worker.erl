@@ -15,11 +15,10 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    blockchain/0,
+    blockchain/0, blockchain/1,
     num_consensus_members/0,
     consensus_addrs/0,
     integrate_genesis_block/1,
-    synced_blocks/0,
     spend/3, spend/4,
     payment_txn/5, payment_txn/6,
     submit_txn/1, submit_txn/2,
@@ -28,7 +27,12 @@
     peer_height/3,
     notify/1,
     mismatch/0,
-    signed_metadata_fun/0
+    signed_metadata_fun/0,
+
+    sync/0,
+    cancel_sync/0,
+    pause_sync/0,
+    sync_paused/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -48,11 +52,15 @@
 -define(SERVER, ?MODULE).
 -define(SYNC_TIME, 60000).
 
--record(state, {
-    blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
-    swarm :: undefined | pid(),
-    sync_timer = make_ref() :: reference()
-}).
+-record(state,
+        {
+         blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
+         swarm :: undefined | pid(),
+         sync_timer = make_ref() :: reference(),
+         sync_ref = make_ref() :: reference(),
+         sync_pid :: undefined | pid(),
+         sync_paused = false :: boolean()
+        }).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -67,6 +75,10 @@ start_link(Args) ->
 -spec blockchain() -> blockchain:blockchain()  | undefined.
 blockchain() ->
     gen_server:call(?SERVER, blockchain, infinity).
+
+-spec blockchain(blockchain:blockchain()) -> ok.
+blockchain(Chain) ->
+    gen_server:call(?SERVER, {blockchain, Chain}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -84,6 +96,22 @@ num_consensus_members() ->
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs, infinity).
 
+sync() ->
+    gen_server:call(?SERVER, sync, infinity).
+
+cancel_sync() ->
+    gen_server:call(?SERVER, cancel_sync, infinity).
+
+pause_sync() ->
+    gen_server:call(?SERVER, pause_sync, infinity).
+
+sync_paused() ->
+    try
+        gen_server:call(?SERVER, sync_paused, 100)  % intentionally very low
+    catch _:_ ->
+            true  % it's fine to occasionally get this wrong
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -91,14 +119,6 @@ consensus_addrs() ->
 -spec integrate_genesis_block(blockchain_block:block()) -> ok.
 integrate_genesis_block(Block) ->
     gen_server:cast(?SERVER, {integrate_genesis_block, Block}).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec synced_blocks() -> ok.
-synced_blocks() ->
-    gen_server:cast(?SERVER, synced_blocks).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -250,8 +270,18 @@ init(Args) ->
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
                 R;
-            {ok, Chain} ->
-                {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
+            {ok, Chain0} ->
+                lager:info("WTFWTFWTFTRWFWTRWRFDSFAFDS"),
+                Chain =
+                    case blockchain:config(?num_consensus_members, blockchain:ledger(Chain0)) of
+                        {ok, N} ->
+                            Chain0;
+                        {error, not_found} ->
+                            lager:warning("attempting to reset ledger and apply existing blocks"),
+                            C = blockchain:reset_ledger(Chain0),
+                            {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(C)),
+                            C
+                    end,
                 %% do ledger upgrade
                 ok = add_handlers(Swarm, N, Chain),
                 self() ! maybe_sync,
@@ -273,6 +303,18 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
+handle_call({blockchain, NewChain}, _From, State) ->
+    notify({new_chain, NewChain}),
+    {reply, ok, State#state{blockchain = NewChain}};
+handle_call(sync, _From, State) ->
+    %% if sync is paused, unpause it
+    {reply, ok, maybe_sync(State#state{sync_paused = false})};
+handle_call(cancel_sync, _From, State) ->
+    {reply, ok, cancel_sync(State, true)};
+handle_call(pause_sync, _From, State) ->
+    {reply, ok, pause_sync(State)};
+handle_call(sync_paused, _From, State) ->
+    {reply, State#state.sync_paused, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -299,12 +341,6 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
     end;
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
     {noreply, State};
-handle_cast(synced_blocks, State) ->
-    lager:info("got synced_blocks msg"),
-        erlang:cancel_timer(State#state.sync_timer),
-    %% schedule another sync to see if there's more waiting
-    Ref = erlang:send_after(5000, self(), maybe_sync),
-    {noreply, State#state{sync_timer=Ref}};
 handle_cast({spend, Recipient, Amount, Fee}, #state{swarm=Swarm, blockchain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     PubkeyBin = libp2p_swarm:pubkey_bin(Swarm),
@@ -415,41 +451,8 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(maybe_sync, #state{blockchain=Chain, swarm=Swarm}=State) ->
-    erlang:cancel_timer(State#state.sync_timer),
-    case blockchain:head_block(Chain) of
-        {error, _Reason} ->
-            lager:error("could not get head block ~p", [_Reason]),
-            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            {noreply, State#state{sync_timer=Ref}};
-        {ok, Head} ->
-            BlockTime = blockchain_block:time(Head),
-            {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
-            case erlang:system_time(seconds) - BlockTime of
-                X when X > 300 ->
-                    %% figure out our gossip peers
-                    Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
-                    case Peers of
-                        [] ->
-                            %% try again later when there's peers
-                            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                            {noreply, State#state{sync_timer=Ref}};
-                        [Peer] ->
-                            sync(Swarm, N, Chain, Peer),
-                            {noreply, State};
-                        Peers ->
-                            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-                            sync(Swarm, N, Chain, RandomPeer),
-                            {noreply, State}
-                    end;
-                _ ->
-                    %% no need to sync now, check again later
-                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                    {noreply, State#state{sync_timer=Ref}}
-            end
-    end;
-handle_info({update_timer, Ref}, State) ->
-    {noreply, State#state{sync_timer=Ref}};
+handle_info(maybe_sync, State) ->
+    {noreply, maybe_sync(State)};
 handle_info({blockchain_event, {add_block, Hash, Sync, _Ledger}}, #state{swarm=Swarm, blockchain=Chain} = State) ->
     %% we added a new block to the chain, send it to all our peers
     case blockchain:get_block(Hash, Chain) of
@@ -466,8 +469,43 @@ handle_info({blockchain_event, {add_block, Hash, Sync, _Ledger}}, #state{swarm=S
             lager:warning("unable to find new block ~p in blockchain: ~p", [Hash, Reason])
     end,
     {noreply, State};
+handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
+            #state{sync_ref = SyncRef, blockchain = Chain} = State) ->
+    %% we're done with our sync.  determine if we're very far behind,
+    %% and should resync immediately, or if we're relatively close to
+    %% the present and can afford to retry later.
+    lager:info("unknown DOWN ~p ~p", [SyncRef, _SyncPid]),
+    {ok, Block} = blockchain:head_block(Chain),
+    Now = erlang:system_time(seconds),
+    Time = blockchain_block:time(Block),
+    case Now - Time of
+        N when N < 0 ->
+            %% if blocktimes are in the future, we're confused about
+            %% the time, proceed as if we're synced.
+            Ref = case State#state.sync_paused of
+                      true ->
+                          make_ref();
+                      false ->
+                          erlang:send_after(?SYNC_TIME, self(), maybe_sync)
+                  end,
+            {noreply, State#state{sync_pid = undefined, sync_timer = Ref}};
+        N when N < 60 * 60 ->
+            %% relatively recent
+            Ref = case State#state.sync_paused of
+                      true ->
+                          make_ref();
+                      false ->
+                          erlang:send_after(?SYNC_TIME, self(), maybe_sync)
+                  end,
+            {noreply, State#state{sync_pid = undefined, sync_timer = Ref}};
+        _ ->
+            %% we're deep in the past here, so just start the next sync
+            {noreply, start_sync(State)}
+    end;
+handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
+    lager:warning("rcvd unknown info msg: ~p ~p ~p", [_Msg, State#state.sync_pid, State#state.sync_ref]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -484,6 +522,61 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+maybe_sync(#state{sync_paused = true} = State) ->
+    State;
+maybe_sync(#state{sync_pid = Pid} = State) when Pid /= undefined ->
+    State;
+maybe_sync(#state{blockchain = Chain} = State) ->
+    erlang:cancel_timer(State#state.sync_timer),
+    case blockchain:head_block(Chain) of
+        {error, _Reason} ->
+            lager:error("could not get head block ~p", [_Reason]),
+            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+            State#state{sync_timer=Ref};
+        {ok, Head} ->
+            BlockTime = blockchain_block:time(Head),
+            case erlang:system_time(seconds) - BlockTime of
+                X when X > 300 ->
+                    start_sync(State);
+                _ ->
+                    %% no need to sync now, check again later
+                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                    State#state{sync_timer=Ref}
+            end
+    end.
+
+start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
+    %% figure out our gossip peers
+    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
+    Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
+    case Peers of
+        [] ->
+            %% try again later when there's peers
+            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+            State#state{sync_timer=Ref};
+        Peers ->
+            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
+            Pid = sync(Swarm, N, Chain, RandomPeer),
+            Ref = erlang:monitor(process, Pid),
+            lager:info("unknown starting ~p ~p", [Pid, Ref]),
+            State#state{sync_pid = Pid, sync_ref = Ref}
+    end.
+
+cancel_sync(#state{sync_pid = undefined} = State, _Restart) ->
+    State;
+cancel_sync(#state{sync_pid = Pid, sync_ref = Ref} = State, Restart) ->
+    case Restart of
+        false ->
+            erlang:demonitor(Ref, [flush]);
+        _ -> ok
+    end,
+    Pid ! cancel,
+    State#state{sync_pid = undefined, sync_ref = make_ref()}.
+
+pause_sync(State) ->
+    State1 = cancel_sync(State, false),
+    State1#state{sync_paused = true}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -510,9 +603,7 @@ add_handlers(Swarm, N, Blockchain) ->
 %% @end
 %%--------------------------------------------------------------------
 sync(Swarm, N, Chain, Peer) ->
-    Parent = self(),
     spawn(fun() ->
-        Ref = erlang:send_after(?SYNC_TIME, Parent, maybe_sync),
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,
@@ -522,14 +613,20 @@ sync(Swarm, N, Chain, Peer) ->
             {ok, Stream} ->
                 {ok, HeadHash} = blockchain:sync_hash(Chain),
                 Stream ! {hash, HeadHash},
-                %% this timer will likely get cancelled when the sync response comes in
-                %% but if that never happens, we don't forget to sync
-                Parent ! {update_timer, Ref};
+
+                Ref1 = erlang:monitor(process, Stream),
+                receive
+                    cancel ->
+                        libp2p_framed_stream:close(Stream);
+                    {'DOWN', Ref1, process, Stream, _} ->
+                        %% we're done, nothing to do here.
+                        ok
+                        %% do we want an after clause here?  is there
+                        %% some way to measure stuckness vs just
+                        %% taking a long time?
+                end;
             _ ->
-                erlang:cancel_timer(Ref),
-                %% schedule a sync retry with another peer
-                Ref2 = erlang:send_after(5000, Parent, maybe_sync),
-                Parent ! {update_timer, Ref2}
+                ok
         end
     end).
 

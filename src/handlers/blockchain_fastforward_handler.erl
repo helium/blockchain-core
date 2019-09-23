@@ -72,7 +72,7 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
     case blockchain:add_blocks(Blocks, Blockchain) of
         ok ->
-            blockchain_worker:synced_blocks();
+            ok;
         Error ->
             %% TODO: maybe dial for sync again?
             lager:error("Couldn't sync blocks, error: ~p", [Error])
