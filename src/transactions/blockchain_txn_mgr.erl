@@ -132,6 +132,8 @@ handle_info({rejected, {Dialer, Txn, Member}}, State) ->
     lager:debug("txn: ~p, rejected_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
+handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    {noreply, State#state{chain = NC}};
 handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#state{chain=Chain, txn_map=TxnMap}) ->
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
