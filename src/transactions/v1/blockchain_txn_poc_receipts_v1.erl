@@ -172,7 +172,7 @@ is_valid(Txn, Chain) ->
                                                             case lists:any(fun(T) ->
                                                                                    blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                                                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                                   blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
+                                                                                   conditionally_check_block_hash(T, PoC, Ledger)
                                                                            end,
                                                                            blockchain_block:transactions(Block1)) of
                                                                 false ->
@@ -492,6 +492,13 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     blockchain_ledger_v1:delete_context(OldLedger),
     Result.
 
+conditionally_check_block_hash(T, PoC, Ledger) ->
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V > 1 ->
+            blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC);
+        _ ->
+            true
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
