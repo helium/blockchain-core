@@ -47,6 +47,7 @@ add_handler(Pid) ->
 %% gen_event Function Definitions
 %% ------------------------------------------------------------------
 init([Pid]) ->
+    erlang:monitor(process, Pid),
     {ok, Pid}.
 
 handle_event(Event, Pid) ->
@@ -57,6 +58,10 @@ handle_call(_Msg, Pid) ->
     lager:debug("rcv unhandled msg ~p", [_Msg]),
     {'ok', 'ok', Pid}.
 
+handle_info({'DOWN', _Ref, process, Pid, _Info}, Pid) ->
+    %% the process has stopped, we don't need to keep this handler around
+    %% anymore
+    remove_handler;
 handle_info(_Msg, Pid) ->
     lager:debug("rcv unhandled msg ~p", [_Msg]),
     {'ok', Pid}.
