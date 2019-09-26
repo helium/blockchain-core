@@ -874,7 +874,9 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
         {ok, Gw} ->
             {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             {Alpha0, Beta0, _} = blockchain_ledger_gateway_v2:score(GatewayAddress, Gw, Height, Ledger),
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha0 + Alpha, Beta0 + Beta, Height, Gw),
+            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(blockchain_utils:normalize_float(Alpha0 + Alpha),
+                                                                      blockchain_utils:normalize_float(Beta0 + Beta),
+                                                                      Height, Gw),
             Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
