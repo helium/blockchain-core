@@ -551,6 +551,9 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
             %% which would mean we have obtained all the assumed valid blocks
             case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
                 {ok, _BinBlock} ->
+                    %% save this block so if we get interrupted or crash
+                    %% we don't need to wait for another sync to resume
+                    ok = save_temp_block(Block, Blockchain),
                     %% ok, now build the chain back to the oldest block in the temporary
                     %% storage or to the head of the main chain, whichever comes first
                     case blockchain:head_hash(Blockchain) of
@@ -560,7 +563,7 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
                             %%
                             %% check the oldest block in the temporary chain connects with
                             %% the HEAD block in the main chain
-                            OldestTempBlock = hd(Chain),
+                            {ok, OldestTempBlock} = get_temp_block(hd(Chain), Blockchain),
                             case blockchain_block:prev_hash(OldestTempBlock) of
                                 MainChainHeadHash ->
                                     %% Ok, this looks like we have everything we need.
@@ -580,7 +583,8 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
                     %% already, so check for that
                     case blockchain:get_block(ParentHash, Blockchain) of
                         {ok, _} ->
-                            absorb_temp_blocks([Block], Blockchain, Syncing);
+                            ok = save_temp_block(Block, Blockchain),
+                            absorb_temp_blocks([blockchain_block:hash_block(Block)], Blockchain, Syncing);
                         _ ->
                             lager:notice("Saw the assumed_valid block, but don't have its parent"),
                             {error, disjoint_assumed_valid_block}
@@ -608,7 +612,8 @@ absorb_temp_blocks([],#blockchain{db=DB, temp_blocks=TempBlocksCF, default=Defau
     ok = rocksdb:drop_column_family(TempBlocksCF),
     ok = rocksdb:destroy_column_family(TempBlocksCF),
     ok;
-absorb_temp_blocks([Block|Chain], Blockchain, Syncing) ->
+absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
+    {ok, Block} = get_temp_block(BlockHash, Blockchain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
     Ledger = blockchain:ledger(Blockchain),
@@ -713,21 +718,22 @@ build(StartingBlock, Blockchain, N, Acc) ->
     end.
 
 
--spec build_temp(blockchain_block:hash(), blockchain_block:block(), blockchain()) -> [blockchain_block:block()].
+-spec build_temp(blockchain_block:hash(), blockchain_block:block(), blockchain()) -> [blockchain_block:hash(), ...].
 build_temp(StopHash,StartingBlock, Blockchain) ->
-    build_temp_(StopHash, Blockchain, [StartingBlock]).
+    BlockHash = blockchain_block:hash_block(StartingBlock),
+    ParentHash = blockchain_block:prev_hash(StartingBlock),
+    build_temp_(StopHash, Blockchain, [ParentHash, BlockHash]).
 
--spec build_temp_(blockchain_block:hash(), blockchain(), [blockchain_block:block()]) -> [blockchain_block:block()].
-build_temp_(StopHash, Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [H|_]=Acc) ->
-    ParentHash = blockchain_block:prev_hash(H),
+-spec build_temp_(blockchain_block:hash(), blockchain(), [blockchain_block:hash(), ...]) -> [blockchain_block:hash()].
+build_temp_(StopHash, Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF}, [ParentHash|Tail]=Acc) ->
     case ParentHash == StopHash of
         true ->
             %% reached the end
-            Acc;
+            Tail;
         false ->
             case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
                 {ok, BinBlock} ->
-                    build_temp_(StopHash, Blockchain, [blockchain_block:deserialize(BinBlock)|Acc]);
+                    build_temp_(StopHash, Blockchain, [blockchain_block:prev_hash(blockchain_block:deserialize(BinBlock))|Acc]);
                 _ ->
                     Acc
             end
@@ -738,6 +744,7 @@ build_temp_(StopHash, Blockchain = #blockchain{db=DB, temp_blocks=TempBlocksCF},
 %% @end
 %%--------------------------------------------------------------------
 close(#blockchain{db=DB, ledger=Ledger}) ->
+    persistent_term:erase(?ASSUMED_VALID),
     ok = blockchain_ledger_v1:close(Ledger),
     rocksdb:close(DB).
 
@@ -868,6 +875,16 @@ save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=Defaul
             ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
     end.
 
+get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
+    case rocksdb:get(DB, TempBlocksCF, Hash, []) of
+        {ok, BinBlock} ->
+            %% we already have it, try to process it
+            Block = blockchain_block:deserialize(BinBlock),
+            {ok, Block};
+        Other ->
+            Other
+    end.
+
 init_assumed_valid(Blockchain, undefined) ->
     Blockchain;
 init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
@@ -877,8 +894,25 @@ init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
             %% TODO make sure we delete the column family, in case it has stale crap in it!
             ok;
         _ ->
-            %% need to wait for it
-            ok = persistent_term:put(?ASSUMED_VALID, Hash)
+            #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
+            case rocksdb:get(DB, TempBlocksCF, Hash, []) of
+                {ok, BinBlock} ->
+                    %% we already have it, try to process it
+                    Block = blockchain_block:deserialize(BinBlock),
+                    case add_assumed_valid_block(Hash, Block, Blockchain, false) of
+                        ok ->
+                            %% we did it!
+                            ok;
+                        {error, Reason} ->
+                            %% something went wrong!
+                            lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
+                            %% TODO we should probably drop the column family here?
+                            ok = persistent_term:put(?ASSUMED_VALID, Hash)
+                    end;
+                _ ->
+                    %% need to wait for it
+                    ok = persistent_term:put(?ASSUMED_VALID, Hash)
+            end
     end,
     Blockchain.
 
