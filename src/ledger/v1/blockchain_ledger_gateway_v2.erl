@@ -22,7 +22,7 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/3,
+    add_witness/4,
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
@@ -40,7 +40,8 @@
 
 -record(witness, {
           nonce :: non_neg_integer(),
-          count :: non_neg_integer()
+          count :: non_neg_integer(),
+          rssi :: integer()
          }).
 
 -record(gateway_v2, {
@@ -314,15 +315,15 @@ print(Address, Gateway, Ledger, Verbose) ->
      {nonce, nonce(Gateway)}
     ] ++ Scoring.
 
-add_witness(Address, Nonce, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+add_witness(Address, Nonce, RSSI, Gateway = #gateway_v2{witnesses=Witnesses}) ->
     case maps:find(Address, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(Address, Witness#witness{count=Count + 1}, Witnesses)};
+            Gateway#gateway_v2{witnesses=maps:put(Address, Witness#witness{count=Count + 1, rssi=RSSI}, Witnesses)};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(Address, #witness{count=1, nonce=Nonce}, Witnesses)}
+            Gateway#gateway_v2{witnesses=maps:put(Address, #witness{count=1, nonce=Nonce, rssi=RSSI}, Witnesses)}
     end.
 
 clear_witnesses(Gateway) ->

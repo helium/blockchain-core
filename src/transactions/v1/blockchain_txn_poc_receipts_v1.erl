@@ -371,16 +371,20 @@ insert_witnesses(Path, Ledger) ->
                           Challengee = blockchain_poc_path_element_v1:challengee(Element),
                           Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
                           %% TODO check these witnesses have valid RSSI/timestamps
-                          WitnessAddresses0 = [ blockchain_poc_witness_v1:gateway(W) || W <- Witnesses ],
+                          WitnessInfo0 = [ {blockchain_poc_witness_v1:signal(W), blockchain_poc_witness_v1:gateway(W)} || W <- Witnesses ],
                           NextElements = lists:sublist(Path, N+1, Length),
-                          WitnessAddresses = case check_path_continuation(NextElements) of
+                          WitnessInfo = case check_path_continuation(NextElements) of
                                                  true ->
                                                      %% the next hop is also a witness for this
-                                                     [blockchain_poc_path_element_v1:challengee(hd(NextElements)) | WitnessAddresses0];
+                                                     NextHopElement = hd(NextElements),
+                                                     NextHopAddr = blockchain_poc_path_element_v1:challengee(NextHopElement),
+                                                     NextHopReceipt = blockchain_poc_path_element_v1:receipt(NextHopElement),
+                                                     [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
+                                                       NextHopAddr} | WitnessInfo0];
                                                  false ->
-                                                     WitnessAddresses0
+                                                     WitnessInfo0
                                              end,
-                          blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessAddresses, Ledger)
+                          blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
                   end, lists:zip(lists:seq(1, Length), Path)).
 
 %%--------------------------------------------------------------------
