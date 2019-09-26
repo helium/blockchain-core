@@ -878,7 +878,6 @@ save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=Defaul
 get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
     case rocksdb:get(DB, TempBlocksCF, Hash, []) of
         {ok, BinBlock} ->
-            %% we already have it, try to process it
             Block = blockchain_block:deserialize(BinBlock),
             {ok, Block};
         Other ->
