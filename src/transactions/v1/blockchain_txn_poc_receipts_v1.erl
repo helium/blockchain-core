@@ -371,7 +371,7 @@ insert_witnesses(Path, Ledger) ->
                           Challengee = blockchain_poc_path_element_v1:challengee(Element),
                           Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
                           %% TODO check these witnesses have valid RSSI/timestamps
-                          WitnessInfo0 = [ {blockchain_poc_witness_v1:signal(W), blockchain_poc_witness_v1:gateway(W)} || W <- Witnesses ],
+                          WitnessInfo0 = [ {blockchain_poc_witness_v1:signal(W), blockchain_poc_witness_v1:timestamp(W), blockchain_poc_witness_v1:gateway(W)} || W <- Witnesses ],
                           NextElements = lists:sublist(Path, N+1, Length),
                           WitnessInfo = case check_path_continuation(NextElements) of
                                                  true ->
@@ -380,6 +380,7 @@ insert_witnesses(Path, Ledger) ->
                                                      NextHopAddr = blockchain_poc_path_element_v1:challengee(NextHopElement),
                                                      NextHopReceipt = blockchain_poc_path_element_v1:receipt(NextHopElement),
                                                      [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
+                                                       blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
                                                        NextHopAddr} | WitnessInfo0];
                                                  false ->
                                                      WitnessInfo0

@@ -22,7 +22,7 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/4,
+    add_witness/5,
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
@@ -41,7 +41,10 @@
 -record(witness, {
           nonce :: non_neg_integer(),
           count :: non_neg_integer(),
-          hist = #{} :: #{integer() => integer()}
+          hist = #{} :: #{integer() => integer()}, %% sampled rssi histogram
+          first_time :: non_neg_integer(), %% first time a hotspot witnessed this one
+          recent_time :: non_neg_integer(), %% most recent a hotspots witnessed this one
+          time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
          }).
 
 -record(gateway_v2, {
@@ -315,13 +318,14 @@ print(Address, Gateway, Ledger, Verbose) ->
      {nonce, nonce(Gateway)}
     ] ++ Scoring.
 
-add_witness(Address, Nonce, RSSI, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+add_witness(Address, Nonce, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
     case maps:find(Address, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
             %% nonce is the same, increment the count
             Gateway#gateway_v2{witnesses=maps:put(Address,
                                                   Witness#witness{count=Count + 1,
-                                                                  hist=maps:update_with((abs(RSSI) div 12), fun(V) -> V + 1 end, Hist)},
+                                                                  hist=maps:update_with((abs(RSSI) div 12), fun(V) -> V + 1 end, Hist),
+                                                                  recent_time=TS},
                                                   Witnesses)};
         _ ->
             %% nonce mismatch or first witnesses for this peer
@@ -329,7 +333,9 @@ add_witness(Address, Nonce, RSSI, Gateway = #gateway_v2{witnesses=Witnesses}) ->
             Gateway#gateway_v2{witnesses=maps:put(Address,
                                                   #witness{count=1,
                                                            nonce=Nonce,
-                                                           hist=#{(abs(RSSI) div 12) => 1}},
+                                                           hist=#{(abs(RSSI) div 12) => 1},
+                                                           first_time=TS,
+                                                           recent_time=TS},
                                                   Witnesses)}
     end.
 
