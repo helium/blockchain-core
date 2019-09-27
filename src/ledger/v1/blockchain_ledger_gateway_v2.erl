@@ -335,12 +335,14 @@ add_witness(Address, Nonce, undefined, undefined, Gateway = #gateway_v2{witnesse
                                                   Witnesses)}
     end;
 add_witness(Address, Nonce, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    RSSIKey = abs(RSSI) div 12,
     case maps:find(Address, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
+            Inc = fun(V) -> V + 1 end,
             %% nonce is the same, increment the count
             Gateway#gateway_v2{witnesses=maps:put(Address,
                                                   Witness#witness{count=Count + 1,
-                                                                  hist=maps:update_with((abs(RSSI) div 12), fun(V) -> V + 1 end, Hist),
+                                                                  hist=maps:update_with(RSSIKey, Inc, 1, Hist),
                                                                   recent_time=TS},
                                                   Witnesses)};
         _ ->
@@ -349,7 +351,7 @@ add_witness(Address, Nonce, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}
             Gateway#gateway_v2{witnesses=maps:put(Address,
                                                   #witness{count=1,
                                                            nonce=Nonce,
-                                                           hist=#{(abs(RSSI) div 12) => 1},
+                                                           hist=#{RSSIKey => 1},
                                                            first_time=TS,
                                                            recent_time=TS},
                                                   Witnesses)}
