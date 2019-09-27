@@ -898,16 +898,21 @@ init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
                 {ok, BinBlock} ->
                     %% we already have it, try to process it
                     Block = blockchain_block:deserialize(BinBlock),
-                    case add_assumed_valid_block(Hash, Block, Blockchain, false) of
-                        ok ->
-                            %% we did it!
-                            ok;
-                        {error, Reason} ->
-                            %% something went wrong!
-                            lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
-                            %% TODO we should probably drop the column family here?
-                            ok = persistent_term:put(?ASSUMED_VALID, Hash)
-                    end;
+                    %% spawn a worker process to do this in the background so we don't
+                    %% block application startup
+                    spawn_link(fun() ->
+                                  case add_assumed_valid_block(Hash, Block, Blockchain, false) of
+                                      ok ->
+                                          %% we did it!
+                                          ok;
+                                      {error, Reason} ->
+                                          %% something went wrong!
+                                          lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
+                                          %% TODO we should probably drop the column family here?
+                                          ok = persistent_term:put(?ASSUMED_VALID, Hash)
+                                  end
+                          end),
+                    ok;
                 _ ->
                     %% need to wait for it
                     ok = persistent_term:put(?ASSUMED_VALID, Hash)
