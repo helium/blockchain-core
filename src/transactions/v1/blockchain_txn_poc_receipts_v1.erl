@@ -378,10 +378,15 @@ insert_witnesses(Path, Ledger) ->
                                                      %% the next hop is also a witness for this
                                                      NextHopElement = hd(NextElements),
                                                      NextHopAddr = blockchain_poc_path_element_v1:challengee(NextHopElement),
-                                                     NextHopReceipt = blockchain_poc_path_element_v1:receipt(NextHopElement),
-                                                     [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
-                                                       blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
-                                                       NextHopAddr} | WitnessInfo0];
+                                                     case blockchain_poc_path_element_v1:receipt(NextHopElement) of
+                                                         undefined ->
+                                                             %% There is no receipt from the next hop
+                                                             [{undefined, undefined, NextHopAddr} | WitnessInfo0];
+                                                         NextHopReceipt ->
+                                                             [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
+                                                               blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
+                                                               NextHopAddr} | WitnessInfo0]
+                                                     end;
                                                  false ->
                                                      WitnessInfo0
                                              end,

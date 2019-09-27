@@ -318,6 +318,22 @@ print(Address, Gateway, Ledger, Verbose) ->
      {nonce, nonce(Gateway)}
     ] ++ Scoring.
 
+
+add_witness(Address, Nonce, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    case maps:find(Address, Witnesses) of
+        {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
+            %% nonce is the same, increment the count
+            Gateway#gateway_v2{witnesses=maps:put(Address,
+                                                  Witness#witness{count=Count + 1},
+                                                  Witnesses)};
+        _ ->
+            %% nonce mismatch or first witnesses for this peer
+            %% replace any old witness record with this new one
+            Gateway#gateway_v2{witnesses=maps:put(Address,
+                                                  #witness{count=1,
+                                                           nonce=Nonce},
+                                                  Witnesses)}
+    end;
 add_witness(Address, Nonce, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
     case maps:find(Address, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
