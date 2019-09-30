@@ -319,43 +319,66 @@ print(Address, Gateway, Ledger, Verbose) ->
     ] ++ Scoring.
 
 
-add_witness(Address, Nonce, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
-    case maps:find(Address, Witnesses) of
+add_witness(WitnessAddress, _WitnessGW = #gateway_v2{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
+    case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(Address,
+            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   Witness#witness{count=Count + 1},
                                                   Witnesses)};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(Address,
+            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce},
                                                   Witnesses)}
     end;
-add_witness(Address, Nonce, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
-    RSSIKey = abs(RSSI) div 12,
-    case maps:find(Address, Witnesses) of
+add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
-            Inc = fun(V) -> V + 1 end,
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(Address,
+            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   Witness#witness{count=Count + 1,
-                                                                  hist=maps:update_with(RSSIKey, Inc, 1, Hist),
+                                                                  hist=update_histogram(RSSI, Hist),
                                                                   recent_time=TS},
                                                   Witnesses)};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(Address,
+            %% First, calculate the ideal free space path loss between the 2 locations
+            Distance = distance(Gateway, WitnessGW),
+            %% TODO support regional parameters for non-US based hotspots
+            Frequency = 915,
+            TransmitPower = 28,
+            MaxAntennaGain = 6,
+            FreeSpacePathLoss = TransmitPower - (32.44 + 20*math:log10(Frequency) + 20*math:log10(Distance) - MaxAntennaGain - MaxAntennaGain),
+            %% Construct a custom histogram around the expected path loss
+            Histogram = maps:from_list([ {28, 0} | [ {round(FreeSpacePathLoss + (N * ((-132 + abs(FreeSpacePathLoss))/9))), 0} || N <- lists:seq(0, 9)]]),
+            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
-                                                           hist=#{RSSIKey => 1},
+                                                           hist=update_histogram(RSSI, Histogram),
                                                            first_time=TS,
                                                            recent_time=TS},
                                                   Witnesses)}
     end.
+
+distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
+    %% distance in kms
+    vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)).
+
+update_histogram(Val, Histogram) ->
+    Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
+    update_histogram_(Val, Keys, Histogram).
+
+update_histogram_(_Val, [LastKey], Histogram) ->
+    maps:put(LastKey, maps:get(LastKey, Histogram, 0) + 1, Histogram);
+update_histogram_(Val, [Key | [Bound | _]], Histogram) when Val > Bound ->
+    maps:put(Key, maps:get(Key, Histogram, 0) + 1, Histogram);
+update_histogram_(Val, [_ | Tail], Histogram) ->
+    update_histogram_(Val, Tail, Histogram).
 
 clear_witnesses(Gateway) ->
     Gateway#gateway_v2{witnesses=#{}}.
