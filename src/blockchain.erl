@@ -1801,6 +1801,12 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
               lager:info("poc gc failed with ~p:~p", [C,E]),
               ok
     end,
+    try
+        ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain)
+    catch C2:E2 ->
+              lager:info("sc gc failed with ~p:~p", [C2, E2]),
+              ok
+    end,
     Ledger = blockchain:ledger(Blockchain),
     case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger) of
         {error, Reason0}=Error0 ->

@@ -4,6 +4,7 @@
 -define(FASTFORWARD_PROTOCOL, "blockchain_fastforward/1.0.0").
 -define(TX_PROTOCOL, "blockchain_txn/1.0.0").
 -define(LOC_ASSERTION_PROTOCOL, "loc_assertion/1.0.0").
+-define(STATE_CHANNEL_PROTOCOL_V1, "state_channel/1.0.0").
 
 % B58 Address Versions
 -define(B58_MAINNET_VER, 0).
