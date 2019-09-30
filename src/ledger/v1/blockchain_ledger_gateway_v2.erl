@@ -31,6 +31,10 @@
 
 -import(blockchain_utils, [normalize_float/1]).
 
+-define(FREQUENCY, 915).
+-define(TRANSMIT_POWER, 28).
+-define(MAX_ANTENNA_GAIN, 6).
+
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
@@ -41,7 +45,7 @@
 -record(witness, {
           nonce :: non_neg_integer(),
           count :: non_neg_integer(),
-          hist = #{} :: #{integer() => integer()}, %% sampled rssi histogram
+          hist = erlang:error(no_histogram) :: #{integer() => integer()}, %% sampled rssi histogram
           first_time :: non_neg_integer(), %% first time a hotspot witnessed this one
           recent_time :: non_neg_integer(), %% most recent a hotspots witnessed this one
           time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
@@ -319,7 +323,7 @@ print(Address, Gateway, Ledger, Verbose) ->
     ] ++ Scoring.
 
 
-add_witness(WitnessAddress, _WitnessGW = #gateway_v2{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
     case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
@@ -332,7 +336,8 @@ add_witness(WitnessAddress, _WitnessGW = #gateway_v2{nonce=Nonce}, undefined, un
             %% replace any old witness record with this new one
             Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
-                                                           nonce=Nonce},
+                                                           nonce=Nonce,
+                                                           hist=create_histogram(WitnessGW, Gateway)},
                                                   Witnesses)}
     end;
 add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
@@ -347,15 +352,7 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            %% First, calculate the ideal free space path loss between the 2 locations
-            Distance = distance(Gateway, WitnessGW),
-            %% TODO support regional parameters for non-US based hotspots
-            Frequency = 915,
-            TransmitPower = 28,
-            MaxAntennaGain = 6,
-            FreeSpacePathLoss = TransmitPower - (32.44 + 20*math:log10(Frequency) + 20*math:log10(Distance) - MaxAntennaGain - MaxAntennaGain),
-            %% Construct a custom histogram around the expected path loss
-            Histogram = maps:from_list([ {28, 0} | [ {round(FreeSpacePathLoss + (N * ((-132 + abs(FreeSpacePathLoss))/9))), 0} || N <- lists:seq(0, 9)]]),
+            Histogram = create_histogram(WitnessGW, Gateway),
             Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
@@ -374,6 +371,14 @@ distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
     Distance = vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)),
     lager:info("Distance: ~p, L1: ~p, L2: ~p", [Distance, L1, L2]),
     Distance.
+
+create_histogram(WitnessGW, Gateway) ->
+    %% First, calculate the ideal free space path loss between the 2 locations
+    Distance = distance(Gateway, WitnessGW),
+    %% TODO support regional parameters for non-US based hotspots
+    FreeSpacePathLoss = ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN),
+    %% Construct a custom histogram around the expected path loss
+    maps:from_list([ {28, 0} | [ {round(FreeSpacePathLoss + (N * ((-132 + abs(FreeSpacePathLoss))/9))), 0} || N <- lists:seq(0, 9)]]).
 
 update_histogram(Val, Histogram) ->
     Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
