@@ -365,9 +365,15 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
                                                   Witnesses)}
     end.
 
+
+distance(#gateway_v2{location=L1}, #gateway_v2{location=L1}) ->
+    %% Same location, defaulting the distance to 18.8m
+    0.0188;
 distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
     %% distance in kms
-    vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)).
+    Distance = vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)),
+    lager:info("Distance: ~p, L1: ~p, L2: ~p", [Distance, L1, L2]),
+    Distance.
 
 update_histogram(Val, Histogram) ->
     Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
