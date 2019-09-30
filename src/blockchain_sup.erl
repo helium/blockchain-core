@@ -72,10 +72,11 @@ init(Args) ->
             Pred ->
                 [{group_delete_predicate, Pred}]
         end,
+    BaseDir = proplists:get_value(base_dir, Args, "data"),
     SwarmWorkerOpts =
         [
          {key, proplists:get_value(key, Args)},
-         {base_dir, proplists:get_value(base_dir, Args, "data")},
+         {base_dir, BaseDir},
          {libp2p_proxy,
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
          {libp2p_peerbook,
@@ -96,12 +97,13 @@ init(Args) ->
         ] ++ GroupMgrArgs,
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
-        {base_dir, proplists:get_value(base_dir, Args, "data")},
+        {base_dir, BaseDir},
         {update_dir, proplists:get_value(update_dir, Args, undefined)}
     ],
     BEventOpts = [],
     BTxnManagerOpts = [],
     BTxnMgrSupOpts = [],
+    DCsSupOpts = [BaseDir],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
@@ -109,7 +111,8 @@ init(Args) ->
         ?WORKER(blockchain_score_cache, []),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
-        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts])
+        ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
+        ?SUP(blockchain_dcs_sup, [DCsSupOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
