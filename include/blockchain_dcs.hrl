@@ -1,0 +1,2 @@
+-define(HEIGHT_KEY, <<"height">>).
+-define(CREDITS_KEY, <<"credits">>).
