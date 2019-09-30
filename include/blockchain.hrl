@@ -4,6 +4,8 @@
 -define(FASTFORWARD_PROTOCOL, "blockchain_fastforward/1.0.0").
 -define(TX_PROTOCOL, "blockchain_txn/1.0.0").
 -define(LOC_ASSERTION_PROTOCOL, "loc_assertion/1.0.0").
+-define(DATA_CREDITS_PAYMENT_PROTOCOL, "data_credits_payment/1.0.0").
+ -define(DATA_CREDITS_CHANNEL_PROTOCOL, "data_credits_channel/1.0.0").
 
 % B58 Address Versions
 -define(B58_MAINNET_VER, 0).
