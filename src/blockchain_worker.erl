@@ -606,7 +606,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = Sta
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
             {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
-            lager:info("unknown starting ~p ~p", [Pid, Ref]),
+            lager:info("new sync starting with Pid: ~p, Ref: ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
