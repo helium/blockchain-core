@@ -176,7 +176,7 @@ init_per_testcase(TestCase, Config) ->
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
 
     Nodes = pmap(fun(Node) ->
-                         start_node(Node, Config, blockchain_dist_SUITE)
+                         start_node(Node, Config, TestCase)
                  end, NodeNames),
 
     ConfigResult = pmap(fun(Node) ->

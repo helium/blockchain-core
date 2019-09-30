@@ -135,22 +135,31 @@ create_block(ConsensusMembers, Txs, Override) ->
     {ok, HeadBlock} = blockchain:head_block(Blockchain),
     Height = blockchain_block:height(HeadBlock) + 1,
     Time = blockchain_block:time(HeadBlock) + 1,
-    Default = #{prev_hash => PrevHash,
-                height => Height,
-                transactions => lists:sort(fun blockchain_txn:sort/2, Txs),
-                signatures => [],
-                time => Time,
-                hbbft_round => 0,
-                election_epoch => 1,
-                epoch_start => 0,
-                seen_votes => [],
-                bba_completion => <<>>
-               },
-    Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
-    BinBlock = blockchain_block:serialize(Block0),
-    Signatures = signatures(ConsensusMembers, BinBlock),
-    Block1 = blockchain_block:set_signatures(Block0, Signatures),
-    Block1.
+    STxs = lists:sort(fun blockchain_txn:sort/2, Txs),
+    %% make sure all these txns are valid
+    case blockchain_txn:validate(STxs, Blockchain) of
+        {_, []} ->
+            lager:info("creating block ~p", [STxs]),
+            Default = #{prev_hash => PrevHash,
+                        height => Height,
+                        transactions => STxs,
+                        signatures => [],
+                        time => Time,
+                        hbbft_round => 0,
+                        election_epoch => 1,
+                        epoch_start => 0,
+                        seen_votes => [],
+                        bba_completion => <<>>
+                       },
+            Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
+            BinBlock = blockchain_block:serialize(Block0),
+            Signatures = signatures(ConsensusMembers, BinBlock),
+            Block1 = blockchain_block:set_signatures(Block0, Signatures),
+            lager:info("block ~p", [Block1]),
+            {ok, Block1};
+        {_, Invalid} ->
+            {error, {invalid_txns, Invalid}}
+    end.
 
 signatures(ConsensusMembers, BinBlock) ->
     lists:foldl(
