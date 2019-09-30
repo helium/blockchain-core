@@ -7,6 +7,7 @@
 -export([pmap/2,
          wait_until/1,
          wait_until/3,
+         wait_until_height/2,
          wait_until_disconnected/2,
          start_node/3,
          partition_cluster/2,
@@ -179,7 +180,7 @@ init_per_testcase(TestCase, Config) ->
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
 
     Nodes = pmap(fun(Node) ->
-                         start_node(Node, Config, blockchain_dist_SUITE)
+                         start_node(Node, Config, TestCase)
                  end, NodeNames),
 
     ConfigResult = pmap(fun(Node) ->
@@ -203,6 +204,8 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, key, Key]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_client_handler, sc_client_test_handler]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
 
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
                                 ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])
@@ -338,3 +341,9 @@ init_base_dir_config(Mod, TestCase, Config)->
         {sim_dir, SimDir}
         | Config
     ].
+
+wait_until_height(Node, Height) ->
+    wait_until(fun() ->
+                       C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                       {ok, Height} == ct_rpc:call(Node, blockchain, height, [C])
+               end, 30, timer:seconds(1)).

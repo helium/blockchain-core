@@ -22,7 +22,8 @@
     icdf_select/2,
     find_txn/2,
     map_to_bitvector/1,
-    bitvector_to_map/2
+    bitvector_to_map/2,
+    get_pubkeybin_sigfun/1
 ]).
 
 -ifdef(TEST).
@@ -211,6 +212,12 @@ vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
+-spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
+get_pubkeybin_sigfun(Swarm) ->
+    {ok, PubKey, SigFun, _} = libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    {PubKeyBin, SigFun}.
+
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
@@ -288,6 +295,23 @@ pmap_test() ->
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
     ?assertEqual(Input, Results).
+
+get_pubkeybin_sigfun_test() ->
+    BaseDir = test_utils:tmp_dir("get_pubkeybin_sigfun_test"),
+    {ok, Swarm} = start_swarm(get_pubkeybin_sigfun_test, BaseDir),
+    {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    ?assertEqual({PubKeyBin, PayerSigFun}, get_pubkeybin_sigfun(Swarm)),
+    libp2p_swarm:stop(Swarm),
+    ok.
+
+start_swarm(Name, BaseDir) ->
+    SwarmOpts = [
+        {libp2p_nat, [{enabled, false}]},
+        {base_dir, BaseDir}
+    ],
+    application:ensure_all_started(throttle),
+    libp2p_swarm:start(Name, SwarmOpts).
 
 bitvector_roundtrip_test() ->
     L1 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 16)],

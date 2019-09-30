@@ -115,7 +115,7 @@ single_payee_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
@@ -185,7 +185,7 @@ different_payees_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
-    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
