@@ -34,7 +34,6 @@
 -define(FREQUENCY, 915).
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
--define(HEX_ADJUSTMENT, 0.0162). %% Twice the distance from center to edge of hex at res 12
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
@@ -369,7 +368,13 @@ distance(#gateway_v2{location=L1}, #gateway_v2{location=L1}) ->
     0.001;
 distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
     %% distance in kms
-    vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) - ?HEX_ADJUSTMENT.
+    vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) - hex_adjustment(L1) - hex_adjustment(L2).
+
+hex_adjustment(Loc) ->
+    %% Distance from hex center to edge, sqrt(3)*edge_length/2.
+    Res = h3:get_resolution(Loc),
+    EdgeLength = h3:edge_length_kilometers(Res),
+    EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
 
 create_histogram(WitnessGW, Gateway) ->
     %% First, calculate the ideal free space path loss between the 2 locations
