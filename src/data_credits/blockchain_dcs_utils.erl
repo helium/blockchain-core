@@ -6,7 +6,7 @@
 -module(blockchain_dcs_utils).
 
 -export([
-    get_height/2, get_credits/2
+    get_nonce/2, get_credits/2
 ]).
 
 -include("blockchain.hrl").
@@ -16,11 +16,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--spec get_height(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, non_neg_integer()} | {error, any()}.
-get_height(DB, CF) ->
-    case rocksdb:get(DB, CF, ?HEIGHT_KEY, [{sync, true}]) of
-        {ok, <<Height/integer>>} ->
-            {ok, Height};
+-spec get_nonce(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, non_neg_integer()} | {error, any()}.
+get_nonce(DB, CF) ->
+    case rocksdb:get(DB, CF, ?NONCE_KEY, [{sync, true}]) of
+        {ok, <<Nonce/integer>>} ->
+            {ok, Nonce};
         not_found ->
             {error, not_found};
         _Error ->

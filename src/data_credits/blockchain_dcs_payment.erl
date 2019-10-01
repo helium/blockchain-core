@@ -6,8 +6,8 @@
 -module(blockchain_dcs_payment).
 
 -export([
-    id/1, key/1, height/1, payer/1, payee/1, amount/1, signature/1,
-    new/6, store/3, get_all/3,
+    payee/1, amount/1, nonce/1, signature/1,
+    new/3, sign/2, store/3, get_all/3,
     encode/1,
     decode/1
 ]).
@@ -20,32 +20,13 @@
 -endif.
 
 -record(dcs_payment, {
-    id :: binary(),
-    key :: binary(),
-    height :: integer(),
-    payer :: binary(),
     payee :: binary(),
     amount :: integer(),
+    nonce :: integer(),
     signature :: binary() | undefined
 }).
 
 -type dcs_payment() ::#dcs_payment{}.
-
--spec id(dcs_payment()) -> binary().
-id(#dcs_payment{id=Id}) ->
-    Id.
-
--spec key(dcs_payment()) -> binary().
-key(#dcs_payment{key=Key}) ->
-    Key.
-
--spec height(dcs_payment()) -> integer().
-height(#dcs_payment{height=Height}) ->
-    Height.
-
--spec payer(dcs_payment()) -> binary().
-payer(#dcs_payment{payer=Payer}) ->
-    Payer.
 
 -spec payee(dcs_payment()) -> binary().
 payee(#dcs_payment{payee=Payee}) ->
@@ -55,33 +36,35 @@ payee(#dcs_payment{payee=Payee}) ->
 amount(#dcs_payment{amount=Amount}) ->
     Amount.
 
+-spec nonce(dcs_payment()) -> integer().
+nonce(#dcs_payment{nonce=Nonce}) ->
+    Nonce.
+
 -spec signature(dcs_payment()) -> binary().
 signature(#dcs_payment{signature=Signature}) ->
     Signature.
 
--spec new(binary(), map(), non_neg_integer(), libp2p_crypto:pubkey_bin(),
-                  libp2p_crypto:pubkey_bin(), non_neg_integer()) -> dcs_payment().
-new(ID, #{secret := PrivKey, public := PubKey}, Height, Payer, Payee, Amount) -> 
-    Payment = #dcs_payment{
-        id=ID,
-        key=libp2p_crypto:pubkey_to_bin(PubKey),
-        height=Height,
-        payer=Payer,
+-spec new(binary(), non_neg_integer(), non_neg_integer()) -> dcs_payment().
+new(Payee, Amount, Nonce) -> 
+    #dcs_payment{
         payee=Payee,
-        amount=Amount
-    },
-    EncodedPayment = ?MODULE:encode(Payment),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+        amount=Amount,
+        nonce=Nonce
+    }.
+
+-spec sign(dcs_payment(), function()) -> dcs_payment().
+sign(Payment, SigFun) ->
+    EncodedPayment = ?MODULE:encode(Payment#dcs_payment{signature=undefined}),
     Signature = SigFun(EncodedPayment),
     Payment#dcs_payment{signature=Signature}.
 
 -spec store(rocksdb:db_handle(), rocksdb:cf_handle(), dcs_payment()) -> ok | {error, any()}.
-store(DB, CF, #dcs_payment{height=Height, amount=Amount}=Payment) ->
+store(DB, CF, #dcs_payment{nonce=Nonce, amount=Amount}=Payment) ->
     Encoded = ?MODULE:encode(Payment),
     {ok, Batch} = rocksdb:batch(),
-    ok = rocksdb:batch_put(Batch, CF, <<Height>>, Encoded),
-    ok = rocksdb:batch_put(Batch, CF, ?HEIGHT_KEY, <<Height>>),
-    case Height == 0 of
+    ok = rocksdb:batch_put(Batch, CF, <<Nonce>>, Encoded),
+    ok = rocksdb:batch_put(Batch, CF, ?NONCE_KEY, <<Nonce>>),
+    case Nonce == 0 of
         true ->
             ok = rocksdb:batch_put(Batch, CF, ?CREDITS_KEY, <<Amount>>);
         false ->
