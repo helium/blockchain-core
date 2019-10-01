@@ -37,8 +37,8 @@
     cf :: rocksdb:cf_handle(),
     keys :: libp2p_crypto:key_map(),
     credits = 0 :: non_neg_integer(),
-    height = 0 :: non_neg_integer(),
-    channel_clients = #{} :: #{libp2p_crypto:pubkey_bin() => any()}
+    nonce = 0 :: non_neg_integer(),
+    merkle_tree :: merkerl:merkle()
 }).
 
 %% ------------------------------------------------------------------
@@ -56,16 +56,16 @@ credits(Pid) ->
 %% ------------------------------------------------------------------
 init([DB, CF, Keys, 0]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
-    {ok, Height} = blockchain_dcs_utils:get_height(DB, CF),
+    {ok, Nonce} = blockchain_dcs_utils:get_nonce(DB, CF),
     {ok, Credits} = blockchain_dcs_utils:get_credits(DB, CF),
-    {ok, Clients} = channel_clients(DB, CF),
     {ok, #state{
         db=DB,
         cf=CF,
         keys=Keys,
         credits=Credits,
-        height=Height,
-        channel_clients=Clients
+        nonce=Nonce,
+        % TODO: Rebuild tree
+        merkle_tree=merkerl:new([], fun merkerl:hash_value/1)
     }};
 init([DB, CF, Keys, Credits]=Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
@@ -82,7 +82,9 @@ init([DB, CF, Keys, Credits]=Args) ->
         db=DB,
         cf=CF,
         keys=Keys,
-        credits=Credits
+        credits=Credits,
+        nonce=0,
+        merkle_tree=merkerl:new([], fun merkerl:hash_value/1)
     }}.
 
 handle_call(credits, _From, #state{credits=Credits}=State) ->
@@ -92,42 +94,35 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({payment_req, PaymentReq}, #state{db=DB, cf=CF, keys=Keys,
-                                              credits=Credits, height=Height0,
-                                              channel_clients=Clients0}=State0) ->
+                                              credits=Credits, nonce=Nonce0,
+                                              merkle_tree=Tree0}=State) ->
     % TODO: Check that we can pay for it
-    Height1 = Height0+1,
-    ID = blockchain_dcs_payment_req:id(PaymentReq),
+    Nonce1 = Nonce0+1,
     Payee = blockchain_dcs_payment_req:payee(PaymentReq),
     Amount = blockchain_dcs_payment_req:amount(PaymentReq),
-    Payment = blockchain_dcs_payment:new(
-        ID,
-        Keys,
-        Height1,
-        blockchain_swarm:pubkey_bin(),
-        Payee,
-        Amount
-    ),
-    ok = blockchain_dcs_payment:store(DB, CF, Payment),
+    Payment = blockchain_dcs_payment:new(Payee, Amount, Nonce1),
+    #{secret := PrivKey}=Keys,
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedPayment = blockchain_dcs_payment:sign(Payment, SigFun),
+    ok = blockchain_dcs_payment:store(DB, CF, SignedPayment),
     lager:info("got payment request ~p (leftover: ~p)", [PaymentReq, Credits-Amount]),
-    EncodedPayment = blockchain_dcs_payment:encode(Payment),
-    State1 = 
-        case maps:is_key(Payee, Clients0) of
-            true ->
-                ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-                State0#state{credits=Credits-Amount, height=Height1};
-            false ->
-                ok = update_client(DB, CF, Payee, Height1),
-                ok = broacast_payment(maps:keys(Clients0), EncodedPayment),
-                Clients1 = maps:put(Payee, <<>>, Clients0),
-                ok = channel_clients(DB, CF, Payee),
-                State0#state{credits=Credits-Amount, height=Height1, channel_clients=Clients1}
-        end,
+    TreeValues = merkerl:values(Tree0),
+    Tree1 = merkerl:new(TreeValues ++ [SignedPayment], fun merkerl:hash_value/1),
+    Clients0 = channel_clients(DB, CF),
+    case maps:is_key(Payee, Clients0) of
+        true ->
+            ok = broacast(maps:keys(Clients0), Tree1);
+        false ->
+            Clients1 = maps:put(Payee, <<>>, Clients0),
+            ok = add_client(DB, CF, Payee, Clients1),
+            ok = broacast(maps:keys(Clients1), Tree1)
+    end,
     case Credits-Amount == 0 of
         false ->
-            {noreply, State1};
+            {noreply, State#state{credits=Credits-Amount, nonce=Nonce1}};
         true ->
-            % TODO: Should settle right her
-            {stop, normal, State1}
+            % TODO: Should settle right here
+            {stop, normal, State#state{credits=Credits-Amount, nonce=Nonce1}}
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -147,10 +142,6 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec channel_clients(rocksdb:db_handle(), rocksdb:cf_handle()) -> {ok, map()} | {error, any()}.
 channel_clients(DB, CF) ->
     case rocksdb:get(DB, CF, ?CLIENTS, [{sync, true}]) of
@@ -163,27 +154,18 @@ channel_clients(DB, CF) ->
             _Error
     end.
 
--spec channel_clients(rocksdb:db_handle(), rocksdb:cf_handle(),
-                      libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
-channel_clients(DB, CF, PubKeyBin) ->
-    case channel_clients(DB, CF) of
-        {ok, Map0} ->
-            Map1 = maps:put(PubKeyBin, <<>>, Map0),
-            rocksdb:put(DB, CF, ?CLIENTS, erlang:term_to_binary(Map1), []);
-        _Error ->
-            _Error
-    end.
+-spec add_client(rocksdb:db_handle(), rocksdb:cf_handle(), libp2p_crypto:pubkey_bin(), map()) -> ok | {error, any()}.
+add_client(DB, CF, PubKeyBin, Client0) ->
+    Client1 = maps:put(PubKeyBin, <<>>, Client0),
+    rocksdb:put(DB, CF, ?CLIENTS, erlang:term_to_binary(Client1), []).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec broacast_payment([libp2p_crypto:pubkey_bin()], binary()) -> ok.
-broacast_payment([], _EncodedPayment) ->
+-spec broacast([libp2p_crypto:pubkey_bin()], merkerl:merkle()) -> ok.
+broacast([], _Tree) ->
     ok;
-broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
+broacast([PubKeyBin|Clients], Tree) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    % TODO: Maybe save stream so we don't have to re dial everytime?
     case libp2p_swarm:dial_framed_stream(Swarm,
                                          P2PAddr,
                                          ?DATA_CREDITS_CHANNEL_PROTOCOL,
@@ -192,38 +174,9 @@ broacast_payment([PubKeyBin|Clients], EncodedPayment) ->
     of
         {ok, Stream} ->
             lager:info("broadcasting payment update to ~p", [PubKeyBin]),
-            blockchain_dcs_channel_stream:send_update(Stream, EncodedPayment),
-            _ = erlang:send_after(2000, Stream, stop),
-            broacast_payment(Clients, EncodedPayment);
+            EncodedTree = erlang:term_to_binary(Tree),
+            blockchain_dcs_channel_stream:send_update(Stream, EncodedTree),
+            broacast(Clients, Tree);
         _Error ->
-            broacast_payment(Clients, EncodedPayment)
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec update_client(rocksdb:db_handle(), rocksdb:cf_handle(),
-                    libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
-update_client(DB, CF, PubKeyBin, Height) ->
-    Swarm = blockchain_swarm:swarm(),
-    P2PAddr = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
-    case libp2p_swarm:dial_framed_stream(Swarm,
-                                         P2PAddr,
-                                         ?DATA_CREDITS_CHANNEL_PROTOCOL,
-                                         blockchain_dcs_channel_stream,
-                                         [])
-    of
-        {ok, Stream} ->
-            lists:foreach(
-                fun(EncodedPayment) ->
-                    lager:info("sending payment update to client: ~p", [PubKeyBin]),
-                    blockchain_dcs_channel_stream:send_update(Stream, EncodedPayment)
-                end,
-                blockchain_dcs_payment:get_all(DB, CF, Height)
-            ),
-            _ = erlang:send_after(2000, Stream, stop),
-            ok;
-        _Error ->
-            lager:error("failed to dial ~p (~p): ~p", [P2PAddr, PubKeyBin, _Error])
+            broacast(Clients, Tree)
     end.

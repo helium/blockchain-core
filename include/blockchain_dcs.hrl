@@ -1,2 +1,2 @@
--define(HEIGHT_KEY, <<"height">>).
+-define(NONCE_KEY, <<"nonce">>).
 -define(CREDITS_KEY, <<"credits">>).
