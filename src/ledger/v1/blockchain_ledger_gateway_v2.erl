@@ -364,8 +364,8 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
 
 
 distance(#gateway_v2{location=L1}, #gateway_v2{location=L1}) ->
-    %% Same location, defaulting the distance to 18.8m
-    0.0188;
+    %% Same location, defaulting the distance to 1m
+    0.001;
 distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
     %% distance in kms
     Distance = vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)),
