@@ -46,8 +46,8 @@
           nonce :: non_neg_integer(),
           count :: non_neg_integer(),
           hist = erlang:error(no_histogram) :: #{integer() => integer()}, %% sampled rssi histogram
-          first_time :: non_neg_integer(), %% first time a hotspot witnessed this one
-          recent_time :: non_neg_integer(), %% most recent a hotspots witnessed this one
+          first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
+          recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
           time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
          }).
 
