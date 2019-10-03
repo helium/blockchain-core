@@ -374,7 +374,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
             Error0;
         {ok, PoCs} ->
             case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
-                {error, Error1}=Error1 ->
+                {error, _}=Error1 ->
                     Error1;
                 {ok, _PoC} ->
                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
