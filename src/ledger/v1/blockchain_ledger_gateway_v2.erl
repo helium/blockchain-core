@@ -63,12 +63,13 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
+    witnesses = #{} ::  witnesses()
 }).
 
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
--export_type([gateway/0, gateway_witness/0]).
+-type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-export_type([gateway/0, gateway_witness/0, witnesses/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -423,7 +424,7 @@ remove_witness(Gateway, Witness) ->
 has_witness(#gateway_v2{witnesses=Witnesses}, Witness) ->
     maps:is_key(Witness, Witnesses).
 
--spec witnesses(gateway()) -> [gateway_witness()].
+-spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
 
