@@ -167,7 +167,7 @@ validate(Transactions, Chain0, false) ->
 validate([], Valid,  Invalid, Chain) ->
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:delete_context(Ledger),
-    lager:info("valid: ~p, invalid: ~p", [Valid, Invalid]),
+    lager:info("valid: ~p, invalid: ~p", [types(Valid), types(Invalid)]),
     {lists:reverse(Valid), Invalid};
 validate([Txn | Tail], Valid, Invalid, Chain) ->
     Type = ?MODULE:type(Txn),
@@ -189,6 +189,9 @@ validate([Txn | Tail], Valid, Invalid, Chain) ->
             %% any other error means we drop it
             validate(Tail, Valid, [Txn | Invalid], Chain)
     end.
+
+types(L) ->
+    lists:map(fun type/1, L).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -9,18 +9,76 @@
 -include("blockchain_vars.hrl").
 
 new_group(Ledger, Hash, Size, Delay) ->
+    case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {error, not_found} ->
+            new_group_v1(Ledger, Hash, Size, Delay);
+        {ok, N} when N >= 2 ->
+            new_group_v2(Ledger, Hash, Size, Delay)
+    end.
+
+new_group_v1(Ledger, Hash, Size, Delay) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
     {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+
+    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, none, Ledger),
+
+    lager:info("scored old group: ~p scored gateways: ~p",
+               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+
+    %% sort high to low to prioritize high-scoring gateways for selection
+    Gateways = lists:reverse(lists:sort(GatewaysScored)),
+    blockchain_utils:rand_from_hash(Hash),
+    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, []),
+
+    %% sort low to high to prioritize low scoring and down gateways
+    %% for removal from the group
+    OldGroup = lists:sort(OldGroupScored),
+    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), SelectPct, []),
+    Rem ++ New.
+
+new_group_v2(Ledger, Hash, Size, Delay) ->
+    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
+
+    {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+
+    %% annotate with score while removing dupes
+    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger),
+
+    lager:info("scored old group: ~p scored gateways: ~p",
+               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+
+    %% get the locations of the current consensus group at a particular h3 resolution
+    Locations = locations(ClusterRes, OldGroup0, Gateways0),
+
+    %% sort high to low to prioritize high-scoring gateways for selection
+    Gateways = lists:reverse(lists:sort(GatewaysScored)),
+    blockchain_utils:rand_from_hash(Hash),
+    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, [], Locations),
+
+    %% sort low to high to prioritize low scoring and down gateways
+    %% for removal from the group
+    OldGroup = lists:sort(OldGroupScored),
+    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
+    Rem ++ New.
+
+determine_sizes(Size, OldLen, Delay, Ledger) ->
     {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
     %% increase this to make removal more gradual, decrease to make it less so
     {ok, ReplacementSlope} = blockchain_ledger_v1:config(?election_replacement_slope, Ledger),
     {ok, Interval} = blockchain:config(?election_restart_interval, Ledger),
-
-    OldLen = length(OldGroup0),
     case Size == OldLen of
         true ->
             MinSize = ((OldLen - 1) div 3) + 1, % smallest remainder we will allow
@@ -42,58 +100,63 @@ new_group(Ledger, Hash, Size, Delay) ->
             Remove = OldLen - Size,
             Replace = 0
     end,
+    {Remove, Replace}.
 
+score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     PoCInterval = blockchain_utils:challenge_interval(Ledger),
 
-    %% annotate with score while removing dupes
-    {OldGroupScored, GatewaysScored} =
-        maps:fold(
-          fun(Addr, Gw, {Old, Candidates} = Acc) ->
-                  Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-                  {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-                  Last = Height - Last0,
-                  Missing = Last > 3 * PoCInterval,
-                  case lists:member(Addr, OldGroup0) of
-                      true ->
-                          OldGw =
-                              case Missing of
-                                  %% make sure that non-functioning
-                                  %% nodes sort first regardless of score
-                                  true ->
-                                      {Score - 5, Addr};
-                                  _ ->
-                                      {Score, Addr}
-                              end,
-                          {[OldGw | Old], Candidates};
-                      _ ->
+    maps:fold(
+      fun(Addr, Gw, {Old, Candidates} = Acc) ->
+              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Loc = location(ClusterRes, Gw),
+              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+              Last = Height - Last0,
+              Missing = Last > 3 * PoCInterval,
+              case lists:member(Addr, OldGroup0) of
+                  true ->
+                      OldGw =
                           case Missing of
-                              %% don't bother to add to the candidate list
+                              %% make sure that non-functioning
+                              %% nodes sort first regardless of score
                               true ->
-                                  Acc;
+                                  {Score - 5, Loc, Addr};
                               _ ->
-                                  {Old, [{Score, Addr} | Candidates]}
-                          end
-                  end
-          end,
-          {[], []},
-          Gateways0),
+                                  {Score, Loc, Addr}
+                          end,
+                      {[OldGw | Old], Candidates};
+                  _ ->
+                      case Missing of
+                          %% don't bother to add to the candidate list
+                          true ->
+                              Acc;
+                          _ ->
+                              {Old, [{Score, Loc, Addr} | Candidates]}
+                      end
+              end
+      end,
+      {[], []},
+      Gateways0).
 
-    lager:info("scored old group: ~p scored gateways: ~p",
-               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+locations(Res, Group, Gws) ->
+    GroupGws = maps:with(Group, Gws),
+    maps:fold(
+      fun(_Addr, Gw, Acc) ->
+              P = location(Res, Gw),
+              Acc#{P => true}
+      end,
+      #{},
+      GroupGws).
 
-    %% sort high to low to prioritize high-scoring gateways for selection
-    Gateways = lists:reverse(lists:sort(GatewaysScored)),
-    blockchain_utils:rand_from_hash(Hash),
-    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, []),
-
-    %% sort low to high to prioritize low scoring and down gateways
-    %% for removal from the group
-    OldGroup = lists:sort(OldGroupScored),
-    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), SelectPct, []),
-    Rem ++ New.
+%% for backwards compatibility, generate a location that can never match
+location(none, _Gw) ->
+    none;
+location(Res, Gw) ->
+    Loc = blockchain_ledger_gateway_v2:location(Gw),
+    h3:parent(Loc, Res).
 
 tup_to_animal(TL) ->
-    lists:map(fun({Scr, Addr}) ->
+    lists:map(fun({Scr, _Loc, Addr}) ->
                       B58Addr = libp2p_crypto:bin_to_b58(Addr),
                       {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
                       {Scr, N}
@@ -105,19 +168,34 @@ last(undefined) ->
 last(N) when is_integer(N) ->
     N.
 
-select(_, [], _, _Pct, Acc) ->
+select(Candidates, Gateways, Size, Pct, Acc) ->
+    select(Candidates, Gateways, Size, Pct, Acc, no_loc).
+
+
+select(_, [], _, _Pct, Acc, _Locs) ->
     lists:reverse(Acc);
-select(_, _, 0, _Pct, Acc) ->
+select(_, _, 0, _Pct, Acc, _Locs) ->
     lists:reverse(Acc);
-select([], Gateways, Size, Pct, Acc) ->
-    select(Gateways, Gateways, Size, Pct, Acc);
-select([{_Score, Gw} | Rest], Gateways, Size, Pct, Acc) ->
+select([], Gateways, Size, Pct, Acc, Locs) ->
+    select(Gateways, Gateways, Size, Pct, Acc, Locs);
+select([{_Score, Loc, Gw} | Rest], Gateways, Size, Pct, Acc, Locs) ->
     case rand:uniform(100) of
-        %% this pctage should be chain-var tunable
         N when N =< Pct ->
-            select(Rest, lists:keydelete(Gw, 2, Gateways), Size - 1, Pct, [Gw | Acc]);
+            case Locs of
+                no_loc ->
+                    select(Rest, lists:keydelete(Gw, 3, Gateways), Size - 1, Pct, [Gw | Acc], Locs);
+                _ ->
+                    %% check if we already have a group member in this h3 hex
+                    case maps:is_key(Loc, Locs) of
+                        true ->
+                            select(Rest, lists:keydelete(Gw, 3, Gateways), Size, Pct, Acc, Locs);
+                        _ ->
+                            select(Rest, lists:keydelete(Gw, 3, Gateways), Size - 1, Pct,
+                                   [Gw | Acc], Locs#{Loc => true})
+                    end
+            end;
         _ ->
-            select(Rest, Gateways, Size, Pct, Acc)
+            select(Rest, Gateways, Size, Pct, Acc, Locs)
     end.
 
 has_new_group(Txns) ->
@@ -145,7 +223,6 @@ has_new_group(Txns) ->
         [] ->
             false
     end.
-
 
 election_info(Ledger, Chain) ->
     %% grab the current height and get the block.

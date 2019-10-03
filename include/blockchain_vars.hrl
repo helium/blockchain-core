@@ -6,9 +6,20 @@
 %%% election vars
 %%%
 
+%% current election version
+-define(election_version, election_version).
+
 %% the likelihood of a particular node being selected or removed from
 %% the consensus group.
 -define(election_selection_pct, election_selection_pct).
+
+%% the likelihood of a particular node being selected or removed from
+%% the consensus group.
+-define(election_removal_pct, election_removal_pct).
+
+%% the h3 resolution to use to determine parent hexagons for
+%% clustering detection
+-define(election_cluster_res, election_cluster_res).
 
 %% the fraction of the consensus group that will be removed in the
 %% first election.  this grows over time, see below
