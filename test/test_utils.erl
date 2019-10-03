@@ -51,7 +51,7 @@ init_chain(Balance, {PrivKey, PubKey}) ->
 
     Locations = lists:foldl(
         fun(I, Acc) ->
-            [h3:from_geo({37.780586, -122.469470 + I/1000}, 12)|Acc]
+            [h3:from_geo({37.780586, -122.469470 + I/100}, 12)|Acc]
         end,
         [],
         lists:seq(1, length(Addresses))
