@@ -336,6 +336,7 @@ set_deltas(Challengee, {A, B}, Deltas) ->
 absorb(Txn, Chain) ->
      LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
      Challenger = ?MODULE:challenger(Txn),
+     Secret = ?MODULE:secret(Txn),
      Ledger = blockchain:ledger(Chain),
 
      case blockchain:config(?poc_version, Ledger) of
@@ -343,14 +344,21 @@ absorb(Txn, Chain) ->
              %% Older poc version, don't add witnesses
              ok;
          {ok, POCVersion} when POCVersion > 1 ->
-             %% Insert the witnesses for gateways in the path into ledger
-             Path = blockchain_txn_poc_receipts_v1:path(Txn),
-             ok = insert_witnesses(Path, Ledger)
+             %% Find upper and lower time bounds for this poc txn and use those to clamp
+             %% witness timestamps being inserted in the ledger
+             case get_lower_and_upper_bounds(Secret, LastOnionKeyHash, Challenger, Ledger, Chain) of
+                 {error, _}=E ->
+                     E;
+                 {ok, {Lower, Upper}} ->
+                     %% Insert the witnesses for gateways in the path into ledger
+                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
+                     ok = insert_witnesses(Path, Lower, Upper, Ledger)
+             end
      end,
 
      case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
-         {error, _}=Error ->
-             Error;
+         {error, _}=Error1 ->
+             Error1;
          ok ->
              lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
@@ -359,19 +367,66 @@ absorb(Txn, Chain) ->
                        ?MODULE:deltas(Txn))
      end.
 
+get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
+    case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
+        {error, Reason}=Error0 ->
+            lager:error("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [OnionKeyHash, Reason]),
+            Error0;
+        {ok, PoCs} ->
+            case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
+                {error, Error1}=Error1 ->
+                    Error1;
+                {ok, _PoC} ->
+                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                        {error, Reason}=Error2 ->
+                            lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
+                            Error2;
+                        {ok, GwInfo} ->
+                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                            case blockchain:get_block(LastChallenge, Chain) of
+                                {error, Reason}=Error3 ->
+                                    lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
+                                    Error3;
+                                {ok, Block1} ->
+                                    case blockchain:head_block(Chain) of
+                                        {error, _}=Error4 ->
+                                            Error4;
+                                        {ok, B} ->
+                                            LowerBound = blockchain_block:time(Block1),
+                                            UpperBound = blockchain_block:time(B),
+                                            {ok, {LowerBound, UpperBound}}
+                                    end
+                            end
+                    end
+            end
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Insert witnesses for gateways in the path into the ledger
 %% @end
 %%--------------------------------------------------------------------
--spec insert_witnesses(blockchain_poc_path_element_v1:path(), blockchain_ledger_v1:ledger()) -> ok.
-insert_witnesses(Path, Ledger) ->
+-spec insert_witnesses(Path :: blockchain_poc_path_element_v1:path(),
+                       LowerTimeBound :: non_neg_integer(),
+                       UpperTimeBound :: non_neg_integer(),
+                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
     Length = length(Path),
     lists:foreach(fun({N, Element}) ->
                           Challengee = blockchain_poc_path_element_v1:challengee(Element),
                           Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-                          %% TODO check these witnesses have valid RSSI/timestamps
-                          WitnessInfo0 = [ {blockchain_poc_witness_v1:signal(W), blockchain_poc_witness_v1:timestamp(W), blockchain_poc_witness_v1:gateway(W)} || W <- Witnesses ],
+                          %% TODO check these witnesses have valid RSSI
+                          WitnessInfo0 = lists:foldl(fun(Witness, Acc) ->
+                                                             TS = case blockchain_poc_witness_v1:timestamp(Witness) of
+                                                                      T when T < LowerTimeBound orelse T > UpperTimeBound ->
+                                                                          LowerTimeBound;
+                                                                      T ->
+                                                                          T
+                                                                  end,
+                                                             [{blockchain_poc_witness_v1:signal(Witness), TS, blockchain_poc_witness_v1:gateway(Witness)} | Acc]
+                                                     end,
+                                                     [],
+                                                     Witnesses),
                           NextElements = lists:sublist(Path, N+1, Length),
                           WitnessInfo = case check_path_continuation(NextElements) of
                                                  true ->
