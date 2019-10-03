@@ -1161,7 +1161,8 @@ epoch_reward_test(Config) ->
 %%--------------------------------------------------------------------
 election_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    %% ConsensusMembers = proplists:get_value(consensus_members, Config),
+    GenesisMembers = proplists:get_value(genesis_members, Config),
     BaseDir = proplists:get_value(basedir, Config),
     %% Chain = proplists:get_value(chain, Config),
     Chain = blockchain_worker:blockchain(),
@@ -1182,7 +1183,7 @@ election_test(Config) ->
          I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
-     || {Addr, _} <- ConsensusMembers],
+     || {Addr, _} <- GenesisMembers],
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
     {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
@@ -1196,6 +1197,9 @@ election_test(Config) ->
 
     ?assertEqual(N, length(New)),
     ?assertEqual(N, length(New1)),
+
+    ?assertNotEqual(OldGroup, New),
+    ?assertNotEqual(OldGroup, New1),
 
     %% confirm that they're sorted by score
     Scored =
