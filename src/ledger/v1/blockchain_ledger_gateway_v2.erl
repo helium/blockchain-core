@@ -26,7 +26,8 @@
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
-    witnesses/1
+    witnesses/1,
+    witness_hist/1, witness_recent_time/1, witness_first_time/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -66,7 +67,8 @@
 }).
 
 -type gateway() :: #gateway_v2{}.
--export_type([gateway/0]).
+-type gateway_witness() :: #witness{}.
+-export_type([gateway/0, gateway_witness/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -408,17 +410,34 @@ update_histogram_(Val, [Key | [Bound | _]], Histogram) when Val > Bound ->
 update_histogram_(Val, [_ | Tail], Histogram) ->
     update_histogram_(Val, Tail, Histogram).
 
+-spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
     Gateway#gateway_v2{witnesses=#{}}.
 
+-spec remove_witness(gateway(), gateway_witness()) -> gateway().
 remove_witness(Gateway, Witness) ->
     Gateway#gateway_v2{witnesses=maps:remove(Witness, Gateway#gateway_v2.witnesses)}.
 
+-spec has_witness(gateway(), gateway_witness()) -> boolean().
 has_witness(#gateway_v2{witnesses=Witnesses}, Witness) ->
     maps:is_key(Witness, Witnesses).
 
+-spec witnesses(gateway()) -> [gateway_witness()].
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
+
+-spec witness_hist(gateway_witness()) -> erlang:error(no_hist) | #{integer() => integer()}.
+witness_hist(Witness) ->
+    Witness#witness.hist.
+
+-spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
+witness_recent_time(Witness) ->
+    Witness#witness.recent_time.
+
+-spec witness_first_time(gateway_witness()) -> undefined | non_neg_integer().
+witness_first_time(Witness) ->
+    Witness#witness.first_time.
+
 
 %%--------------------------------------------------------------------
 %% @doc
