@@ -8,13 +8,15 @@
 -export([
     shuffle_from_hash/2,
     shuffle/1,
-    rand_from_hash/1,
+    rand_from_hash/1, rand_state/1,
     normalize_float/1,
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
     pmap/2,
-    addr2name/1
+    addr2name/1,
+    distance/2,
+    score_gateways/1
 ]).
 
 -ifdef(TEST).
@@ -120,6 +122,56 @@ addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
     N.
+
+-spec rand_state(Hash :: binary()) -> rand:state().
+rand_state(Hash) ->
+    <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
+      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+    rand:seed_s(exs1024s, {A, B, C}).
+
+distance(L1, L1) ->
+    %% Same location, defaulting the distance to 1m
+    0.001;
+distance(L1, L2) ->
+    %% distance in kms
+    case vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) of
+        {error, _} ->
+            %% An off chance that the points are antipodal and
+            %% vincenty_distance fails to converge. In this case
+            %% we default to some max distance we consider good enough
+            %% for witnessing
+            1000;
+        {ok, D} ->
+            D - hex_adjustment(L1) - hex_adjustment(L2)
+    end.
+
+hex_adjustment(Loc) ->
+    %% Distance from hex center to edge, sqrt(3)*edge_length/2.
+    Res = h3:get_resolution(Loc),
+    EdgeLength = h3:edge_length_kilometers(Res),
+    EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
+
+score_gateways(Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            %% Use the cache in delayed ledger mode
+            e2qc:cache(gw_cache, {Height},
+                       fun() ->
+                               score_tagged_gateways(Height, Ledger)
+                       end);
+        active ->
+            %% recalculate in active ledger mode
+            score_tagged_gateways(Height, Ledger)
+    end.
+
+score_tagged_gateways(Height, Ledger) ->
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    maps:map(fun(A, G) ->
+                     {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
+                     {G, S}
+             end, Gateways).
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
