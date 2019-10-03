@@ -4,7 +4,7 @@
 -module(blockchain_poc_path_v2).
 
 -export([
-    build/3
+    build/4
 ]).
 
 -define(PROB, 0.01).
@@ -14,34 +14,37 @@
 
 -spec build(TargetGw :: blockchain_ledger_gateway_v2:gateway(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
-            HeadBlockTime :: non_neg_integer()) -> path().
-build(TargetGw, ActiveGateways, HeadBlockTime) ->
-    build_(TargetGw, ActiveGateways, HeadBlockTime, []).
+            HeadBlockTime :: non_neg_integer(),
+            Entropy :: binary()) -> path().
+build(TargetGw, ActiveGateways, HeadBlockTime, Entropy) ->
+    build_(TargetGw, ActiveGateways, HeadBlockTime, Entropy, []).
 
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
-build_(TargetGw, ActiveGateways, HeadBlockTime, Path) ->
+build_(TargetGw, ActiveGateways, HeadBlockTime, Entropy, Path) ->
     %% TODO: Limit based on path limit chain var
     %% or stop looking if there are no more eligible next hop witnesses
-    NextHopGw = next_hop(TargetGw, ActiveGateways, HeadBlockTime),
-    build_(NextHopGw, ActiveGateways, HeadBlockTime, [NextHopGw | Path]).
+    NextHopGw = next_hop(TargetGw, ActiveGateways, HeadBlockTime, Entropy),
+    build_(NextHopGw, ActiveGateways, HeadBlockTime, Entropy, [NextHopGw | Path]).
 
 -spec next_hop(Gateway :: blockchain_ledger_gateway_v2:gateway(),
                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
-               HeadBlockTime :: non_neg_integer()) -> libp2p_crypto:pubkey_bin().
-next_hop(Gateway, _ActiveGateways, HeadBlockTime) ->
+               HeadBlockTime :: non_neg_integer(),
+               Entropy :: binary()) -> libp2p_crypto:pubkey_bin().
+next_hop(Gateway, _ActiveGateways, HeadBlockTime, Entropy) ->
     Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
     P1Map = bayes_probs(Witnesses),
     P2Map = time_probs(HeadBlockTime, Witnesses),
     Probs = maps:map(fun(WitnessAddr, P2) ->
                              P2 * maps:get(WitnessAddr, P1Map)
                      end, P2Map),
+    SumProbs = lists:sum(maps:values(Probs)),
     ScaledProbs = maps:map(fun(_WitnessAddr, P) ->
-                                   P / lists:sum(maps:values(Probs))
+                                   P / SumProbs
                            end, Probs),
     %% XXX: Use something else here
-    select_witness(ScaledProbs, entropy(HeadBlockTime)).
+    select_witness(ScaledProbs, Entropy).
 
 -spec bayes_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 bayes_probs(Witnesses) ->
@@ -91,8 +94,3 @@ select_witness([{WitnessAddr, Prob}=_Head | _], Rnd) when Rnd - Prob < 0 ->
     {ok, WitnessAddr};
 select_witness([{Prob, _WitnessAddr} | Tail], Rnd) ->
     select_witness(Tail, Rnd - Prob).
-
-entropy(Entropy) ->
-    <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
-      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
-    rand:seed_s(exs1024s, {A, B, C}).
