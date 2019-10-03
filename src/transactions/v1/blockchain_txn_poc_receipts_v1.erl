@@ -169,7 +169,7 @@ is_valid(Txn, Chain) ->
                                                             {error, challenge_too_old};
                                                         true ->
                                                             Condition = case blockchain:config(?poc_version, Ledger) of
-                                                                {ok, POCVersion} when POCVersion >= 2 ->
+                                                                {ok, POCVersion} when POCVersion > 1 ->
                                                                     fun(T) ->
                                                                         blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                                                         blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
@@ -452,30 +452,18 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                    true ->
                                                        {error, too_many_witnesses};
                                                    false ->
-                                                       %% all the witnesses should have the right LayerHash
-                                                       %% and be valid
-                                                       case
-                                                           lists:all(
-                                                             fun(Witness) ->
-                                                                     %% the witnesses should have an asserted location
-                                                                     %% at the point when the request was mined!
-                                                                     WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
-                                                                     case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
-                                                                         {error, _} ->
-                                                                             false;
-                                                                         {ok, _} when Gateway == WitnessGateway ->
-                                                                             false;
-                                                                         {ok, GWInfo} ->
-                                                                             blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
-                                                                             blockchain_poc_witness_v1:is_valid(Witness) andalso
-                                                                             blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
-                                                                     end
-                                                             end,
-                                                             Witnesses
-                                                            )
-                                                       of
-                                                           true -> ok;
-                                                           false -> {error, invalid_witness}
+                                                       case blockchain_ledger_v1:config(?poc_version, OldLedger) of
+                                                           {ok, V} when V > 1 ->
+                                                               %% check there are no duplicates in witnesses list
+                                                               WitnessGateways = [blockchain_poc_witness_v1:gateway(W) || W <- Witnesses],
+                                                               case length(WitnessGateways) == length(lists:usort(WitnessGateways)) of
+                                                                   false ->
+                                                                       {error, duplicate_witnesses};
+                                                                   true ->
+                                                                       check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
+                                                               end;
+                                                           _ ->
+                                                               check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger)
                                                        end
                                                end;
                                            false ->
@@ -506,6 +494,32 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
             Result
     end.
 
+check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
+    %% all the witnesses should have the right LayerHash
+    %% and be valid
+    case
+        lists:all(
+          fun(Witness) ->
+                  %% the witnesses should have an asserted location
+                  %% at the point when the request was mined!
+                  WitnessGateway = blockchain_poc_witness_v1:gateway(Witness),
+                  case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
+                      {error, _} ->
+                          false;
+                      {ok, _} when Gateway == WitnessGateway ->
+                          false;
+                      {ok, GWInfo} ->
+                          blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
+                          blockchain_poc_witness_v1:is_valid(Witness) andalso
+                          blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
+                  end
+          end,
+          Witnesses
+         )
+    of
+        true -> ok;
+        false -> {error, invalid_witness}
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
