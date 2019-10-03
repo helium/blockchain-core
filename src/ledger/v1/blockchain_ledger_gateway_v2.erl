@@ -381,8 +381,12 @@ create_histogram(WitnessGW, Gateway) ->
     Distance = distance(Gateway, WitnessGW),
     %% TODO support regional parameters for non-US based hotspots
     FreeSpacePathLoss = ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN),
+    %% Maximum number of bins in the histogram
+    NumBins = 10,
+    %% Spacing between histogram keys (x axis)
+    StepSize = ((-132 + abs(FreeSpacePathLoss))/(NumBins - 1)),
     %% Construct a custom histogram around the expected path loss
-    maps:from_list([ {28, 0} | [ {round(FreeSpacePathLoss + (N * ((-132 + abs(FreeSpacePathLoss))/9))), 0} || N <- lists:seq(0, 9)]]).
+    maps:from_list([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
 
 update_histogram(Val, Histogram) ->
     Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
