@@ -64,6 +64,13 @@ init(Args) ->
     application:ensure_all_started(clique),
     ok = blockchain_cli_registry:register_cli(),
     lager:info("~p init with ~p", [?MODULE, Args]),
+    GroupMgrArgs =
+        case proplists:get_value(group_delete_predicate, Args, false) of
+            false ->
+                [];
+            Pred ->
+                [{group_delete_predicate, Pred}]
+        end,
     SwarmWorkerOpts =
         [
          {key, proplists:get_value(key, Args)},
@@ -84,7 +91,7 @@ init(Args) ->
            {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
-        ],
+        ] ++ GroupMgrArgs,
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, proplists:get_value(base_dir, Args, "data")},
