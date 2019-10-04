@@ -271,7 +271,6 @@ init(Args) ->
                 %% mark all upgrades done
                 R;
             {ok, Chain0} ->
-                lager:info("WTFWTFWTFTRWFWTRWRFDSFAFDS"),
                 Chain =
                     case blockchain:config(?num_consensus_members, blockchain:ledger(Chain0)) of
                         {ok, _N} ->
@@ -474,7 +473,6 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
-    lager:info("unknown DOWN ~p ~p", [SyncRef, _SyncPid]),
     {ok, Block} = blockchain:head_block(Chain),
     Now = erlang:system_time(seconds),
     Time = blockchain_block:time(Block),
@@ -505,7 +503,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p ~p ~p", [_Msg, State#state.sync_pid, State#state.sync_ref]),
+    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
