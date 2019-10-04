@@ -415,13 +415,13 @@ update_histogram_(Val, [_ | Tail], Histogram) ->
 clear_witnesses(Gateway) ->
     Gateway#gateway_v2{witnesses=#{}}.
 
--spec remove_witness(gateway(), gateway_witness()) -> gateway().
-remove_witness(Gateway, Witness) ->
-    Gateway#gateway_v2{witnesses=maps:remove(Witness, Gateway#gateway_v2.witnesses)}.
+-spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
+remove_witness(Gateway, WitnessAddr) ->
+    Gateway#gateway_v2{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v2.witnesses)}.
 
--spec has_witness(gateway(), gateway_witness()) -> boolean().
-has_witness(#gateway_v2{witnesses=Witnesses}, Witness) ->
-    maps:is_key(Witness, Witnesses).
+-spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
+has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
+    maps:is_key(WitnessAddr, Witnesses).
 
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->

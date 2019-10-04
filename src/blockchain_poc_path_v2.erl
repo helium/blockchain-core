@@ -33,12 +33,12 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
-build_(TargetGw, ActiveGateways, HeadBlockTime, Entropy, Limit, Indices, Path) when length(Path) < Limit ->
+build_(TargetGw, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, Indices, Path) when length(Path) < Limit ->
     %% Try to find a next hop
-    case next_hop(TargetGw, ActiveGateways, HeadBlockTime, Entropy, Indices) of
+    case next_hop(TargetGw, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
         {error, no_witness} ->
             %% Try the last hotspot in the path if no witness found
-            case next_hop(lists:last(Path), ActiveGateways, HeadBlockTime, Entropy, Indices) of
+            case next_hop(lists:last(Path), ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
                 {error, no_witness} ->
                     %% Stop
                     Path;
@@ -46,14 +46,14 @@ build_(TargetGw, ActiveGateways, HeadBlockTime, Entropy, Limit, Indices, Path) w
                     %% Keep going
                     NextHopGw0 = maps:get(WitnessAddr0, ActiveGateways),
                     Res = blockchain_ledger_gateway_v2:location(NextHopGw0),
-                    build_(NextHopGw0, ActiveGateways, HeadBlockTime, Entropy, Limit, [Res | Indices], [NextHopGw0 | Path])
+                    build_(NextHopGw0, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Res | Indices], [NextHopGw0 | Path])
             end;
         {ok, WitnessAddr} ->
             %% Try the last hop in the new path, basically flip so we search in two directions
             NextHopGw = maps:get(WitnessAddr, ActiveGateways),
             Res = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [NextHopGw | Path],
-            build_(lists:last(NewPath), ActiveGateways, HeadBlockTime, Entropy, Limit, [Res | Indices], lists:reverse(NewPath))
+            build_(lists:last(NewPath), ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Res | Indices], lists:reverse(NewPath))
     end;
 build_(_TargetGw, _ActiveGateways, _HeadBlockTime, _Entropy, _Limit, _Indices, Path) ->
     Path.
@@ -61,9 +61,9 @@ build_(_TargetGw, _ActiveGateways, _HeadBlockTime, _Entropy, _Limit, _Indices, P
 -spec next_hop(Gateway :: blockchain_ledger_gateway_v2:gateway(),
                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
                HeadBlockTime :: non_neg_integer(),
-               Entropy :: binary(),
-               Indices :: [h3:h3_index()]) -> libp2p_crypto:pubkey_bin().
-next_hop(Gateway, ActiveGateways, HeadBlockTime, Entropy, Indices) ->
+               RandFromEntropy :: float(),
+               Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
+next_hop(Gateway, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
     %% Get all the witnesses for this Gateway
     Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
     %% Filter out those witnesses which are in the same hex as this Gateway
@@ -82,10 +82,10 @@ next_hop(Gateway, ActiveGateways, HeadBlockTime, Entropy, Indices) ->
                                                 P / SumProbs
                                         end, Probs)),
     %% Pick one
-    select_witness(ScaledProbs, Entropy).
+    select_witness(ScaledProbs, RandFromEntropy).
 
 -spec bayes_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
-bayes_probs([_Witness]=_Witnesses) ->
+bayes_probs(Witnesses) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1
     1.0;
 bayes_probs(Witnesses) ->
@@ -114,7 +114,7 @@ bayes_probs(Witnesses) ->
 
 -spec time_probs(HeadBlockTime :: non_neg_integer(),
                  Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
-time_probs(_, [_Witness]=_Witnesses) ->
+time_probs(_, Witnesses) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1.0
     1.0;
 time_probs(HeadBlockTime, Witnesses) ->
@@ -143,6 +143,7 @@ time_probs(HeadBlockTime, Witnesses) ->
                      end
              end, Deltas).
 
+-spec select_witness([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
 select_witness([], _Rnd) ->
     {error, no_witness};
 select_witness([{WitnessAddr, Prob}=_Head | _], Rnd) when Rnd - Prob < 0 ->
