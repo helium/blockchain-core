@@ -14,13 +14,14 @@
 -type path() :: [blockchain_ledger_gateway_v2:gateway()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
--spec build(TargetGw :: blockchain_ledger_gateway_v2:gateway(),
+-spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
             HeadBlockTime :: non_neg_integer(),
             Entropy :: binary(),
             Limit :: pos_integer()) -> path().
-build(TargetGw, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
+build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
     %% Initialize with the TargetGw already in Indices and Path list
+    TargetGw = maps:get(TargetPubkeyBin, ActiveGateways),
     build_(TargetGw,
            ActiveGateways,
            HeadBlockTime,
@@ -71,15 +72,12 @@ next_hop(Gateway, ActiveGateways, HeadBlockTime, Entropy, Indices) ->
     FilteredWitnesses = filter_traversed_indices(Indices, FilteredWitnesses0, ActiveGateways),
     %% Assign probabilities to filtered witnesses
     P1Map = bayes_probs(FilteredWitnesses),
-    io:format("P1Map: ~p~n", [P1Map]),
     P2Map = time_probs(HeadBlockTime, FilteredWitnesses),
-    io:format("P2Map: ~p~n", [P2Map]),
     Probs = maps:map(fun(WitnessAddr, P2) ->
                              P2 * maps:get(WitnessAddr, P1Map)
                      end, P2Map),
     %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
     SumProbs = lists:sum(maps:values(Probs)),
-    io:format("SumProbs: ~p~n", [SumProbs]),
     ScaledProbs = maps:to_list(maps:map(fun(_WitnessAddr, P) ->
                                                 P / SumProbs
                                         end, Probs)),
@@ -109,7 +107,6 @@ bayes_probs(Witnesses) ->
                                        %% P(B|A): prob of selecting B given that A is true
                                        ?PROB * (1/WitnessListLength)/(BadRSSICount / SumRSSIs)
                                end,
-                        io:format("WitnessAddr: ~p, Prob: ~p~n", [WitnessAddr, Prob]),
                         maps:put(WitnessAddr, Prob, Acc)
                 end,
                 #{},
@@ -133,9 +130,7 @@ time_probs(HeadBlockTime, Witnesses) ->
                          maps:to_list(Witnesses)),
 
 
-    io:format("Deltas: ~p~n", [Deltas]),
     DeltaSum = lists:sum(maps:values(Deltas)),
-    io:format("DeltaSum: ~p~n", [DeltaSum]),
 
     %% NOTE: Use inverse of the probabilities to bias against staler witnesses, hence the one minus
     maps:map(fun(_WitnessAddr, Delta) ->
