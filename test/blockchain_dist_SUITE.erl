@@ -111,7 +111,7 @@ gossip_test(Config) ->
     N = length(Nodes),
     ct:pal("N: ~p", [N]),
 
-    _ = ct_rpc:call(FirstNode, blockchain_gossip_handler, add_block, [Swarm, Block, Chain, N, self()]),
+    _ = ct_rpc:call(FirstNode, blockchain_gossip_handler, add_block, [Swarm, Block, Chain, self()]),
 
     ok = lists:foreach(fun(Node) ->
         ok = blockchain_ct_utils:wait_until(fun() ->

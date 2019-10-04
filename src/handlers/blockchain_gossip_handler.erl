@@ -17,11 +17,11 @@
 -export([
          init_gossip_data/1,
          handle_gossip_data/2,
-         add_block/5,
+         add_block/4,
          gossip_data/2
         ]).
 
-init_gossip_data([Swarm, _N, Blockchain]) ->
+init_gossip_data([Swarm, Blockchain]) ->
     lager:debug("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:debug("gossiping block to peers on init"),
@@ -30,7 +30,7 @@ init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
 
-handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
+handle_gossip_data(Data, [Swarm, Blockchain]) ->
     try
         #blockchain_gossip_block_pb{from=From, block=BinBlock} =
             blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
@@ -40,7 +40,7 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
                 lager:notice("gossip_handler unknown block: ~p", [Block]);
             _ ->
                 lager:debug("Got block: ~p from: ~p", [Block, From]),
-                add_block(Swarm, Block, Blockchain, N, From)
+                add_block(Swarm, Block, Blockchain, From)
         end
     catch
         _What:Why ->
@@ -48,7 +48,7 @@ handle_gossip_data(Data, [Swarm, N, Blockchain]) ->
     end,
     ok.
 
-add_block(Swarm, Block, Chain, N, Sender) ->
+add_block(Swarm, Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
@@ -61,7 +61,7 @@ add_block(Swarm, Block, Chain, N, Sender) ->
                                                  P2PPubkeyBin,
                                                  ?SYNC_PROTOCOL,
                                                  blockchain_sync_handler,
-                                                 [N, Chain])
+                                                 [Chain])
             of
                 {ok, Stream} ->
                     erlang:unlink(Stream),

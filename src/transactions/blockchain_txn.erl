@@ -286,7 +286,9 @@ absorb_block(Block, Rescue, Chain) ->
 absorb(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     try Type:absorb(Txn, Chain) of
-        {error, _Reason}=Error -> Error;
+        {error, _Reason}=Error ->
+            lager:info("failed to absorb ~p ~p", [Type, _Reason]),
+            Error;
         ok -> ok
     catch
         What:Why:Stack ->

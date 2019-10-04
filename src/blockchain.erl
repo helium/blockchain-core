@@ -20,7 +20,9 @@
     config/2,
     fees_since/2,
     build/3,
-    close/1
+    close/1,
+
+    reset_ledger/1, reset_ledger/2
 ]).
 
 -include("blockchain.hrl").
@@ -405,7 +407,7 @@ get_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
     end;
 get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
     case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
-        {ok, Hash} ->
+       {ok, Hash} ->
            ?MODULE:get_block(Hash, Blockchain);
         not_found ->
             {error, not_found};
@@ -439,14 +441,19 @@ add_block(Block, Blockchain) ->
 -spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
 add_block(Block, Blockchain, Syncing) ->
     blockchain_lock:acquire(),
-    Res = case persistent_term:get(?ASSUMED_VALID, undefined) of
-              undefined ->
-                  add_block_(Block, Blockchain, Syncing);
-              AssumedValidHash ->
-                  add_assumed_valid_block(AssumedValidHash, Block, Blockchain, Syncing)
-          end,
-    blockchain_lock:release(),
-    Res.
+    try
+        case persistent_term:get(?ASSUMED_VALID, undefined) of
+            undefined ->
+                add_block_(Block, Blockchain, Syncing);
+            AssumedValidHash ->
+                add_assumed_valid_block(AssumedValidHash, Block, Blockchain, Syncing)
+        end
+    catch What:Why:Stack ->
+            lager:warning("error adding block: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    after
+        blockchain_lock:release()
+    end.
 
 add_block_(Block, Blockchain, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
@@ -747,6 +754,63 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
     persistent_term:erase(?ASSUMED_VALID),
     ok = blockchain_ledger_v1:close(Ledger),
     rocksdb:close(DB).
+
+reset_ledger(Chain) ->
+    {ok, Height} = height(Chain),
+    reset_ledger(Height, Chain).
+
+reset_ledger(Height, #blockchain{db = DB,
+                                 dir = Dir,
+                                 blocks = BlocksCF,
+                                 heights = HeightsCF} = Chain) ->
+    blockchain_lock:acquire(),
+    %% delete the existing and trailing ledgers
+    ok = blockchain_ledger_v1:clean(ledger(Chain)),
+    %% delete blocks from Height + 1 to the top of the chain
+    {ok, TopHeight} = height(Chain),
+    _ = lists:foreach(
+          fun(H) ->
+                  {ok, B} = get_block(H, Chain),
+                  delete_block(B, Chain)
+          end,
+          %% this will be a noop in the case where Height == TopHeight
+          lists:reverse(lists:seq(Height + 1, TopHeight))),
+    %% recreate the ledgers
+    Ledger1 = blockchain_ledger_v1:new(Dir),
+
+    %% reapply the blocks
+    Chain1 =
+        lists:foldl(
+          fun(H, CAcc) ->
+                  case rocksdb:get(DB, HeightsCF, <<H:64/integer-unsigned-big>>, []) of
+                      {ok, Hash0} ->
+                          Hash =
+                              case H of
+                                  1 ->
+                                      {ok, GHash} = genesis_hash(Chain),
+                                      GHash;
+                                  _ ->
+                                      Hash0
+                              end,
+                          {ok, BinBlock} = rocksdb:get(DB, BlocksCF, Hash, []),
+                          Block = blockchain_block:deserialize(BinBlock),
+                          lager:info("absorbing block ~p ?= ~p", [H, blockchain_block:height(Block)]),
+                          ok = blockchain_txn:unvalidated_absorb_and_commit(Block, CAcc, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
+                          CAcc;
+                      _ ->
+                          lager:warning("couldn't absorb block at ~p", [H]),
+                          ok
+                  end
+          end,
+          %% this will be a noop in the case where Height == TopHeight
+          ledger(Ledger1, Chain),
+          lists:seq(1, Height)),
+
+    blockchain_worker:blockchain(Chain1),
+
+    blockchain_lock:release(),
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
