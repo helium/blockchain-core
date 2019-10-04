@@ -29,7 +29,6 @@
 ]).
 
 -record(state, {
-    n :: pos_integer(),
     blockchain :: blockchain:blochain()
 }).
 
@@ -45,14 +44,14 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [N, Blockchain]) ->
+init(client, _Conn, [Blockchain]) ->
     lager:debug("started fastforward_handler client"),
-    {ok, #state{n=N, blockchain=Blockchain}};
-init(server, _Conn, [_Path, _, N, Blockchain]) ->
+    {ok, #state{blockchain=Blockchain}};
+init(server, _Conn, [_Path, _, Blockchain]) ->
     lager:debug("started fastforward_handler server"),
     {ok, Hash} = blockchain:head_hash(Blockchain),
     Msg = #blockchain_sync_hash_pb{hash=Hash},
-    {ok, #state{n=N, blockchain=Blockchain}, blockchain_sync_handler_pb:encode_msg(Msg)}.
+    {ok, #state{blockchain=Blockchain}, blockchain_sync_handler_pb:encode_msg(Msg)}.
 
 handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
     #blockchain_sync_hash_pb{hash=Hash} =

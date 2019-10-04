@@ -66,7 +66,7 @@ basic(_Config) ->
     ok = libp2p_swarm:add_stream_handler(
         SimSwarm
         ,?FASTFORWARD_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, length(ConsensusMembers), Chain]}
+        ,{libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, Chain]}
     ),
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
@@ -81,7 +81,7 @@ basic(_Config) ->
                                          ListenAddr2,
                                          ?FASTFORWARD_PROTOCOL,
                                          blockchain_fastforward_handler,
-                                         [length(ConsensusMembers), Chain0]) of
+                                         [Chain0]) of
         {ok, _Stream} ->
             ct:pal("got stream ~p~n", [_Stream]),
             ok
