@@ -303,8 +303,12 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({blockchain, NewChain}, _From, State) ->
+handle_call({blockchain, NewChain}, _From, #state{swarm = Swarm} = State) ->
     notify({new_chain, NewChain}),
+    {ok, N} = blockchain:config(?num_consensus_members,
+                                blockchain:ledger(NewChain)),
+    remove_handlers(Swarm),
+    ok = add_handlers(Swarm, N, NewChain),
     {reply, ok, State#state{blockchain = NewChain}};
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
@@ -597,6 +601,11 @@ add_handlers(Swarm, N, Blockchain) ->
         {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, N, Blockchain]}
     ).
 
+-spec remove_handlers(pid()) -> ok.
+remove_handlers(Swarm) ->
+    libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL),
+    libp2p_swarm:remove_stream_handler(Swarm, ?SYNC_PROTOCOL),
+    libp2p_swarm:add_stream_handler(Swarm, ?FASTFORWARD_PROTOCOL).
 
 %%--------------------------------------------------------------------
 %% @doc
