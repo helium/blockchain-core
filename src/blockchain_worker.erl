@@ -419,12 +419,11 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
                 false ->
                     ok;
                 true ->
-                    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
                     case libp2p_swarm:dial_framed_stream(Swarm,
                                                          libp2p_crypto:pubkey_bin_to_p2p(Sender),
                                                          ?SYNC_PROTOCOL,
                                                          blockchain_sync_handler,
-                                                         [N, Chain]) of
+                                                         [Chain]) of
                         {ok, Stream} ->
                             Stream ! {hash, LocalHead};
                         _ ->
@@ -549,7 +548,6 @@ maybe_sync(#state{blockchain = Chain} = State) ->
 
 start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
     %% figure out our gossip peers
-    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
     Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
     case Peers of
         [] ->
@@ -558,7 +556,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            Pid = sync(Swarm, N, Chain, RandomPeer),
+            Pid = sync(Swarm, Chain, RandomPeer),
             Ref = erlang:monitor(process, Pid),
             lager:info("unknown starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
@@ -608,13 +606,13 @@ remove_handlers(Swarm) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-sync(Swarm, N, Chain, Peer) ->
+sync(Swarm, Chain, Peer) ->
     spawn(fun() ->
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,
                                              blockchain_sync_handler,
-                                             [N, Chain])
+                                             [Chain])
         of
             {ok, Stream} ->
                 {ok, HeadHash} = blockchain:sync_hash(Chain),
