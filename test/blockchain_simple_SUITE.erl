@@ -135,7 +135,6 @@ basic_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -144,7 +143,7 @@ basic_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
@@ -178,7 +177,7 @@ reload_test(Config) ->
     lists:foreach(
         fun(_) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, N0, self())
+            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, self())
         end,
         lists:seq(1, 10)
     ),
@@ -221,14 +220,13 @@ restart_test(Config) ->
     Opts = proplists:get_value(opts, Config),
     Chain0 = proplists:get_value(chain, Config),
     Swarm0 = proplists:get_value(swarm, Config),
-    N0 = proplists:get_value(n, Config),
     {ok, GenBlock} = blockchain:head_block(Chain0),
 
     % Add some blocks
     [LastBlock| _Blocks] = lists:foldl(
         fun(_, Acc) ->
             Block = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, N0, self()),
+            _ = blockchain_gossip_handler:add_block(Swarm0, Block, Chain0, self()),
             timer:sleep(100),
             [Block|Acc]
         end,
@@ -284,7 +282,6 @@ htlc_payee_redeem_test(Config) ->
     PrivKey = proplists:get_value(privkey, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -305,7 +302,7 @@ htlc_payee_redeem_test(Config) ->
 
     %% these transactions depend on each other, but they should be able to exist in the same block
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx, SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
@@ -328,7 +325,7 @@ htlc_payee_redeem_test(Config) ->
     RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, RedeemSigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check that the second block with the Redeem TX was mined properly
@@ -352,7 +349,6 @@ htlc_payer_redeem_test(Config) ->
     PrivKey = proplists:get_value(privkey, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -364,7 +360,7 @@ htlc_payer_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block), HeadHash),
@@ -384,9 +380,9 @@ htlc_payer_redeem_test(Config) ->
 
     % Mine another couple of blocks
     Block2 = test_utils:create_block(ConsensusMembers, []),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
     Block3 = test_utils:create_block(ConsensusMembers, []),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, self()),
     timer:sleep(500), %% add block is a cast, need some time for this to happen
 
     % Check we are at height 4
@@ -402,7 +398,7 @@ htlc_payer_redeem_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, SigFun),
     Block4 = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, self()),
 
     % Check that the Payer now owns 5000 again
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
@@ -417,7 +413,6 @@ poc_request_test(Config) ->
     Owner = libp2p_crypto:pubkey_to_bin(PubKey),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
     Balance = proplists:get_value(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
@@ -428,7 +423,7 @@ poc_request_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -437,7 +432,7 @@ poc_request_test(Config) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
         end,
         lists:seq(1, 20)
     ),
@@ -448,7 +443,7 @@ poc_request_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
     Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
@@ -470,7 +465,7 @@ poc_request_test(Config) ->
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
     Block24 = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
 
     {ok, HeadHash} = blockchain:head_hash(Chain),
     ?assertEqual(blockchain_block:hash_block(Block24), HeadHash),
@@ -487,7 +482,7 @@ poc_request_test(Config) ->
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     Block25 = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
-    ok = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, self()),
     timer:sleep(500),
 
     {ok, HeadHash2} = blockchain:head_hash(Chain),
@@ -504,7 +499,7 @@ poc_request_test(Config) ->
     PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
     SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
     Block26 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block26, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block26, Chain, self()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 26} =:= blockchain:height(Chain) end),
 
     Ledger = blockchain:ledger(Chain),
@@ -528,13 +523,13 @@ poc_request_test(Config) ->
     PoCReceiptsTxn = blockchain_txn_poc_receipts_v1:new(Gateway, Secret0, OnionKeyHash0, []),
     SignedPoCReceiptsTxn = blockchain_txn_poc_receipts_v1:sign(PoCReceiptsTxn, GatewaySigFun),
     Block27 = test_utils:create_block(ConsensusMembers, [SignedPoCReceiptsTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block27, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block27, Chain, self()),
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 27} =:= blockchain:height(Chain) end),
 
     Block62 = lists:foldl(
         fun(_, _) ->
             B = test_utils:create_block(ConsensusMembers, []),
-            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, self()),
             timer:sleep(10),
             B
         end,
@@ -553,7 +548,7 @@ poc_request_test(Config) ->
     PoCReqTxn1 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash1, OnionKeyHash1, blockchain_block:hash_block(Block62), 1),
     SignedPoCReqTxn1 = blockchain_txn_poc_request_v1:sign(PoCReqTxn1, GatewaySigFun),
     Block63 = test_utils:create_block(ConsensusMembers, [SignedPoCReqTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block63, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block63, Chain, self()),
 
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 63} =:= blockchain:height(Chain) end),
 
@@ -573,14 +568,13 @@ bogus_coinbase_test(Config) ->
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
     Block2 = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
     timer:sleep(500),
 
     %% None of the balances should have changed
@@ -599,7 +593,6 @@ bogus_coinbase_with_good_payment_test(Config) ->
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
@@ -612,7 +605,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     Block2 = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
     timer:sleep(500),
 
     %% Check that the chain didnt' grow
@@ -644,7 +637,7 @@ export_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -653,7 +646,7 @@ export_test(Config) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
         end,
         lists:seq(1, 20)
     ),
@@ -666,7 +659,7 @@ export_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
     Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
@@ -699,7 +692,7 @@ export_test(Config) ->
     Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
     Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
     Block24 = test_utils:create_block(ConsensusMembers, Txns1),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block24}, blockchain:head_block(Chain)),
@@ -770,7 +763,6 @@ delayed_ledger_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
     Balance = proplists:get_value(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
@@ -789,7 +781,7 @@ delayed_ledger_test(Config) ->
             Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 0, X),
             SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
             B = test_utils:create_block(ConsensusMembers, [SignedTx]),
-            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self())
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, self())
         end,
         lists:seq(1, 100)
     ),
@@ -857,7 +849,6 @@ fees_since_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Payee = blockchain_swarm:pubkey_bin(),
@@ -873,7 +864,7 @@ fees_since_test(Config) ->
             Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 1, X),
             SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
             B = test_utils:create_block(ConsensusMembers, [SignedTx]),
-            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self())
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, self())
         end,
         lists:seq(1, 100)
     ),
@@ -896,7 +887,6 @@ security_token_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -905,7 +895,7 @@ security_token_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_security_exchange_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
@@ -932,7 +922,6 @@ routing_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
     Ledger = blockchain:ledger(Chain),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -949,7 +938,7 @@ routing_test(Config) ->
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     Block0 = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block0, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block0, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
@@ -960,7 +949,7 @@ routing_test(Config) ->
     OUITxn2 = blockchain_txn_routing_v1:new(OUI1, Payer, Addresses1, 0, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     Block1 = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
@@ -975,7 +964,7 @@ routing_test(Config) ->
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     Block2 = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 4} == blockchain:height(Chain) end),
 
@@ -1000,7 +989,6 @@ block_save_failed_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
      % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -1009,12 +997,16 @@ block_save_failed_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    {ok, OldHeight} = blockchain:height(Chain),
     meck:new(blockchain, [passthrough]),
     meck:expect(blockchain, save_block, fun(_, _) -> erlang:error(boom) end),
-    ?assertError(boom, blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())),
+    {ok, OldHeight} = blockchain:height(Chain),
+    blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
     meck:unload(blockchain),
     blockchain_lock:release(),
-    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+    {ok, NewHeight} = blockchain:height(Chain),
+    ?assert(NewHeight == OldHeight + 1),
 
      ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
@@ -1042,7 +1034,6 @@ absorb_failed_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -1058,7 +1049,7 @@ absorb_failed_test(Config) ->
         blockchain_lock:release(),
         erlang:error(boom)
     end),
-    ?assertError(boom, blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())),
+    blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
     meck:unload(blockchain),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
@@ -1067,14 +1058,14 @@ absorb_failed_test(Config) ->
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
     ct:pal("Try to re-add block 1 will cause the mismatch"),
-    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     Ledger = blockchain:ledger(Chain),
     ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
     ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain_ledger_v1:current_height(Ledger) end),
 
     ct:pal("Try to re-add block 2"),
-    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
     ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain_ledger_v1:current_height(Ledger) end),
@@ -1101,7 +1092,6 @@ epoch_reward_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
 
@@ -1128,7 +1118,7 @@ epoch_reward_test(Config) ->
                     [POCReceiptTxn]
             end,
             B = test_utils:create_block(ConsensusMembers, Txns),
-            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+            _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, self()),
             [B|Acc]
         end,
         [],
@@ -1140,7 +1130,7 @@ epoch_reward_test(Config) ->
     ct:pal("rewards ~p", [Rewards]),
     Tx = blockchain_txn_rewards_v1:new(Start, End, Rewards),
     B = test_utils:create_block(ConsensusMembers, [Tx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, B, Chain, self()),
 
     Ledger = blockchain:ledger(Chain),
     {ok, Entry} = blockchain_ledger_v1:find_entry(PubKeyBin, Ledger),
@@ -1226,7 +1216,6 @@ chain_vars_test(Config) ->
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     {Priv, _} = proplists:get_value(master_key, Config),
-    N = proplists:get_value(n, Config),
 
     Ledger = blockchain:ledger(Chain),
 
@@ -1239,7 +1228,7 @@ chain_vars_test(Config) ->
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
 
     InitBlock = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, InitBlock, Chain, self()),
 
     {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
     ct:pal("commit delay ~p", [Delay]),
@@ -1247,7 +1236,7 @@ chain_vars_test(Config) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self()),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
                 {ok, Height} = blockchain:height(Chain),
                 case blockchain:config(chain_var, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
@@ -1273,7 +1262,6 @@ token_burn_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -1284,7 +1272,7 @@ token_burn_test(Config) ->
     Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SignedTx0 = blockchain_txn_payment_v1:sign(Tx0, SigFun),
     Block2 = test_utils:create_block(ConsensusMembers, [SignedTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -1299,7 +1287,7 @@ token_burn_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 2),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
     FailedBlock = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -1316,7 +1304,7 @@ token_burn_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     Block3 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block3)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block3}, blockchain:head_block(Chain)),
@@ -1325,7 +1313,7 @@ token_burn_test(Config) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
         end,
         lists:seq(1, 20)
     ),
@@ -1333,7 +1321,7 @@ token_burn_test(Config) ->
 
     % Step 4: Retry token burn txn should pass now
     Block24 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block24}, blockchain:head_block(Chain)),
@@ -1349,7 +1337,7 @@ token_burn_test(Config) ->
     Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3),
     SignedTx1 = blockchain_txn_payment_v1:sign(Tx1, SigFun),
     Block25 = test_utils:create_block(ConsensusMembers, [SignedTx1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block25)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block25}, blockchain:head_block(Chain)),
@@ -1375,7 +1363,6 @@ payer_test(Config) ->
     BaseDir = proplists:get_value(basedir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
     PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1392,7 +1379,7 @@ payer_test(Config) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
     Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -1401,7 +1388,7 @@ payer_test(Config) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
         end,
         lists:seq(1, 20)
     ),
@@ -1412,7 +1399,7 @@ payer_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 1),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, PayerSigFun),
     Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
@@ -1445,7 +1432,7 @@ payer_test(Config) ->
     SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
 
     Block24 = test_utils:create_block(ConsensusMembers, [SignedOUITxn1, SignedAddGatewayTx2, SignedAssertLocationTx2]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block24}, blockchain:head_block(Chain)),
@@ -1470,7 +1457,6 @@ poc_sync_interval_test(Config) ->
     Owner = libp2p_crypto:pubkey_to_bin(PubKey),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
     Balance = proplists:get_value(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
@@ -1478,14 +1464,14 @@ poc_sync_interval_test(Config) ->
     {Priv, _} = proplists:get_value(master_key, Config),
     VarTxn = fake_var_txn(Priv, 3, #{token_burn_exchange_rate => Rate}),
     Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
 
-    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+    ok = dump_empty_blocks(Chain, ConsensusMembers, Swarm, 20),
 
     ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
@@ -1494,7 +1480,7 @@ poc_sync_interval_test(Config) ->
     BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
     Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
@@ -1516,7 +1502,7 @@ poc_sync_interval_test(Config) ->
 
     %% Put the txns in a block
     Block24 = test_utils:create_block(ConsensusMembers, Txns),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
 
     %% Check chain moved ahead
     {ok, HeadHash} = blockchain:head_hash(Chain),
@@ -1543,13 +1529,13 @@ poc_sync_interval_test(Config) ->
 
     %% Forge a chain var block
     Block25 = test_utils:create_block(ConsensusMembers, [VarTxn2]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, self()),
 
     %% Wait for things to settle
     timer:sleep(500),
 
     %% Dump some more blocks
-    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+    ok = dump_empty_blocks(Chain, ConsensusMembers, Swarm, 20),
 
     %% Chain vars should have kicked in by now
     ?assertEqual({ok, POCVersion},
@@ -1567,10 +1553,10 @@ poc_sync_interval_test(Config) ->
     {ok, BlockHash} = blockchain:head_hash(Chain),
     POCReqTxn = fake_poc_request(Gateway, GatewaySigFun, BlockHash),
     Block46 = test_utils:create_block(ConsensusMembers, [POCReqTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block46, Chain, N, self()),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block46, Chain, self()),
 
     %% Dump a couple more blocks
-    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 2),
+    ok = dump_empty_blocks(Chain, ConsensusMembers, Swarm, 2),
 
     %% Check last_poc_challenge for added gateway is updated
     {ok, AddedGw2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
@@ -1582,7 +1568,7 @@ poc_sync_interval_test(Config) ->
     ?assertEqual(true, blockchain_poc_path:check_sync(AddedGw3, Ledger)),
 
     %% Dump even more blocks to make it ineligible again
-    ok = dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, 20),
+    ok = dump_empty_blocks(Chain, ConsensusMembers, Swarm, 20),
     {ok, AddedGw4} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
@@ -1610,11 +1596,11 @@ fake_var_txn(Priv, Nonce, Vars) ->
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
     blockchain_txn_vars_v1:proof(VarTxn, Proof).
 
-dump_empty_blocks(N, Chain, ConsensusMembers, Swarm, Count) ->
+dump_empty_blocks(Chain, ConsensusMembers, Swarm, Count) ->
     lists:foreach(
         fun(_) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, N, self())
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
         end,
         lists:seq(1, Count)
     ).

@@ -274,16 +274,15 @@ init(Args) ->
                 lager:info("WTFWTFWTFTRWFWTRWRFDSFAFDS"),
                 Chain =
                     case blockchain:config(?num_consensus_members, blockchain:ledger(Chain0)) of
-                        {ok, N} ->
+                        {ok, _N} ->
                             Chain0;
                         {error, not_found} ->
                             lager:warning("attempting to reset ledger and apply existing blocks"),
                             C = blockchain:reset_ledger(Chain0),
-                            {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(C)),
                             C
                     end,
                 %% do ledger upgrade
-                ok = add_handlers(Swarm, N, Chain),
+                ok = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
                 ok = blockchain_txn_mgr:set_chain(Chain),
@@ -305,10 +304,8 @@ handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
 handle_call({blockchain, NewChain}, _From, #state{swarm = Swarm} = State) ->
     notify({new_chain, NewChain}),
-    {ok, N} = blockchain:config(?num_consensus_members,
-                                blockchain:ledger(NewChain)),
     remove_handlers(Swarm),
-    ok = add_handlers(Swarm, N, NewChain),
+    ok = add_handlers(Swarm, NewChain),
     {reply, ok, State#state{blockchain = NewChain}};
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
@@ -336,7 +333,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
                                    blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
-            ok = add_handlers(Swarm, length(ConsensusAddrs), Blockchain),
+            ok = add_handlers(Swarm, Blockchain),
             {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
             ok = blockchain_txn_mgr:set_chain(Blockchain),
             true = libp2p_swarm:network_id(Swarm, GenesisHash),
@@ -422,12 +419,11 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
                 false ->
                     ok;
                 true ->
-                    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
                     case libp2p_swarm:dial_framed_stream(Swarm,
                                                          libp2p_crypto:pubkey_bin_to_p2p(Sender),
                                                          ?SYNC_PROTOCOL,
                                                          blockchain_sync_handler,
-                                                         [N, Chain]) of
+                                                         [Chain]) of
                         {ok, Stream} ->
                             Stream ! {hash, LocalHead};
                         _ ->
@@ -552,7 +548,6 @@ maybe_sync(#state{blockchain = Chain} = State) ->
 
 start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
     %% figure out our gossip peers
-    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
     Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
     case Peers of
         [] ->
@@ -561,7 +556,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            Pid = sync(Swarm, N, Chain, RandomPeer),
+            Pid = sync(Swarm, Chain, RandomPeer),
             Ref = erlang:monitor(process, Pid),
             lager:info("unknown starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
@@ -586,38 +581,38 @@ pause_sync(State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_handlers(pid(), pos_integer(), blockchain:blockchain()) -> ok.
-add_handlers(Swarm, N, Blockchain) ->
+-spec add_handlers(pid(), blockchain:blockchain()) -> ok.
+add_handlers(Swarm, Blockchain) ->
     libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL,
-                                    {blockchain_gossip_handler, [Swarm, N, Blockchain]}),
+                                    {blockchain_gossip_handler, [Swarm, Blockchain]}),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, N, Blockchain]}
+        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
     ),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?FASTFORWARD_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, N, Blockchain]}
+        {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, Blockchain]}
     ).
 
 -spec remove_handlers(pid()) -> ok.
 remove_handlers(Swarm) ->
     libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL),
     libp2p_swarm:remove_stream_handler(Swarm, ?SYNC_PROTOCOL),
-    libp2p_swarm:add_stream_handler(Swarm, ?FASTFORWARD_PROTOCOL).
+    libp2p_swarm:remove_stream_handler(Swarm, ?FASTFORWARD_PROTOCOL).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-sync(Swarm, N, Chain, Peer) ->
+sync(Swarm, Chain, Peer) ->
     spawn(fun() ->
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,
                                              blockchain_sync_handler,
-                                             [N, Chain])
+                                             [Chain])
         of
             {ok, Stream} ->
                 {ok, HeadHash} = blockchain:sync_hash(Chain),

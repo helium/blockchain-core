@@ -29,7 +29,6 @@
 ]).
 
 -record(state, {
-    n :: pos_integer(),
     blockchain :: blockchain:blochain()
 }).
 
@@ -45,17 +44,17 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [N, Blockchain]) ->
+init(client, _Conn, [Blockchain]) ->
     case blockchain_worker:sync_paused() of
         true ->
             {stop, sync_paused};
         false ->
             lager:debug("started sync_handler client"),
-            {ok, #state{n=N, blockchain=Blockchain}}
+            {ok, #state{blockchain=Blockchain}}
     end;
-init(server, _Conn, [_Path, _, N, Blockchain]) ->
+init(server, _Conn, [_Path, _, Blockchain]) ->
     lager:debug("started sync_handler server"),
-    {ok, #state{n=N, blockchain=Blockchain}}.
+    {ok, #state{blockchain=Blockchain}}.
 
 handle_data(client, Data, #state{blockchain=Chain}=State) ->
     lager:debug("client got data: ~p", [Data]),

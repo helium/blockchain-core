@@ -185,7 +185,7 @@ blockchain_crash_while_absorbing(_Config) ->
                 end),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    ?assertError(explode, blockchain:add_blocks(Blocks, Chain)),
+    blockchain:add_blocks(Blocks, Chain),
     ?assertEqual({ok, 50}, blockchain:height(Chain)),
     meck:unload(blockchain_txn),
     %% simulate the node stopping or crashing
@@ -253,7 +253,7 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(_Config) ->
                 end),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    ?assertError(explode, blockchain:add_blocks(Blocks, Chain)),
+    blockchain:add_blocks(Blocks, Chain),
     ?assertEqual({ok, 50}, blockchain:height(Chain)),
     meck:unload(blockchain_txn),
     %% simulate the node stopping or crashing
