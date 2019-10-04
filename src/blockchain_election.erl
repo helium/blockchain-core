@@ -152,8 +152,12 @@ locations(Res, Group, Gws) ->
 location(none, _Gw) ->
     none;
 location(Res, Gw) ->
-    Loc = blockchain_ledger_gateway_v2:location(Gw),
-    h3:parent(Loc, Res).
+    case blockchain_ledger_gateway_v2:location(Gw) of
+        undefined ->
+            no_location;
+        Loc ->
+            h3:parent(Loc, Res)
+    end.
 
 tup_to_animal(TL) ->
     lists:map(fun({Scr, _Loc, Addr}) ->
