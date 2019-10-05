@@ -367,6 +367,11 @@ absorb(Txn, Chain) ->
                        ?MODULE:deltas(Txn))
      end.
 
+-spec get_lower_and_upper_bounds(Secret :: binary(),
+                                 OnionKeyHash :: binary(),
+                                 Challenger :: libp2p_crypto:pubkey_bin(),
+                                 Ledger :: blockchain_ledger_v1:ledger(),
+                                 Chain :: blockchain:blockchain()) -> {error, any()} | {ok, {non_neg_integer(), non_neg_integer()}}.
 get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
     case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
         {error, Reason}=Error0 ->
@@ -392,8 +397,9 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                         {error, _}=Error4 ->
                                             Error4;
                                         {ok, B} ->
-                                            LowerBound = blockchain_block:time(Block1),
-                                            UpperBound = blockchain_block:time(B),
+                                            %% Convert lower and upper bounds to be in nanoseconds
+                                            LowerBound = blockchain_block:time(Block1) * 1000000000,
+                                            UpperBound = blockchain_block:time(B) * 1000000000,
                                             {ok, {LowerBound, UpperBound}}
                                     end
                             end
