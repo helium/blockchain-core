@@ -87,7 +87,7 @@ next_hop(Gateway, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
 -spec bayes_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 bayes_probs(Witnesses) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1
-    1.0;
+    maps:map(fun(_, _) -> 1.0 end, Witnesses);
 bayes_probs(Witnesses) ->
     WitnessList = maps:to_list(Witnesses),
     WitnessListLength = length(WitnessList),
@@ -116,7 +116,7 @@ bayes_probs(Witnesses) ->
                  Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 time_probs(_, Witnesses) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1.0
-    1.0;
+    maps:map(fun(_, _) -> 1.0 end, Witnesses);
 time_probs(HeadBlockTime, Witnesses) ->
     Deltas = lists:foldl(fun({WitnessAddr, Witness}, Acc) ->
                                  %% XXX: Needs more thought
@@ -128,7 +128,6 @@ time_probs(HeadBlockTime, Witnesses) ->
                                  end
                          end, #{},
                          maps:to_list(Witnesses)),
-
 
     DeltaSum = lists:sum(maps:values(Deltas)),
 

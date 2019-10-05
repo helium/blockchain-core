@@ -16,7 +16,19 @@ prop_path_check() ->
                                                     Entropy,
                                                     PathLimit),
                 PathLength = length(Path),
-                Check = PathLength =< PathLimit andalso PathLength >= 1,
+
+                PathLocs = [blockchain_ledger_gateway_v2:location(P) || P <- Path],
+
+                %% Checks:
+                %% - honor path limit
+                %% - atleast one element in path
+                %% - targetgw is always in path
+                %% - we never go back to the same h3 index in path
+                Check = (PathLength =< PathLimit andalso
+                         PathLength >= 1 andalso
+                         length(PathLocs) == length(lists:usort(PathLocs)) andalso
+                         lists:member(maps:get(TargetPubkeyBin, ActiveGateways), Path)),
+
                 ?WHENFAIL(begin
                               io:format("Target: ~p~n", [TargetPubkeyBin]),
                               io:format("PathLimit: ~p~n", [PathLimit]),
@@ -37,8 +49,8 @@ gen_path_limit() ->
 
 active_gateways() ->
     {ok, Dir} = file:get_cwd(),
-    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active41829.txt"])),
+    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active75121.txt"])),
     AG.
 
 block_time() ->
-    1568081668 * 1000000000.
+    1570298379 * 1000000000.
