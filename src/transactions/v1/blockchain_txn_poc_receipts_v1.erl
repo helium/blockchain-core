@@ -424,8 +424,10 @@ insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
                           %% TODO check these witnesses have valid RSSI
                           WitnessInfo0 = lists:foldl(fun(Witness, Acc) ->
                                                              TS = case blockchain_poc_witness_v1:timestamp(Witness) of
-                                                                      T when T < LowerTimeBound orelse T > UpperTimeBound ->
+                                                                      T when T < LowerTimeBound ->
                                                                           LowerTimeBound;
+                                                                      T when T > UpperTimeBound ->
+                                                                          UpperTimeBound;
                                                                       T ->
                                                                           T
                                                                   end,
