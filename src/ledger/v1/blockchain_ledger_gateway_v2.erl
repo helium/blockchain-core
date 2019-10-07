@@ -368,7 +368,16 @@ distance(#gateway_v2{location=L1}, #gateway_v2{location=L1}) ->
     0.001;
 distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
     %% distance in kms
-    vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) - hex_adjustment(L1) - hex_adjustment(L2).
+    case vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) of
+        {error, _} ->
+            %% An off chance that the points are antipodal and
+            %% vincenty_distance fails to converge. In this case
+            %% we default to some max distance we consider good enough
+            %% for witnessing
+            1000;
+        {ok, D} ->
+            D - hex_adjustment(L1) - hex_adjustment(L2)
+    end.
 
 hex_adjustment(Loc) ->
     %% Distance from hex center to edge, sqrt(3)*edge_length/2.
