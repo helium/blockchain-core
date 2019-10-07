@@ -385,8 +385,6 @@ rescue_absorb(Txn, Chain) ->
     delayed_absorb(Txn, Ledger).
 
 maybe_absorb(Txn, Ledger, Chain) ->
-    %% the sorting order makes sure that this txn will be sorted after
-    %% any epoch change so this will result in deterministic delay
     case blockchain_ledger_v1:current_height(Ledger) of
         %% genesis block is never delayed
         {ok, 0} ->
