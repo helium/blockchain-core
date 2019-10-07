@@ -898,21 +898,21 @@ gateway_score(GatewayAddress, Ledger) ->
     end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                            Witnesses :: [libp2p_crypto:pubkey_bin()],
+                            WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
-add_gateway_witnesses(GatewayAddress, Witnesses, Ledger) ->
+add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, GW0} ->
-            GW1 = lists:foldl(fun(WitnessAddress, GW) ->
-                                      case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
+            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
                                           {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, blockchain_ledger_gateway_v2:nonce(Witness), GW);
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
                                           {error, _} ->
                                               GW
                                       end
-                              end, GW0, Witnesses),
+                              end, GW0, WitnessInfo),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, blockchain_ledger_gateway_v2:serialize(GW1))
     end.
