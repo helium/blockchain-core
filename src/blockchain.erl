@@ -639,9 +639,9 @@ absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
                     Error;
                 ok ->
                     lager:info("Notifying new block ~p", [Height]),
-                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
-            end,
-            absorb_temp_blocks(Chain, Blockchain, Syncing)
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
+                    absorb_temp_blocks(Chain, Blockchain, Syncing)
+            end
     end.
 
 %%--------------------------------------------------------------------
