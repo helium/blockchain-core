@@ -63,6 +63,7 @@ all() ->
         election_test,
         chain_vars_test,
         token_burn_test,
+        payer_test,
         poc_sync_interval_test
     ].
 
@@ -1448,6 +1449,15 @@ payer_test(Config) ->
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
     ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
     ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v2:location(GwInfo)),
+
+    %% try resyncing the ledger
+    {ok, NewChain} = blockchain:reset_ledger(Chain),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(NewChain)),
+    ?assertEqual({ok, Block24}, blockchain:head_block(NewChain)),
+    ?assertEqual({ok, 24}, blockchain:height(NewChain)),
+    ?assertEqual({ok, Block24}, blockchain:get_block(24, NewChain)),
+
     ok.
 
 poc_sync_interval_test(Config) ->
