@@ -761,6 +761,7 @@ reset_ledger(Chain) ->
 
 reset_ledger(Height, #blockchain{db = DB,
                                  dir = Dir,
+                                 default = DefaultCF,
                                  blocks = BlocksCF,
                                  heights = HeightsCF} = Chain) ->
     blockchain_lock:acquire(),
@@ -769,7 +770,13 @@ reset_ledger(Height, #blockchain{db = DB,
     {ok, GenesisHash} = genesis_hash(Chain),
     %% note that this will not include the genesis block
     HashChain = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
-    {ok, LastKnownBlock} = get_block(hd(HashChain), Chain),
+    LastKnownBlock = case get_block(hd(HashChain), Chain) of
+                         {ok, LKB} ->
+                             LKB;
+                         {error, not_found} ->
+                             {ok, LKB} = get_block(hd(tl(HashChain)), Chain),
+                             LKB
+                     end,
     %% check the height is what we'd expect
     case length(HashChain) == Height - 1 andalso
          %% check that the previous block is the genesis block
@@ -787,11 +794,25 @@ reset_ledger(Height, #blockchain{db = DB,
             {ok, TopHeight} = height(Chain),
             _ = lists:foreach(
                   fun(H) ->
-                          {ok, B} = get_block(H, Chain),
-                          delete_block(B, Chain)
+                          case get_block(H, Chain) of
+                              {ok, B} ->
+                                  delete_block(B, Chain);
+                              _ ->
+                                  ok
+                          end
                   end,
                   %% this will be a noop in the case where Height == TopHeight
                   lists:reverse(lists:seq(Height + 1, TopHeight))),
+            {ok, TargetBlock} = get_block(Height, Chain),
+            case head_hash(Chain) ==  {ok, blockchain_block:hash_block(TargetBlock)} of
+                false ->
+                    %% the head hash needs to be corrected (we probably had a hole in the chain)
+                    ok = rocksdb:put(DB, DefaultCF, ?HEAD, blockchain_block:hash_block(TargetBlock), [{sync, true}]);
+                true ->
+                    %% nothing to do
+                    ok
+            end,
+
             %% recreate the ledgers
             Ledger1 = blockchain_ledger_v1:new(Dir),
 

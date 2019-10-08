@@ -1386,13 +1386,13 @@ payer_test(Config) ->
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
-    lists:foreach(
-        fun(_) ->
-                Block = test_utils:create_block(ConsensusMembers, []),
-                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
-        end,
-        lists:seq(1, 20)
-    ),
+    Blocks = lists:map(
+               fun(_) ->
+                       Block = test_utils:create_block(ConsensusMembers, []),
+                       _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+                       Block
+               end,
+               lists:seq(1, 20)),
     ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
 
 
@@ -1457,6 +1457,28 @@ payer_test(Config) ->
     ?assertEqual({ok, Block24}, blockchain:head_block(NewChain)),
     ?assertEqual({ok, 24}, blockchain:height(NewChain)),
     ?assertEqual({ok, Block24}, blockchain:get_block(24, NewChain)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewChain)),
+    ?assertEqual(10*Rate-11*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+
+    blockchain:delete_block(Block23, NewChain),
+
+    ?assertEqual({error, {missing_block, blockchain_block:hash_block(Block23), blockchain_block:height(Block23)}}, blockchain:reset_ledger(NewChain)),
+
+    {ok, NewerChain} = blockchain:reset_ledger(20, NewChain),
+
+    ?assertEqual(blockchain:head_hash(NewerChain), {ok, blockchain_block:hash_block(lists:nth(18, Blocks))}),
+    ?assertEqual({ok, 20}, blockchain:height(NewerChain)),
+    ?assertEqual({ok, lists:nth(18, Blocks)}, blockchain:head_block(NewerChain)),
+    ?assertEqual({ok, lists:nth(18, Blocks)}, blockchain:get_block(20, NewerChain)),
+
+    blockchain:add_blocks(Blocks ++ [Block23, Block24], NewerChain),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block24)}, blockchain:head_hash(NewerChain)),
+    ?assertEqual({ok, Block24}, blockchain:head_block(NewerChain)),
+    ?assertEqual({ok, 24}, blockchain:height(NewerChain)),
+    ?assertEqual({ok, Block24}, blockchain:get_block(24, NewerChain)),
+    {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
+    ?assertEqual(10*Rate-11*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
     ok.
 
