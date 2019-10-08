@@ -1483,7 +1483,8 @@ add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-clean(#ledger_v1{dir=Dir, db=DB}) ->
+clean(#ledger_v1{dir=Dir, db=DB}=L) ->
+    delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []).

@@ -384,14 +384,14 @@ rescue_absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     delayed_absorb(Txn, Ledger).
 
-maybe_absorb(Txn, Ledger, Chain) ->
+maybe_absorb(Txn, Ledger, _Chain) ->
     case blockchain_ledger_v1:current_height(Ledger) of
         %% genesis block is never delayed
         {ok, 0} ->
             delayed_absorb(Txn, Ledger),
             true;
         _ ->
-            {ok, Height} = blockchain:height(Chain),
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
             {ok, Delay} = blockchain:config(?vars_commit_delay, Ledger),
             Effective = Delay + Height,
             case version_predicate(Txn) of

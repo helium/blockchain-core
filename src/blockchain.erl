@@ -767,11 +767,15 @@ reset_ledger(Height, #blockchain{db = DB,
     %% check this is safe to do
     {ok, StartBlock} = get_block(Height, Chain),
     {ok, GenesisHash} = genesis_hash(Chain),
+    %% note that this will not include the genesis block
     HashChain = build_hash_chain(GenesisHash, StartBlock, Chain, BlocksCF),
-    case length(HashChain) == Height - 1 of
+    {ok, LastKnownBlock} = get_block(hd(HashChain), Chain),
+    %% check the height is what we'd expect
+    case length(HashChain) == Height - 1 andalso
+         %% check that the previous block is the genesis block
+         GenesisHash == blockchain_block:prev_hash(LastKnownBlock)  of
         false ->
             %% can't do this, we're missing a block somwewhere along the line
-            {ok, LastKnownBlock} = get_block(hd(HashChain), Chain),
             MissingHash = blockchain_block:prev_hash(LastKnownBlock),
             MissingHeight = blockchain_block:height(LastKnownBlock) - 1,
             blockchain_lock:release(),
