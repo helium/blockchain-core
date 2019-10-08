@@ -120,9 +120,9 @@ is_valid(Txn, Chain) ->
                 ok
         end,
         TxnHeight = ?MODULE:height(Txn),
-        case blockchain:height(Chain) of
+        case blockchain_ledger_v1:current_height(Ledger) of
             %% no chain, genesis block
-            {error, not_found} ->
+            {ok, 0} ->
                 ok;
             {ok, CurrHeight} ->
                 {ok, CurrBlock} = blockchain:get_block(CurrHeight, Chain),

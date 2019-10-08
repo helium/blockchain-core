@@ -466,7 +466,6 @@ delay_vars(Effective, Vars, Ledger) ->
     %% save the vars txn to disk
     Hash = blockchain_txn_vars_v1:hash(Vars),
     cache_put(Ledger, DefaultCF, Hash, term_to_binary({blockchain_txn_vars_v1, Vars})),
-    %% somehow register with epoch processing
     PendingTxns =
         case cache_get(Ledger, DefaultCF, block_name(Effective), []) of
             {ok, BP} ->
@@ -496,7 +495,7 @@ threshold_name(Txn) ->
     Nonce = blockchain_txn_vars_v1:nonce(Txn),
     <<"$threshold_txn_", (integer_to_binary(Nonce))/binary>>.
 
-process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
+process_threshold_txns(CF, Ledger, Chain) ->
     [case blockchain_txn_vars_v1:maybe_absorb(Txn, Ledger, Chain) of
          false -> ok;
          %% true here means we've passed the threshold and have
@@ -504,21 +503,17 @@ process_threshold_txns(CF, #ledger_v1{db = DB} = Ledger, Chain) ->
          %% safely delete it from the list
          true -> cache_delete(Ledger, CF, threshold_name(Txn))
      end
-     || Txn <- scan_threshold_txns(CF, DB)],
+     || Txn <- scan_threshold_txns(Ledger, CF)],
     ok.
 
-scan_threshold_txns(CF, DB) ->
-    {ok, Itr} = rocksdb:iterator(DB, CF,
-                                 [{iterate_upper_bound,
-                                   <<"$threshold_txn`">>}]),
-    Start = rocksdb:iterator_move(Itr, {seek, <<"$threshold_txn_">>}),
-    L = (fun Scan({error, _}, Acc) ->
-                 rocksdb:iterator_close(Itr),
-                 Acc;
-             Scan({ok, _Name, BValue}, Acc) ->
-                 Value = binary_to_term(BValue),
-                 Scan(rocksdb:iterator_move(Itr, next), [Value | Acc])
-         end)(Start, []),
+scan_threshold_txns(Ledger, CF) ->
+    L = cache_fold(Ledger, CF,
+                   fun({_Name, BValue}, Acc) ->
+                           Value = binary_to_term(BValue),
+                           [Value | Acc]
+                   end, [],
+                   [{start, {seek, <<"$threshold_txn_">>}},
+                    {iterate_upper_bound, <<"$threshold_txn`">>}]),
     lists:reverse(L).
 
 %%--------------------------------------------------------------------
@@ -752,7 +747,6 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
                           blockchain_ledger_gateway_v2:add_neighbor(Addr, G)
                   end, Add),
     maps:map(fun(A, G) ->
-                     %% io:fwrite("bleh ~p ~p~n", [A, G]),
                      update_gateway(G, A, Ledger)
              end, maps:merge(R1, A1)),
     ok.
@@ -1489,7 +1483,8 @@ add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-clean(#ledger_v1{dir=Dir, db=DB}) ->
+clean(#ledger_v1{dir=Dir, db=DB}=L) ->
+    delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []).
@@ -1646,25 +1641,58 @@ cache_delete(Ledger, CF, Key) ->
     rocksdb:batch_delete(Context, CF, Key).
 
 cache_fold(Ledger, CF, Fun0, Acc) ->
+    cache_fold(Ledger, CF, Fun0, Acc, []).
+
+cache_fold(Ledger, CF, Fun0, Acc, Opts) ->
+    Start0 = proplists:get_value(start, Opts, first),
+    Start =
+        case Start0 of
+            {seek, Val} ->
+                Val;
+            _ ->
+                Start0
+        end,
+    End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
         {_, undefined} ->
             %% fold rocks directly
-            rocks_fold(Ledger, CF, Fun0, Acc);
+            rocks_fold(Ledger, CF, Opts, Fun0, Acc);
         {_Context, Cache} ->
             %% fold using the cache wrapper
-            Fun = mk_cache_fold_fun(Cache, CF, Fun0),
+            Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
             Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
-            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Fun, {Keys, Acc}),
-            process_fun(TrailingKeys, Cache, CF, Fun0, Res0)
+            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, Acc}),
+            process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
     end.
 
-rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Fun, Acc) ->
-    rocksdb:fold(DB, CF, Fun, Acc, maybe_use_snapshot(Ledger, [])).
+rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Opts0, Fun, Acc) ->
+    Start = proplists:get_value(start, Opts0, first),
+    Opts = proplists:delete(start, Opts0),
+    {ok, Itr} = rocksdb:iterator(DB, CF, maybe_use_snapshot(Ledger, Opts)),
+    Init = rocksdb:iterator_move(Itr, Start),
+    Loop = fun L({error, invalid_iterator}, A) ->
+                   A;
+               L({error, _}, _A) ->
+                   throw(iterator_error);
+               L({ok, K} , A) ->
+                   L(rocksdb:iterator_move(Itr, next),
+                     Fun(K, A));
+               L({ok, K, V}, A) ->
+                   L(rocksdb:iterator_move(Itr, next),
+                     Fun({K, V}, A))
+           end,
+    try
+        Loop(Init, Acc)
+    after
+        rocksdb:iterator_close(Itr)
+    end.
 
-mk_cache_fold_fun(Cache, CF, Fun) ->
+mk_cache_fold_fun(Cache, CF, Start, End, Fun) ->
     %% we want to preserve rocksdb order, but we assume it's normal lexiographic order
-    fun({Key, Value}, {CacheKeys, Acc0}) ->
-            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, Cache, CF, Key, Fun, Acc0),
+    fun ({Key, Value}, {CacheKeys, Acc0}) ->
+            {NewCacheKeys, Acc} = process_cache_only_keys(CacheKeys, Cache, CF, Key,
+                                                          Start, End,
+                                                          Fun, Acc0),
             case ets:lookup(Cache, {CF, Key}) of
                 [{_, ?CACHE_TOMBSTONE}] ->
                     {NewCacheKeys, Acc};
@@ -1677,20 +1705,28 @@ mk_cache_fold_fun(Cache, CF, Fun) ->
             end
     end.
 
-process_cache_only_keys(CacheKeys, Cache, CF, Key, Fun, Acc) ->
+process_cache_only_keys(CacheKeys, Cache, CF, Key,
+                        Start, End,
+                        Fun, Acc) ->
     case lists:splitwith(fun(E) -> E < Key end, CacheKeys) of
         {ToProcess, [Key|Remaining]} -> ok;
         {ToProcess, Remaining} -> ok
     end,
-    {Remaining, process_fun(ToProcess, Cache, CF, Fun, Acc)}.
+    {Remaining, process_fun(ToProcess, Cache, CF, Start, End, Fun, Acc)}.
 
-process_fun(ToProcess, Cache, CF, Fun, Acc) ->
+process_fun(ToProcess, Cache, CF,
+            Start, End,
+            Fun, Acc) ->
     lists:foldl(
-      fun(K, A) ->
+      fun(K, A) when Start /= first andalso K < Start ->
+              A;
+         (K, A) when End /= undefined andalso K >= End ->
+              A;
+         (K, A) ->
               case ets:lookup(Cache, {CF, K}) of
                   [{_, ?CACHE_TOMBSTONE}] ->
                       A;
-                  [{_, CacheValue}] ->
+                  [{_Key, CacheValue}] ->
                       Fun({K, CacheValue}, A);
                   [] ->
                       A
