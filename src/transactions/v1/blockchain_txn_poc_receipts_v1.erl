@@ -444,7 +444,8 @@ insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
                                                      case blockchain_poc_path_element_v1:receipt(NextHopElement) of
                                                          undefined ->
                                                              %% There is no receipt from the next hop
-                                                             [{undefined, undefined, NextHopAddr} | WitnessInfo0];
+                                                             %% We clamp to LowerTimeBound as best-effort
+                                                             [{undefined, LowerTimeBound, NextHopAddr} | WitnessInfo0];
                                                          NextHopReceipt ->
                                                              [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
                                                                blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
