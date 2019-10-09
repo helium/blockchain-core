@@ -17,14 +17,17 @@
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
             HeadBlockTime :: pos_integer(),
-            Entropy :: binary(),
+            Hash :: binary(),
             Limit :: pos_integer()) -> path().
-build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
+build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit) ->
     TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+    Seed = seed(Hash),
+    {RandVal, RandState} = rand:uniform_s(Seed),
     build_(TargetPubkeyBin,
            ActiveGateways,
            HeadBlockTime,
-           rand_from_entropy(Entropy),
+           RandVal,
+           RandState,
            Limit,
            [TargetGwLoc],
            [TargetPubkeyBin]).
@@ -35,16 +38,24 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
 -spec build_(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
              HeadBlockTime :: pos_integer(),
-             RandFromEntropy :: float(),
+             RandVal :: float(),
+             RandState :: rand:state(),
              Limit :: pos_integer(),
              Indices :: [h3:h3_index()],
              Path :: path()) -> path().
-build_(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, Indices, Path) when length(Path) < Limit ->
+build_(TargetPubkeyBin,
+       ActiveGateways,
+       HeadBlockTime,
+       RandVal,
+       RandState,
+       Limit,
+       Indices,
+       Path) when length(Path) < Limit ->
     %% Try to find a next hop
-    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
+    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandVal, Indices) of
         {error, no_witness} ->
             %% Try the last hotspot in the path if no witness found
-            case next_hop(lists:last(Path), ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
+            case next_hop(lists:last(Path), ActiveGateways, HeadBlockTime, RandVal, Indices) of
                 {error, no_witness} ->
                     %% Stop
                     Path;
@@ -52,24 +63,40 @@ build_(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, I
                     %% Keep going
                     NextHopGw0 = maps:get(WitnessAddr0, ActiveGateways),
                     Index = blockchain_ledger_gateway_v2:location(NextHopGw0),
-                    build_(WitnessAddr0, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Index | Indices], [WitnessAddr0 | Path])
+                    {NewRandVal0, NewRandState0} = rand:uniform_s(RandState),
+                    build_(WitnessAddr0,
+                           ActiveGateways,
+                           HeadBlockTime,
+                           NewRandVal0,
+                           NewRandState0,
+                           Limit,
+                           [Index | Indices],
+                           [WitnessAddr0 | Path])
             end;
         {ok, WitnessAddr} ->
             %% Try the last hop in the new path, basically flip so we search in two directions
             NextHopGw = maps:get(WitnessAddr, ActiveGateways),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessAddr | Path],
-            build_(lists:last(NewPath), ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Index | Indices], lists:reverse(NewPath))
+            {NewRandVal, NewRandState} = rand:uniform_s(RandState),
+            build_(lists:last(NewPath),
+                   ActiveGateways,
+                   HeadBlockTime,
+                   NewRandVal,
+                   NewRandState,
+                   Limit,
+                   [Index | Indices],
+                   lists:reverse(NewPath))
     end;
-build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Entropy, _Limit, _Indices, Path) ->
+build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _RandVal, _RandState, _Limit, _Indices, Path) ->
     Path.
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
                HeadBlockTime :: pos_integer(),
-               RandFromEntropy :: float(),
+               RandVal :: float(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
-next_hop(GatewayBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
+next_hop(GatewayBin, ActiveGateways, HeadBlockTime, RandVal, Indices) ->
     %% Get this gateway
     Gateway = maps:get(GatewayBin, ActiveGateways),
     %% Get all the witnesses for this Gateway
@@ -90,7 +117,7 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
                                                 P / SumProbs
                                         end, Probs)),
     %% Pick one
-    select_witness(ScaledProbs, RandFromEntropy).
+    select_witness(ScaledProbs, RandVal).
 
 -spec bayes_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 bayes_probs(Witnesses) when map_size(Witnesses) == 1 ->
@@ -179,9 +206,8 @@ filter_traversed_indices(Indices, Witnesses, ActiveGateways) ->
                 end,
                 Witnesses).
 
--spec rand_from_entropy(Entropy :: binary()) -> float().
-rand_from_entropy(Entropy) ->
+-spec seed(Hash :: binary()) -> rand:state().
+seed(Hash) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
-      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
-    {RandVal, _} = rand:uniform_s(rand:seed_s(exs1024s, {A, B, C})),
-    RandVal.
+      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+    rand:seed_s(exs1024s, {A, B, C}).
