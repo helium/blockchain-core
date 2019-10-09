@@ -17,17 +17,17 @@ prop_path_check() ->
                                                     PathLimit),
                 PathLength = length(Path),
 
-                PathLocs = [blockchain_ledger_gateway_v2:location(P) || P <- Path],
+                PathLocs = [ blockchain_ledger_gateway_v2:location(maps:get(P, ActiveGateways)) || P <- Path ],
 
                 %% Checks:
                 %% - honor path limit
                 %% - atleast one element in path
-                %% - targetgw is always in path
+                %% - target is always in path
                 %% - we never go back to the same h3 index in path
                 Check = (PathLength =< PathLimit andalso
                          PathLength >= 1 andalso
                          length(PathLocs) == length(lists:usort(PathLocs)) andalso
-                         lists:member(maps:get(TargetPubkeyBin, ActiveGateways), Path)),
+                         lists:member(TargetPubkeyBin, Path)),
 
                 ?WHENFAIL(begin
                               io:format("Target: ~p~n", [TargetPubkeyBin]),
