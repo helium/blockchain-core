@@ -11,31 +11,37 @@
 -define(PROB, 0.01).
 -define(PARENT_RES, 7).
 
--type path() :: [blockchain_ledger_gateway_v2:gateway()].
+-type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
-            HeadBlockTime :: non_neg_integer(),
+            HeadBlockTime :: pos_integer(),
             Entropy :: binary(),
             Limit :: pos_integer()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Entropy, Limit) ->
-    %% Initialize with the TargetGw already in Indices and Path list
-    TargetGw = maps:get(TargetPubkeyBin, ActiveGateways),
-    build_(TargetGw,
+    TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+    build_(TargetPubkeyBin,
            ActiveGateways,
            HeadBlockTime,
            rand_from_entropy(Entropy),
            Limit,
-           [blockchain_ledger_gateway_v2:location(TargetGw)],
-           [TargetGw]).
+           [TargetGwLoc],
+           [TargetPubkeyBin]).
 
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
-build_(TargetGw, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, Indices, Path) when length(Path) < Limit ->
+-spec build_(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
+             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+             HeadBlockTime :: pos_integer(),
+             RandFromEntropy :: float(),
+             Limit :: pos_integer(),
+             Indices :: [h3:h3_index()],
+             Path :: path()) -> path().
+build_(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, Indices, Path) when length(Path) < Limit ->
     %% Try to find a next hop
-    case next_hop(TargetGw, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
+    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
         {error, no_witness} ->
             %% Try the last hotspot in the path if no witness found
             case next_hop(lists:last(Path), ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) of
@@ -45,25 +51,27 @@ build_(TargetGw, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, Indices,
                 {ok, WitnessAddr0} ->
                     %% Keep going
                     NextHopGw0 = maps:get(WitnessAddr0, ActiveGateways),
-                    Res = blockchain_ledger_gateway_v2:location(NextHopGw0),
-                    build_(NextHopGw0, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Res | Indices], [NextHopGw0 | Path])
+                    Index = blockchain_ledger_gateway_v2:location(NextHopGw0),
+                    build_(WitnessAddr0, ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Index | Indices], [WitnessAddr0 | Path])
             end;
         {ok, WitnessAddr} ->
             %% Try the last hop in the new path, basically flip so we search in two directions
             NextHopGw = maps:get(WitnessAddr, ActiveGateways),
-            Res = blockchain_ledger_gateway_v2:location(NextHopGw),
-            NewPath = [NextHopGw | Path],
-            build_(lists:last(NewPath), ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Res | Indices], lists:reverse(NewPath))
+            Index = blockchain_ledger_gateway_v2:location(NextHopGw),
+            NewPath = [WitnessAddr | Path],
+            build_(lists:last(NewPath), ActiveGateways, HeadBlockTime, RandFromEntropy, Limit, [Index | Indices], lists:reverse(NewPath))
     end;
-build_(_TargetGw, _ActiveGateways, _HeadBlockTime, _Entropy, _Limit, _Indices, Path) ->
+build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Entropy, _Limit, _Indices, Path) ->
     Path.
 
--spec next_hop(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+-spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
-               HeadBlockTime :: non_neg_integer(),
+               HeadBlockTime :: pos_integer(),
                RandFromEntropy :: float(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
-next_hop(Gateway, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
+next_hop(GatewayBin, ActiveGateways, HeadBlockTime, RandFromEntropy, Indices) ->
+    %% Get this gateway
+    Gateway = maps:get(GatewayBin, ActiveGateways),
     %% Get all the witnesses for this Gateway
     Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
     %% Filter out those witnesses which are in the same hex as this Gateway
@@ -112,7 +120,7 @@ bayes_probs(Witnesses) ->
                 #{},
                 WitnessList).
 
--spec time_probs(HeadBlockTime :: non_neg_integer(),
+-spec time_probs(HeadBlockTime :: pos_integer(),
                  Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 time_probs(_, Witnesses) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1.0
@@ -150,6 +158,10 @@ select_witness([{WitnessAddr, Prob}=_Head | _], Rnd) when Rnd - Prob < 0 ->
 select_witness([{_WitnessAddr, Prob} | Tail], Rnd) ->
     select_witness(Tail, Rnd - Prob).
 
+-spec filter_same_hex_witnesses(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+                                Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                                ParentRes :: h3:h3_index()) -> blockchain_ledger_gateway_v2:witnesses().
 filter_same_hex_witnesses(Gateway, Witnesses, ActiveGateways, ParentRes) ->
     maps:filter(fun(WitnessAddr, _Witness) ->
                         h3:parent(blockchain_ledger_gateway_v2:location(Gateway), ParentRes) /=
@@ -157,6 +169,9 @@ filter_same_hex_witnesses(Gateway, Witnesses, ActiveGateways, ParentRes) ->
                 end,
                 Witnesses).
 
+-spec filter_traversed_indices(Indices :: [h3:h3_index()],
+                               Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                               ActiveGateways :: blockchain_ledger_v1:active_gateways()) -> blockchain_ledger_gateway_v2:witnesses().
 filter_traversed_indices(Indices, Witnesses, ActiveGateways) ->
     maps:filter(fun(WitnessAddr, _Witness) ->
                         WitnessLoc = blockchain_ledger_gateway_v2:location(maps:get(WitnessAddr, ActiveGateways)),
