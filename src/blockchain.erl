@@ -953,30 +953,36 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
-save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}) ->
+save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=DefaultCF}=Chain) ->
     Hash = blockchain_block:hash_block(Block),
     case rocksdb:get(DB, TempBlocks, Hash, []) of
         {ok, _} ->
             %% already got it, thanks
             ok;
         _ ->
-            {ok, Batch} = rocksdb:batch(),
-            PrevHash = blockchain_block:prev_hash(Block),
-            ok = rocksdb:batch_put(Batch, TempBlocks, Hash, blockchain_block:serialize(Block)),
-            %% So, we have to be careful here because we might have multiple seemingly valid chains
-            %% only one of which will lead to the assumed valid block. We need to keep track of all
-            %% the potentials heads and use each of them randomly as our 'sync hash' until we can
-            %% get a valid chain to the 'assumed valid` block. Ugh.
-            TempHeads = case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
-                            {ok, BinHeadsList} ->
-                                binary_to_term(BinHeadsList);
-                            _ ->
-                                []
-                        end,
-            Height = blockchain_block:height(Block),
-            lager:info("temp block height is at least ~p", [Height]),
-            ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
-            ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
+            case get_block(Hash, Chain) of
+                {ok, _} ->
+                    %% have it on the main chain
+                    ok;
+                _ ->
+                    {ok, Batch} = rocksdb:batch(),
+                    PrevHash = blockchain_block:prev_hash(Block),
+                    ok = rocksdb:batch_put(Batch, TempBlocks, Hash, blockchain_block:serialize(Block)),
+                    %% So, we have to be careful here because we might have multiple seemingly valid chains
+                    %% only one of which will lead to the assumed valid block. We need to keep track of all
+                    %% the potentials heads and use each of them randomly as our 'sync hash' until we can
+                    %% get a valid chain to the 'assumed valid` block. Ugh.
+                    TempHeads = case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                                    {ok, BinHeadsList} ->
+                                        binary_to_term(BinHeadsList);
+                                    _ ->
+                                        []
+                                end,
+                    Height = blockchain_block:height(Block),
+                    lager:info("temp block height is at least ~p", [Height]),
+                    ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
+                    ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
+            end
     end.
 
 get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
