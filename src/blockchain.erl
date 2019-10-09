@@ -813,11 +813,14 @@ reset_ledger(Height, #blockchain{db = DB,
                     ok
             end,
 
-            %% recreate the ledgers
+            %% recreate the ledgers and notify the application of the
+            %% new chain
             Ledger1 = blockchain_ledger_v1:new(Dir),
+            Chain1 = ledger(Ledger1, Chain),
+            blockchain_worker:blockchain(Chain1),
 
             %% reapply the blocks
-            Chain1 =
+            Chain2 =
             lists:foldl(
               fun(H, CAcc) ->
                       case rocksdb:get(DB, HeightsCF, <<H:64/integer-unsigned-big>>, []) of
@@ -841,13 +844,11 @@ reset_ledger(Height, #blockchain{db = DB,
                       end
               end,
               %% this will be a noop in the case where Height == TopHeight
-              ledger(Ledger1, Chain),
+              Chain1,
               lists:seq(1, Height)),
 
-            blockchain_worker:blockchain(Chain1),
-
             blockchain_lock:release(),
-            {ok, Chain1}
+            {ok, Chain2}
     end.
 
 
