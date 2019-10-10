@@ -606,20 +606,15 @@ master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
 
-all_vars(#ledger_v1{db = DB} = Ledger) ->
+all_vars(Ledger) ->
     CF = default_cf(Ledger),
-    {ok, Itr} = rocksdb:iterator(DB, CF,
-                                 [{iterate_upper_bound,
-                                   <<"$var`">>}]),
-    Start = rocksdb:iterator_move(Itr, {seek, <<"$var_">>}),
-    (fun Scan({error, _}, Acc) ->
-             rocksdb:iterator_close(Itr),
-             Acc;
-         Scan({ok, <<"$var_", BName/binary>>, BValue}, Acc) ->
-             Name = binary_to_atom(BName, utf8),
-             Value = binary_to_term(BValue),
-             Scan(rocksdb:iterator_move(Itr, next), [{Name, Value} | Acc])
-     end)(Start, []).
+    cache_fold(Ledger, CF,
+               fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
+                       Value = binary_to_term(BValue),
+                       maps:put(Name, Value, Acc)
+               end, #{},
+               [{start, {seek, <<"$var_">>}},
+                {iterate_upper_bound, <<"$var`">>}]).
 
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),

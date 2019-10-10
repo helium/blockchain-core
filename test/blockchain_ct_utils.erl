@@ -16,7 +16,8 @@
          random_n/2,
          init_per_testcase/2,
          end_per_testcase/2,
-         create_vars/0, create_vars/1
+         create_vars/0, create_vars/1,
+         raw_vars/1
         ]).
 
 pmap(F, L) ->
@@ -266,6 +267,18 @@ create_vars(Vars) ->
     #{secret := Priv, public := Pub} =
         libp2p_crypto:generate_keys(ecc_compact),
 
+    Vars1 = raw_vars(Vars),
+    ct:pal("vars ~p", [Vars1]),
+
+    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+
+    Txn = blockchain_txn_vars_v1:new(Vars1, 2, #{master_key => BinPub}),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+    Txn1 = blockchain_txn_vars_v1:key_proof(Txn, Proof),
+    {[Txn1], {master_key, {Priv, Pub}}}.
+
+
+raw_vars(Vars) ->
     DefVars = #{
                 ?chain_vars_version => 2,
                 ?vars_commit_delay => 10,
@@ -298,13 +311,5 @@ create_vars(Vars) ->
                 ?min_score => 0.15
                },
 
-    Vars1 = maps:merge(DefVars, Vars),
+    maps:merge(DefVars, Vars).
 
-    ct:pal("vars ~p", [Vars1]),
-
-    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
-
-    Txn = blockchain_txn_vars_v1:new(Vars1, 2, #{master_key => BinPub}),
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
-    Txn1 = blockchain_txn_vars_v1:key_proof(Txn, Proof),
-    {[Txn1], {master_key, {Priv, Pub}}}.

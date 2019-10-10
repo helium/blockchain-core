@@ -707,8 +707,8 @@ export_test(Config) ->
     [{securities, Securities},
      {accounts, Accounts},
      {gateways, Gateways},
-     {dcs, DCs},
-     ChainVars
+     {chain_vars, ChainVars},
+     {dcs, DCs}
     ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
     ct:pal("gateways ~p", [Gateways]),
@@ -751,20 +751,16 @@ export_test(Config) ->
                       Token == Balance
               end, Securities),
 
-    ?assertEqual({chain_vars,
-                  [{vars_commit_interval,2},
-                   {securities_percent,0.35},
-                   {proposal_threshold,0.85},
-                   {poc_witnesses_percent,0.05},
-                   {poc_challengers_percent,0.15},
-                   {poc_challengees_percent,0.35},
-                   {num_consensus_members,7},
-                   {monthly_reward,50000000000},
-                   {election_selection_pct,60},
-                   {election_replacement_factor,4},
-                   {consensus_percent,0.1},
-                   {block_version,v1}]},
-                 ChainVars),
+    InitVars0 = blockchain_ct_utils:raw_vars(#{token_burn_exchange_rate => Rate}),
+
+    InitVars = lists:sort(
+                 lists:map(fun({Atom, Val}) ->
+                                   {atom_to_binary(Atom, utf8), Val}
+                           end,
+                           maps:to_list(InitVars0))),
+
+    ?assertEqual([], ChainVars -- InitVars),
+    ?assertEqual([], InitVars -- ChainVars),
 
     ok.
 

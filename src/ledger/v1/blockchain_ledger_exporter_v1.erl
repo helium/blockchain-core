@@ -66,4 +66,4 @@ export_dcs(Ledger) ->
     ).
 
 export_chain_vars(Ledger) ->
-    blockchain_ledger_v1:all_vars(Ledger).
+    lists:sort(maps:to_list(blockchain_ledger_v1:all_vars(Ledger))).
