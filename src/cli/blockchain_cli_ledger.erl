@@ -388,8 +388,8 @@ ledger_variables(Cmd, [], Flags) ->
             [_, _] when Flags == [{all, undefined}] ->
                 Vars = blockchain_ledger_v1:all_vars(Ledger),
                 [clique_status:text(
-                   [io_lib:format("~p: ~p~n", [N, V])
-                    || {N, V} <- Vars])];
+                   [io_lib:format("~s: ~p~n", [N, V])
+                    || {N, V} <- lists:sort(maps:to_list(Vars))])];
             _ ->
                 usage
         end
