@@ -707,6 +707,7 @@ export_test(Config) ->
     [{securities, Securities},
      {accounts, Accounts},
      {gateways, Gateways},
+     {chain_vars, ChainVars},
      {dcs, DCs}
     ] = blockchain_ledger_exporter_v1:export(blockchain:ledger(Chain)),
 
@@ -749,6 +750,17 @@ export_test(Config) ->
                       Token = proplists:get_value(token, Security),
                       Token == Balance
               end, Securities),
+
+    InitVars0 = blockchain_ct_utils:raw_vars(#{token_burn_exchange_rate => Rate}),
+
+    InitVars = lists:sort(
+                 lists:map(fun({Atom, Val}) ->
+                                   {atom_to_binary(Atom, utf8), Val}
+                           end,
+                           maps:to_list(InitVars0))),
+
+    ?assertEqual([], ChainVars -- InitVars),
+    ?assertEqual([], InitVars -- ChainVars),
 
     ok.
 

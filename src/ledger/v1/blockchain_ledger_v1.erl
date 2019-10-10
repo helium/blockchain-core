@@ -27,6 +27,7 @@
     htlcs/1,
 
     master_key/1, master_key/2,
+    all_vars/1,
     vars/3,
     config/2,  % no version with default, use the set value or fail
     vars_nonce/1, vars_nonce/2,
@@ -605,10 +606,16 @@ master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+all_vars(Ledger) ->
+    CF = default_cf(Ledger),
+    cache_fold(Ledger, CF,
+               fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
+                       Value = binary_to_term(BValue),
+                       maps:put(Name, Value, Acc)
+               end, #{},
+               [{start, {seek, <<"$var_">>}},
+                {iterate_upper_bound, <<"$var`">>}]).
+
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
     maps:map(

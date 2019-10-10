@@ -26,6 +26,7 @@ register_all_usage() ->
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
+                   ledger_variables_usage(),
                    ledger_usage()
                   ]).
 
@@ -40,6 +41,7 @@ register_all_cmds() ->
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
+                   ledger_variables_cmd(),
                    ledger_cmd()
                   ]).
 
@@ -55,6 +57,7 @@ ledger_usage() ->
       "  ledger create_htlc         - Create or a hashed timelock address.\n"
       "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
+      "  ledger variables           - Interact with chain variables.\n"
      ]
     ].
 
@@ -346,4 +349,50 @@ clean(String) ->
         [[], S] -> S;
         [S] -> S;
         _ -> error
+    end.
+
+%% ledger variables
+
+ledger_variables_cmd() ->
+    [
+     [["ledger", "variables", '*'], [], [], fun ledger_variables/3],
+     [["ledger", "variables"], [],
+      [
+       {all, [{shortname, "a"},
+              {longname, "all"}]}
+      ], fun ledger_variables/3]
+    ].
+
+ledger_variables_usage() ->
+    [["ledger", "variables"],
+     ["ledger variables <variable name>\n\n",
+      "  Retrieve a chain-stored variable.\n",
+      "Options\n\n",
+      "  -a, --all\n",
+      "    Display all variables.\n"
+     ]
+    ].
+
+ledger_variables(Cmd, [], Flags) ->
+    Ledger = get_ledger(),
+    try
+        case Cmd of
+            [_, _, Name] ->
+                NameAtom = list_to_atom(Name),
+                case blockchain_ledger_v1:config(NameAtom, Ledger) of
+                    {ok, Var} ->
+                        [clique_status:text(io_lib:format("~p", [Var]))];
+                    {error, not_found} ->
+                        [clique_status:text("variable not found")]
+                end;
+            [_, _] when Flags == [{all, undefined}] ->
+                Vars = blockchain_ledger_v1:all_vars(Ledger),
+                [clique_status:text(
+                   [io_lib:format("~s: ~p~n", [N, V])
+                    || {N, V} <- lists:sort(maps:to_list(Vars))])];
+            _ ->
+                usage
+        end
+    catch _:_ ->
+            [clique_status:text("invalid variable name")]
     end.
