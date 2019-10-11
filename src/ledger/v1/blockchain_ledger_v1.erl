@@ -211,7 +211,7 @@ new_context(Ledger) ->
     %% accumulate DB operations in a rocksdb batch
     {ok, Context} = rocksdb:batch(),
     %% accumulate ledger changes in a read-through ETS cache
-    Cache = ets:new(txn_cache, [set, private, {keypos, 1}]),
+    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     context_cache({Context, Cache}, Ledger).
 
 %%--------------------------------------------------------------------
