@@ -159,35 +159,87 @@ validate(Transactions, Chain) ->
 validate(Transactions, _Chain, true) ->
     {Transactions, []};
 validate(Transactions, Chain0, false) ->
-    Ledger0 = blockchain:ledger(Chain0),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
-    Chain1 = blockchain:ledger(Ledger1, Chain0),
-    validate(Transactions, [], [], Chain1).
+    Owner = self(),
+    Validator =
+        spawn(
+          fun() ->
+                  Ledger0 = blockchain:ledger(Chain0),
+                  Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+                  Chain1 = blockchain:ledger(Ledger1, Chain0),
+                  validate_remote(Owner, Chain1)
+          end),
+    Ref = erlang:monitor(process, Validator),
+    validate(Transactions, [], [], Validator, Ref, Chain0).
 
-validate([], Valid,  Invalid, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    blockchain_ledger_v1:delete_context(Ledger),
+validate([], Valid,  Invalid, Validator, Ref, _Chain) ->
+    erlang:demonitor(Ref, [flush]),
+    Validator ! stop,
     lager:info("valid: ~p, invalid: ~p", [types(Valid), types(Invalid)]),
     {lists:reverse(Valid), Invalid};
-validate([Txn | Tail], Valid, Invalid, Chain) ->
-    Type = ?MODULE:type(Txn),
-    case catch Type:is_valid(Txn, Chain) of
-        ok ->
-            case ?MODULE:absorb(Txn, Chain) of
-                ok ->
-                    validate(Tail, [Txn|Valid], Invalid, Chain);
-                {error, _Reason} ->
-                    lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
-                    validate(Tail, Valid, [Txn | Invalid], Chain)
-            end;
-        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+validate([Txn | Tail], Valid, Invalid, Validator, Ref, Chain) ->
+    Validator ! Txn,
+    receive
+        good ->
+            validate(Tail, [Txn|Valid], Invalid, Validator, Ref, Chain);
+        Bad when Bad == bad; Bad == error ->
+            validate(Tail, Valid, [Txn | Invalid], Validator, Ref, Chain);
+        nonce ->
             %% we don't have enough context to decide if this transaction is valid yet, keep it
             %% but don't include it in the block (so it stays in the buffer)
-            validate(Tail, Valid, Invalid, Chain);
-        Error ->
-            lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
-            %% any other error means we drop it
-            validate(Tail, Valid, [Txn | Invalid], Chain)
+            validate(Tail, Valid, Invalid, Validator, Ref, Chain);
+       {'DOWN', Ref, process, _Pid, Reason} ->
+            io:fwrite(standard_error, "blabn ~p", [Reason]),
+            validate(Tail, Valid, [Txn | Invalid], Validator, Ref, Chain)
+    after 1000 ->
+            %% we've gone over our deadline, kill the validator,
+            %% re-apply the valid txns, start again omitting the bad txn
+            lager:error("txn ~p exceeded deadline", [Txn]),
+            erlang:demonitor(Ref, [flush]),
+            erlang:exit(Validator, kill),
+            Ledger = blockchain:ledger(Chain),
+            blockchain_ledger_v1:delete_context(Ledger),
+            Owner = self(),
+            Validator1 =
+                spawn(
+                  fun() ->
+                          Ledger0 = blockchain:ledger(Chain),
+                          Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
+                          Chain1 = blockchain:ledger(Ledger1, Chain),
+                          lists:foreach(fun(T) -> absorb(T, Chain1) end, lists:reverse(Valid)),
+                          validate_remote(Owner, Chain1)
+                  end),
+            Ref1 = erlang:monitor(process, Validator),
+            validate(Tail, Valid, [Txn | Invalid], Validator1, Ref1, Chain)
+    end.
+
+validate_remote(Owner, Chain) ->
+    receive
+        stop ->
+            Ledger = blockchain:ledger(Chain),
+            blockchain_ledger_v1:delete_context(Ledger),
+            ok;
+        Txn ->
+            Type = ?MODULE:type(Txn),
+            case catch Type:is_valid(Txn, Chain) of
+                ok ->
+                    case ?MODULE:absorb(Txn, Chain) of
+                        ok ->
+                            Owner ! good,
+                            validate_remote(Owner, Chain);
+                        {error, _Reason} ->
+                            lager:error("invalid txn while absorbing ~p : ~p / ~p",
+                                        [Type, _Reason, Txn]),
+                            Owner ! bad,
+                            validate_remote(Owner, Chain)
+                    end;
+                {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+                    Owner ! nonce,
+                    validate_remote(Owner, Chain);
+                Error ->
+                    Owner ! error,
+                    io:fwrite(standard_error, "invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
+                    validate_remote(Owner, Chain)
+            end
     end.
 
 types(L) ->
