@@ -197,13 +197,20 @@ path(_Graph, [], _End, _Seen) ->
 path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
     % base case
     {Cost, lists:reverse(Path)};
-path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
+path(Graph, [{Cost, [Node | _] = Path} | Routes] = OldRoutes, End, Seen) ->
     NewRoutes0 = [{Cost + NewCost, [NewNode | Path]}
                  || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]),
                     not maps:is_key(NewNode, Seen)],
     NewRoutes = NewRoutes0 ++ Routes,
     NewRoutes1 = cheapest_to_front(NewRoutes),
-    path(Graph, NewRoutes1, End, Seen#{Node => true}).
+    lager:debug("path new routes ~p", [NewRoutes1]),
+    case lists:usort(OldRoutes) == lists:usort(NewRoutes1) of
+        true ->
+            %% we're infinite looping
+            {0, []};
+        false ->
+            path(Graph, NewRoutes1, End, Seen#{Node => true})
+    end.
 
 cheapest_to_front([]) -> [];
 cheapest_to_front([H | T]) ->
