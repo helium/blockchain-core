@@ -198,26 +198,8 @@ path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
     % base case
     {Cost, lists:reverse(Path)};
 path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
-    NewRoutes0 = [{Cost + NewCost, [NewNode | Path]}
-                 || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]),
-                    not maps:is_key(NewNode, Seen)],
-    NewRoutes = NewRoutes0 ++ Routes,
-    NewRoutes1 = cheapest_to_front(NewRoutes),
-    path(Graph, NewRoutes1, End, Seen#{Node => true}).
-
-cheapest_to_front([]) -> [];
-cheapest_to_front([H | T]) ->
-    cheapest_to_front(H, T, []).
-
-cheapest_to_front(C, [], Acc) ->
-    [C | Acc];
-cheapest_to_front(C, [H | T], Acc) ->
-    case C > H of
-        true ->
-            cheapest_to_front(H, T, [C | Acc]);
-        _ ->
-            cheapest_to_front(C, T, [H | Acc])
-    end.
+    NewRoutes = [{Cost + NewCost, [NewNode | Path]} || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]), not maps:get(NewNode, Seen, false)],
+    path(Graph, lists:sort(NewRoutes ++ Routes), End, Seen#{Node => true}).
 
 %%--------------------------------------------------------------------
 %% @doc neighbors iterates through `Gateways` to find any Gateways
