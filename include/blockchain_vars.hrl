@@ -150,6 +150,7 @@
 %%%
 
 %% Pretty much all of these are self-explanatory
+-define(reward_version, reward_version).
 -define(monthly_reward, monthly_reward).
 -define(securities_percent, securities_percent).
 -define(consensus_percent, consensus_percent).
