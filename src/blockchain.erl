@@ -995,13 +995,13 @@ get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
     end.
 
 init_assumed_valid(Blockchain, undefined) ->
-    Blockchain;
+    maybe_continue_resync(Blockchain);
 init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
     case ?MODULE:get_block(Hash, Blockchain) of
         {ok, _} ->
             %% already got it, chief
             %% TODO make sure we delete the column family, in case it has stale crap in it!
-            ok;
+            maybe_continue_resync(Blockchain);
         _ ->
             #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
             case rocksdb:get(DB, TempBlocksCF, Hash, []) of
@@ -1022,13 +1022,76 @@ init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
                                           ok = persistent_term:put(?ASSUMED_VALID, Hash)
                                   end
                           end),
-                    ok;
+                    Blockchain;
                 _ ->
                     %% need to wait for it
-                    ok = persistent_term:put(?ASSUMED_VALID, Hash)
+                    ok = persistent_term:put(?ASSUMED_VALID, Hash),
+                    Blockchain
             end
-    end,
-    Blockchain.
+    end.
+
+maybe_continue_resync(Blockchain) ->
+    case {blockchain:height(Blockchain), blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain))} of
+        {X, X} ->
+            %% they're the same, everything is great
+            Blockchain;
+        {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight > LedgerHeight ->
+            lager:warning("blockchain height ~p is ahead of ledger height ~p~n", [ChainHeight, LedgerHeight]),
+            %% likely an interrupted resync
+            spawn_link(fun() ->
+                               blockchain_lock:acquire(),
+                               case get_block(LedgerHeight, Blockchain) of
+                                   {error, _} ->
+                                       %% chain is missing the block the ledger is stuck at
+                                       %% it is unclear what we should do here.
+                                       lager:warning("cannot resume ledger resync, missing block ~p", [LedgerHeight]),
+                                       blockchain_lock:release();
+                                   {ok, LedgerLastBlock} ->
+                                       {ok, StartBlock} = blockchain:head_block(Blockchain),
+                                       EndHash = blockchain_block:hash_block(LedgerLastBlock),
+                                       HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
+                                       LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
+                                                            {ok, LKB} ->
+                                                                LKB;
+                                                            {error, not_found} ->
+                                                                {ok, LKB} = get_block(hd(tl(HashChain)), Blockchain),
+                                                                LKB
+                                                        end,
+                                       %% check we have a contiguous chain back to the current ledger head from the blockchain head
+                                       case length(HashChain) == (ChainHeight - LedgerHeight) andalso
+                                            EndHash == blockchain_block:prev_hash(LastKnownBlock)  of
+                                           false ->
+                                               %% we are missing one of the blocks between the ledger height and the chain height
+                                               %% we can probably find the highest contiguous chain and resync to there and repair the chain by rewinding
+                                               %% the head and deleting the orphaned blocks
+                                               lager:warning("cannot resume ledger resync, missing block ~p", [blockchain_block:height(LastKnownBlock)]),
+                                               blockchain_lock:release();
+                                           true ->
+                                               %% ok, we can keep replying blocks
+                                               try
+                                                   lists:foreach(fun(Hash) ->
+                                                                         {ok, Block} = get_block(Hash, Blockchain),
+                                                                         lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
+                                                                         ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
+                                                                 end, HashChain)
+                                               after
+                                                         blockchain_lock:release()
+                                               end
+                                       end
+                               end
+                       end),
+            Blockchain;
+        {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight < LedgerHeight ->
+            %% we're likely in a real pickle here unless we're just a handful of blocks behind
+            %% and we can use the delayed ledger to save ourselves
+            lager:warning("ledger height ~p is ahead of blockchain height ~p", [LedgerHeight, ChainHeight]),
+            Blockchain;
+        _ ->
+            %% probably no chain or ledger
+            Blockchain
+    end.
+
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
