@@ -162,11 +162,13 @@ calculate_rewards(Start, End, Chain) ->
                 [] ->
                     {ok, Ledger} = blockchain:ledger_at(End, Chain),
                     Vars = get_reward_vars(Start, End, Ledger),
-                    ConsensusRewards = consensus_members_rewards(Ledger, Vars),
                     SecuritiesRewards = securities_rewards(Ledger, Vars),
                     POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
                     POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
                     POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
+                    % Forcing calculation of EpochReward to always be around ElectionInterval (30 blocks) so that there is less incentive to stay in the consensus group
+                    ConsensusEpochReward = calculate_epoch_reward(1, Start, End, Ledger),
+                    ConsensusRewards = consensus_members_rewards(Ledger, maps:put(epoch_reward, ConsensusEpochReward, Vars)),
                     Result = lists:foldl(
                                fun(Map, Acc0) ->
                                        maps:fold(
@@ -260,6 +262,10 @@ calculate_epoch_reward(Start, End, Ledger) ->
         {ok, V} -> V;
         _ -> 1
     end,
+    calculate_epoch_reward(Version, Start, End, Ledger).
+
+-spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), non_neg_integer(), blockchain_ledger_v1:ledger()) -> float().
+calculate_epoch_reward(Version, Start, End, Ledger) ->
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
@@ -267,7 +273,7 @@ calculate_epoch_reward(Start, End, Ledger) ->
 
 -spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), non_neg_integer(),
                              non_neg_integer(), non_neg_integer(), non_neg_integer()) -> float().
-calculate_epoch_reward(Version, BlockTime0, _ElectionInterval, MonthlyReward, Start, End) when Version >= 2 ->
+calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward) when Version >= 2 ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
@@ -277,7 +283,7 @@ calculate_epoch_reward(Version, BlockTime0, _ElectionInterval, MonthlyReward, St
     ElectionInterval = End - Start,
     ElectionPerHour = BlockPerHour/ElectionInterval,
     MonthlyReward/30/24/ElectionPerHour;
-calculate_epoch_reward(_Version, BlockTime0, ElectionInterval, MonthlyReward, _Start, _End) ->
+calculate_epoch_reward(_Version, _Start, _End, BlockTime0, ElectionInterval, MonthlyReward) ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
     BlockPerMin = 60/BlockTime1,
