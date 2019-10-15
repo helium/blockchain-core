@@ -223,11 +223,20 @@ signed_metadata_fun() ->
             #{};
         _ ->
             %% check if the rocksdb handle has died
-            try blockchain:sync_height(Chain) of
-                {ok, Height} ->
-                    #{<<"height">> => Height};
-                {error, _} ->
-                    #{}
+            try
+                HeightMD =
+                    case blockchain:sync_height(Chain) of
+                        {ok, Height} ->
+                            #{<<"height">> => Height};
+                        {error, _} ->
+                            #{}
+                    end,
+                case blockchain_ledger_v1:fingerprint(blockchain:ledger(Chain)) of
+                    {ok, Fingerprint} ->
+                        HeightMD#{<<"ledger_fingerprint">> => Fingerprint};
+                    _ ->
+                        HeightMD
+                end
             catch
                 _:_ ->
                     %% probably have an expired blockchain handle

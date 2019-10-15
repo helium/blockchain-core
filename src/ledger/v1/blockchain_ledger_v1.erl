@@ -76,6 +76,8 @@
 
     delay_vars/3,
 
+    fingerprint/1,
+
     clean/1, close/1
 ]).
 
@@ -294,6 +296,34 @@ snapshot(Ledger) ->
             {error, undefined};
         S ->
             {ok, S}
+    end.
+
+fingerprint(#ledger_v1{mode = Mode} = Ledger) ->
+    try
+        SubLedger =
+            case Mode of
+                active ->
+                    Ledger#ledger_v1.active;
+                delayed ->
+                    Ledger#ledger_v1.delayed
+            end,
+        #sub_ledger_v1{
+           default = DefaultCF,
+           active_gateways = AGwsCF,
+           entries = EntriesCF,
+           dc_entries = DCEntriesCF,
+           htlcs = HTLCsCF,
+           pocs = PoCsCF,
+           securities = SecuritiesCF,
+           routing = RoutingCF
+          } = SubLedger,
+        L = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
+             || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
+                       PoCsCF, SecuritiesCF, RoutingCF]],
+        L1 = lists:sort(L),
+        {ok, erlang:phash2(L1)}
+    catch _:_ ->
+            {error, could_not_fingerprint}
     end.
 
 %%--------------------------------------------------------------------

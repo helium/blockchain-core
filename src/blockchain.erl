@@ -59,7 +59,8 @@
 %% we start a clean chain, we mark all existing keys are true and do
 %% not run their code later.
 -define(upgrades,
-        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1}]).
+        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
+         {<<"full-reset-1">>, fun reset_1/1}]).
 
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
@@ -131,8 +132,12 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
         true ->
             process_upgrades(Tail, Ledger1);
         false ->
-            Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            case Fun(Ledger1) of
+                ok ->
+                    blockchain_ledger_v1:mark_key(Key, Ledger1);
+                _ ->
+                    ok
+            end
     end,
     blockchain_ledger_v1:commit_context(Ledger1),
     ok.
@@ -167,6 +172,10 @@ upgrade_gateways_v2_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
     ok.
+
+reset_1(_Ledger) ->
+    
+    no.
 
 %%--------------------------------------------------------------------
 %% @doc
