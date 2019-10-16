@@ -9,13 +9,14 @@
 
 -export([
          build/5,
-         shortest/3,
-         length/3,
+         shortest/3, shortest/4,
+         length/3, length/4,
          build_graph/4,
          target/3,
          neighbors/3,
          entropy/1,
-         check_sync/2
+         check_sync/2,
+         active_gateways/2 %% exported for debug purposes
         ]).
 
 -ifdef(TEST).
@@ -71,9 +72,25 @@ build(Hash, Target, Gateways, Height, Ledger) ->
             lager:error("graph: ~p GraphList ~p", [Graph, GraphList]),
             {error, not_enough_gateways};
         true ->
+            PathLimit = case blockchain:config(?poc_version, Ledger) of
+                            {ok, POCVersion0} when POCVersion0 >= 3 ->
+                                case blockchain:config(?poc_path_limit, Ledger) of
+                                    {ok, Val0} when is_integer(Val0) ->
+                                        %% we're only interested in half paths up to
+                                        %% the half total path limit
+                                        ceil(Val0/2);
+                                    _ ->
+                                        infinity
+                                end;
+                            _ ->
+                                infinity
+                        end,
+            %% find the longest, highest scoring paths that don't exceed any path limits
+            %% paths that are too long are filtered because their score ends up as 0
             Lengths =
-                [{Score * ?MODULE:length(Graph, Target, Addr), G}
-                 || {Score, Addr} = G <- blockchain_utils:shuffle_from_hash(Hash, GraphList)],
+                [ {S, G} || {S, G} <- [{Score * ?MODULE:length(Graph, Target, Addr, PathLimit), G}
+                 || {Score, Addr} = G <- blockchain_utils:shuffle_from_hash(Hash, GraphList)],  S > 0 ],
+            %% sort the highest scoring paths first
             [{_, {_, Start}}, {_, {_, End}}|_] = lists:sort(fun({S1, _}, {S2, _}) -> S1 > S2 end,
                                                             Lengths),
             {_, Path1} = ?MODULE:shortest(Graph, Start, Target),
@@ -117,7 +134,11 @@ build(Hash, Target, Gateways, Height, Ledger) ->
 %%--------------------------------------------------------------------
 -spec shortest(Graph :: graph(), Start :: any(), End :: any()) -> {number(), list()}.
 shortest(Graph, Start, End) ->
-    path(Graph, [{0, [Start]}], End, #{}).
+    shortest(Graph, Start, End, infinity).
+
+-spec shortest(Graph :: graph(), Start :: any(), End :: any(), Limit :: pos_integer() | 'infinity') -> {number(), list()}.
+shortest(Graph, Start, End, Limit) ->
+    path(Graph, [{0, [Start]}], End, #{}, Limit).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -125,7 +146,11 @@ shortest(Graph, Start, End) ->
 %%--------------------------------------------------------------------
 -spec length(Graph :: graph(), Start :: any(), End :: any()) -> integer().
 length(Graph, Start, End) ->
-    {_Cost, Path} = ?MODULE:shortest(Graph, Start, End),
+    length(Graph, Start, End, infinity).
+
+-spec length(Graph :: graph(), Start :: any(), End :: any(), Limit :: pos_integer() | 'infinity') -> integer().
+length(Graph, Start, End, Limit) ->
+    {_Cost, Path} = ?MODULE:shortest(Graph, Start, End, Limit),
     erlang:length(Path).
 
 %%--------------------------------------------------------------------
@@ -190,16 +215,33 @@ build_graph_int([Address0|Addresses], Gateways, Height, Ledger, Graph0) ->
 -spec path(Graph :: graph(),
            Path :: [{number(), list()}],
            End :: any(),
-           Seen :: map()) -> {number(), list()}.
-path(_Graph, [], _End, _Seen) ->
+           Seen :: map(),
+           Limit :: pos_integer() | 'infinity') -> {number(), list()}.
+path(_Graph, [], _End, _Seen, _Limit) ->
     % nowhere to go
     {0, []};
-path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen) ->
+path(_Graph, [{Cost, [End | _] = Path} | _], End, _Seen, _Limit) ->
     % base case
     {Cost, lists:reverse(Path)};
-path(Graph, [{Cost, [Node | _] = Path} | Routes], End, Seen) ->
-    NewRoutes = [{Cost + NewCost, [NewNode | Path]} || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]), not maps:get(NewNode, Seen, false)],
-    path(Graph, lists:sort(NewRoutes ++ Routes), End, Seen#{Node => true}).
+path(Graph, [{Cost, [Node | _] = Path} | Routes] = _OldRoutes, End, Seen, Limit) ->
+    NewRoutes = lists:filter(fun({_, P}) -> length(P) =< Limit end,
+                             [{Cost + NewCost, [NewNode | Path]} || {NewCost, NewNode} <- maps:get(Node, Graph, [{0, []}]), not maps:get(NewNode, Seen, false)]),
+    NextRoutes = cheapest_to_front(NewRoutes ++ Routes),
+    path(Graph, NextRoutes, End, Seen#{Node => true}, Limit).
+
+cheapest_to_front([]) -> [];
+cheapest_to_front([H | T]) ->
+    cheapest_to_front(H, T, []).
+
+cheapest_to_front(C, [], Acc) ->
+    [C | Acc];
+cheapest_to_front(C, [H | T], Acc) ->
+    case C > H of
+        true ->
+            cheapest_to_front(H, T, [C | Acc]);
+        _ ->
+            cheapest_to_front(C, T, [H | Acc])
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc neighbors iterates through `Gateways` to find any Gateways
