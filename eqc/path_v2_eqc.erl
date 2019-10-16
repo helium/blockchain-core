@@ -17,7 +17,22 @@ prop_path_check() ->
                                                     PathLimit),
                 PathLength = length(Path),
 
-                PathLocs = [ blockchain_ledger_gateway_v2:location(maps:get(P, ActiveGateways)) || P <- Path ],
+                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+
+                FileName = "/tmp/paths",
+                case file:read_file_info(FileName) of
+                    {ok, _FileInfo} ->
+                        case length(Path) > 1 of
+                            true ->
+                                file:write_file(FileName, io_lib:fwrite("~p.\n", [B58Path]), [append]);
+                            false ->
+                                ok
+                        end;
+                    {error, enoent} ->
+                        % File doesn't exist
+                        ok
+                end,
+
 
                 %% Checks:
                 %% - honor path limit
@@ -26,7 +41,7 @@ prop_path_check() ->
                 %% - we never go back to the same h3 index in path
                 Check = (PathLength =< PathLimit andalso
                          PathLength >= 1 andalso
-                         length(PathLocs) == length(lists:usort(PathLocs)) andalso
+                         length(Path) == length(lists:usort(Path)) andalso
                          lists:member(TargetPubkeyBin, Path)),
 
                 ?WHENFAIL(begin
@@ -49,8 +64,12 @@ gen_path_limit() ->
 
 active_gateways() ->
     {ok, Dir} = file:get_cwd(),
-    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active75121.txt"])),
+    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active86837.txt"])),
     AG.
 
 block_time() ->
-    1570298379 * 1000000000.
+    1571180431 * 1000000000.
+
+%% name(PubkeyBin) ->
+%%     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
+%%     Name.
