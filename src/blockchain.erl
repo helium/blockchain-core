@@ -115,6 +115,7 @@ new(Dir, GenBlock, AssumedValidBlockHash) ->
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
+
             Ledger = blockchain:ledger(Blockchain),
             process_upgrades(?upgrades, Ledger),
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
@@ -174,8 +175,19 @@ upgrade_gateways_v2_(Ledger) ->
     ok.
 
 reset_1(_Ledger) ->
-    
-    no.
+    spawn(
+      fun() ->
+              maybe_reset_ledger()
+      end),
+    %% we never mark here, since it gets done at the start of the
+    %% reset automatically, and if we never get there, we want to try
+    %% again on the next boot
+    no_mark.
+
+maybe_reset_ledger() ->
+    timer:sleep(rand:uniform(timer:hours(5 * 24))),
+    Chain = blockchain_worker:blockchain(),
+    blockchain:reset_ledger(Chain).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -825,6 +837,7 @@ reset_ledger(Height, #blockchain{db = DB,
             %% recreate the ledgers and notify the application of the
             %% new chain
             Ledger1 = blockchain_ledger_v1:new(Dir),
+            mark_upgrades(?upgrades, Ledger1),
             Chain1 = ledger(Ledger1, Chain),
             blockchain_worker:blockchain(Chain1),
 
