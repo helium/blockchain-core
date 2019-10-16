@@ -158,3 +158,10 @@
 -define(poc_witnesses_percent, poc_witnesses_percent).
 -define(poc_challengers_percent, poc_challengers_percent).
 -define(dc_percent, dc_percent).
+
+
+%% POC V4 vars
+%% normalize witnesses to this parent resolution, set to 11
+-define(poc_v4_parent_res, poc_v4_parent_res).
+%% number of grid cells to exclude when building a path, set to 10 for poc_v4_parent_res: 11
+-define(poc_v4_exclusion_cells, poc_v4_exclusion_cells).
