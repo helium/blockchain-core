@@ -8,8 +8,9 @@
 ]).
 
 %% XXX: Maybe these need to be chain vars?
--define(PROB, 0.01).
--define(PARENT_RES, 7).
+-define(PROB, 0.01). %% probability that we pick a "bad" witness given that it got picked
+-define(EX_DIST, 10). %% exclude 6 grid cells for res - 1
+-define(PARENT_RES, 11). %% normalize to 11 res
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -99,25 +100,30 @@ build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _RandVal, _RandState, 
 next_hop(GatewayBin, ActiveGateways, HeadBlockTime, RandVal, Indices) ->
     %% Get this gateway
     Gateway = maps:get(GatewayBin, ActiveGateways),
-    %% Get all the witnesses for this Gateway
-    Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
-    %% Filter out those witnesses which are in the same hex as this Gateway
-    FilteredWitnesses0 = filter_same_hex_witnesses(Gateway, Witnesses, ActiveGateways, ?PARENT_RES),
-    %% Filter out those witnesses which belong to the same hex we have already traversed
-    FilteredWitnesses = filter_traversed_indices(Indices, FilteredWitnesses0, ActiveGateways),
-    %% Assign probabilities to filtered witnesses
-    P1Map = bayes_probs(FilteredWitnesses),
-    P2Map = time_probs(HeadBlockTime, FilteredWitnesses),
-    Probs = maps:map(fun(WitnessAddr, P2) ->
-                             P2 * maps:get(WitnessAddr, P1Map)
-                     end, P2Map),
-    %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
-    SumProbs = lists:sum(maps:values(Probs)),
-    ScaledProbs = maps:to_list(maps:map(fun(_WitnessAddr, P) ->
-                                                P / SumProbs
-                                        end, Probs)),
-    %% Pick one
-    select_witness(ScaledProbs, RandVal).
+
+    case blockchain_ledger_gateway_v2:location(Gateway) of
+        undefined ->
+            {error, no_witness};
+        GatewayLoc ->
+            %% Get all the witnesses for this Gateway
+            Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
+            %% Filter witnesses
+            FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways),
+            %% Assign probabilities to filtered witnesses
+            P1Map = bayes_probs(FilteredWitnesses),
+            P2Map = time_probs(HeadBlockTime, FilteredWitnesses),
+            Probs = maps:map(fun(WitnessAddr, P2) ->
+                                     P2 * maps:get(WitnessAddr, P1Map)
+                             end, P2Map),
+            %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
+            SumProbs = lists:sum(maps:values(Probs)),
+            ScaledProbs = maps:to_list(maps:map(fun(_WitnessAddr, P) ->
+                                                        P / SumProbs
+                                                end, Probs)),
+            %% Pick one
+            select_witness(ScaledProbs, RandVal)
+    end.
+
 
 -spec bayes_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
 bayes_probs(Witnesses) when map_size(Witnesses) == 1 ->
@@ -185,24 +191,23 @@ select_witness([{WitnessAddr, Prob}=_Head | _], Rnd) when Rnd - Prob < 0 ->
 select_witness([{_WitnessAddr, Prob} | Tail], Rnd) ->
     select_witness(Tail, Rnd - Prob).
 
--spec filter_same_hex_witnesses(Gateway :: blockchain_ledger_gateway_v2:gateway(),
-                                Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
-                                ActiveGateways :: blockchain_ledger_v1:active_gateways(),
-                                ParentRes :: h3:h3_index()) -> blockchain_ledger_gateway_v2:witnesses().
-filter_same_hex_witnesses(Gateway, Witnesses, ActiveGateways, ParentRes) ->
+-spec filter_witnesses(GatewayLoc :: h3:h3_index(),
+                       Indices :: [h3:h3_index()],
+                       Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                       ActiveGateways :: blockchain_ledger_v1:active_gateways()) -> blockchain_ledger_gateway_v2:witnesses().
+filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways) ->
+    GatewayParent = h3:parent(GatewayLoc, h3:get_resolution(GatewayLoc) - 1),
+    ParentIndices = [h3:parent(Index, ?PARENT_RES) || Index <- Indices],
     maps:filter(fun(WitnessAddr, _Witness) ->
-                        h3:parent(blockchain_ledger_gateway_v2:location(Gateway), ParentRes) /=
-                        h3:parent(blockchain_ledger_gateway_v2:location(maps:get(WitnessAddr, ActiveGateways)), ParentRes)
-                end,
-                Witnesses).
-
--spec filter_traversed_indices(Indices :: [h3:h3_index()],
-                               Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
-                               ActiveGateways :: blockchain_ledger_v1:active_gateways()) -> blockchain_ledger_gateway_v2:witnesses().
-filter_traversed_indices(Indices, Witnesses, ActiveGateways) ->
-    maps:filter(fun(WitnessAddr, _Witness) ->
-                        WitnessLoc = blockchain_ledger_gateway_v2:location(maps:get(WitnessAddr, ActiveGateways)),
-                        not(lists:member(WitnessLoc, Indices))
+                        WitnessGw = maps:get(WitnessAddr, ActiveGateways),
+                        WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                        WitnessParent = h3:parent(WitnessLoc, ?PARENT_RES),
+                        %% Dont include any witness we've already added in indices
+                        not(lists:member(WitnessLoc, Indices)) andalso
+                        %% Don't include any witness whose parent is the same as the gateway we're looking at
+                        (GatewayParent /= WitnessParent) andalso
+                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                        check_witness_distance(WitnessParent, ParentIndices)
                 end,
                 Witnesses).
 
@@ -211,3 +216,9 @@ seed(Hash) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
     rand:seed_s(exs1024s, {A, B, C}).
+
+-spec check_witness_distance(WitnessParent :: h3:h3_index(), ParentIndices :: [h3:h3_index()]) -> boolean().
+check_witness_distance(WitnessParent, ParentIndices) ->
+    not(lists:any(fun(ParentIndex) ->
+                          h3:grid_distance(WitnessParent, ParentIndex) < ?EX_DIST
+                  end, ParentIndices)).
