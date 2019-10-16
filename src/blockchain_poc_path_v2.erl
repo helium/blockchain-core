@@ -8,8 +8,8 @@
 ]).
 
 %% XXX: Maybe these need to be chain vars?
--define(PROB, 0.01). %% probability that we pick a "bad" witness given that it got picked
--define(EX_DIST, 10). %% exclude 6 grid cells for res - 1
+-define(PROB, 0.01). %% probability that a witness is "bad" given that it got picked, extremely low
+-define(EX_DIST, 10). %% exclude 10 grid cells for parent_res: 11
 -define(PARENT_RES, 11). %% normalize to 11 res
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
