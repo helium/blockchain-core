@@ -14,42 +14,36 @@ prop_path_check() ->
                                                     ActiveGateways,
                                                     block_time(),
                                                     Entropy,
-                                                    PathLimit),
+                                                    PathLimit,
+                                                    #{}),
                 PathLength = length(Path),
 
                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
 
-                FileName = "/tmp/paths",
-                case file:read_file_info(FileName) of
-                    {ok, _FileInfo} ->
-                        case length(Path) > 1 of
-                            true ->
-                                file:write_file(FileName, io_lib:fwrite("~p.\n", [B58Path]), [append]);
-                            false ->
-                                ok
-                        end;
-                    {error, enoent} ->
-                        % File doesn't exist
+                case length(Path) > 1 of
+                    true ->
+                        file:write_file("/tmp/paths", io_lib:fwrite("~p.\n", [B58Path]), [append]);
+                    false ->
                         ok
                 end,
 
-
-                %% Checks:
-                %% - honor path limit
-                %% - atleast one element in path
-                %% - target is always in path
-                %% - we never go back to the same h3 index in path
-                Check = (PathLength =< PathLimit andalso
-                         PathLength >= 1 andalso
-                         length(Path) == length(lists:usort(Path)) andalso
-                         lists:member(TargetPubkeyBin, Path)),
 
                 ?WHENFAIL(begin
                               io:format("Target: ~p~n", [TargetPubkeyBin]),
                               io:format("PathLimit: ~p~n", [PathLimit]),
                               io:format("Path: ~p~n", [Path])
                           end,
-                          conjunction([{verify_path, Check}]))
+                          %% Checks:
+                          %% - honor path limit
+                          %% - atleast one element in path
+                          %% - target is always in path
+                          %% - we never go back to the same h3 index in path
+                          %% - check next hop is an witness of previous gateway
+                          conjunction([{verify_path_length, PathLength =< PathLimit andalso PathLength >= 1},
+                                       {verify_path_uniqueness, length(Path) == length(lists:usort(Path))},
+                                       {verify_target_membership, lists:member(TargetPubkeyBin, Path)},
+                                       {verify_next_hops, check_next_hop(Path, ActiveGateways)}
+                                      ]))
 
             end).
 
@@ -64,12 +58,19 @@ gen_path_limit() ->
 
 active_gateways() ->
     {ok, Dir} = file:get_cwd(),
-    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active86837.txt"])),
+    {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active88127"])),
     AG.
 
 block_time() ->
-    1571180431 * 1000000000.
+    1571266381 * 1000000000.
 
-%% name(PubkeyBin) ->
-%%     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
-%%     Name.
+check_next_hop([_H], _ActiveGateways) ->
+    true;
+check_next_hop([H | T], ActiveGateways) ->
+    HGw = maps:get(H, ActiveGateways),
+    case maps:is_key(hd(T), blockchain_ledger_gateway_v2:witnesses(HGw)) of
+        true ->
+            check_next_hop(T, ActiveGateways);
+        false ->
+            false
+    end.
