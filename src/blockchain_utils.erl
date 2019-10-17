@@ -8,7 +8,7 @@
 -export([
     shuffle_from_hash/2,
     shuffle/1,
-    rand_from_hash/1,
+    rand_from_hash/1, rand_state/1,
     normalize_float/1,
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
@@ -88,6 +88,12 @@ bin_to_hex(Bin) ->
 -spec hex_to_bin(binary()) -> binary().
 hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
+
+-spec rand_state(Hash :: binary()) -> rand:state().
+rand_state(Hash) ->
+    <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
+      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+    rand:seed_s(exs1024s, {A, B, C}).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
