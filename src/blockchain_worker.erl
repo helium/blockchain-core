@@ -233,7 +233,7 @@ signed_metadata_fun() ->
                     end,
                 FPMD = case blockchain_ledger_v1:fingerprint(blockchain:ledger(Chain)) of
                     {ok, Fingerprint} ->
-                        HeightMD#{<<"ledger_fingerprint">> => Fingerprint};
+                        maps:merge(HeightMD, Fingerprint);
                     _ ->
                         HeightMD
                 end,

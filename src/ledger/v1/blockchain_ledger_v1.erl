@@ -334,14 +334,27 @@ fingerprint(#ledger_v1{mode = Mode} = Ledger) ->
            securities = SecuritiesCF,
            routing = RoutingCF
           } = SubLedger,
-        L = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
-             || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                       PoCsCF, SecuritiesCF, RoutingCF]],
-        L1 = lists:sort(L),
-        {ok, erlang:phash2(L1)}
+        L = [DefaultVals, GWsVals, EntriesVals, DCEntriesVals, HTLCs,
+             PoCs, Securities, Routings]
+            =  [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
+                || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
+                          PoCsCF, SecuritiesCF, RoutingCF]],
+        {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L)),
+               <<"gateways_fingerprint">> => fp(GWsVals),
+               <<"core_fingerprint">> => fp(DefaultVals),
+               <<"entries_fingerprint">> => fp(EntriesVals),
+               <<"dc_entries_fingerprint">> => fp(DCEntriesVals),
+               <<"htlc_fingerprint">> => fp(HTLCs),
+               <<"securities_fingerprint">> => fp(Securities),
+               <<"routings_fingerprint">> => fp(Routings),
+               <<"poc_fingerprint">> => fp(PoCs)
+              }}
     catch _:_ ->
             {error, could_not_fingerprint}
     end.
+
+fp(L) ->
+    erlang:phash2(lists:sort(L)).
 
 %%--------------------------------------------------------------------
 %% @doc
