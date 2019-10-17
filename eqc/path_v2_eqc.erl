@@ -10,12 +10,16 @@ prop_path_check() ->
             {gen_target(), gen_entropy(), gen_path_limit()},
             begin
                 ActiveGateways = active_gateways(),
-                Path = blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                    ActiveGateways,
-                                                    block_time(),
-                                                    Entropy,
-                                                    PathLimit,
-                                                    #{}),
+                {Time, Path} = timer:tc(fun() -> blockchain_poc_path_v2:build(TargetPubkeyBin,
+                                                                              ActiveGateways,
+                                                                              block_time(),
+                                                                              Entropy,
+                                                                              PathLimit,
+                                                                              #{})
+                                        end),
+
+                io:format("Time: ~p~n", [Time/1000000]),
+
                 PathLength = length(Path),
 
                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
@@ -59,7 +63,7 @@ gen_path_limit() ->
 active_gateways() ->
     {ok, Dir} = file:get_cwd(),
     {ok, [AG]} = file:consult(filename:join([Dir,  "eqc", "active88127"])),
-    AG.
+    filter_gateways(AG, 88127).
 
 block_time() ->
     1571266381 * 1000000000.
@@ -74,3 +78,14 @@ check_next_hop([H | T], ActiveGateways) ->
         false ->
             false
     end.
+
+filter_gateways(Gateways, Height) ->
+    maps:filter(fun(_, Gateway) ->
+                        case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                            undefined ->
+                                false;
+                            C ->
+                                (Height - C) < 90
+                        end
+                end,
+                Gateways).
