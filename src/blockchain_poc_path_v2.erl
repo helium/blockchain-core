@@ -7,13 +7,11 @@
     build/6
 ]).
 
-%% XXX: Maybe these need to be chain vars?
 -define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
 -define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
-
 
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
@@ -23,13 +21,11 @@
             Vars :: map()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
     TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-    Seed = seed(Hash),
-    {RandVal, RandState} = rand:uniform_s(Seed),
+    RandState = rand_state(Hash),
     build_(TargetPubkeyBin,
            ActiveGateways,
            HeadBlockTime,
            Vars,
-           RandVal,
            RandState,
            Limit,
            [TargetGwLoc],
@@ -42,7 +38,6 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
              HeadBlockTime :: pos_integer(),
              Vars :: map(),
-             RandVal :: float(),
              RandState :: rand:state(),
              Limit :: pos_integer(),
              Indices :: [h3:h3_index()],
@@ -51,13 +46,13 @@ build_(TargetPubkeyBin,
        ActiveGateways,
        HeadBlockTime,
        Vars,
-       RandVal,
        RandState,
        Limit,
        Indices,
        Path) when length(Path) < Limit ->
     %% Try to find a next hop
-    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) of
+    {NewRandVal, NewRandState} = rand:uniform_s(RandState),
+    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Vars, NewRandVal, Indices) of
         {error, no_witness} ->
             lists:reverse(Path);
         {ok, WitnessAddr} ->
@@ -65,18 +60,16 @@ build_(TargetPubkeyBin,
             NextHopGw = maps:get(WitnessAddr, ActiveGateways),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessAddr | Path],
-            {NewRandVal, NewRandState} = rand:uniform_s(RandState),
             build_(WitnessAddr,
                    ActiveGateways,
                    HeadBlockTime,
                    Vars,
-                   NewRandVal,
                    NewRandState,
                    Limit,
                    [Index | Indices],
                    NewPath)
     end;
-build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandVal, _RandState, _Limit, _Indices, Path) ->
+build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Limit, _Indices, Path) ->
     lists:reverse(Path).
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
@@ -212,20 +205,25 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
     GatewayParent = h3:parent(GatewayLoc, h3:get_resolution(GatewayLoc) - 1),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
     maps:filter(fun(WitnessAddr, _Witness) ->
-                        WitnessGw = maps:get(WitnessAddr, ActiveGateways),
-                        WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                        WitnessParent = h3:parent(WitnessLoc, ParentRes),
-                        %% Dont include any witness we've already added in indices
-                        not(lists:member(WitnessLoc, Indices)) andalso
-                        %% Don't include any witness whose parent is the same as the gateway we're looking at
-                        (GatewayParent /= WitnessParent) andalso
-                        %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                        check_witness_distance(WitnessParent, ParentIndices, ExclusionCells)
+                        case maps:is_key(WitnessAddr, ActiveGateways) of
+                            false ->
+                                false;
+                            true ->
+                                WitnessGw = maps:get(WitnessAddr, ActiveGateways),
+                                WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                WitnessParent = h3:parent(WitnessLoc, ParentRes),
+                                %% Dont include any witness we've already added in indices
+                                not(lists:member(WitnessLoc, Indices)) andalso
+                                %% Don't include any witness whose parent is the same as the gateway we're looking at
+                                (GatewayParent /= WitnessParent) andalso
+                                %% Don't include any witness whose parent is too close to any of the indices we've already seen
+                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells)
+                        end
                 end,
                 Witnesses).
 
--spec seed(Hash :: binary()) -> rand:state().
-seed(Hash) ->
+-spec rand_state(Hash :: binary()) -> rand:state().
+rand_state(Hash) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
     rand:seed_s(exs1024s, {A, B, C}).
