@@ -1,6 +1,44 @@
-%%%-------------------------------------------------------------------
-%% Public
-%%%-------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%%% @doc blockchain_poc_path_v2 implementation.
+%%%
+%%% The way path is build depends solely on witnessing data we have accumulated
+%%% in the blockchain ledger.
+%%%
+%%% Consider X having [A, B, C, D] as its geographic neighbors but only
+%%% having [A, C, E] as it's transmission witnesses. It stands to reason
+%%% that we would expect packets from X -> any[A, C, E] to work with relative
+%%% high confidence than compared to its geographic neighbors. RF varies
+%%% heavily depending on surroundings therefore relying only on geographic
+%%% vicinity is not enough to build potentially interesting paths.
+%%%
+%%% In order to build a path, we first find a target gateway and greedily grow the
+%%% path outward from it.
+%%%
+%%% TODO: Explain target selection...
+%%%
+%%% Once we have a target we recursively find a potential next hop from the target
+%%% gateway by looking into its witness list.
+%%%
+%%% Before we calculate the probability associated with each witness in witness
+%%% list, we filter out potentially useless paths, depending on the following filters:
+%%% - Next hop witness must not be in the same hex index as the target
+%%% - Every hop in the path must be unique
+%%% - Every hop in the path must have a minimum exclusion distance
+%%%
+%%% The criteria for a potential next hop witness are biased like so:
+%%% - P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
+%%% - P(WitnessTime)  = Probability that the witness timestamp is not stale.
+%%% - P(WitnessCount) = Probability that the witness is infrequent.
+%%%
+%%% The overall probability of picking a next witness:
+%%% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
+%%%
+%%% We scale these probabilities and run an ICDF to select the witness from
+%%% the witness list. Once we have a potential next hop, we simply do the same process
+%%% for the next hop and continue building till the path limit is reached or there
+%%% are no more witnesses to continue with.
+%%%
+%%%-----------------------------------------------------------------------------
 -module(blockchain_poc_path_v2).
 
 -export([
