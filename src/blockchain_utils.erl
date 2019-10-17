@@ -8,7 +8,7 @@
 -export([
     shuffle_from_hash/2,
     shuffle/1,
-    rand_from_hash/1,
+    rand_from_hash/1, rand_state/1,
     normalize_float/1,
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
@@ -120,6 +120,12 @@ addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
     N.
+
+-spec rand_state(Hash :: binary()) -> rand:state().
+rand_state(Hash) ->
+    <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
+      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+    rand:seed_s(exs1024s, {A, B, C}).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

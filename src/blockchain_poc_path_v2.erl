@@ -59,7 +59,7 @@
             Vars :: map()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
     TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-    RandState = rand_state(Hash),
+    RandState = blockchain_utils:rand_state(Hash),
     build_(TargetPubkeyBin,
            ActiveGateways,
            HeadBlockTime,
@@ -259,12 +259,6 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                         end
                 end,
                 Witnesses).
-
--spec rand_state(Hash :: binary()) -> rand:state().
-rand_state(Hash) ->
-    <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
-      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
-    rand:seed_s(exs1024s, {A, B, C}).
 
 -spec check_witness_distance(WitnessParent :: h3:h3_index(),
                              ParentIndices :: [h3:h3_index()],
