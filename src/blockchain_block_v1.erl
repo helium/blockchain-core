@@ -244,21 +244,30 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
     verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
 
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
-    ValidSignatures = lists:foldl(
-        fun(_, error) ->
-                %% fail one signature check and we're done
+    ValidSignatures0 =
+        pmap(
+          fun({Addr, Sig}) ->
+                  case
+                      lists:member(Addr, ConsensusMembers)
+                      andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
+                  of
+                      true -> {Addr, Sig};
+                      false ->
+                          error
+                  end
+          end, lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
+    ValidSignatures =
+        case lists:any(fun(error) -> true; (_) -> false end, ValidSignatures0) of
+            true ->
                 error;
-            ({Addr, Sig}, Acc) ->
-            case
-                lists:member(Addr, ConsensusMembers)
-                andalso (not lists:keymember(Addr, 1, Acc))
-                andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
-            of
-                true -> [{Addr, Sig} | Acc];
-                false ->
-                    error
-            end
-        end, [], lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
+            _ ->
+                case lists:sort(ValidSignatures0) == lists:usort(ValidSignatures0) of
+                    true ->
+                        ValidSignatures0;
+                    _ ->
+                        error
+                end
+        end,
     F = (length(ConsensusMembers) - 1) div 3,
     case length(Signatures) =< (3*F)+1 andalso
          ValidSignatures /= error andalso
@@ -270,6 +279,22 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
             %% missing some signatures?
             false
     end.
+
+pmap(F, L) ->
+    Parent = self(),
+    lists:foldl(
+      fun(X, N) ->
+              spawn(
+                fun() ->
+                        Parent ! {pmap, N, F(X)}
+                end),
+              N+1
+      end, 0, L),
+    L2 = [receive
+              {pmap, N, R} -> {N,R}
+          end || _ <- L],
+    {_, L3} = lists:unzip(lists:keysort(1, L2)),
+    L3.
 
 verify_rescue_signature(EncodedBlock, RescueSig, Key) ->
     case libp2p_crypto:verify(EncodedBlock, RescueSig, libp2p_crypto:bin_to_pubkey(Key)) of
