@@ -92,7 +92,7 @@ build_(TargetPubkeyBin,
         {error, no_witness} ->
             lists:reverse(Path);
         {ok, WitnessAddr} ->
-            %% Try the last hop in the new path, basically flip so we search in two directions
+            %% Try the next hop in the new path, continue building forward
             NextHopGw = maps:get(WitnessAddr, ActiveGateways),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessAddr | Path],
