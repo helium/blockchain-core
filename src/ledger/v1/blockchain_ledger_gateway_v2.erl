@@ -427,7 +427,9 @@ witnesses(Gateway) ->
 %%--------------------------------------------------------------------
 -spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
-    BinGw = erlang:term_to_binary(Gw),
+    Neighbors = neighbors(Gw),
+    Gw1 = neighbors(lists:usort(Neighbors), Gw),
+    BinGw = erlang:term_to_binary(Gw1),
     <<2, BinGw/binary>>.
 
 %%--------------------------------------------------------------------
@@ -439,7 +441,9 @@ deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
-    erlang:binary_to_term(Bin).
+    Gw = erlang:binary_to_term(Bin),
+    Neighbors = neighbors(Gw),
+    neighbors(lists:usort(Neighbors), Gw).
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {

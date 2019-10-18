@@ -22,7 +22,7 @@
     build/3,
     close/1,
 
-    reset_ledger/1, reset_ledger/2
+    reset_ledger/1, reset_ledger/2, reset_ledger/3
 ]).
 
 -include("blockchain.hrl").
@@ -757,13 +757,21 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
 
 reset_ledger(Chain) ->
     {ok, Height} = height(Chain),
-    reset_ledger(Height, Chain).
+    reset_ledger(Height, Chain, false).
 
-reset_ledger(Height, #blockchain{db = DB,
-                                 dir = Dir,
-                                 default = DefaultCF,
-                                 blocks = BlocksCF,
-                                 heights = HeightsCF} = Chain) ->
+reset_ledger(Chain, Validate) when is_boolean(Validate) ->
+    {ok, Height} = height(Chain),
+    reset_ledger(Height, Chain, Validate);
+reset_ledger(Height, Chain) ->
+    reset_ledger(Height, Chain, false).
+
+reset_ledger(Height,
+             #blockchain{db = DB,
+                         dir = Dir,
+                         default = DefaultCF,
+                         blocks = BlocksCF,
+                         heights = HeightsCF} = Chain,
+             Revalidate) ->
     blockchain_lock:acquire(),
     %% check this is safe to do
     {ok, StartBlock} = get_block(Height, Chain),
@@ -836,7 +844,14 @@ reset_ledger(Height, #blockchain{db = DB,
                               {ok, BinBlock} = rocksdb:get(DB, BlocksCF, Hash, []),
                               Block = blockchain_block:deserialize(BinBlock),
                               lager:info("absorbing block ~p ?= ~p", [H, blockchain_block:height(Block)]),
-                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, CAcc, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
+                              case Revalidate of
+                                  false ->
+                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, CAcc, fun() -> ok end,
+                                                                                        blockchain_block:is_rescue_block(Block));
+                                  true ->
+                                      ok = blockchain_txn:absorb_and_commit(Block, CAcc,  fun() -> ok end,
+                                                                            blockchain_block:is_rescue_block(Block))
+                              end,
                               CAcc;
                           _ ->
                               lager:warning("couldn't absorb block at ~p", [H]),

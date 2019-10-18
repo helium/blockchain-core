@@ -162,33 +162,68 @@ validate(Transactions, Chain0, false) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
-    validate(Transactions, [], [], Chain1).
+    validate(Transactions, [], [], undefined, [], Chain1).
 
-validate([], Valid,  Invalid, Chain) ->
+validate([], Valid, Invalid, _PType, _PBuf, Chain) ->
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:delete_context(Ledger),
     lager:info("valid: ~p, invalid: ~p", [types(Valid), types(Invalid)]),
     {lists:reverse(Valid), Invalid};
-validate([Txn | Tail], Valid, Invalid, Chain) ->
+validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
     Type = ?MODULE:type(Txn),
-    case catch Type:is_valid(Txn, Chain) of
-        ok ->
-            case ?MODULE:absorb(Txn, Chain) of
+    case Type of
+        blockchain_txn_poc_request_v1 when PType == undefined orelse PType == Type ->
+            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
+        blockchain_txn_poc_reciepts_v1 when PType == undefined orelse PType == Type ->
+            validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
+        _Else when PType == undefined ->
+            case catch Type:is_valid(Txn, Chain) of
                 ok ->
-                    validate(Tail, [Txn|Valid], Invalid, Chain);
-                {error, _Reason} ->
-                    lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
-                    validate(Tail, Valid, [Txn | Invalid], Chain)
+                    case ?MODULE:absorb(Txn, Chain) of
+                        ok ->
+                            validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
+                        {error, _Reason} ->
+                            lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
+                            validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
+                    end;
+                {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+                    %% we don't have enough context to decide if this transaction is valid yet, keep it
+                    %% but don't include it in the block (so it stays in the buffer)
+                    validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                Error ->
+                    lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
+                    %% any other error means we drop it
+                    validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
             end;
-        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
-            %% we don't have enough context to decide if this transaction is valid yet, keep it
-            %% but don't include it in the block (so it stays in the buffer)
-            validate(Tail, Valid, Invalid, Chain);
-        Error ->
-            lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
-            %% any other error means we drop it
-            validate(Tail, Valid, [Txn | Invalid], Chain)
+        _Else ->
+            {PBuf1, Txns1} = case Tail of
+                                 [] -> {[Txn | PBuf], []};
+                                 _ ->  {PBuf, Txns}
+                             end,
+            Res = blockchain_utils:pmap(fun(T) ->
+                                                Ty = ?MODULE:type(T),
+                                                {T, catch Ty:is_valid(T, Chain)}
+                                        end, lists:reverse(PBuf1)),
+            {Valid1, Invalid1} = separate_res(Res, Chain, Valid, Invalid),
+            validate(Txns1, Valid1, Invalid1, undefined, [], Chain)
     end.
+
+separate_res([], _Chain, V, I) ->
+    {V, I};
+separate_res([{T, ok} | Rest], Chain, V, I) ->
+    case ?MODULE:absorb(T, Chain) of
+        ok ->
+            separate_res(Rest, Chain, [T|V], I);
+        {error, _Reason} ->
+            lager:error("invalid txn while absorbing ~p : ~p / ~p", [type(T), _Reason, T]),
+            separate_res(Rest, Chain, V, [T | I])
+    end;
+separate_res([{_T, {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}}} | Rest], Chain, V, I)
+  when Nonce > LedgerNonce + 1 ->
+    separate_res(Rest, Chain, V, I);
+separate_res([{T, {error, Error}} | Rest], Chain, V, I) ->
+    lager:error("invalid txn ~p : ~p / ~p", [type(T), Error, T]),
+    separate_res(Rest, Chain, V, [T | I]).
 
 types(L) ->
     lists:map(fun type/1, L).
