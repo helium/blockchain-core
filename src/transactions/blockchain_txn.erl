@@ -210,8 +210,8 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
         _Else ->
             Res = blockchain_utils:pmap(
                     fun(T) ->
-                            Type = ?MODULE:type(T),
-                            {T, catch Type:is_valid(T, Chain)}
+                            Ty = ?MODULE:type(T),
+                            {T, catch Ty:is_valid(T, Chain)}
                     end, lists:reverse(PBuf)),
             {Valid1, Invalid1} = separate_res(Res, Chain, Valid, Invalid),
             validate(Txns, Valid1, Invalid1, undefined, [], Chain)
