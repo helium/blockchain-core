@@ -14,24 +14,26 @@ prop_path_check() ->
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, Ledger, Challenger),
-                {_Time, Path} = timer:tc(fun() -> blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                                               ActiveGateways,
-                                                                               block_time(),
-                                                                               Hash,
-                                                                               PathLimit,
-                                                                               #{})
-                                         end),
+                Path = blockchain_poc_path_v2:build(TargetPubkeyBin,
+                                                    ActiveGateways,
+                                                    block_time(),
+                                                    Hash,
+                                                    PathLimit,
+                                                    #{}),
+
                 blockchain_ledger_v1:close(Ledger),
 
                 PathLength = length(Path),
 
                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+                HumanPath = [name(P) || P <- Path],
 
                 case length(Path) > 1 of
                     true ->
-                        file:write_file("/tmp/paths", io_lib:fwrite("~p.\n", [B58Path]), [append]);
+                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
                     false ->
-                        ok
+                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
                 end,
 
 
@@ -68,7 +70,7 @@ ledger() ->
     blockchain_ledger_v1:new("/var/data/test").
 
 block_time() ->
-    1571360971 * 1000000000.
+    1571426457 * 1000000000.
 
 check_next_hop([_H], _ActiveGateways) ->
     true;
@@ -91,3 +93,7 @@ filter_gateways(Gateways, Height) ->
                         end
                 end,
                 Gateways).
+
+name(PubkeyBin) ->
+    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
+    Name.
