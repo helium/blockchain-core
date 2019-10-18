@@ -56,16 +56,22 @@
             Limit :: pos_integer(),
             Vars :: map()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
-    TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-    RandState = blockchain_utils:rand_state(Hash),
-    build_(TargetPubkeyBin,
-           ActiveGateways,
-           HeadBlockTime,
-           Vars,
-           RandState,
-           Limit,
-           [TargetGwLoc],
-           [TargetPubkeyBin]).
+    case maps:is_key(TargetPubkeyBin, ActiveGateways) of
+        false ->
+            %% XXX: Target is not in active gateways? Beacon?
+            [TargetPubkeyBin];
+        true ->
+            TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+            RandState = blockchain_utils:rand_state(Hash),
+            build_(TargetPubkeyBin,
+                   ActiveGateways,
+                   HeadBlockTime,
+                   Vars,
+                   RandState,
+                   Limit,
+                   [TargetGwLoc],
+                   [TargetPubkeyBin])
+    end.
 
 %%%-------------------------------------------------------------------
 %% Helpers
