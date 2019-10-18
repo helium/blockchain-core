@@ -245,7 +245,7 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
 
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
     ValidSignatures0 =
-        pmap(
+        blockchain_utils:pmap(
           fun({Addr, Sig}) ->
                   case
                       lists:member(Addr, ConsensusMembers)
@@ -279,22 +279,6 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
             %% missing some signatures?
             false
     end.
-
-pmap(F, L) ->
-    Parent = self(),
-    lists:foldl(
-      fun(X, N) ->
-              spawn(
-                fun() ->
-                        Parent ! {pmap, N, F(X)}
-                end),
-              N+1
-      end, 0, L),
-    L2 = [receive
-              {pmap, N, R} -> {N,R}
-          end || _ <- L],
-    {_, L3} = lists:unzip(lists:keysort(1, L2)),
-    L3.
 
 verify_rescue_signature(EncodedBlock, RescueSig, Key) ->
     case libp2p_crypto:verify(EncodedBlock, RescueSig, libp2p_crypto:bin_to_pubkey(Key)) of

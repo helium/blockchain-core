@@ -12,7 +12,8 @@
     normalize_float/1,
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
-    hex_to_bin/1, bin_to_hex/1
+    hex_to_bin/1, bin_to_hex/1,
+    pmap/2
 ]).
 
 -ifdef(TEST).
@@ -88,6 +89,22 @@ bin_to_hex(Bin) ->
 -spec hex_to_bin(binary()) -> binary().
 hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
+
+pmap(F, L) ->
+    Parent = self(),
+    lists:foldl(
+      fun(X, N) ->
+              spawn(
+                fun() ->
+                        Parent ! {pmap, N, F(X)}
+                end),
+              N+1
+      end, 0, L),
+    L2 = [receive
+              {pmap, N, R} -> {N,R}
+          end || _ <- L],
+    {_, L3} = lists:unzip(lists:keysort(1, L2)),
+    L3.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
