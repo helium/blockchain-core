@@ -115,7 +115,6 @@ build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Li
                RandVal :: float(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
 next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
-    %% Get this gateway
     Gateway = maps:get(GatewayBin, ActiveGateways),
 
     case blockchain_ledger_gateway_v2:location(Gateway) of
@@ -127,17 +126,21 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             %% Filter witnesses
             FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars),
             %% Assign probabilities to filtered witnesses
-            P1Map = rssi_probs(FilteredWitnesses),
-            P2Map = time_probs(HeadBlockTime, FilteredWitnesses),
-            P3Map = witness_count_probs(FilteredWitnesses),
-            Probs = maps:map(fun(WitnessAddr, P2) ->
-                                     P2 * maps:get(WitnessAddr, P1Map) * maps:get(WitnessAddr, P3Map)
-                             end, P2Map),
+            %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
+            PWitnessRSSI = rssi_probs(FilteredWitnesses),
+            %% P(WitnessTime)  = Probability that the witness timestamp is not stale.
+            PWitnessTime = time_probs(HeadBlockTime, FilteredWitnesses),
+            %% P(WitnessCount) = Probability that the witness is infrequent.
+            PWitnessCount = witness_count_probs(FilteredWitnesses),
+            %% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
+            PWitness = maps:map(fun(WitnessAddr, P2) ->
+                                     P2 * maps:get(WitnessAddr, PWitnessRSSI) * maps:get(WitnessAddr, PWitnessCount)
+                             end, PWitnessTime),
             %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
-            SumProbs = lists:sum(maps:values(Probs)),
+            SumProbs = lists:sum(maps:values(PWitness)),
             ScaledProbs = maps:to_list(maps:map(fun(_WitnessAddr, P) ->
                                                         P / SumProbs
-                                                end, Probs)),
+                                                end, PWitness)),
             %% Pick one
             select_witness(ScaledProbs, RandVal)
     end.
