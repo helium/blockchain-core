@@ -34,7 +34,7 @@ filter_gateways(Ledger, Challenger, Height) ->
                             undefined ->
                                 false;
                             C ->
-                                (Height - C) < blockchain_utils:challenge_interval(Ledger)
+                                (Height - C) < 10 * blockchain_utils:challenge_interval(Ledger)
                         end
                 end,
                 %% exclude the challenger itself

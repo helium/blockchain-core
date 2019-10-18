@@ -12,9 +12,15 @@ prop_target_check() ->
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, Ledger, Challenger),
+
+                {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
+                {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
+                ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
+
                 blockchain_ledger_v1:close(Ledger),
 
                 ?WHENFAIL(begin
+                              blockchain_ledger_v1:close(Ledger),
                               io:format("TargetPubkeyBin: ~p~n", [TargetPubkeyBin])
                           end,
                           conjunction([{verify_target_found, maps:is_key(TargetPubkeyBin, ActiveGateways)}])
@@ -28,5 +34,4 @@ gen_challenger_index() ->
     ?SUCHTHAT(S, int(), S < 440 andalso S > 0).
 
 ledger() ->
-    {ok, BaseDir} = file:get_cwd(),
-    blockchain_ledger_v1:new(filename:join(BaseDir, "eqc")).
+    blockchain_ledger_v1:new("/var/data/test").
