@@ -14,8 +14,6 @@
 %%% In order to build a path, we first find a target gateway and greedily grow the
 %%% path outward from it.
 %%%
-%%% TODO: Explain target selection...
-%%%
 %%% Once we have a target we recursively find a potential next hop from the target
 %%% gateway by looking into its witness list.
 %%%
