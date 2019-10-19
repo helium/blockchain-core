@@ -554,8 +554,8 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     end.
 
 start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
-    %% figure out our gossip peers
-    Peers = libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all),
+    %% figure out who we're connected to
+    {Peers, _} = lists:unzip(libp2p_config:lookup_sessions(libp2p_swarm:tid(blockchain_swarm:swarm()))),
     case Peers of
         [] ->
             %% try again later when there's peers
