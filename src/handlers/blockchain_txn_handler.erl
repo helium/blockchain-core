@@ -55,10 +55,12 @@ handle_data(server, Data, State=#state{group=Group}) ->
     try
         Txn = blockchain_txn:deserialize(Data),
         lager:debug("Got ~p type transaction: ~p", [blockchain_txn:type(Txn), Txn]),
-        case libp2p_group_relcast:handle_command(Group, Txn) of
-            ok ->
+        Ref = make_ref(),
+        libp2p_group_relcast:handle_command(Group, {self(), Ref, Txn}),
+        receive
+            {Ref, ok} ->
                 {stop, normal, State, <<"ok">>};
-            _ ->
+            {Ref, _} ->
                 {stop, normal, State, <<"error">>}
         end
     catch _What:Why ->
