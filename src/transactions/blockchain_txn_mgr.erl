@@ -233,7 +233,7 @@ rejected(Txn, Member, State=#state{txn_map=TxnMap, chain=Chain}) ->
             {ok, Members} = blockchain_ledger_v1:consensus_members(Ledger),
             N = length(Members),
             F = (N - 1) div 3,
-            case length(lists:usort([Member|Rejections])) > F + 1 of
+            case length(lists:usort([Member|Rejections])) > F of
                 true ->
                     %% too many rejections
                     State#state{txn_map=maps:remove(Txn, TxnMap)};
