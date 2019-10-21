@@ -231,12 +231,13 @@ signed_metadata_fun() ->
                         {error, _} ->
                             #{}
                     end,
-                case blockchain_ledger_v1:fingerprint(blockchain:ledger(Chain)) of
+                FPMD = case blockchain_ledger_v1:fingerprint(blockchain:ledger(Chain)) of
                     {ok, Fingerprint} ->
                         HeightMD#{<<"ledger_fingerprint">> => Fingerprint};
                     _ ->
                         HeightMD
-                end
+                end,
+                FPMD#{<<"last_block_add_time">> => blockchain:last_block_add_time(Chain)}
             catch
                 _:_ ->
                     %% probably have an expired blockchain handle
