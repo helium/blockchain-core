@@ -186,7 +186,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
     case Type of
         blockchain_txn_poc_request_v1 when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
-        blockchain_txn_poc_reciept_v1  when PType == undefined orelse PType == Type ->
+        blockchain_txn_poc_reciepts_v1  when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             case catch Type:is_valid(Txn, Chain) of
