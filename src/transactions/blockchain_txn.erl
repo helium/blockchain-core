@@ -164,17 +164,29 @@ validate(Transactions, Chain0, false) ->
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     validate(Transactions, [], [], undefined, [], Chain1).
 
-validate([], Valid, Invalid, _PType, _PBuf, Chain) ->
+validate([], Valid, Invalid, PType, PBuf, Chain) ->
+    {Valid1, Invalid1} =
+        case PType of
+            undefined ->
+                {Valid, Invalid};
+            _ ->
+                Res = blockchain_utils:pmap(
+                        fun(T) ->
+                                Type = ?MODULE:type(T),
+                                {T, catch Type:is_valid(T, Chain)}
+                        end, lists:reverse(PBuf)),
+                separate_res(Res, Chain, Valid, Invalid)
+        end,
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:delete_context(Ledger),
-    lager:info("valid: ~p, invalid: ~p", [types(Valid), types(Invalid)]),
-    {lists:reverse(Valid), Invalid};
+    lager:info("valid: ~p, invalid: ~p", [types(Valid1), types(Invalid1)]),
+    {lists:reverse(Valid1), Invalid1};
 validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
     Type = ?MODULE:type(Txn),
     case Type of
         blockchain_txn_poc_request_v1 when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
-        blockchain_txn_poc_reciepts_v1 when PType == undefined orelse PType == Type ->
+        blockchain_txn_poc_reciept_v1  when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             case catch Type:is_valid(Txn, Chain) of
@@ -196,16 +208,13 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
             end;
         _Else ->
-            {PBuf1, Txns1} = case Tail of
-                                 [] -> {[Txn | PBuf], []};
-                                 _ ->  {PBuf, Txns}
-                             end,
-            Res = blockchain_utils:pmap(fun(T) ->
-                                                Ty = ?MODULE:type(T),
-                                                {T, catch Ty:is_valid(T, Chain)}
-                                        end, lists:reverse(PBuf1)),
+            Res = blockchain_utils:pmap(
+                    fun(T) ->
+                            Ty = ?MODULE:type(T),
+                            {T, catch Ty:is_valid(T, Chain)}
+                    end, lists:reverse(PBuf)),
             {Valid1, Invalid1} = separate_res(Res, Chain, Valid, Invalid),
-            validate(Txns1, Valid1, Invalid1, undefined, [], Chain)
+            validate(Txns, Valid1, Invalid1, undefined, [], Chain)
     end.
 
 separate_res([], _Chain, V, I) ->
@@ -218,12 +227,16 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
             lager:error("invalid txn while absorbing ~p : ~p / ~p", [type(T), _Reason, T]),
             separate_res(Rest, Chain, V, [T | I])
     end;
-separate_res([{_T, {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}}} | Rest], Chain, V, I)
-  when Nonce > LedgerNonce + 1 ->
-    separate_res(Rest, Chain, V, I);
-separate_res([{T, {error, Error}} | Rest], Chain, V, I) ->
-    lager:error("invalid txn ~p : ~p / ~p", [type(T), Error, T]),
-    separate_res(Rest, Chain, V, [T | I]).
+separate_res([{T, Err} | Rest], Chain, V, I) ->
+    case Err of
+        {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
+            separate_res(Rest, Chain, V, I);
+        Error ->
+            lager:error("invalid txn ~p : ~p / ~p", [type(T), Error, T]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [T | I])
+    end.
+
 
 types(L) ->
     lists:map(fun type/1, L).
