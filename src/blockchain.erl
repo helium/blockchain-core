@@ -22,6 +22,8 @@
     build/3,
     close/1,
 
+    last_block_add_time/1,
+
     reset_ledger/1, reset_ledger/2, reset_ledger/3
 ]).
 
@@ -52,6 +54,7 @@
 -define(TEMP_HEADS, <<"temp_heads">>).
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash).
+-define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
 
 %% upgrades are listed here as a two-tuple of a key (stored in the
 %% ledger), and a function to run with the ledger as an argument.  if
@@ -866,6 +869,15 @@ reset_ledger(Height,
             {ok, Chain2}
     end.
 
+last_block_add_time(#blockchain{default=DefaultCF, db=DB}) ->
+    case rocksdb:get(DB, DefaultCF, ?LAST_BLOCK_ADD_TIME, []) of
+        {ok, <<Time:64/integer-unsigned-little>>} ->
+            Time;
+        _ ->
+            0
+    end;
+last_block_add_time(_) ->
+    0.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -965,6 +977,7 @@ save_block(Block, Batch, #blockchain{default=DefaultCF, blocks=BlocksCF, heights
     Hash = blockchain_block:hash_block(Block),
     ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
     ok = rocksdb:batch_put(Batch, DefaultCF, ?HEAD, Hash),
+    ok = rocksdb:batch_put(Batch, DefaultCF, ?LAST_BLOCK_ADD_TIME, <<(erlang:system_time(second)):64/integer-unsigned-little>>),
     %% lexiographic ordering works better with big endian
     ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash).
 
