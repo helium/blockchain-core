@@ -12,7 +12,7 @@
 
     check_key/2, mark_key/2,
 
-    new_context/1, delete_context/1, commit_context/1, context_cache/1,
+    new_context/1, delete_context/1, reset_context/1, commit_context/1, context_cache/1,
     new_snapshot/1, release_snapshot/1, snapshot/1,
 
     current_height/1, increment_height/2,
@@ -236,6 +236,24 @@ delete_context(Ledger) ->
             ets:delete(Cache),
             context_cache({undefined, undefined}, Ledger)
     end.
+
+-spec reset_context(ledger()) -> ledger().
+reset_context(Ledger) ->
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} ->
+            Ledger;
+        {undefined, Cache} ->
+            true = ets:delete_all_objects(Cache),
+            context_cache({undefined, Cache}, Ledger);
+        {Context, undefined} ->
+            ok = rocksdb:batch_clear(Context),
+            context_cache({Context, undefined}, Ledger);
+        {Context, Cache} ->
+            ok = rocksdb:batch_clear(Context),
+            true = ets:delete_all_objects(Cache),
+            context_cache({Context, Cache}, Ledger)
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
