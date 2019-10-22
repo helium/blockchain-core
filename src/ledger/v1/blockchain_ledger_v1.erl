@@ -237,23 +237,22 @@ delete_context(Ledger) ->
             context_cache({undefined, undefined}, Ledger)
     end.
 
--spec reset_context(ledger()) -> ledger().
+-spec reset_context(ledger()) -> ok.
 reset_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
         {undefined, undefined} ->
-            Ledger;
+            ok;
         {undefined, Cache} ->
             true = ets:delete_all_objects(Cache),
-            context_cache({undefined, Cache}, Ledger);
+            ok;
         {Context, undefined} ->
             ok = rocksdb:batch_clear(Context),
-            context_cache({Context, undefined}, Ledger);
+            ok;
         {Context, Cache} ->
             ok = rocksdb:batch_clear(Context),
             true = ets:delete_all_objects(Cache),
-            context_cache({Context, Cache}, Ledger)
+            ok
     end.
-
 
 %%--------------------------------------------------------------------
 %% @doc
