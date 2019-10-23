@@ -1009,6 +1009,7 @@ save_temp_block(Block, #blockchain{db=DB, temp_blocks=TempBlocks, default=Defaul
                     Height = blockchain_block:height(Block),
                     lager:info("temp block height is at least ~p", [Height]),
                     ok = rocksdb:batch_put(Batch, DefaultCF, ?TEMP_HEADS, term_to_binary([Hash|TempHeads] -- [PrevHash])),
+                    ok = rocksdb:batch_put(Batch, DefaultCF, ?LAST_BLOCK_ADD_TIME, <<(erlang:system_time(second)):64/integer-unsigned-little>>),
                     ok = rocksdb:write_batch(DB, Batch, [{sync, true}])
             end
     end.
