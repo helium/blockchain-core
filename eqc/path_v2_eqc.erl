@@ -71,9 +71,9 @@ ledger() ->
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
 
-    LedgerTar = filename:join([PrivDir, "ledger.tar"]),
+    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
 
-    ok = erl_tar:extract(LedgerTar, [{cwd, PrivDir}]),
+    ok = erl_tar:extract(LedgerTar, [compressed]),
 
     blockchain_ledger_v1:new(filename:join([Dir, "priv"])).
 
