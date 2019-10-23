@@ -67,7 +67,15 @@ gen_challenger_index() ->
     ?SUCHTHAT(S, int(), S < 440 andalso S > 0).
 
 ledger() ->
-    blockchain_ledger_v1:new("/var/data/test").
+    %% 92234
+    {ok, Dir} = file:get_cwd(),
+    PrivDir = filename:join([Dir, "priv"]),
+
+    LedgerTar = filename:join([PrivDir, "ledger.tar"]),
+
+    ok = erl_tar:extract(LedgerTar, [{cwd, PrivDir}]),
+
+    blockchain_ledger_v1:new(filename:join([Dir, "priv"])).
 
 block_time() ->
     1571426457 * 1000000000.
