@@ -7,3 +7,10 @@ message sync_hash {
 message sync_blocks {
     repeated bytes blocks= 1;
 }
+
+message sync_req {
+  oneof msg {
+    sync_hash hash = 1;
+    bool response = 2;
+  }
+}
