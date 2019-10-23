@@ -34,4 +34,12 @@ gen_challenger_index() ->
     ?SUCHTHAT(S, int(), S < 440 andalso S > 0).
 
 ledger() ->
-    blockchain_ledger_v1:new("/var/data/test").
+    %% 92234
+    {ok, Dir} = file:get_cwd(),
+    PrivDir = filename:join([Dir, "priv"]),
+
+    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
+
+    ok = erl_tar:extract(LedgerTar, [compressed]),
+
+    blockchain_ledger_v1:new(filename:join([Dir, "priv"])).
