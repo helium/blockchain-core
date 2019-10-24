@@ -51,21 +51,13 @@ create_probs(Gateways, Height, Ledger) ->
                            [],
                            maps:to_list(Gateways)),
     Scores = [S || {_A, S} <- GwScores],
-    LenGwScores = erlang:length(GwScores),
-    SumGwScores = lists:sum(Scores),
-    [{prob(Score, LenGwScores, SumGwScores), GwAddr} || {GwAddr, Score} <- GwScores].
+    [{Score/lists:sum(Scores), GwAddr} || {GwAddr, Score} <- GwScores].
 
 -spec prob_fun(Score :: float()) -> float().
 prob_fun(Score) when Score =< 0.25 ->
     -16 * math:pow((Score - 0.25), 2) + 1;
 prob_fun(Score) ->
     -1.77 * math:pow((Score - 0.25), 2) + 1.
-
--spec prob(Score :: float(),
-           LenScores :: pos_integer(),
-           SumScores :: float()) -> float().
-prob(Score, _LenScores, SumScores) ->
-    Score / SumScores.
 
 -spec select_target([{float(), libp2p_crypto:pubkey_bin()}], float()) -> {ok, libp2p_crypto:pubkey_bin()}.
 select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 =< 0 ->
