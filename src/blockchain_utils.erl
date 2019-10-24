@@ -13,7 +13,8 @@
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
-    pmap/2
+    pmap/2,
+    addr2name/1
 ]).
 
 -ifdef(TEST).
@@ -105,6 +106,11 @@ pmap(F, L) ->
           end || _ <- L],
     {_, L3} = lists:unzip(lists:keysort(1, L2)),
     L3.
+
+addr2name(Addr) ->
+    B58Addr = libp2p_crypto:bin_to_b58(Addr),
+    {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
+    N.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

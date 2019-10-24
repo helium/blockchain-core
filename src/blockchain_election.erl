@@ -28,8 +28,8 @@ new_group_v1(Ledger, Hash, Size, Delay) ->
 
     {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, none, Ledger),
 
-    lager:info("scored old group: ~p scored gateways: ~p",
-               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+    lager:debug("scored old group: ~p scored gateways: ~p",
+                [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
 
     %% sort high to low to prioritize high-scoring gateways for selection
     Gateways = lists:reverse(lists:sort(GatewaysScored)),
@@ -57,8 +57,8 @@ new_group_v2(Ledger, Hash, Size, Delay) ->
     %% annotate with score while removing dupes
     {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger),
 
-    lager:info("scored old group: ~p scored gateways: ~p",
-               [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+    lager:debug("scored old group: ~p scored gateways: ~p",
+                [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
 
     %% get the locations of the current consensus group at a particular h3 resolution
     Locations = locations(ClusterRes, OldGroup0, Gateways0),
@@ -161,9 +161,7 @@ location(Res, Gw) ->
 
 tup_to_animal(TL) ->
     lists:map(fun({Scr, _Loc, Addr}) ->
-                      B58Addr = libp2p_crypto:bin_to_b58(Addr),
-                      {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
-                      {Scr, N}
+                      {Scr, blockchain_utils:addr2name(Addr)}
               end,
               TL).
 
@@ -219,7 +217,7 @@ has_new_group(Txns) ->
             lists:foreach(fun(T) ->
                                   case blockchain_txn:type(T) == blockchain_txn_consensus_group_v1 of
                                       true ->
-                                          lager:info("txn ~p", [T]);
+                                          lager:info("txn ~s", [blockchain_txn:print(T)]);
                                       _ -> ok
                                   end
                           end, Txns),

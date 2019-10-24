@@ -39,14 +39,18 @@
 -callback sign(txn(), libp2p_crypto:sig_fun()) -> txn().
 -callback is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
+-callback print(txn()) -> iodata().
+-callback print(txn(), boolean()) -> iodata().
 -callback rescue_absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 
--optional_callbacks([rescue_absorb/2]).
+%% ideally print/1 would eventually be required
+-optional_callbacks([rescue_absorb/2, print/1, print/2]).
 
 -export([
     hash/1,
     validate/2, validate/3,
     absorb/2,
+    print/1, print/2,
     sign/2,
     absorb_and_commit/3, absorb_and_commit/4,
     unvalidated_absorb_and_commit/4,
@@ -195,7 +199,8 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                         ok ->
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
                         {error, _Reason} ->
-                            lager:error("invalid txn while absorbing ~p : ~p / ~p", [Type, _Reason, Txn]),
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason,
+                                                                                       print(Txn)]),
                             validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -203,7 +208,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     %% but don't include it in the block (so it stays in the buffer)
                     validate(Tail, Valid, Invalid, PType, PBuf, Chain);
                 Error ->
-                    lager:error("invalid txn ~p : ~p / ~p", [Type, Error, Txn]),
+                    lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
                     validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
             end;
@@ -224,7 +229,7 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
         ok ->
             separate_res(Rest, Chain, [T|V], I);
         {error, _Reason} ->
-            lager:error("invalid txn while absorbing ~p : ~p / ~p", [type(T), _Reason, T]),
+            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), _Reason, print(T)]),
             separate_res(Rest, Chain, V, [T | I])
     end;
 separate_res([{T, Err} | Rest], Chain, V, I) ->
@@ -232,7 +237,7 @@ separate_res([{T, Err} | Rest], Chain, V, I) ->
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             separate_res(Rest, Chain, V, I);
         Error ->
-            lager:error("invalid txn ~p : ~p / ~p", [type(T), Error, T]),
+            lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
             separate_res(Rest, Chain, V, [T | I])
     end.
@@ -342,6 +347,23 @@ absorb(Txn, Chain) ->
         What:Why:Stack ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
             {error, {Type, What, {Why, Stack}}}
+    end.
+
+print(Txn) ->
+    print(Txn, false).
+
+print(Txn, Verbose) ->
+    Type = ?MODULE:type(Txn),
+    case erlang:function_exported(Type, print, 1) of
+        true ->
+            case erlang:function_exported(Type, print, 2) of
+                true ->
+                    Type:print(Txn, Verbose);
+                false ->
+                    Type:print(Txn)
+            end;
+        false ->
+            io_lib:format("~p", [Txn])
     end.
 
 %%--------------------------------------------------------------------
