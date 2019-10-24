@@ -351,14 +351,19 @@ absorb(Txn, Chain) ->
 -spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
-    try Type:is_valid(Txn, Chain) of
-        Res ->
-            Res
-    catch
-        What:Why:Stack ->
-            lager:warning("crash during validation: ~p ~p", [Why, Stack]),
-            {error, {Type, What, {Why, Stack}}}
-end.
+    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+    Hash = erlang:phash2(Txn),
+    e2qc:cache(validate_cache, {Height, Hash},
+               fun() ->
+                       try Type:is_valid(Txn, Chain) of
+                           Res ->
+                               Res
+                       catch
+                           What:Why:Stack ->
+                               lager:warning("crash during validation: ~p ~p", [Why, Stack]),
+                               {error, {Type, What, {Why, Stack}}}
+                       end
+               end).
 
 %%--------------------------------------------------------------------
 %% @doc
