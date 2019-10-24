@@ -95,6 +95,7 @@ cdf(PopulationList) ->
 
 select_target(List) ->
     %%XXX: This makes eqc unshrinkable...
+    %% Not a huge deal since I don't really care to run against a counterexample
     select_target(List, (1.0 - rand:uniform())).
 
 select_target([{Weight, Node}=_Head | _], Rnd) when Rnd - Weight =< 0 ->
