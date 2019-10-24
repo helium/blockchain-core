@@ -256,7 +256,8 @@ absorb(Txn, Chain) ->
             Error;
         ok ->
             Addresses = ?MODULE:addresses(Txn),
-            blockchain_ledger_v1:add_oui(Owner, Addresses, Ledger)
+            OUI = ?MODULE:oui(Txn),
+            blockchain_ledger_v1:add_oui(Owner, Addresses, OUI, Ledger)
     end.
 
 %%--------------------------------------------------------------------

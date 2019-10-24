@@ -70,8 +70,8 @@
     add_htlc/7,
     redeem_htlc/3,
 
-    get_oui_counter/1, increment_oui_counter/1,
-    find_ouis/2, add_oui/3,
+    get_oui_counter/1, increment_oui_counter/2,
+    find_ouis/2, add_oui/4,
     find_routing/2,  add_routing/5,
 
     delay_vars/3,
@@ -1454,25 +1454,26 @@ get_oui_counter(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec increment_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
-increment_oui_counter(Ledger) ->
+-spec increment_oui_counter(non_neg_integer(), ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+increment_oui_counter(OUI, Ledger) ->
     case ?MODULE:get_oui_counter(Ledger) of
         {error, _}=Error ->
             Error;
-        {ok, OUICounter} ->
+        {ok, OUICounter} when OUICounter + 1 == OUI ->
             DefaultCF = default_cf(Ledger),
-            OUI = OUICounter + 1,
             ok = cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>),
-            {ok, OUI}
+            {ok, OUI};
+        {ok, OUICounter} ->
+            {error, {invalid_oui, OUI, OUICounter+1}}
     end.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_oui(binary(), [binary()], ledger()) -> ok | {error, any()}.
-add_oui(Owner, Addresses, Ledger) ->
-    case ?MODULE:increment_oui_counter(Ledger) of
+-spec add_oui(binary(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
+add_oui(Owner, Addresses, OUI, Ledger) ->
+    case ?MODULE:increment_oui_counter(OUI, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, OUI} ->
@@ -2082,7 +2083,7 @@ routing_test() ->
     ?assertEqual({ok, 0}, get_oui_counter(Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_oui(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], Ledger2),
+    ok = add_oui(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, Ledger2),
     ok = commit_context(Ledger2),
     {ok, Routing0} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
@@ -2091,7 +2092,7 @@ routing_test() ->
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
 
     Ledger3 = new_context(Ledger),
-    ok = add_oui(<<"owner2">>, [<<"/p2p/random">>], Ledger3),
+    ok = add_oui(<<"owner2">>, [<<"/p2p/random">>], 2, Ledger3),
     ok = commit_context(Ledger3),
     {ok, Routing1} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing1)),
