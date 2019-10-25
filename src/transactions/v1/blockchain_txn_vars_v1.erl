@@ -489,24 +489,177 @@ validate_int(Value, Name, Min, Max, InfOK) ->
         false when InfOK == true andalso Value == infinity ->
             ok;
         false ->
-            throw({error, list_to_atom("non_integral_" ++ Name)});
+            throw({error, {list_to_atom("non_integral_" ++ Name), Value}});
         true ->
             case Value >= Min andalso Value =< Max of
                 false ->
-                    throw({error, list_to_atom(Name ++ "_out_of_range")});
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
                 _ -> ok
             end
     end.
 
+validate_float(Value, Name, Min, Max) ->
+    case is_float(Value) of
+        false when Value == infinity ->
+            ok;
+        false ->
+            throw({error, {list_to_atom("non_float_" ++ Name), Value}});
+        true ->
+            case Value >= Min andalso Value =< Max of
+                false ->
+                    throw({error, {list_to_atom(Name ++ "_out_of_range"), Value}});
+                _ -> ok
+            end
+    end.
+
+
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
+%%
+%% election vars
+validate_var(?election_version, Value) ->
+    case Value of
+        undefined -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {invalid_election_version, Value}})
+    end;
+validate_var(?election_selection_pct, Value) ->
+    validate_int(Value, "election_selection_pct", 1, 99, false);
+validate_var(?election_removal_pct, Value) ->
+    validate_int(Value, "election_removal_pct", 1, 99, false);
+validate_var(?election_cluster_res, Value) ->
+    validate_int(Value, "election_cluster_res", 0, 15, false);
+validate_var(?election_replacement_factor, Value) ->
+    validate_int(Value, "election_replacement_factor", 1, 100, false);
+validate_var(?election_replacement_slope, Value) ->
+    validate_int(Value, "election_replacement_slope", 1, 100, false);
 validate_var(?election_interval, Value) ->
     validate_int(Value, "election_interval", 5, 100, true);
+validate_var(?election_restart_interval, Value) ->
+    validate_int(Value, "election_restart_interval", 5, 100, false);
+
+%% ledger vars
+validate_var(?var_gw_inactivity_threshold, Value) ->
+    validate_int(Value, "var_gw_inactivity_threshold", 15, 2880, false);
+
+%% meta vars
+validate_var(?vars_commit_delay, Value) ->
+    validate_int(Value, "vars_commit_delay", 1, 60, false);
+validate_var(?chain_vars_version, Value) ->
+    case Value of
+        1 -> ok;
+        2 -> ok;
+        _ ->
+            throw({error, {chain_vars_version, Value}})
+    end;
+validate_var(?predicate_threshold, Value) ->
+    validate_float(Value, "predicate_threshold", 0.0, 1.0);
+validate_var(?predicate_callback_mod, Value) ->
+    case Value of
+        miner ->
+            ok;
+        _ ->
+            throw({error, {predicate_callback_mod, Value}})
+    end;
+validate_var(?predicate_callback_fun, Value) ->
+    case Value of
+        version ->
+            ok;
+        _ ->
+            throw({error, {predicate_callback_fun, Value}})
+    end;
+
+%% miner vars
+validate_var(?num_consensus_members, Value) ->
+    validate_int(Value, "num_consensus_members", 4, 100, false),
+    case (Value - 1) rem 3 == 0 of
+        true ->
+            ok;
+        false ->
+            throw({error, {num_consensus_members_not_3fplus1, Value}})
+    end;
 validate_var(?block_time, Value) ->
-    validate_int(Value, "election_interval", 1, timer:minutes(10), false);
+    validate_int(Value, "block_time", 2, timer:minutes(10), false);
+validate_var(?batch_size, Value) ->
+    validate_int(Value, "batch_size", 10, 10000, false);
+validate_var(?block_version, Value) ->
+    case Value of
+        v1 ->
+            ok;
+        _ ->
+            throw({error, {invalid_block_version, Value}})
+    end;
+validate_var(?dkg_curve, Value) ->
+    case Value of
+        'SS512' ->
+            ok;
+        _ ->
+            throw({error, {invalid_dkg_curve, Value}})
+    end;
+
+%% burn vars
+validate_var(?token_burn_exchange_rate, Value) ->
+    case is_integer(Value) andalso Value >= 0 of
+        true ->
+            ok;
+        _ ->
+            throw({error, {invalid_token_burn_exchange_rate, Value}})
+    end;
+
+%% poc related vars
+validate_var(?h3_exclusion_ring_dist, Value) ->
+    validate_int(Value, "h3_exclusion_ring_dist", 1, 10, false);
+validate_var(?h3_max_grid_distance, Value) ->
+    validate_int(Value, "h3_max_grid_distance", 1, 500, false);
+validate_var(?h3_neighbor_res, Value) ->
+    validate_int(Value, "h3_neighbor_res", 0, 15, false);
+validate_var(?min_score, Value) ->
+    validate_float(Value, "min_score", 0.0, 0.3);
+validate_var(?min_assert_h3_res, Value) ->
+    validate_int(Value, "min_assert_h3_res", 0, 15, false);
+validate_var(?poc_challenge_interval, Value) ->
+    validate_int(Value, "poc_challenge_interval", 10, 1440, false);
+validate_var(?poc_version, Value) ->
+    case Value of
+        N when is_integer(N), N >= 1,  N =< 3 ->
+            ok;
+        _ ->
+            throw({error, {invalid_poc_version, Value}})
+    end;
+validate_var(?poc_challenge_sync_interval, Value) ->
+    validate_int(Value, "poc_challenge_sync_interval", 10, 1440, false);
+validate_var(?poc_path_limit, undefined) ->
+    ok;
+validate_var(?poc_path_limit, Value) ->
+    validate_int(Value, "poc_path_limit", 3, 10, false);
+
+%% score vars
+validate_var(?alpha_decay, Value) ->
+    validate_float(Value, "alpha_decay", 0.0, 0.1);
+validate_var(?beta_decay, Value) ->
+    validate_float(Value, "beta_decay", 0.0, 0.1);
+validate_var(?max_staleness, Value) ->
+    validate_int(Value, "max_staleness", 1000, 1000000, false);
+
+%% reward vars
+validate_var(?monthly_reward, Value) ->
+    validate_int(Value, "monthly_reward", 1000 * 1000000, 10000000 * 1000000, false);
+validate_var(?securities_percent, Value) ->
+    validate_float(Value, "securities_percent", 0.0, 1.0);
+validate_var(?consensus_percent, Value) ->
+    validate_float(Value, "consensus_percent", 0.0, 1.0);
+validate_var(?poc_challengees_percent, Value) ->
+    validate_float(Value, "poc_challengees_percent", 0.0, 1.0);
+validate_var(?poc_witnesses_percent, Value) ->
+    validate_float(Value, "poc_witnesses_percent", 0.0, 1.0);
+validate_var(?poc_challengers_percent, Value) ->
+    validate_float(Value, "poc_challengers_percent", 0.0, 1.0);
+validate_var(?dc_percent, Value) ->
+    validate_float(Value, "dc_percent", 0.0, 1.0);
+
 validate_var(Var, Value) ->
-    lager:debug("checking ~p ~p", [Var, Value]),
-    %% TODO: hang individual var validations here
-    ok.
+    %% something we don't understand, crash
+    throw({error, {unknown_var, Var, Value}}).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
