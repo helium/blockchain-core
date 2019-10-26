@@ -53,7 +53,7 @@
 -define(HEAD, <<"head">>).
 -define(TEMP_HEADS, <<"temp_heads">>).
 -define(GENESIS, <<"genesis">>).
--define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash).
+-define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
 
 %% upgrades are listed here as a two-tuple of a key (stored in the
@@ -77,7 +77,7 @@
 %%--------------------------------------------------------------------
 -spec new(Dir :: file:filename_all(),
           Genesis :: file:filename_all() | blockchain_block:block() | undefined,
-          AssumedValidBlockHash :: blockchain_block:hash()
+          AssumedValidBlockHashAndHeight :: {blockchain_block:hash(), pos_integer()}
          ) -> {ok, blockchain()} | {no_genesis, blockchain()}.
 new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
     case load_genesis(Genesis) of
@@ -448,8 +448,8 @@ add_block(Block, Blockchain, Syncing) ->
         case persistent_term:get(?ASSUMED_VALID, undefined) of
             undefined ->
                 add_block_(Block, Blockchain, Syncing);
-            AssumedValidHash ->
-                add_assumed_valid_block(AssumedValidHash, Block, Blockchain, Syncing)
+            AssumedValidHashAndHeight ->
+                add_assumed_valid_block(AssumedValidHashAndHeight, Block, Blockchain, Syncing)
         end
     catch What:Why:Stack ->
             lager:warning("error adding block: ~p:~p, ~p", [What, Why, Stack]),
@@ -551,10 +551,11 @@ add_block_(Block, Blockchain, Syncing) ->
             end
     end.
 
-add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, blocks=BlocksCF, temp_blocks=TempBlocksCF}, Syncing) ->
+add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchain=#blockchain{db=DB, blocks=BlocksCF, temp_blocks=TempBlocksCF}, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
+    Height = blockchain_block:height(Block),
     %% check if this is the block we've been waiting for
-    case AssumedValidHash == Hash of
+    case AssumedValidHash == Hash andalso AssumedValidHeight == Height of
         true ->
             ParentHash = blockchain_block:prev_hash(Block),
             %% check if we have the parent of this block in the temp_block storage
@@ -600,7 +601,7 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
                             {error, disjoint_assumed_valid_block}
                     end
             end;
-        false ->
+        false when Hash /= AssumedValidHash andalso Height < AssumedValidHeight ->
             ParentHash = blockchain_block:prev_hash(Block),
             case rocksdb:get(DB, TempBlocksCF, ParentHash, []) of
                 {ok, _} ->
@@ -612,7 +613,9 @@ add_assumed_valid_block(AssumedValidHash, Block, Blockchain=#blockchain{db=DB, b
                         _ ->
                             {error, disjoint_assumed_valid_block}
                     end
-            end
+            end;
+        false ->
+            {error, block_higher_than_assumed_valid_height}
     end.
 
 absorb_temp_blocks([],#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}, _Syncing) ->
@@ -1024,7 +1027,7 @@ get_temp_block(Hash, #blockchain{db=DB, temp_blocks=TempBlocksCF}) ->
 
 init_assumed_valid(Blockchain, undefined) ->
     maybe_continue_resync(Blockchain);
-init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
+init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
     case ?MODULE:get_block(Hash, Blockchain) of
         {ok, _} ->
             %% already got it, chief
@@ -1036,24 +1039,31 @@ init_assumed_valid(Blockchain, Hash) when is_binary(Hash) ->
                 {ok, BinBlock} ->
                     %% we already have it, try to process it
                     Block = blockchain_block:deserialize(BinBlock),
-                    %% spawn a worker process to do this in the background so we don't
-                    %% block application startup
-                    spawn_link(fun() ->
-                                  case add_assumed_valid_block(Hash, Block, Blockchain, false) of
-                                      ok ->
-                                          %% we did it!
-                                          ok;
-                                      {error, Reason} ->
-                                          %% something went wrong!
-                                          lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
-                                          %% TODO we should probably drop the column family here?
-                                          ok = persistent_term:put(?ASSUMED_VALID, Hash)
-                                  end
-                          end),
-                    Blockchain;
+                    case blockchain_block:height(Block) == Height of
+                        true ->
+                            %% spawn a worker process to do this in the background so we don't
+                            %% block application startup
+                            spawn_link(fun() ->
+                                               case add_assumed_valid_block(HashAndHeight, Block, Blockchain, false) of
+                                                   ok ->
+                                                       %% we did it!
+                                                       ok;
+                                                   {error, Reason} ->
+                                                       %% something went wrong!
+                                                       lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
+                                                       %% TODO we should probably drop the column family here?
+                                                       ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight)
+                                               end
+                                       end),
+                            Blockchain;
+                        false ->
+                            %% block must be bad somehow
+                            rocksdb:delete(DB, TempBlocksCF, Hash, []),
+                            Blockchain
+                    end;
                 _ ->
                     %% need to wait for it
-                    ok = persistent_term:put(?ASSUMED_VALID, Hash),
+                    ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
                     Blockchain
             end
     end.
