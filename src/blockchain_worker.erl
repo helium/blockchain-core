@@ -264,19 +264,22 @@ init(Args) ->
             end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
     GenDir = proplists:get_value(update_dir, Args, undefined),
-    AssumedValidBlockHash = case application:get_env(blockchain, assumed_valid_block_hash, undefined) of
-                                undefined ->
+    AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+                                  application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+                                {undefined, _} ->
                                     undefined;
-                                BlockHash ->
+                                {_, undefined} ->
+                                    undefined;
+                                BlockHashAndHeight ->
                                     case application:get_env(blockchain, honor_assumed_valid, false) of
                                         true ->
-                                            BlockHash;
+                                            BlockHashAndHeight;
                                         _ ->
                                             undefined
                                     end
                             end,
     Blockchain =
-        case blockchain:new(BaseDir, GenDir, AssumedValidBlockHash) of
+        case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
                 R;
