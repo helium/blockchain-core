@@ -46,18 +46,17 @@ filter_gateways(Ledger, Challenger, Height) ->
 create_probs(Gateways, Height, Ledger) ->
     GwScores = lists:foldl(fun({A, G}, Acc) ->
                                    {_, _, Score} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
-                                   [{A, prob_fun(Score)} | Acc]
+                                   [{A, prob(Score)} | Acc]
                            end,
                            [],
                            maps:to_list(Gateways)),
     Scores = [S || {_A, S} <- GwScores],
     [{Score/lists:sum(Scores), GwAddr} || {GwAddr, Score} <- GwScores].
 
--spec prob_fun(Score :: float()) -> float().
-prob_fun(Score) when Score =< 0.25 ->
-    -16 * math:pow((Score - 0.25), 2) + 1;
-prob_fun(Score) ->
-    -1.77 * math:pow((Score - 0.25), 2) + 1.
+-spec prob(Score :: float()) -> float().
+prob(Score) ->
+    %% x^3
+    Score * Score * Score.
 
 -spec select_target([{float(), libp2p_crypto:pubkey_bin()}], float()) -> {ok, libp2p_crypto:pubkey_bin()}.
 select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 =< 0 ->
