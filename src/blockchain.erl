@@ -493,7 +493,7 @@ add_block_(Block, Blockchain, Syncing) ->
                          Height =:= blockchain_block:height(HeadBlock) + 1,
                          BlockchainHeight =:= LedgerHeight}
                     of
-                        {_, false} ->
+                        {_, false} when BlockchainHeight =:= (LedgerHeight + 1) ->
                             lager:warning("ledger and chain height don't match (L:~p, C:~p)", [LedgerHeight, BlockchainHeight]),
                             ok = blockchain_worker:mismatch(),
                             {error, mismatch_ledger_chain};
