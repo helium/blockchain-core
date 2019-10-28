@@ -423,10 +423,21 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_blocks([blockchain_block:block()], blockchain()) -> ok | {error, any()}.
-add_blocks([], _Chain) -> ok;
-add_blocks([LastBlock | []], Chain) ->
+add_blocks(Blocks, Chain) ->
+    blockchain_lock:acquire(),
+    try
+        add_blocks_(Blocks, Chain)
+    catch C:E:S ->
+            lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
+            {error, add_blocks_error}
+    after
+        blockchain_lock:release()
+    end.
+
+add_blocks_([], _Chain) ->  ok;
+add_blocks_([LastBlock | []], Chain) ->
     ?MODULE:add_block(LastBlock, Chain, false);
-add_blocks([Block | Blocks], Chain) ->
+add_blocks_([Block | Blocks], Chain) ->
     case ?MODULE:add_block(Block, Chain, true) of
         ok -> add_blocks(Blocks, Chain);
         Error ->
@@ -1045,7 +1056,8 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                             %% spawn a worker process to do this in the background so we don't
                             %% block application startup
                             spawn_link(fun() ->
-                                               case add_assumed_valid_block(HashAndHeight, Block, Blockchain, false) of
+                                               blockchain_lock:acquire(),
+                                               try add_assumed_valid_block(HashAndHeight, Block, Blockchain, false) of
                                                    ok ->
                                                        %% we did it!
                                                        ok;
@@ -1054,6 +1066,11 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                                                        lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
                                                        %% TODO we should probably drop the column family here?
                                                        ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight)
+                                               catch C:E:S ->
+                                                       lager:warning("assume valid processing failed on init with assumed_valid hash present ~p:~p ~p", [C, E, S]),
+                                                       ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight)
+                                               after
+                                                   blockchain_lock:force_release()
                                                end
                                        end),
                             Blockchain;

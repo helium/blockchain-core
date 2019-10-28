@@ -5,14 +5,34 @@
 
 -behaviour(gen_server).
 
--export([acquire/0, release/0]).
+-export([acquire/0, release/0, force_release/0]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
+-define(holding_lock, holding_lock).
+
 acquire() ->
-    gen_server:call(?MODULE, acquire, infinity).
+    case get(?holding_lock) of
+        undefined ->
+            put(?holding_lock, 1),
+            gen_server:call(?MODULE, acquire, infinity);
+        N ->
+            put(?holding_lock, N + 1)
+    end.
 
 release() ->
+    case get(?holding_lock) of
+        undefined ->
+            ?MODULE ! release;
+        1 ->
+            erase(?holding_lock),
+            ?MODULE ! release;
+        N ->
+            put(?holding_lock, N - 1)
+    end.
+
+force_release()  ->
+    erase(?holding_lock),
     ?MODULE ! release.
 
 start_link() ->
