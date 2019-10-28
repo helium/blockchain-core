@@ -40,7 +40,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_oui().
+-spec new(libp2p_crypto:pubkey_bin(), [binary()], pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_oui().
 new(Owner, Addresses, OUI, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
@@ -53,7 +53,7 @@ new(Owner, Addresses, OUI, StakingFee, Fee) ->
         payer_signature= <<>>
     }.
 
--spec new(libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> txn_oui().
+-spec new(libp2p_crypto:pubkey_bin(), [binary()], pos_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> txn_oui().
 new(Owner, Addresses, OUI, Payer, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
@@ -96,7 +96,7 @@ addresses(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec oui(txn_oui()) -> non_neg_integer().
+-spec oui(txn_oui()) -> pos_integer().
 oui(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.oui.
 

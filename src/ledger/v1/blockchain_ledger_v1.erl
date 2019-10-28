@@ -1438,7 +1438,7 @@ redeem_htlc(Address, Payee, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+-spec get_oui_counter(ledger()) -> {ok, pos_integer()} | {error, any()}.
 get_oui_counter(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?OUI_COUNTER, []) of
@@ -1454,7 +1454,7 @@ get_oui_counter(Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec increment_oui_counter(non_neg_integer(), ledger()) -> {ok, non_neg_integer()} | {error, any()}.
+-spec increment_oui_counter(pos_integer(), ledger()) -> {ok, pos_integer()} | {error, any()}.
 increment_oui_counter(OUI, Ledger) ->
     case ?MODULE:get_oui_counter(Ledger) of
         {error, _}=Error ->
@@ -1471,7 +1471,7 @@ increment_oui_counter(OUI, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_oui(binary(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
+-spec add_oui(binary(), [binary()], pos_integer(), ledger()) -> ok | {error, any()}.
 add_oui(Owner, Addresses, OUI, Ledger) ->
     case ?MODULE:increment_oui_counter(OUI, Ledger) of
         {error, _}=Error ->
