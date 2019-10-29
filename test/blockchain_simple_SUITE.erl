@@ -1061,7 +1061,6 @@ absorb_failed_test(Config) ->
     meck:expect(blockchain, save_block, fun(B, C) ->
         meck:passthrough([B, C]),
         ct:pal("BOOM"),
-        blockchain_lock:release(),
         erlang:error(boom)
     end),
     blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),

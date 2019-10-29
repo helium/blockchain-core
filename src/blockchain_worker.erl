@@ -264,19 +264,22 @@ init(Args) ->
             end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
     GenDir = proplists:get_value(update_dir, Args, undefined),
-    AssumedValidBlockHash = case application:get_env(blockchain, assumed_valid_block_hash, undefined) of
-                                undefined ->
+    AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+                                  application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+                                {undefined, _} ->
                                     undefined;
-                                BlockHash ->
+                                {_, undefined} ->
+                                    undefined;
+                                BlockHashAndHeight ->
                                     case application:get_env(blockchain, honor_assumed_valid, false) of
                                         true ->
-                                            BlockHash;
+                                            BlockHashAndHeight;
                                         _ ->
                                             undefined
                                     end
                             end,
     Blockchain =
-        case blockchain:new(BaseDir, GenDir, AssumedValidBlockHash) of
+        case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
                 R;
@@ -442,18 +445,11 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
     end,
     {noreply, State};
 handle_cast(mismatch, #state{blockchain=Chain}=State) ->
-    lager:warning("got mismatch message"),
+    lager:warning("got mismatch message, deleting last block"),
     blockchain_lock:acquire(),
-    Ledger = blockchain:ledger(Chain),
-    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, ChainHeight} = blockchain:height(Chain),
-    lists:foreach(
-        fun(H) ->
-            {ok, Block} = blockchain:get_block(H, Chain),
-            ok = blockchain:delete_block(Block, Chain)
-        end,
-        lists:reverse(lists:seq(LedgerHeight+1, ChainHeight))
-    ),
+    {ok, Block} = blockchain:get_block(ChainHeight, Chain),
+    ok = blockchain:delete_block(Block, Chain),
     blockchain_lock:release(),
     {noreply, State};
 handle_cast(_Msg, State) ->
