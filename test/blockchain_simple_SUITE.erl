@@ -1497,7 +1497,7 @@ payer_test(Config) ->
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Payer, 1, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, 1, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
