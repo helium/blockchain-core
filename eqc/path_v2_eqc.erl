@@ -64,11 +64,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 558 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 709 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 94083
-    %% ActiveGateway Count: 558
+    %% Ledger at height: 98979
+    %% ActiveGateway Count: 708
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
@@ -76,7 +76,7 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 block_time() ->
-    1571940643 * 1000000000.
+    1572377851 * 1000000000.
 
 check_next_hop([_H], _ActiveGateways) ->
     true;
