@@ -947,7 +947,7 @@ routing_test(Config) ->
 
     OUI1 = 1,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, OUI1, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -973,7 +973,7 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, 0, 0),
+    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, OUI2, 0, 0),
     SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -1497,7 +1497,7 @@ payer_test(Config) ->
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Payer, 1, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, 1, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
