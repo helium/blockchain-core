@@ -19,7 +19,8 @@
     delay/1,
     fee/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -include("blockchain_vars.hrl").
@@ -187,6 +188,16 @@ absorb(Txn, Chain) ->
     ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
     ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
     ok = blockchain_ledger_v1:election_height(Height, Ledger).
+
+print(#blockchain_txn_consensus_group_v1_pb{height = Height,
+                                            delay = Delay,
+                                            members = Members,
+                                            proof = Proof}) ->
+    io_lib:format("type=group height=~p delay=~p members=~p proof_hash=~p",
+                  [Height,
+                   Delay,
+                   lists:map(fun blockchain_util:addr2name/1, Members),
+                   erlang:phash2(Proof)]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
