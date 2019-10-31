@@ -269,7 +269,7 @@ calculate_epoch_reward(Version, Start, End, Ledger) ->
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
-    calculate_epoch_reward(Version, BlockTime0, ElectionInterval, MonthlyReward, Start, End).
+    calculate_epoch_reward(Version, Start, End, BlockTime0, ElectionInterval, MonthlyReward).
 
 -spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), non_neg_integer(),
                              non_neg_integer(), non_neg_integer(), non_neg_integer()) -> float().
