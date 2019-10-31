@@ -232,7 +232,7 @@ get_txns_for_epoch(Current, End, Chain, Txns) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec get_reward_vars(non_neg_integer(), non_neg_integer(), blockchain_ledger_v1:ledger()) -> map().
+-spec get_reward_vars(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> map().
 get_reward_vars(Start, End, Ledger) ->
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
     {ok, SecuritiesPercent} = blockchain:config(?securities_percent, Ledger),
@@ -256,7 +256,7 @@ get_reward_vars(Start, End, Ledger) ->
         poc_version => POCVersion
     }.
 
--spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), blockchain_ledger_v1:ledger()) -> float().
+-spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
 calculate_epoch_reward(Start, End, Ledger) ->
     Version = case blockchain:config(?reward_version, Ledger) of
         {ok, V} -> V;
@@ -264,15 +264,15 @@ calculate_epoch_reward(Start, End, Ledger) ->
     end,
     calculate_epoch_reward(Version, Start, End, Ledger).
 
--spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), non_neg_integer(), blockchain_ledger_v1:ledger()) -> float().
+-spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
 calculate_epoch_reward(Version, Start, End, Ledger) ->
     {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
     {ok, BlockTime0} = blockchain:config(?block_time, Ledger),
     {ok, MonthlyReward} = blockchain:config(?monthly_reward, Ledger),
     calculate_epoch_reward(Version, Start, End, BlockTime0, ElectionInterval, MonthlyReward).
 
--spec calculate_epoch_reward(non_neg_integer(), non_neg_integer(), non_neg_integer(),
-                             non_neg_integer(), non_neg_integer(), non_neg_integer()) -> float().
+-spec calculate_epoch_reward(pos_integer(), pos_integer(), pos_integer(),
+                             pos_integer(), pos_integer(), pos_integer()) -> float().
 calculate_epoch_reward(Version, Start, End, BlockTime0, _ElectionInterval, MonthlyReward) when Version >= 2 ->
     BlockTime1 = (BlockTime0/1000),
     % Convert to blocks per min
