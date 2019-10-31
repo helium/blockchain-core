@@ -43,6 +43,8 @@
     build/6
 ]).
 
+-include("blockchain_vars.hrl").
+
 -define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
 -define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
 
@@ -139,17 +141,31 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             %% P(WitnessCount) = Probability that the witness is infrequent.
             PWitnessCount = witness_count_probs(FilteredWitnesses),
             %% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
-            PWitness = maps:map(fun(WitnessAddr, P2) ->
-                                     P2 * maps:get(WitnessAddr, PWitnessRSSI) * maps:get(WitnessAddr, PWitnessCount)
-                             end, PWitnessTime),
+            PWitness = witness_prob(PWitnessRSSI, PWitnessTime, PWitnessCount),
             %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
-            SumProbs = lists:sum(maps:values(PWitness)),
-            ScaledProbs = maps:to_list(maps:map(fun(_WitnessAddr, P) ->
-                                                        P / SumProbs
-                                                end, PWitness)),
+            ScaledProbs = maps:to_list(scaled_prob(PWitness)),
             %% Pick one
             select_witness(ScaledProbs, RandVal)
     end.
+
+
+-spec scaled_prob(PWitness :: prob_map()) -> prob_map().
+scaled_prob(PWitness) ->
+    %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
+    SumProbs = lists:sum(maps:values(PWitness)),
+    maps:map(fun(_WitnessAddr, P) ->
+                     P / SumProbs
+             end, PWitness).
+
+
+-spec witness_prob(PWitnessRSSI :: prob_map(), PWitnessTime :: prob_map(), PWitnessCount :: prob_map()) -> prob_map().
+witness_prob(PWitnessRSSI, PWitnessTime, PWitnessCount) ->
+    Ledger = blockchain:ledger(blockchain_worker:blockchain()),
+    maps:map(fun(WitnessAddr, PTime) ->
+                     time_weight(Ledger) * PTime +
+                     rssi_weight(Ledger) * maps:get(WitnessAddr, PWitnessRSSI) +
+                     count_weight(Ledger) * maps:get(WitnessAddr, PWitnessCount)
+             end, PWitnessTime).
 
 
 -spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
@@ -274,3 +290,27 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
     not(lists:any(fun(ParentIndex) ->
                           h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
                   end, ParentIndices)).
+
+rssi_weight(Ledger) ->
+    case blockchain:config(?poc_v4_prob_rssi_wt, Ledger) of
+        {error, not_found} ->
+            1.0;
+        {ok, V} ->
+            V
+    end.
+
+time_weight(Ledger) ->
+    case blockchain:config(?poc_v4_prob_time_wt, Ledger) of
+        {error, not_found} ->
+            1.0;
+        {ok, V} ->
+            V
+    end.
+
+count_weight(Ledger) ->
+    case blockchain:config(?poc_v4_prob_count_wt, Ledger) of
+        {error, not_found} ->
+            1.0;
+        {ok, V} ->
+            V
+    end.

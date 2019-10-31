@@ -165,3 +165,7 @@
 -define(poc_v4_parent_res, poc_v4_parent_res).
 %% number of grid cells to exclude when building a path, set to 10 for poc_v4_parent_res: 11
 -define(poc_v4_exclusion_cells, poc_v4_exclusion_cells).
+%% next witness hop probability weights
+-define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
+-define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
+-define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
