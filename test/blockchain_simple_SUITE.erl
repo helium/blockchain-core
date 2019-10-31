@@ -1122,6 +1122,8 @@ epoch_reward_test(Config) ->
     end),
 
     % Add few empty blocks to fake epoch
+    Start = 1,
+    End = 30,
     _Blocks = lists:reverse(lists:foldl(
         fun(X, Acc) ->
             Txns = case X =:= 15 of
@@ -1136,10 +1138,8 @@ epoch_reward_test(Config) ->
             [B|Acc]
         end,
         [],
-        lists:seq(1, 32)
+        lists:seq(1, End+2)
     )),
-    Start = 1,
-    End = 30,
     {ok, Rewards} = blockchain_txn_rewards_v1:calculate_rewards(Start, End, Chain),
     ct:pal("rewards ~p", [Rewards]),
     Tx = blockchain_txn_rewards_v1:new(Start, End, Rewards),
