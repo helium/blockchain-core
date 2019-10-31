@@ -280,6 +280,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                     Error
             end;
         {_ValidTxns, InvalidTxns} ->
+            blockchain_ledger_v1:delete_context(Ledger1),
             lager:error("found invalid transactions: ~p", [InvalidTxns]),
             {error, invalid_txns}
     end.
@@ -290,19 +291,29 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
-    case ?MODULE:absorb_block(Block, Rescue, Chain1) of
-        {ok, Chain2} ->
-            Ledger2 = blockchain:ledger(Chain2),
-            case BeforeCommit() of
-                ok ->
-                    ok = blockchain_ledger_v1:commit_context(Ledger2),
-                    absorb_delayed(Block, Chain0);
-                Any ->
-                    Any
+    Transactions0 = blockchain_block:transactions(Block),
+    %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
+    Transactions = lists:filter(fun(T) -> ?MODULE:type(T) == blockchain_txn_vars_v1 end, (Transactions0)),
+    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+        {_ValidTxns, []} ->
+            case ?MODULE:absorb_block(Block, Rescue, Chain1) of
+                {ok, Chain2} ->
+                    Ledger2 = blockchain:ledger(Chain2),
+                    case BeforeCommit() of
+                        ok ->
+                            ok = blockchain_ledger_v1:commit_context(Ledger2),
+                            absorb_delayed(Block, Chain0);
+                        Any ->
+                            Any
+                    end;
+                Error ->
+                    blockchain_ledger_v1:delete_context(Ledger1),
+                    Error
             end;
-        Error ->
+        {_ValidTxns, InvalidTxns} ->
             blockchain_ledger_v1:delete_context(Ledger1),
-            Error
+            lager:error("found invalid transactions: ~p", [InvalidTxns]),
+            {error, invalid_txns}
     end.
 
 %%--------------------------------------------------------------------
