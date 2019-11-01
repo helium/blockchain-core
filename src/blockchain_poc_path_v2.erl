@@ -28,8 +28,9 @@
 %%% - P(WitnessTime)  = Probability that the witness timestamp is not stale.
 %%% - P(WitnessCount) = Probability that the witness is infrequent.
 %%%
-%%% The overall probability of picking a next witness:
-%%% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
+%%% The overall probability of picking a next witness is additive depending on
+%%% chain var configurable weights for each one of the calculated probs.
+%%% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
 %%%
 %%% We scale these probabilities and run an ICDF to select the witness from
 %%% the witness list. Once we have a potential next hop, we simply do the same process
@@ -138,7 +139,7 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             PWitnessTime = time_probs(HeadBlockTime, FilteredWitnesses),
             %% P(WitnessCount) = Probability that the witness is infrequent.
             PWitnessCount = witness_count_probs(FilteredWitnesses),
-            %% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
+            %% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
             PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount),
             %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
             ScaledProbs = maps:to_list(scaled_prob(PWitness)),
