@@ -25,7 +25,7 @@
 ]).
 
 -record(state, {
-    group :: undefined | pid(),
+    callback :: undefined | function(),
     parent :: undefined | pid(),
     txn_hash :: undefined | blockchain_txn:hash()
 }).
@@ -41,23 +41,27 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, [Parent, TxnHash]) ->
     {ok, #state{parent=Parent, txn_hash=TxnHash}};
-init(server, _Conn, [_Path, _Parent, Group]) ->
-    %lager:info("txn handler accepted connection~n"),
-    {ok, #state{group=Group}}.
+init(server, _Conn, [_Path, _Parent, Callback]) ->
+    {ok, #state{callback = Callback}}.
 
 handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
     Parent ! {blockchain_txn_response, {ok, TxnHash}},
     {stop, normal, State};
+handle_data(client, <<"no_group">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
+    Parent ! {blockchain_txn_response, {no_group, TxnHash}},
+    {stop, normal, State};
 handle_data(client, <<"error">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->
     Parent ! {blockchain_txn_response, {error, TxnHash}},
     {stop, normal, State};
-handle_data(server, Data, State=#state{group=Group}) ->
+handle_data(server, Data, State=#state{callback = Callback}) ->
     try
         Txn = blockchain_txn:deserialize(Data),
-        lager:debug("Got ~p type transaction: ~p", [blockchain_txn:type(Txn), Txn]),
-        case libp2p_group_relcast:handle_command(Group, Txn) of
+        lager:debug("Got ~p type transaction: ~s", [blockchain_txn:type(Txn), blockchain_txn:print(Txn)]),
+        case Callback(Txn) of
             ok ->
                 {stop, normal, State, <<"ok">>};
+            {error, no_group} ->
+                {stop, normal, State, <<"no_group">>};
             _ ->
                 {stop, normal, State, <<"error">>}
         end

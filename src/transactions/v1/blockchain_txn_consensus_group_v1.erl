@@ -181,13 +181,28 @@ is_valid(Txn, Chain) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    Members = ?MODULE:members(Txn),
     Height = ?MODULE:height(Txn),
-    {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
-    ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
-    ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
-    ok = blockchain_ledger_v1:election_height(Height, Ledger).
+    Ledger = blockchain:ledger(Chain),
+    Check =
+        case blockchain_ledger_v1:election_height(Ledger) of
+            %% no chain, genesis block
+            {error, not_found} ->
+                ok;
+            {ok, BaseHeight} when Height > BaseHeight ->
+                ok;
+            {ok, BaseHeight} ->
+                {error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}}
+        end,
+    case Check of
+        ok ->
+            Members = ?MODULE:members(Txn),
+            {ok, Epoch} = blockchain_ledger_v1:election_epoch(Ledger),
+            ok = blockchain_ledger_v1:election_epoch(Epoch + 1, Ledger),
+            ok = blockchain_ledger_v1:consensus_members(Members, Ledger),
+            ok = blockchain_ledger_v1:election_height(Height, Ledger);
+        {error, _} = Err ->
+            Err
+    end.
 
 print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                                             delay = Delay,

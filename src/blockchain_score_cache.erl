@@ -111,6 +111,8 @@ handle_call(_Msg, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({blockchain_event, {add_block, _Hash, _Sync, _Ledger}}, #state{chain = undefined} = State) ->
+    {noreply, State};
 handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
     case blockchain:get_block(Hash, State#state.chain) of
         {ok, Block} ->

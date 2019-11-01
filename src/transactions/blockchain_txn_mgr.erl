@@ -120,6 +120,10 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 handle_info({accepted, {Dialer, Txn, Member}}, State) ->
     lager:info("txn: ~p, accepted_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     {noreply, State};
+handle_info({no_group, {Dialer, Txn, Member}}, State) ->
+    lager:info("txn: ~p, no group: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    NewState = retry(Txn, State),
+    {noreply, NewState};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     lager:debug("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
     NewState = retry(Txn, State),

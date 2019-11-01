@@ -334,38 +334,54 @@ set_deltas(Challengee, {A, B}, Deltas) ->
 %%--------------------------------------------------------------------
  -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-     Challenger = ?MODULE:challenger(Txn),
-     Secret = ?MODULE:secret(Txn),
-     Ledger = blockchain:ledger(Chain),
+    LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    Challenger = ?MODULE:challenger(Txn),
+    Secret = ?MODULE:secret(Txn),
+    Ledger = blockchain:ledger(Chain),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
 
-     case blockchain:config(?poc_version, Ledger) of
-         {error, not_found} ->
-             %% Older poc version, don't add witnesses
-             ok;
-         {ok, POCVersion} when POCVersion > 1 ->
-             %% Find upper and lower time bounds for this poc txn and use those to clamp
-             %% witness timestamps being inserted in the ledger
-             case get_lower_and_upper_bounds(Secret, LastOnionKeyHash, Challenger, Ledger, Chain) of
-                 {error, _}=E ->
-                     E;
-                 {ok, {Lower, Upper}} ->
-                     %% Insert the witnesses for gateways in the path into ledger
-                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-                     ok = insert_witnesses(Path, Lower, Upper, Ledger)
-             end
-     end,
+    try
+        %% get these to make sure we're not replaying.
+        {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
+        {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
+        {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Challenger, Ledger),
+        LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+        PoCInterval = blockchain_utils:challenge_interval(Ledger),
+        case LastChallenge + PoCInterval >= Height of
+            false ->
+                {error, challenge_too_old};
+            true ->
+                case blockchain:config(?poc_version, Ledger) of
+                    {error, not_found} ->
+                        %% Older poc version, don't add witnesses
+                        ok;
+                    {ok, POCVersion} when POCVersion > 1 ->
+                        %% Find upper and lower time bounds for this poc txn and use those to clamp
+                        %% witness timestamps being inserted in the ledger
+                        case get_lower_and_upper_bounds(Secret, LastOnionKeyHash, Challenger, Ledger, Chain) of
+                            {error, _}=E ->
+                                E;
+                            {ok, {Lower, Upper}} ->
+                                %% Insert the witnesses for gateways in the path into ledger
+                                Path = blockchain_txn_poc_receipts_v1:path(Txn),
+                                ok = insert_witnesses(Path, Lower, Upper, Ledger)
+                        end
+                end,
 
-     case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
-         {error, _}=Error1 ->
-             Error1;
-         ok ->
-             lists:foldl(fun({Gateway, Delta}, _Acc) ->
-                               blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
-                       end,
-                       ok,
-                       ?MODULE:deltas(Txn))
-     end.
+                case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+                    {error, _}=Error1 ->
+                        Error1;
+                    ok ->
+                        lists:foldl(fun({Gateway, Delta}, _Acc) ->
+                                            blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
+                                    end,
+                                    ok,
+                                    ?MODULE:deltas(Txn))
+                end
+        end
+    catch _:_ ->
+            {error, state_missing}
+    end.
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),
