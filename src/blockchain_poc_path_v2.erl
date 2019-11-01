@@ -43,8 +43,6 @@
     build/6
 ]).
 
--include("blockchain_vars.hrl").
-
 -define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
 -define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
 
@@ -141,7 +139,7 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             %% P(WitnessCount) = Probability that the witness is infrequent.
             PWitnessCount = witness_count_probs(FilteredWitnesses),
             %% P(Witness) = P(WitnessRSSI) * P(WitnessTime) * P(WitnessCount)
-            PWitness = witness_prob(PWitnessRSSI, PWitnessTime, PWitnessCount),
+            PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount),
             %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
             ScaledProbs = maps:to_list(scaled_prob(PWitness)),
             %% Pick one
@@ -158,13 +156,12 @@ scaled_prob(PWitness) ->
              end, PWitness).
 
 
--spec witness_prob(PWitnessRSSI :: prob_map(), PWitnessTime :: prob_map(), PWitnessCount :: prob_map()) -> prob_map().
-witness_prob(PWitnessRSSI, PWitnessTime, PWitnessCount) ->
-    Ledger = blockchain:ledger(blockchain_worker:blockchain()),
+-spec witness_prob(Vars :: map(), PWitnessRSSI :: prob_map(), PWitnessTime :: prob_map(), PWitnessCount :: prob_map()) -> prob_map().
+witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount) ->
     maps:map(fun(WitnessAddr, PTime) ->
-                     time_weight(Ledger) * PTime +
-                     rssi_weight(Ledger) * maps:get(WitnessAddr, PWitnessRSSI) +
-                     count_weight(Ledger) * maps:get(WitnessAddr, PWitnessCount)
+                     time_weight(Vars) * PTime +
+                     rssi_weight(Vars) * maps:get(WitnessAddr, PWitnessRSSI) +
+                     count_weight(Vars) * maps:get(WitnessAddr, PWitnessCount)
              end, PWitnessTime).
 
 
@@ -291,26 +288,14 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
                           h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
                   end, ParentIndices)).
 
-rssi_weight(Ledger) ->
-    case blockchain:config(?poc_v4_prob_rssi_wt, Ledger) of
-        {error, not_found} ->
-            1.0;
-        {ok, V} ->
-            V
-    end.
+-spec rssi_weight(Vars :: map()) -> float().
+rssi_weight(Vars) ->
+    maps:get(poc_v4_prob_rssi_wt, Vars, 0.4).
 
-time_weight(Ledger) ->
-    case blockchain:config(?poc_v4_prob_time_wt, Ledger) of
-        {error, not_found} ->
-            1.0;
-        {ok, V} ->
-            V
-    end.
+-spec time_weight(Vars :: map()) -> float().
+time_weight(Vars) ->
+    maps:get(poc_v4_prob_time_wt, Vars, 0.3).
 
-count_weight(Ledger) ->
-    case blockchain:config(?poc_v4_prob_count_wt, Ledger) of
-        {error, not_found} ->
-            1.0;
-        {ok, V} ->
-            V
-    end.
+-spec count_weight(Vars :: map()) -> float().
+count_weight(Vars) ->
+    maps:get(poc_v4_prob_count_wt, Vars, 0.3).
