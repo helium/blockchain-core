@@ -64,11 +64,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 797 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 883 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 100640
-    %% ActiveGateway Count: 797
+    %% Ledger at height: 101523
+    %% ActiveGateway Count: 883
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
