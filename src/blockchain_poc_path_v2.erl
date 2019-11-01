@@ -46,6 +46,11 @@
 
 -define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
 -define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
+%% weights associated with each witness probability type
+%% NOTE: These _must_ add to 1.0
+-define(POC_V4_PROB_RSSI_WT, 0.4).
+-define(POC_V4_PROB_TIME_WT, 0.3).
+-define(POC_V4_PROB_COUNT_WT, 0.3).
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -291,12 +296,12 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
 
 -spec rssi_weight(Vars :: map()) -> float().
 rssi_weight(Vars) ->
-    maps:get(poc_v4_prob_rssi_wt, Vars, 0.4).
+    maps:get(poc_v4_prob_rssi_wt, Vars, ?POC_V4_PROB_RSSI_WT).
 
 -spec time_weight(Vars :: map()) -> float().
 time_weight(Vars) ->
-    maps:get(poc_v4_prob_time_wt, Vars, 0.3).
+    maps:get(poc_v4_prob_time_wt, Vars, ?POC_V4_PROB_TIME_WT).
 
 -spec count_weight(Vars :: map()) -> float().
 count_weight(Vars) ->
-    maps:get(poc_v4_prob_count_wt, Vars, 0.3).
+    maps:get(poc_v4_prob_count_wt, Vars, ?POC_V4_PROB_COUNT_WT).
