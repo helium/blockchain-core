@@ -196,7 +196,7 @@ print(#blockchain_txn_consensus_group_v1_pb{height = Height,
     io_lib:format("type=group height=~p delay=~p members=~p proof_hash=~p",
                   [Height,
                    Delay,
-                   lists:map(fun blockchain_util:addr2name/1, Members),
+                   lists:map(fun blockchain_utils:addr2name/1, Members),
                    erlang:phash2(Proof)]).
 
 %% ------------------------------------------------------------------
