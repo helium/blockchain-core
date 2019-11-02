@@ -11,11 +11,12 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/0,
-    fetch/2,
-    find/1,
-    set/2
-]).
+         start_link/0,
+         fetch/2,
+         find/1,
+         set/2,
+         stop/0
+        ]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -77,6 +78,9 @@ set({Address, Height}, Score) ->
     true = ets:insert(score_cache, {{Address, Height}, Score}),
     Score.
 
+stop() ->
+    gen_server:call(?SERVER, stop, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -96,6 +100,8 @@ init(_Args) ->
             {ok, #state{chain=Chain, cache=Cache}}
     end.
 
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
@@ -104,9 +110,9 @@ handle_cast(_Msg, State) ->
 
 handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
     case blockchain:get_block(Hash, State#state.chain) of
-        {ok, _Block} ->
-            %% Height = blockchain_block:height(Block),
-            %% ets:select_delete(score_cache)
+        {ok, Block} ->
+            Height = blockchain_block:height(Block),
+            ets:select_delete(score_cache, [{{{'_','$1'},'_'},[{'<','$1', Height - 50}],[true]}]),
             ok;
         {error, _Err} ->
             ok

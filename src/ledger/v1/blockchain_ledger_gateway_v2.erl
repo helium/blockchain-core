@@ -520,7 +520,8 @@ score_decay_test() ->
     fake_config(),
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+    blockchain_score_cache:stop().
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -529,7 +530,8 @@ score_decay2_test() ->
     {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
-    ?assert(Score < 0.25).
+    ?assert(Score < 0.25),
+    blockchain_score_cache:stop().
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -547,6 +549,12 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
+    meck:expect(blockchain_event,
+                add_handler,
+                fun(_) -> ok end),
+    meck:expect(blockchain_worker,
+                blockchain,
+                fun() -> undefined end),
     {ok, Pid} = blockchain_score_cache:start_link(),
     meck:expect(blockchain,
                 config,
