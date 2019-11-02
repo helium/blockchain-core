@@ -168,19 +168,20 @@ score(Address,
       #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
       Ledger) ->
-    e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
-               fun() ->
-                       {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
-                       {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
-                       {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
-                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
-                       NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
-                       RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
-                       RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
-                       IQR = normalize_float(RV2 - RV1),
-                       Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
-                       {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
-               end).
+    blockchain_score_cache:fetch({Address, Height},
+                                 fun() ->
+                                         {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
+                                         {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
+                                         {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
+                                         NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
+                                         NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
+                                         RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
+                                         RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
+                                         IQR = normalize_float(RV2 - RV1),
+                                         Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
+                                         {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
+                                 end).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% K: constant decay factor, calculated empirically (for now)
