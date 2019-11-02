@@ -511,7 +511,8 @@ location_test() ->
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
     fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+    blockchain_score_cache:stop().
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -546,6 +547,7 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
+    {ok, Pid} = blockchain_score_cache:start_link(),
     meck:expect(blockchain,
                 config,
                 fun(alpha_decay, _) ->
@@ -554,6 +556,7 @@ fake_config() ->
                         {ok, 0.0005};
                    (max_staleness, _) ->
                         {ok, 100000}
-                end).
+                end),
+    Pid.
 
 -endif.
