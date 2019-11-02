@@ -253,6 +253,8 @@ neighbors(PubkeyBin, Gateways, Ledger) when is_binary(PubkeyBin) ->
         undefined ->
             {error, bad_gateway};
         {Gw, _S} ->
+            neighbors(Gw, Gateways, Ledger);
+        Gw ->
             neighbors(Gw, Gateways, Ledger)
     end;
 neighbors(Gw, Gateways, Ledger) ->
@@ -387,7 +389,7 @@ active_gateways(Ledger, Challenger) ->
     Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
     %% we should be able to cache this
     Gateways = maps:map(fun(A, G) ->
-                                {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
+                                {ok, S} = blockchain_ledger_v1:gateway_score(A, Ledger),
                                 {G, S}
                         end, Gateways0),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
@@ -851,7 +853,6 @@ active_gateways_test() ->
     catch blockchain_score_cache:stop(),
     ok.
 
--ifdef(FALSE).
 active_gateways_low_score_test() ->
     catch blockchain_score_cache:stop(),
     blockchain_score_cache:start_link(),
@@ -879,9 +880,10 @@ active_gateways_low_score_test() ->
     unload_meck(),
     catch blockchain_score_cache:stop(),
     ok.
--endif.
 
 no_neighbor_test() ->
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("no_neighbor_test"),
     LatLongs = [
                 %% All these points are wayyy far from each other
