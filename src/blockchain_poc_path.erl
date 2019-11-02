@@ -379,6 +379,17 @@ entropy(Entropy) ->
       C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Entropy),
     rand:seed_s(exs1024s, {A, B, C}).
 
+
+score_gateways(Height, Ledger) ->
+    e2qc:cache(gw_cache, {Height},
+               fun() ->
+                       Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
+                       maps:map(fun(A, G) ->
+                                        {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
+                                        {G, S}
+                                end, Gateways0)
+               end).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -386,12 +397,7 @@ entropy(Entropy) ->
 -spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> gateways().
 active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-    %% we should be able to cache this
-    Gateways = maps:map(fun(A, G) ->
-                                {ok, S} = blockchain_ledger_v1:gateway_score(A, Ledger),
-                                {G, S}
-                        end, Gateways0),
+    Gateways = score_gateways(Height, Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
     %% fold over all the gateways
     maps:fold(
@@ -1038,10 +1044,10 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                                 {ok, L}
                         end
                 end),
-    meck:expect(blockchain_ledger_v1,
-                gateway_score,
-                fun(_, _) ->
-                        {ok, DefaultScore}
+    meck:expect(blockchain_ledger_gateway_v2,
+                score,
+                fun(_, _, _, _) ->
+                        {0.25, 0.25, DefaultScore}
                 end),
 
     N = length(LatLongs),
@@ -1058,6 +1064,8 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
 unload_meck() ->
     ?assert(meck:validate(blockchain_swarm)),
     meck:unload(blockchain_swarm),
+    ?assert(meck:validate(blockchain_ledger_gateway_v2)),
+    meck:unload(blockchain_ledger_gateway_v2),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ?assert(meck:validate(blockchain)),
