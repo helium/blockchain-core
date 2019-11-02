@@ -79,7 +79,7 @@ set({Address, Height}, Score) ->
     Score.
 
 stop() ->
-    gen_server:call(?SERVER, stop, infinity).
+    gen_server:stop(?SERVER, normal, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

@@ -522,7 +522,8 @@ target_test_() ->
     {timeout,
      60000,
      fun() ->
-             e2qc:teardown(score_cache),
+             catch blockchain_score_cache:stop(),
+             blockchain_score_cache:start_link(),
              BaseDir = test_utils:tmp_dir("target_test"),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -568,7 +569,8 @@ target_test_() ->
 
 
 neighbors_test() ->
-    e2qc:teardown(score_cache),
+    catch blockchain_score_cache:stop(),
+    {ok, _} = blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("neighbors_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -595,10 +597,12 @@ neighbors_test() ->
       Neighbors
      ),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_graph_test() ->
-    e2qc:teardown(score_cache),
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("build_graph_test"),
     LatLongs = [
                 {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
@@ -623,6 +627,8 @@ build_graph_test() ->
     ok.
 
 build_graph_in_line_test() ->
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     % All these point are in a line one after the other (except last)
     BaseDir = test_utils:tmp_dir("build_graph_in_line_test"),
     LatLongs = [
@@ -673,10 +679,12 @@ build_graph_in_line_test() ->
       Addresses
      ),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_test() ->
-    e2qc:teardown(score_cache),
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("build_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -699,10 +707,12 @@ build_test() ->
     ?assert(lists:member(Target, Path)),
     ?assertNotEqual(Target, lists:last(Path)),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_only_2_test() ->
-    e2qc:teardown(score_cache),
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("build_only_2_test"),
     % All these point are in a line one after the other
     LatLongs = [
@@ -719,14 +729,16 @@ build_only_2_test() ->
     ?assert(lists:member(Target, Path)),
     ?assertNotEqual(Target, lists:last(Path)),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_prob_test_() ->
     {timeout,
      60000,
      fun() ->
+             catch blockchain_score_cache:stop(),
+             blockchain_score_cache:start_link(),
              BaseDir = test_utils:tmp_dir("build_prob_test_"),
-             e2qc:teardown(score_cache),
              LatLongs = [
                          {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
                          {{37.782604, -122.447857}, 1.0, 1.0},
@@ -766,10 +778,13 @@ build_prob_test_() ->
                Starters
               ),
              unload_meck(),
+             catch blockchain_score_cache:stop(),
              ok
      end}.
 
 build_failed_test() ->
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("build_failed_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -781,9 +796,12 @@ build_failed_test() ->
     {Target, Gateways} = build_gateways(LatLongs, Ledger),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_with_default_score_test() ->
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("build_with_default_score_test"),
     % All these point are in a line one after the other (except last)
     LatLongs = [
@@ -802,9 +820,12 @@ build_with_default_score_test() ->
     {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
     ?assert(lists:member(Target, Path)),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 active_gateways_test() ->
+    catch blockchain_score_cache:stop(),
+    blockchain_score_cache:start_link(),
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
     % 2 First points are grouped together and next ones form a group also
     LatLongs = [
@@ -827,6 +848,7 @@ active_gateways_test() ->
     ?assertEqual(4, maps:size(ActiveGateways)),
 
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 active_gateways_low_score_test() ->
@@ -852,6 +874,7 @@ active_gateways_low_score_test() ->
     ?assertEqual(0, maps:size(ActiveGateways)),
 
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 no_neighbor_test() ->
@@ -881,6 +904,7 @@ no_neighbor_test() ->
     ?assertEqual([], Neighbors),
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
+    catch blockchain_score_cache:stop(),
     ok.
 
 build_gateways(LatLongs, Ledger) ->
