@@ -675,12 +675,20 @@ validate_var(?reward_version, Value) ->
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
+    invalid_var(Var, Value).
+
+-ifdef(TEST).
+invalid_var(Var, Value) ->
     case lists:member(Var, ?exceptions) of % test only
         true ->
             ok;
         _ ->
             throw({error, {unknown_var, Var, Value}})
     end.
+-else.
+invalid_var(Var, Value) ->
+    throw({error, {unknown_var, Var, Value}}).
+-endif.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
