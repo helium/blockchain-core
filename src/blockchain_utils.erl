@@ -17,10 +17,6 @@
     addr2name/1
 ]).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -define(CHALLENGE_INTERVAL, poc_challenge_interval).
 
 %%--------------------------------------------------------------------
@@ -120,6 +116,8 @@ addr2name(Addr) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
 
 serialize_deserialize_test() ->
     Hash = <<"123abc">>,
