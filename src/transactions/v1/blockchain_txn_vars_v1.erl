@@ -40,6 +40,15 @@
 -ifdef(TEST).
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-define(exceptions, [garbage_value]).
+-define(allowed_predicate_funs, [test_version, version]).
+
+-else.
+
+-define(exceptions, []).
+-define(allowed_predicate_funs, [version]).
+
 -endif.
 
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
@@ -562,8 +571,8 @@ validate_var(?predicate_callback_mod, Value) ->
             throw({error, {predicate_callback_mod, Value}})
     end;
 validate_var(?predicate_callback_fun, Value) ->
-    case Value of
-        version ->
+    case lists:member(Value, ?allowed_predicate_funs) of
+        true ->
             ok;
         _ ->
             throw({error, {predicate_callback_fun, Value}})
@@ -666,7 +675,20 @@ validate_var(?reward_version, Value) ->
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
+    invalid_var(Var, Value).
+
+-ifdef(TEST).
+invalid_var(Var, Value) ->
+    case lists:member(Var, ?exceptions) of % test only
+        true ->
+            ok;
+        _ ->
+            throw({error, {unknown_var, Var, Value}})
+    end.
+-else.
+invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
+-endif.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

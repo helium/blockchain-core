@@ -168,19 +168,20 @@ score(Address,
       #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
       Ledger) ->
-    e2qc:cache(score_cache, {Address, Alpha, Beta, Delta, Height},
-               fun() ->
-                       {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
-                       {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
-                       {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
-                       NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
-                       NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
-                       RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
-                       RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
-                       IQR = normalize_float(RV2 - RV1),
-                       Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
-                       {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
-               end).
+    blockchain_score_cache:fetch({Address, Alpha, Beta, Delta, Height},
+                                 fun() ->
+                                         {ok, AlphaDecay} = blockchain:config(?alpha_decay, Ledger),
+                                         {ok, BetaDecay} = blockchain:config(?beta_decay, Ledger),
+                                         {ok, MaxStaleness} = blockchain:config(?max_staleness, Ledger),
+                                         NewAlpha = normalize_float(scale_shape_param(Alpha - decay(AlphaDecay, Height - Delta, MaxStaleness))),
+                                         NewBeta = normalize_float(scale_shape_param(Beta - decay(BetaDecay, Height - Delta, MaxStaleness))),
+                                         RV1 = normalize_float(erlang_stats:qbeta(0.25, NewAlpha, NewBeta)),
+                                         RV2 = normalize_float(erlang_stats:qbeta(0.75, NewAlpha, NewBeta)),
+                                         IQR = normalize_float(RV2 - RV1),
+                                         Mean = normalize_float(1 / (1 + NewBeta/NewAlpha)),
+                                         {NewAlpha, NewBeta, normalize_float(Mean * (1 - IQR))}
+                                 end).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% K: constant decay factor, calculated empirically (for now)
@@ -510,7 +511,8 @@ location_test() ->
 score_test() ->
     Gw = new(<<"owner_address">>, 12),
     fake_config(),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_test_gw">>, Gw, 12, fake_ledger)),
+    blockchain_score_cache:stop().
 
 score_decay_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -518,7 +520,8 @@ score_decay_test() ->
     fake_config(),
     {_, _, A} = score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger),
     ?assertEqual(normalize_float(A), A),
-    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)).
+    ?assertEqual({1.0, 1.0, 0.25}, score(<<"score_decay_test_gw">>, Gw1, 1000, fake_ledger)),
+    blockchain_score_cache:stop().
 
 score_decay2_test() ->
     Gw0 = new(<<"owner_address">>, 1),
@@ -527,7 +530,8 @@ score_decay2_test() ->
     {Alpha, Beta, Score} = score(<<"score_decay2_test">>, Gw1, 1000, fake_ledger),
     ?assertEqual(1.0, Alpha),
     ?assert(Beta < 10.0),
-    ?assert(Score < 0.25).
+    ?assert(Score < 0.25),
+    blockchain_score_cache:stop().
 
 last_poc_challenge_test() ->
     Gw = new(<<"owner_address">>, 12),
@@ -545,6 +549,13 @@ nonce_test() ->
     ?assertEqual(1, nonce(nonce(1, Gw))).
 
 fake_config() ->
+    meck:expect(blockchain_event,
+                add_handler,
+                fun(_) -> ok end),
+    meck:expect(blockchain_worker,
+                blockchain,
+                fun() -> undefined end),
+    {ok, Pid} = blockchain_score_cache:start_link(),
     meck:expect(blockchain,
                 config,
                 fun(alpha_decay, _) ->
@@ -553,6 +564,7 @@ fake_config() ->
                         {ok, 0.0005};
                    (max_staleness, _) ->
                         {ok, 100000}
-                end).
+                end),
+    Pid.
 
 -endif.
