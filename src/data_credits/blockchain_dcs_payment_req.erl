@@ -6,54 +6,59 @@
 -module(blockchain_dcs_payment_req).
 
 -export([
-    id/1, payee/1, amount/1,
     new/3,
-    encode/1,
-    decode/1
+    payee/1, amount/1, fingerprint/1, signature/1,
+    sign/2,
+    encode/1, decode/1
 ]).
 
 -include("blockchain.hrl").
 -include("blockchain_dcs.hrl").
+-include_lib("helium_proto/src/pb/helium_dcs_payment_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(dcs_payment_req, {
-    id :: binary(),
-    payee :: binary(),
-    amount :: integer()
-}).
+-type dcs_payment_req() ::#helium_dcs_payment_req_v1_pb{}.
 
--type dcs_payment_req() ::#dcs_payment_req{}.
-
--spec id(dcs_payment_req()) -> binary().
-id(#dcs_payment_req{id=Id}) ->
-    Id.
-
--spec payee(dcs_payment_req()) -> binary().
-payee(#dcs_payment_req{payee=Payee}) ->
-    Payee.
-
--spec amount(dcs_payment_req()) -> integer().
-amount(#dcs_payment_req{amount=Amount}) ->
-    Amount.
-
--spec new(binary(),libp2p_crypto:pubkey_bin(), non_neg_integer()) -> dcs_payment_req().
-new(ID, Payee, Amount) -> 
-    #dcs_payment_req{
-        id=ID,
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), binary()) -> dcs_payment_req().
+new(Payee, Amount, Fingerprint) -> 
+    #helium_dcs_payment_req_v1_pb{
         payee=Payee,
-        amount=Amount
+        amount=Amount,
+        fingerprint=Fingerprint
     }.
 
+-spec payee(dcs_payment_req()) -> binary().
+payee(#helium_dcs_payment_req_v1_pb{payee=Payee}) ->
+    Payee.
+
+-spec amount(dcs_payment_req()) -> non_neg_integer().
+amount(#helium_dcs_payment_req_v1_pb{amount=Amount}) ->
+    Amount.
+
+-spec fingerprint(dcs_payment_req()) -> binary().
+fingerprint(#helium_dcs_payment_req_v1_pb{fingerprint=Fingerprint}) ->
+    Fingerprint.
+
+-spec signature(dcs_payment_req()) -> binary().
+signature(#helium_dcs_payment_req_v1_pb{signature=Signature}) ->
+    Signature.
+
+-spec sign(dcs_payment_req(), function()) -> dcs_payment_req().
+sign(Req, SigFun) ->
+    EncodedReq = ?MODULE:encode(Req#helium_dcs_payment_req_v1_pb{signature= <<>>}),
+    Signature = SigFun(EncodedReq),
+    Req#helium_dcs_payment_v1_pb{signature=Signature}.
+
 -spec encode(dcs_payment_req()) -> binary().
-encode(#dcs_payment_req{}=Payment) ->
-    erlang:term_to_binary(Payment).
+encode(#helium_dcs_payment_req_v1_pb{}=Payment) ->
+    helium_dcs_payment_req_v1_pb:encode_msg(Payment).
 
 -spec decode(binary()) -> dcs_payment_req().
 decode(BinaryPayment) ->
-    erlang:binary_to_term(BinaryPayment).
+    helium_dcs_payment_req_v1_pb:decode_msg(BinaryPayment, helium_dcs_payment_req_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
