@@ -428,7 +428,7 @@ has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
 
--spec witness_hist(gateway_witness()) -> erlang:error(no_hist) | #{integer() => integer()}.
+-spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | #{integer() => integer()}.
 witness_hist(Witness) ->
     Witness#witness.hist.
 
