@@ -10,6 +10,8 @@ prop_path_check() ->
             {gen_hash(), gen_challenger_index(), gen_path_limit()},
             begin
                 Ledger = ledger(),
+                application:set_env(blockchain, test, true),
+                {ok, _Pid} = blockchain_score_cache:start_link(),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
@@ -22,6 +24,7 @@ prop_path_check() ->
                                                     #{}),
 
                 blockchain_ledger_v1:close(Ledger),
+                blockchain_score_cache:stop(),
 
                 PathLength = length(Path),
 
@@ -64,11 +67,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 883 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 970 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 101523
-    %% ActiveGateway Count: 883
+    %% Ledger at height: 104196
+    %% ActiveGateway Count: 969
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),

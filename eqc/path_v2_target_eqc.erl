@@ -9,6 +9,8 @@ prop_target_check() ->
     ?FORALL({Hash, ChallengerIndex}, {gen_hash(), gen_challenger_index()},
             begin
                 Ledger = ledger(),
+                application:set_env(blockchain, test, true),
+                {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, Ledger, Challenger),
@@ -18,6 +20,7 @@ prop_target_check() ->
                 ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
 
                 blockchain_ledger_v1:close(Ledger),
+                blockchain_score_cache:stop(),
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger),
@@ -31,11 +34,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 883 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 970 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 101523
-    %% ActiveGateway Count: 883
+    %% Ledger at height: 104196
+    %% ActiveGateway Count: 969
     {ok, Dir} = file:get_cwd(),
     PrivDir = filename:join([Dir, "priv"]),
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
