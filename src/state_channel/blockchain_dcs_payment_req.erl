@@ -8,7 +8,7 @@
 -export([
     new/3,
     payee/1, amount/1, fingerprint/1, signature/1,
-    sign/2,
+    sign/2, validate/1,
     encode/1, decode/1
 ]).
 
@@ -50,6 +50,24 @@ sign(Req, SigFun) ->
     EncodedReq = ?MODULE:encode(Req#helium_dcs_payment_req_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedReq),
     Req#helium_dcs_payment_req_v1_pb{signature=Signature}.
+
+-spec validate(dcs_payment_req()) -> true | {error, any()}.
+validate(Req) ->
+    BaseReq = Req#helium_dcs_payment_req_v1_pb{signature = <<>>},
+    EncodedReq = ?MODULE:encode(BaseReq),
+    Signature = ?MODULE:signature(Req),
+    Payee = ?MODULE:payee(Req),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payee),
+    case libp2p_crypto:verify(EncodedReq, Signature, PubKey) of
+        false ->
+            {error, bad_signature};
+        true ->
+            case ?MODULE:amount(Req) > 0 of
+                true -> true;
+                false -> {error, bad_amount}
+            end
+    end.
+
 
 -spec encode(dcs_payment_req()) -> binary().
 encode(#helium_dcs_payment_req_v1_pb{}=Payment) ->
