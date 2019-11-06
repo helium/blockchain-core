@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Data Credits Sup ==
+%% == Blockchain State Channel Sup ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_dcs_sup).
+-module(blockchain_state_channel_sup).
 
 -behaviour(supervisor).
 
@@ -43,8 +43,8 @@ init([BaseDir]) ->
     DBOpts = [BaseDir],
     ServersOpts = [],
     ChildSpecs = [
-        ?WORKER(blockchain_dcs_db, [DBOpts]),
-        ?WORKER(blockchain_dcs_channel_server_monitor, [ServersOpts])
+        ?WORKER(blockchain_state_channel_db, [DBOpts]),
+        ?WORKER(blockchain_state_channel_server, [ServersOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
