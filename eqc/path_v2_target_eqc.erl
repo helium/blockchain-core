@@ -12,11 +12,12 @@ prop_target_check() ->
                 application:set_env(blockchain, test, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
+                {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
+                GatewayScores = blockchain_poc_target_v2:filter(Ledger, Challenger, Height),
                 {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
-                                               blockchain_poc_target_v2:target(Hash, Ledger, Challenger)
-                                       end),
-
+                                                                 blockchain_poc_target_v2:target(Hash, GatewayScores)
+                                                         end),
                 {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                 {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
                 ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
