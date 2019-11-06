@@ -645,12 +645,20 @@ validate_var(?poc_v4_exclusion_cells, Value) ->
     validate_int(Value, "poc_v4_exclusion_cells", 8, 12, false);
 validate_var(?poc_v4_parent_res, Value) ->
     validate_int(Value, "poc_v4_parent_res", 8, 11, false);
+validate_var(?poc_v4_target_challenge_age, Value) ->
+    validate_int(Value, "poc_v4_target_challenge_age", 30, 1000, false);
 validate_var(?poc_v4_prob_rssi_wt, Value) ->
     validate_float(Value, "poc_v4_prob_rssi_wt", 0.0, 1.0);
 validate_var(?poc_v4_prob_time_wt, Value) ->
     validate_float(Value, "poc_v4_prob_time_wt", 0.0, 1.0);
 validate_var(?poc_v4_prob_count_wt, Value) ->
     validate_float(Value, "poc_v4_prob_count_wt", 0.0, 1.0);
+validate_var(?poc_v4_prob_no_rssi, Value) ->
+    validate_float(Value, "poc_v4_prob_no_rssi", 0.0, 1.0);
+validate_var(?poc_v4_prob_good_rssi, Value) ->
+    validate_float(Value, "poc_v4_prob_good_rssi", 0.0, 1.0);
+validate_var(?poc_v4_prob_bad_rssi, Value) ->
+    validate_float(Value, "poc_v4_prob_bad_rssi", 0.0, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

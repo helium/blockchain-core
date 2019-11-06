@@ -51,6 +51,10 @@
 -define(POC_V4_PROB_RSSI_WT, 0.4).
 -define(POC_V4_PROB_TIME_WT, 0.3).
 -define(POC_V4_PROB_COUNT_WT, 0.3).
+%% RSSI probabilities
+-define(POC_V4_PROB_NO_RSSI, 0.5).
+-define(POC_V4_PROB_GOOD_RSSI, 1.0).
+-define(POC_V4_PROB_BAD_RSSI, 0.01).
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -64,22 +68,17 @@
             Limit :: pos_integer(),
             Vars :: map()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
-    case maps:is_key(TargetPubkeyBin, ActiveGateways) of
-        false ->
-            %% XXX: Target is not in active gateways? Beacon?
-            [TargetPubkeyBin];
-        true ->
-            TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-            RandState = blockchain_utils:rand_state(Hash),
-            build_(TargetPubkeyBin,
-                   ActiveGateways,
-                   HeadBlockTime,
-                   Vars,
-                   RandState,
-                   Limit,
-                   [TargetGwLoc],
-                   [TargetPubkeyBin])
-    end.
+    true =  maps:is_key(TargetPubkeyBin, ActiveGateways),
+    TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+    RandState = blockchain_utils:rand_state(Hash),
+    build_(TargetPubkeyBin,
+           ActiveGateways,
+           HeadBlockTime,
+           Vars,
+           RandState,
+           Limit,
+           [TargetGwLoc],
+           [TargetPubkeyBin]).
 
 %%%-------------------------------------------------------------------
 %% Helpers
@@ -129,19 +128,19 @@ build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Li
                RandVal :: float(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
 next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
+    %% Get gateway
     Gateway = maps:get(GatewayBin, ActiveGateways),
-
-    case blockchain_ledger_gateway_v2:location(Gateway) of
-        undefined ->
+    case blockchain_ledger_gateway_v2:witnesses(Gateway) of
+        W when map_size(W) == 0 ->
             {error, no_witness};
-        GatewayLoc ->
-            %% Get all the witnesses for this Gateway
-            Witnesses = blockchain_ledger_gateway_v2:witnesses(Gateway),
+        Witnesses ->
+            %% If this gateway has witnesses, it is implied that it's location cannot be undefined
+            GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
             %% Filter witnesses
             FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars),
             %% Assign probabilities to filtered witnesses
             %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
-            PWitnessRSSI = rssi_probs(FilteredWitnesses),
+            PWitnessRSSI = rssi_probs(FilteredWitnesses, Vars),
             %% P(WitnessTime)  = Probability that the witness timestamp is not stale.
             PWitnessTime = time_probs(HeadBlockTime, FilteredWitnesses),
             %% P(WitnessCount) = Probability that the witness is infrequent.
@@ -154,7 +153,6 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             select_witness(ScaledProbs, RandVal)
     end.
 
-
 -spec scaled_prob(PWitness :: prob_map()) -> prob_map().
 scaled_prob(PWitness) ->
     %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
@@ -163,21 +161,22 @@ scaled_prob(PWitness) ->
                      P / SumProbs
              end, PWitness).
 
-
 -spec witness_prob(Vars :: map(), PWitnessRSSI :: prob_map(), PWitnessTime :: prob_map(), PWitnessCount :: prob_map()) -> prob_map().
 witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount) ->
+    %% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
     maps:map(fun(WitnessAddr, PTime) ->
-                     time_weight(Vars) * PTime +
-                     rssi_weight(Vars) * maps:get(WitnessAddr, PWitnessRSSI) +
-                     count_weight(Vars) * maps:get(WitnessAddr, PWitnessCount)
+                     (time_weight(Vars) * PTime) +
+                     (rssi_weight(Vars) * maps:get(WitnessAddr, PWitnessRSSI)) +
+                     (count_weight(Vars) * maps:get(WitnessAddr, PWitnessCount))
              end, PWitnessTime).
 
 
--spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
-rssi_probs(Witnesses) when map_size(Witnesses) == 1 ->
+-spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                 Vars :: map()) -> prob_map().
+rssi_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1
     maps:map(fun(_, _) -> 1.0 end, Witnesses);
-rssi_probs(Witnesses) ->
+rssi_probs(Witnesses, Vars) ->
     WitnessList = maps:to_list(Witnesses),
     lists:foldl(fun({WitnessAddr, Witness}, Acc) ->
                         RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
@@ -186,12 +185,17 @@ rssi_probs(Witnesses) ->
 
                         case {SumRSSI, BadRSSI} of
                             {0, _} ->
-                                maps:put(WitnessAddr, 0.5, Acc);
+                                %% No RSSI but we have it in the witness list,
+                                %% possibly because of next hop poc receipt.
+                                maps:put(WitnessAddr, prob_no_rssi(Vars), Acc);
                             {_S, 0} ->
-                                maps:put(WitnessAddr, 1, Acc);
+                                %% No known bad rssi value
+                                maps:put(WitnessAddr, prob_good_rssi(Vars), Acc);
                             {S, S} ->
-                                maps:put(WitnessAddr, 0.01, Acc);
+                                %% All bad RSSI values
+                                maps:put(WitnessAddr, prob_bad_rssi(Vars), Acc);
                             {S, B} ->
+                                %% Invert the "bad" probability
                                 maps:put(WitnessAddr, (1 - B/S), Acc)
                         end
                 end, #{},
@@ -208,9 +212,9 @@ time_probs(HeadBlockTime, Witnesses) ->
                                  %% XXX: Needs more thought
                                  case blockchain_ledger_gateway_v2:witness_recent_time(Witness) of
                                      undefined ->
-                                         maps:put(WitnessAddr, HeadBlockTime*1000000000, Acc);
+                                         maps:put(WitnessAddr, nanosecond_time(HeadBlockTime), Acc);
                                      T ->
-                                         maps:put(WitnessAddr, (HeadBlockTime*1000000000 - T), Acc)
+                                         maps:put(WitnessAddr, (nanosecond_time(HeadBlockTime) - T), Acc)
                                  end
                          end, #{},
                          maps:to_list(Witnesses)),
@@ -264,15 +268,14 @@ select_witness([{_WitnessAddr, Prob} | Tail], Rnd) ->
                        ActiveGateways :: blockchain_ledger_v1:active_gateways(),
                        Vars :: map()) -> blockchain_ledger_gateway_v2:witnesses().
 filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
-
-    ParentRes = maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES),
-    ExclusionCells = maps:get(poc_v4_exclusion_cells, Vars, ?POC_V4_EXCLUSION_CELLS),
-
-    GatewayParent = h3:parent(GatewayLoc, h3:get_resolution(GatewayLoc) - 1),
+    ParentRes = parent_res(Vars),
+    ExclusionCells = exclusion_cells(Vars),
+    GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
     maps:filter(fun(WitnessAddr, _Witness) ->
                         case maps:is_key(WitnessAddr, ActiveGateways) of
                             false ->
+                                %% Don't include if the witness is not in ActiveGateways
                                 false;
                             true ->
                                 WitnessGw = maps:get(WitnessAddr, ActiveGateways),
@@ -307,3 +310,27 @@ time_weight(Vars) ->
 -spec count_weight(Vars :: map()) -> float().
 count_weight(Vars) ->
     maps:get(poc_v4_prob_count_wt, Vars, ?POC_V4_PROB_COUNT_WT).
+
+-spec prob_no_rssi(Vars :: map()) -> float().
+prob_no_rssi(Vars) ->
+    maps:get(poc_v4_prob_no_rssi, Vars, ?POC_V4_PROB_NO_RSSI).
+
+-spec prob_good_rssi(Vars :: map()) -> float().
+prob_good_rssi(Vars) ->
+    maps:get(poc_v4_prob_good_rssi, Vars, ?POC_V4_PROB_GOOD_RSSI).
+
+-spec prob_bad_rssi(Vars :: map()) -> float().
+prob_bad_rssi(Vars) ->
+    maps:get(poc_v4_prob_bad_rssi, Vars, ?POC_V4_PROB_BAD_RSSI).
+
+-spec parent_res(Vars :: map()) -> pos_integer().
+parent_res(Vars) ->
+    maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
+
+-spec exclusion_cells(Vars :: map()) -> pos_integer().
+exclusion_cells(Vars) ->
+    maps:get(poc_v4_exclusion_cells, Vars, ?POC_V4_EXCLUSION_CELLS).
+
+-spec nanosecond_time(Time :: integer()) -> integer().
+nanosecond_time(Time) ->
+    erlang:convert_time_unit(Time, millisecond, nanosecond).

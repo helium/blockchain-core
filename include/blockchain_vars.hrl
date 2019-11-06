@@ -169,3 +169,9 @@
 -define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
 -define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
 -define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
+%% RSSI probabilities
+-define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi).
+-define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi).
+-define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi).
+%% A potential target must have a last poc challenge within this challenge_age
+-define(poc_v4_target_challenge_age, poc_v4_target_challenge_age).
