@@ -87,6 +87,9 @@ handle_cast(_Msg, State) ->
 handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
     Parent ! {accepted, {self(), Txn, Member}},
     {stop, normal, State};
+handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+    Parent ! {no_group, {self(), Txn, Member}},
+    {stop, normal, State};
 handle_info({blockchain_txn_response, {error, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
     Parent ! {rejected, {self(), Txn, Member}},
     {stop, normal, State};
