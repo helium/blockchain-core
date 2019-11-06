@@ -85,4 +85,47 @@ decode(BinaryPayment) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+new_test() ->
+    Req = #helium_dcs_payment_req_v1_pb{
+        payee= <<"payee">>,
+        amount=1,
+        fingerprint= <<"fingerprint">>
+    },
+    ?assertEqual(Req, new(<<"payee">>, 1, <<"fingerprint">>)).
+
+payee_test() ->
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertEqual(<<"payee">>, payee(Req)).
+
+amount_test() ->
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertEqual(1, amount(Req)).
+
+fingerprint_test() ->
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertEqual(<<"fingerprint">>, fingerprint(Req)).
+
+signature_test() ->
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertEqual(<<>>, signature(Req)).
+
+sign_test() ->
+    #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertNotEqual(<<>>, signature(sign(Req, SigFun))).
+
+validate_test() ->
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Req0 = new(PubKeyBin, 1, <<"fingerprint">>),
+    Req1 = sign(Req0, SigFun),
+    ?assertEqual(true, validate(Req1)).
+
+encode_decode_test() ->
+    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    ?assertEqual(Req, decode(encode(Req))).
+
 -endif.
