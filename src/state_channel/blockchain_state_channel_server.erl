@@ -166,19 +166,33 @@ decode_state(BinaryState) ->
 save_load_test() ->
     BaseDir = test_utils:tmp_dir("save_load_test"),
     {ok, DB} = open_db(BaseDir),
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Keys = {PubKeyBin, SigFun},
-    State = #state{
+    #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
+    SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
+    Keys0 = {PubKeyBin0, SigFun0},
+    State0 = #state{
         db=DB,
-        keys={PubKeyBin, SigFun},
+        keys=Keys0,
         credits=0,
         nonce=0,
         packets=merkerl:new([], fun merkerl:hash_value/1)
     },
-    ?assertEqual(State, save_state(State)),
-    ?assertEqual({ok, State}, load_state(DB, Keys)),
+    ?assertEqual(State0, save_state(State0)),
+    ?assertEqual({ok, State0}, load_state(DB, Keys0)),
+
+    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+    Keys1 = {PubKeyBin1, SigFun1},
+    State1 = #state{
+        db=DB,
+        keys=Keys1,
+        credits=0,
+        nonce=0,
+        packets=merkerl:new([], fun merkerl:hash_value/1)
+    },
+    ?assertEqual({ok, State1}, load_state(DB, Keys1)),
+
     ok = rocksdb:close(DB),
     ok.
 
