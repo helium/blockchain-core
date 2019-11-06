@@ -110,7 +110,13 @@ load_state(DB, {PubKeyBin, _}=Keys) ->
             State = decode_state(BinaryState),
             {ok, State#state{db=DB, keys=Keys}};
         not_found ->
-            {error, not_found};
+            {ok, #state{
+                db=DB,
+                keys=Keys,
+                credits=0,
+                nonce=0,
+                packets=merkerl:new([], fun merkerl:hash_value/1)
+            }};
         Error ->
             Error
     end.
