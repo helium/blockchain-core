@@ -13,7 +13,6 @@
 ]).
 
 -include("blockchain.hrl").
--include("blockchain_dcs.hrl").
 -include_lib("helium_proto/src/pb/helium_dcs_payment_v1_pb.hrl").
 
 -ifdef(TEST).
@@ -50,15 +49,15 @@ signature(#helium_dcs_payment_req_v1_pb{signature=Signature}) ->
 sign(Req, SigFun) ->
     EncodedReq = ?MODULE:encode(Req#helium_dcs_payment_req_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedReq),
-    Req#helium_dcs_payment_v1_pb{signature=Signature}.
+    Req#helium_dcs_payment_req_v1_pb{signature=Signature}.
 
 -spec encode(dcs_payment_req()) -> binary().
 encode(#helium_dcs_payment_req_v1_pb{}=Payment) ->
-    helium_dcs_payment_req_v1_pb:encode_msg(Payment).
+    helium_dcs_payment_v1_pb:encode_msg(Payment).
 
 -spec decode(binary()) -> dcs_payment_req().
 decode(BinaryPayment) ->
-    helium_dcs_payment_req_v1_pb:decode_msg(BinaryPayment, helium_dcs_payment_req_v1_pb).
+    helium_dcs_payment_v1_pb:decode_msg(BinaryPayment, helium_dcs_payment_req_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
