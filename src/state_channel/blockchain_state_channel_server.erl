@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    credits/0, nonce/0
+    credits/0, nonce/0,
+    burn/1, payment_req/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -60,6 +61,15 @@ credits() ->
 nonce() ->
     gen_server:call(?SERVER, nonce).
 
+-spec payment_req(blockchain_dcs_payment_req:dcs_payment_req()) -> ok.
+payment_req(Req) ->
+    gen_server:cast(?SERVER, {payment_req, Req}).
+
+% TODO: Replace this with real burn
+-spec burn(non_neg_integer()) -> ok.
+burn(Amount) ->
+    gen_server:cast(?SERVER, {burn, Amount}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -79,10 +89,29 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({burn, Amount}, #state{credits=Credits}=State0) ->
+    State1 = State0#state{credits=Credits+Amount},
+    {noreply, save_state(State1)};
+handle_cast({payment_req, Req}, #state{credits=Credits, nonce=Nonce}=State0) ->
+    case blockchain_dcs_payment_req:validate(Req) of
+        {error, _Reason} ->
+            lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
+            {noreply, State0};
+        true ->
+            Amount = blockchain_dcs_payment_req:amount(Req),
+            case Credits - Amount >= 0 of
+                false ->
+                    lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
+                    {noreply, State0};
+                true ->
+                    % TODO: Create / broadcast payment here
+                    State1 = State0#state{credits=Credits-Amount, nonce=Nonce+1},
+                    {noreply, save_state(State1)}
+            end
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
-    % TODO: This is temporary for warning
-    {noreply, save_state(State)}.
+    {noreply, State}.
 
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
