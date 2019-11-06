@@ -42,6 +42,7 @@
 
     credits = 0 :: non_neg_integer(),
     nonce = 0 :: non_neg_integer(),
+    payments = [] :: [blockchain_dcs_payment:dcs_payment()],
     packets :: merkerl:merkle()
 }).
 
@@ -92,7 +93,8 @@ handle_call(_Msg, _From, State) ->
 handle_cast({burn, Amount}, #state{credits=Credits}=State0) ->
     State1 = State0#state{credits=Credits+Amount},
     {noreply, save_state(State1)};
-handle_cast({payment_req, Req}, #state{credits=Credits, nonce=Nonce}=State0) ->
+handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, credits=Credits,
+                                       nonce=Nonce, payments=Payments}=State0) ->
     case blockchain_dcs_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
@@ -104,8 +106,12 @@ handle_cast({payment_req, Req}, #state{credits=Credits, nonce=Nonce}=State0) ->
                     lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
                     {noreply, State0};
                 true ->
-                    % TODO: Create / broadcast payment here
-                    State1 = State0#state{credits=Credits-Amount, nonce=Nonce+1},
+                    % TODO: Update packet stuff
+                    Payee = blockchain_dcs_payment_req:payee(Req),
+                    Payment = blockchain_dcs_payment:new(Payer, Payee, Amount, <<>>, Nonce+1),
+                    SignedPayment = blockchain_dcs_payment:sign(Payment, PayerSigFun),
+                    % TODO: Broadcast payment here
+                    State1 = State0#state{credits=Credits-Amount, nonce=Nonce+1, payments=[SignedPayment|Payments]},
                     {noreply, save_state(State1)}
             end
     end;
