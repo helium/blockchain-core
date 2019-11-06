@@ -50,6 +50,13 @@ end_per_testcase(_TestCase, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic_test(Config) ->
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, keys, fun() ->
+        #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+        SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+        {ok, PubKey, SigFun, undefined}
+    end),
+
     BaseDir = proplists:get_value(base_dir, Config),
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
 
@@ -57,6 +64,21 @@ basic_test(Config) ->
     ?assertEqual({ok, 0}, blockchain_state_channel_server:credits()),
     ?assertEqual({ok, 0}, blockchain_state_channel_server:nonce()),
 
+    ok = blockchain_state_channel_server:burn(10),
+    ?assertEqual({ok, 10}, blockchain_state_channel_server:credits()),
+    ?assertEqual({ok, 0}, blockchain_state_channel_server:nonce()),
+
+    #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
+    SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
+    Req0 = blockchain_dcs_payment_req:new(PubKeyBin0, 1, <<>>),
+    Req1 = blockchain_dcs_payment_req:sign(Req0, SigFun0),
+    ok = blockchain_state_channel_server:payment_req(Req1),
+
+    ?assertEqual({ok, 9}, blockchain_state_channel_server:credits()),
+    ?assertEqual({ok, 1}, blockchain_state_channel_server:nonce()),
 
     true = erlang:exit(Sup, normal),
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm),
     ok.
