@@ -55,6 +55,8 @@
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
+%% It is expected that the "ActiveGateways" being passed to build/6 fun
+%% has already been pre-filtered to remove "inactive" gateways.
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
             HeadBlockTime :: pos_integer(),

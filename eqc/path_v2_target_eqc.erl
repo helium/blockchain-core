@@ -13,7 +13,9 @@ prop_target_check() ->
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
-                {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, Ledger, Challenger),
+                {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
+                                               blockchain_poc_target_v2:target(Hash, Ledger, Challenger)
+                                       end),
 
                 {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                 {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
@@ -24,7 +26,8 @@ prop_target_check() ->
 
                 ?WHENFAIL(begin
                               blockchain_ledger_v1:close(Ledger),
-                              io:format("TargetPubkeyBin: ~p~n", [TargetPubkeyBin])
+                              io:format("TargetPubkeyBin: ~p~n", [TargetPubkeyBin]),
+                              io:format("Time: ~p~n", [Time])
                           end,
                           conjunction([{verify_target_found, maps:is_key(TargetPubkeyBin, ActiveGateways)}])
                          )
