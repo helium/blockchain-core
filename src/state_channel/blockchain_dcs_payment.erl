@@ -77,4 +77,49 @@ decode(BinaryPayment) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+new_test() ->
+    Payment = #helium_dcs_payment_v1_pb{
+        payer= <<"payer">>,
+        payee= <<"payee">>,
+        amount=10,
+        packets= <<>>,
+        nonce=1
+    },
+    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<>>, 1)).
+
+payer_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(<<"payer">>, payer(Payment)).
+
+payee_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(<<"payee">>, payee(Payment)).
+
+amount_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(10, amount(Payment)).
+
+packets_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(<<>>, packets(Payment)).
+
+nonce_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(1, nonce(Payment)).
+
+signature_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(<<>>, signature(Payment)).
+
+sign_test() ->
+    #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertNotEqual(<<>>, signature(sign(Payment, SigFun))).
+
+encode_decode_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
+    ?assertEqual(Payment, decode(encode(Payment))).
+
 -endif.
