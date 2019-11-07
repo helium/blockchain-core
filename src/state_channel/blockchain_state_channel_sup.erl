@@ -41,10 +41,12 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
     DBOpts = [BaseDir],
-    ServersOpts = [],
+    ServerOpts = [],
+    ClientOpts = [],
     ChildSpecs = [
         ?WORKER(blockchain_state_channel_db, [DBOpts]),
-        ?WORKER(blockchain_state_channel_server, [ServersOpts])
+        ?WORKER(blockchain_state_channel_server, [ServerOpts]),
+        ?WORKER(blockchain_state_channel_client, [ClientOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
