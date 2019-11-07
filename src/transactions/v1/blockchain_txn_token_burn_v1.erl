@@ -12,11 +12,9 @@
 -include("blockchain_utils.hrl").
 
   -export([
-    new/3, new/4,
+    new/3,
     hash/1,
-    type/1,
     payer/1,
-    key/1,
     amount/1,
     nonce/1,
     fee/1,
@@ -41,24 +39,12 @@
 -spec new(libp2p_crypto:pubkey_bin(),  pos_integer(), pos_integer()) -> txn_token_burn().
 new(Payer, Amount, Nonce) ->
     #blockchain_txn_token_burn_v1_pb{
-        type=account,
         payer=Payer,
         amount=Amount,
         nonce=Nonce,
         signature = <<>>
     }.
 
-
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), libp2p_crypto:pubkey_bin()) -> txn_token_burn().
-new(Payer, Amount, Nonce, Key) ->
-    #blockchain_txn_token_burn_v1_pb{
-        type=channel,
-        payer=Payer,
-        key=Key,
-        amount=Amount,
-        nonce=Nonce,
-        signature = <<>>
-    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -86,25 +72,9 @@ hash(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec type(txn_token_burn()) -> account | channel.
-type(Txn) ->
-    Txn#blockchain_txn_token_burn_v1_pb.type.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer(txn_token_burn()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.payer.
-
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec key(txn_token_burn()) -> libp2p_crypto:pubkey_bin().
-key(Txn) ->
-    Txn#blockchain_txn_token_burn_v1_pb.key.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -205,7 +175,6 @@ absorb(Txn, Chain) ->
 
   new_test() ->
     Tx = #blockchain_txn_token_burn_v1_pb{
-        type=account,
         payer= <<"payer">>,
         key = <<>>,
         amount=666,
@@ -214,21 +183,9 @@ absorb(Txn, Chain) ->
     },
     ?assertEqual(Tx, new(<<"payer">>, 666, 1)).
 
-type_test() ->
-    Tx0 = new(<<"payer">>, 666, 1),
-    ?assertEqual(account, type(Tx0)),
-    Tx1 = new(<<"payer">>, 666, 1, <<"key">>),
-    ?assertEqual(channel, type(Tx1)).
-
 payer_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
-
-key_test() ->
-    Tx0 = new(<<"payer">>, 666, 1),
-    ?assertEqual(<<>>, key(Tx0)),
-    Tx1 = new(<<"payer">>, 666, 1, <<"key">>),
-    ?assertEqual(<<"key">>, key(Tx1)).
 
 amount_test() ->
     Tx = new(<<"payer">>, 666, 1),
