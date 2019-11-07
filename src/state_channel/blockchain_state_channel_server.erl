@@ -39,11 +39,7 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     keys :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
-
-    credits = 0 :: non_neg_integer(),
-    nonce = 0 :: non_neg_integer(),
-    payments = [] :: [blockchain_dcs_payment:dcs_payment()],
-    packets :: merkerl:merkle()
+    channel :: blockchain_state_channel:state_channel()
 }).
 
 -type state() :: #state{}.
@@ -82,36 +78,43 @@ init(_Args) ->
     {ok, State} = load_state(DB, Keys),
     {ok, State}.
 
-handle_call(credits, _From, #state{credits=Credits}=State) ->
-    {reply, {ok, Credits}, State};
-handle_call(nonce, _From, #state{nonce=Nonce}=State) ->
-    {reply, {ok, Nonce}, State};
+handle_call(credits, _From, #state{channel=Channel}=State) ->
+    {reply, {ok, blockchain_state_channel:credits(Channel)}, State};
+handle_call(nonce, _From, #state{channel=Channel}=State) ->
+    {reply, {ok, blockchain_state_channel:nonce(Channel)}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, Amount}, #state{credits=Credits}=State0) ->
-    State1 = State0#state{credits=Credits+Amount},
+handle_cast({burn, Amount}, #state{channel=Channel0}=State0) ->
+    Credits0 = blockchain_state_channel:credits(Channel0),
+    Channel1 = blockchain_state_channel:credits(Credits0+Amount, Channel0),
+    State1 = State0#state{channel=Channel1},
     {noreply, save_state(State1)};
-handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, credits=Credits,
-                                       nonce=Nonce, payments=Payments}=State0) ->
+handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, channel=Channel0}=State0) ->
     case blockchain_dcs_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
             {noreply, State0};
         true ->
             Amount = blockchain_dcs_payment_req:amount(Req),
+            Credits = blockchain_state_channel:credits(Channel0),
             case Credits - Amount >= 0 of
                 false ->
                     lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
                     {noreply, State0};
                 true ->
                     % TODO: Update packet stuff
+                    Nonce = blockchain_state_channel:nonce(Channel0),
                     Payee = blockchain_dcs_payment_req:payee(Req),
                     Payment = blockchain_dcs_payment:new(Payer, Payee, Amount, <<>>, Nonce+1),
                     SignedPayment = blockchain_dcs_payment:sign(Payment, PayerSigFun),
                     % TODO: Broadcast payment here
-                    State1 = State0#state{credits=Credits-Amount, nonce=Nonce+1, payments=[SignedPayment|Payments]},
+                    Payments = blockchain_state_channel:payments(Channel0),
+                    Channel1 = blockchain_state_channel:credits(Credits-Amount, Channel0),
+                    Channel2 = blockchain_state_channel:nonce(Nonce+1, Channel1),
+                    Channel3 = blockchain_state_channel:payments([SignedPayment|Payments], Channel2),
+                    State1 = State0#state{channel=Channel3},
                     {noreply, save_state(State1)}
             end
     end;
@@ -133,12 +136,12 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec save_state(state()) -> ok.
+-spec save_state(state()) -> state().
 save_state(#state{db=DB, keys={PubKeyBin, _}}=State) ->
     ok = rocksdb:put(DB, PubKeyBin, encode_state(State), []),
     State.
 
--spec load_state(rocksdb:db_handle(), {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()}) -> state().
+-spec load_state(rocksdb:db_handle(), {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()}) -> {ok, state()} | {error, any()}.
 load_state(DB, {PubKeyBin, _}=Keys) ->
     case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
         {ok, BinaryState} ->
@@ -148,9 +151,7 @@ load_state(DB, {PubKeyBin, _}=Keys) ->
             {ok, #state{
                 db=DB,
                 keys=Keys,
-                credits=0,
-                nonce=0,
-                packets=merkerl:new([], fun merkerl:hash_value/1)
+                channel=blockchain_state_channel:new(PubKeyBin)
             }};
         Error ->
             Error
@@ -179,9 +180,7 @@ save_load_test() ->
     State0 = #state{
         db=DB,
         keys=Keys0,
-        credits=0,
-        nonce=0,
-        packets=merkerl:new([], fun merkerl:hash_value/1)
+        channel=blockchain_state_channel:new(PubKeyBin0)
     },
     ?assertEqual(State0, save_state(State0)),
     ?assertEqual({ok, State0}, load_state(DB, Keys0)),
@@ -193,9 +192,7 @@ save_load_test() ->
     State1 = #state{
         db=DB,
         keys=Keys1,
-        credits=0,
-        nonce=0,
-        packets=merkerl:new([], fun merkerl:hash_value/1)
+        channel=blockchain_state_channel:new(PubKeyBin1)
     },
     ?assertEqual({ok, State1}, load_state(DB, Keys1)),
 
