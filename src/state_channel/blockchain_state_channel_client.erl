@@ -35,7 +35,8 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-    db :: rocksdb:db_handle() | undefined
+    db :: rocksdb:db_handle() | undefined,
+    channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
 }).
 
 % -type state() :: #state{}.
