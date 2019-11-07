@@ -71,8 +71,8 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{db=DB}) ->
+    ok = rocksdb:close(DB).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
