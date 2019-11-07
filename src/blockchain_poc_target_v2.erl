@@ -37,8 +37,8 @@ create_probs(GatewayScores) ->
 
 -spec prob(Score :: float()) -> float().
 prob(Score) ->
-    %% x^3
-    Score * Score * Score.
+    %% x^5
+    Score * Score * Score * Score * Score.
 
 -spec select_target([{float(), libp2p_crypto:pubkey_bin()}], float()) -> {ok, libp2p_crypto:pubkey_bin()}.
 select_target([{Prob1, GwAddr1}=_Head | _], Rnd) when Rnd - Prob1 =< 0 ->
