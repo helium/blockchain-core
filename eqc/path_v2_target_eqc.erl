@@ -26,7 +26,7 @@ prop_target_check() ->
                 {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
                                                                  blockchain_poc_target_v2:target(Hash, GatewayScores)
                                                          end),
-                io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))), Time]),
+                %% io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))), Time]),
 
                 {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                 {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),

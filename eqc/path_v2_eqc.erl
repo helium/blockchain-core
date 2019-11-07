@@ -15,14 +15,24 @@ prop_path_check() ->
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
-                GatewayScores = blockchain_poc_target_v2:filter(Ledger, Challenger, Height),
+
+                GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
+                                                   {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
+                                                   {Score, Gateway}
+                                           end,
+                                           ActiveGateways),
+
+                GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, Height, #{}),
+
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores),
-                Path = blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                    ActiveGateways,
-                                                    block_time(),
-                                                    Hash,
-                                                    PathLimit,
-                                                    #{}),
+                {Time, Path} = timer:tc(fun() ->
+                                                blockchain_poc_path_v2:build(TargetPubkeyBin,
+                                                                             ActiveGateways,
+                                                                             block_time(),
+                                                                             Hash,
+                                                                             PathLimit,
+                                                                             #{})
+                                        end),
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
@@ -45,7 +55,7 @@ prop_path_check() ->
                               blockchain_ledger_v1:close(Ledger),
                               io:format("Target: ~p~n", [TargetPubkeyBin]),
                               io:format("PathLimit: ~p~n", [PathLimit]),
-                              io:format("Path: ~p~n", [Path])
+                              io:format("Time: ~p, Path: ~p~n", [Time, HumanPath])
                           end,
                           %% Checks:
                           %% - honor path limit
