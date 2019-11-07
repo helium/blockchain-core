@@ -8,7 +8,7 @@
 -export([
     new/5,
     payer/1, payee/1, amount/1, packets/1, nonce/1, signature/1,
-    sign/2,
+    sign/2, validate/1,
     encode/1, decode/1
 ]).
 
@@ -60,6 +60,18 @@ sign(Payment, SigFun) ->
     EncodedPayment = ?MODULE:encode(Payment#helium_dcs_payment_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedPayment),
     Payment#helium_dcs_payment_v1_pb{signature=Signature}.
+
+-spec validate(dcs_payment()) -> true | {error, any()}.
+validate(Payment) ->
+    BasePayment = Payment#helium_dcs_payment_v1_pb{signature = <<>>},
+    EncodedPayment = ?MODULE:encode(BasePayment),
+    Signature = ?MODULE:signature(Payment),
+    Payer = ?MODULE:payer(Payment),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payer),
+    case libp2p_crypto:verify(EncodedPayment, Signature, PubKey) of
+        false -> {error, bad_signature};
+        true -> true
+    end.
 
 -spec encode(dcs_payment()) -> binary().
 encode(#helium_dcs_payment_v1_pb{}=Payment) ->
@@ -113,10 +125,12 @@ signature_test() ->
     ?assertEqual(<<>>, signature(Payment)).
 
 sign_test() ->
-    #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
-    ?assertNotEqual(<<>>, signature(sign(Payment, SigFun))).
+    Payment = new(PubKeyBin, <<"payee">>, 10, <<>>, 1),
+    ?assertNotEqual(<<>>, signature(sign(Payment, SigFun))),
+    ?assert(validate(sign(Payment, SigFun))).
 
 encode_decode_test() ->
     Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, 1),
