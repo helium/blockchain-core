@@ -87,6 +87,33 @@ packets(Packets, SC) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
+new_test() ->
+    SC = #state_channel{
+        owner= <<"owner">>,
+        credits=0,
+        nonce=0,
+        payments=[],
+        packets=merkerl:new([], fun merkerl:hash_value/1)
+    },
+    ?assertEqual(SC, new(<<"owner">>)).
 
+owner_test() ->
+    SC = new(<<"owner">>),
+    ?assertEqual(<<"owner">>, owner(SC)).
+
+credits_test() ->
+    SC = new(<<"owner">>),
+    ?assertEqual(0, credits(SC)),
+    ?assertEqual(10, credits(credits(10, SC))).
+
+nonce_test() ->
+    SC = new(<<"owner">>),
+    ?assertEqual(0, nonce(SC)),
+    ?assertEqual(1, nonce(nonce(1, SC))).
+
+payments_test() ->
+    SC = new(<<"owner">>),
+    ?assertEqual([], payments(SC)),
+    ?assertEqual([1, 2], payments(payments([1, 2], SC))).
 
 -endif.
