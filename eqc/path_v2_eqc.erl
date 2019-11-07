@@ -15,6 +15,7 @@ prop_path_check() ->
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
+                Vars = #{},
 
                 GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
                                                    {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
@@ -22,16 +23,16 @@ prop_path_check() ->
                                            end,
                                            ActiveGateways),
 
-                GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, Height, #{}),
+                GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, Height, Vars),
 
-                {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores),
+                {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores, Vars),
                 {Time, Path} = timer:tc(fun() ->
                                                 blockchain_poc_path_v2:build(TargetPubkeyBin,
                                                                              ActiveGateways,
                                                                              block_time(),
                                                                              Hash,
                                                                              PathLimit,
-                                                                             #{})
+                                                                             Vars)
                                         end),
 
                 blockchain_ledger_v1:close(Ledger),
