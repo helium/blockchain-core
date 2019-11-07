@@ -12,9 +12,10 @@
 -include("blockchain_utils.hrl").
 
   -export([
-    new/3,
+    new/3, new/4,
     hash/1,
     payer/1,
+    payee/1,
     amount/1,
     nonce/1,
     fee/1,
@@ -32,78 +33,60 @@
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
+<<<<<<< HEAD
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(),  pos_integer(), pos_integer()) -> txn_token_burn().
+=======
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
+>>>>>>> Add payee to token burn
 new(Payer, Amount, Nonce) ->
     #blockchain_txn_token_burn_v1_pb{
         payer=Payer,
+        payee=Payer,
         amount=Amount,
         nonce=Nonce,
         signature = <<>>
     }.
 
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
+new(Payer, Payee, Amount, Nonce) ->
+    #blockchain_txn_token_burn_v1_pb{
+        payer=Payer,
+        payee=Payee,
+        amount=Amount,
+        nonce=Nonce,
+        signature = <<>>
+    }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec print(txn_token_burn()) -> iodata().
-print(undefined) -> <<"type=token_burn undefined">>;
-print(#blockchain_txn_token_burn_v1_pb{type=Type, payer=Payer, key=Key,
-                                       amount=Amount, nonce=Nonce,
-                                       signature=Sig}) ->
-  io_lib:format("type=token_burn type=~p payer=~p key=~p amount=~p nonce=~p signature=~p",
-                [Type, ?TO_B58(Payer), Key, Amount, Nonce, Sig]).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_token_burn()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_token_burn_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer(txn_token_burn()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.payer.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec payee(txn_token_burn()) -> libp2p_crypto:pubkey_bin().
+payee(Txn) ->
+    Txn#blockchain_txn_token_burn_v1_pb.payee.
+
 -spec amount(txn_token_burn()) -> pos_integer().
 amount(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.amount.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec nonce(txn_token_burn()) -> pos_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.nonce.
 
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec fee(txn_token_burn()) -> 0.
 fee(_Txn) ->
     0.
 
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec signature(txn_token_burn()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.signature.
@@ -120,10 +103,7 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_token_burn_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_token_burn_v1_pb{signature=SigFun(EncodedTxn)}.
 
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -145,10 +125,7 @@ is_valid(Txn, Chain) ->
             end
     end.
 
- %%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -163,8 +140,9 @@ absorb(Txn, Chain) ->
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
+                    Payee = ?MODULE:payee(Txn),
                     Credits = Amount * Rate,
-                    blockchain_ledger_v1:credit_dc(Payer, Credits, Ledger)
+                    blockchain_ledger_v1:credit_dc(Payee, Credits, Ledger)
             end
     end.
 
@@ -174,18 +152,30 @@ absorb(Txn, Chain) ->
 -ifdef(TEST).
 
   new_test() ->
-    Tx = #blockchain_txn_token_burn_v1_pb{
+    Tx0 = #blockchain_txn_token_burn_v1_pb{
         payer= <<"payer">>,
-        key = <<>>,
+        payee= <<"payer">>,
         amount=666,
         nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, 666, 1)).
+    ?assertEqual(Tx0, new(<<"payer">>, 666, 1)),
+    Tx1 = #blockchain_txn_token_burn_v1_pb{
+        payer= <<"payer">>,
+        payee= <<"payee">>,
+        amount=666,
+        nonce=1,
+        signature = <<>>
+    },
+    ?assertEqual(Tx1, new(<<"payer">>, <<"payee">>, 666, 1)).
 
 payer_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
+
+payee_test() ->
+    Tx = new(<<"payer">>, 666, 1),
+    ?assertEqual(<<"payer">>, payee(Tx)).
 
 amount_test() ->
     Tx = new(<<"payer">>, 666, 1),
