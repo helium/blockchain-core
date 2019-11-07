@@ -161,17 +161,28 @@
 
 
 %% POC V4 vars
-%% normalize witnesses to this parent resolution, set to 11
+%% Normalize witnesses to this parent resolution, set to 11
 -define(poc_v4_parent_res, poc_v4_parent_res).
-%% number of grid cells to exclude when building a path, set to 10 for poc_v4_parent_res: 11
+%% Number of grid cells to exclude when building a path, set to 10 for poc_v4_parent_res: 11
 -define(poc_v4_exclusion_cells, poc_v4_exclusion_cells).
-%% next witness hop probability weights
--define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
--define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
--define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
 %% RSSI probabilities
+%% Probability associated with a next hop having no rssi information
 -define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi).
+%% Probability associated with a next hop having good rssi information
 -define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi).
+%% Probability associated with a next hop having bad rssi information
 -define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi).
+%% Weight associated with next hop rssi probability
+-define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
+%% Weight associated with next hop recent time probability
+-define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
+%% Weight associated with next hop witness count probability
+-define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
 %% A potential target must have a last poc challenge within this challenge_age
 -define(poc_v4_target_challenge_age, poc_v4_target_challenge_age).
+%% Score curve to calculate the target score probability: default: x^5
+-define(poc_v4_target_score_curve, poc_v4_target_score_curve).
+%% Weight associated with target score probability
+-define(poc_v4_target_prob_score_wt, poc_v4_target_prob_score_wt).
+%% Weight associated with target being loosely connected probability
+-define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt).
