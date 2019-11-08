@@ -11,7 +11,8 @@
     credits/1, credits/2,
     nonce/1, nonce/2,
     payments/1, payments/2,
-    packets/1, packets/2
+    packets/1, packets/2,
+    validate_payment/2
 ]).
 
 -ifdef(TEST).
@@ -77,6 +78,27 @@ packets(#state_channel{packets=Packets}) ->
 -spec packets(merkerl:merkle(), state_channel()) -> state_channel().
 packets(Packets, SC) ->
     SC#state_channel{packets=Packets}.
+
+-spec validate_payment(blockchain_dcs_payment:dcs_payment(), state_channel()) -> ok | {error, any()}.
+validate_payment(Payment, SC) ->
+    case blockchain_dcs_payment:validate(Payment) of
+        false ->
+            {error, invalid_payment};
+        true ->
+            SCNonce = blockchain_state_channel:nonce(SC),
+            PaymentNonce = blockchain_dcs_payment:nonce(Payment),
+            case SCNonce+1 == PaymentNonce of
+                false ->
+                    {error, bad_nonce};
+                true ->
+                    SCCredits = blockchain_state_channel:credits(SC),
+                    PaymenAmount = blockchain_dcs_payment:amount(Payment),
+                    case SCCredits-PaymenAmount >= 0 of
+                        false -> {error, not_enough_credit};
+                        true -> ok
+                    end
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
