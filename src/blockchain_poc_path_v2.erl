@@ -1,7 +1,7 @@
 %%%-----------------------------------------------------------------------------
 %%% @doc blockchain_poc_path_v2 implementation.
 %%%
-%%% The way path is build depends solely on witnessing data we have accumulated
+%%% The way paths are built depends solely on witnessing data we have accumulated
 %%% in the blockchain ledger.
 %%%
 %%% Consider X having [A, B, C, D] as its geographic neighbors but only
