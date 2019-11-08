@@ -1,5 +1,6 @@
 %%%-----------------------------------------------------------------------------
-%% Grind target selection
+%% Evaluate probabilistic accuracy of calculating inverse cumulative distritbution
+%% function.
 %%
 %% - Generate a random list: [{Weight: float, Node: binary}, ...]
 %%
