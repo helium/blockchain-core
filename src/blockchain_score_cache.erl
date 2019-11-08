@@ -94,7 +94,7 @@ init(_Args) ->
                      {write_concurrency, true},
                      {read_concurrency, true}]),
 
-    case application:get_env(blockchain, test, false) of
+    case application:get_env(blockchain, disable_score_cache, false) of
         false ->
             case  blockchain_worker:blockchain() of
                 undefined ->

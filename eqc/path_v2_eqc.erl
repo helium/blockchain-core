@@ -10,7 +10,7 @@ prop_path_check() ->
             {gen_hash(), gen_challenger_index(), gen_path_limit()},
             begin
                 Ledger = ledger(),
-                application:set_env(blockchain, test, true),
+                application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),

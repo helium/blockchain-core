@@ -9,7 +9,7 @@ prop_target_check() ->
     ?FORALL({Hash, ChallengerIndex}, {gen_hash(), gen_challenger_index()},
             begin
                 Ledger = ledger(),
-                application:set_env(blockchain, test, true),
+                application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
