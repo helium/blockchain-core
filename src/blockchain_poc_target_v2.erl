@@ -47,24 +47,16 @@ target(Hash, GatewayScoreMap, Vars) ->
              Height :: pos_integer(),
              Vars :: map()) -> gateway_score_map().
 filter(GatewayScoreMap, Challenger, Height, Vars) ->
-    lists:foldl(fun({Addr, {Score, Gateway}}, Acc) ->
+    maps:filter(fun(_Addr, {_Score, Gateway}) ->
                         case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
                             undefined ->
                                 %% No POC challenge, don't include
-                                Acc;
+                                false;
                             C ->
-                                case (Height - C) < challenge_age(Vars) of
-                                    false ->
-                                        %% Last challenge too old, don't include
-                                        Acc;
-                                    true ->
-                                        maps:put(Addr, {Score, Gateway}, Acc)
-                                end
+                                (Height - C) < challenge_age(Vars)
                         end
                 end,
-                #{},
-                %% exclude the challenger itself
-                lists:keysort(1, maps:to_list(maps:without([Challenger], GatewayScoreMap)))).
+                maps:without([Challenger], GatewayScoreMap)).
 
 %%%-------------------------------------------------------------------
 %% Helpers
