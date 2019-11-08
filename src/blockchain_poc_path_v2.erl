@@ -6,7 +6,7 @@
 %%%
 %%% Consider X having [A, B, C, D] as its geographic neighbors but only
 %%% having [A, C, E] as it's transmission witnesses. It stands to reason
-%%% that we would expect packets from X -> any[A, C, E] to work with relative
+%%% that we would expect packets from X -> any[A, C, E] to work with relatively
 %%% high confidence compared to its geographic neighbors. RF varies
 %%% heavily depending on surroundings therefore relying only on geographic
 %%% vicinity is not enough to build potentially interesting paths.
