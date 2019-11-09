@@ -17,58 +17,64 @@ prop_path_check() ->
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 Vars = #{},
 
-                GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
-                                                   {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
-                                                   {Score, Gateway}
-                                           end,
-                                           ActiveGateways),
+                case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
+                    undefined ->
+                        true;
+                    ChallengerLoc ->
 
-                GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, Height, Vars),
+                        GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
+                                                           {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
+                                                           {Score, Gateway}
+                                                   end,
+                                                   ActiveGateways),
 
-                {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores, Vars),
-                {Time, Path} = timer:tc(fun() ->
-                                                blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                                             ActiveGateways,
-                                                                             block_time(),
-                                                                             Hash,
-                                                                             PathLimit,
-                                                                             Vars)
-                                        end),
+                        GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
 
-                blockchain_ledger_v1:close(Ledger),
-                blockchain_score_cache:stop(),
+                        {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores, Vars),
+                        {Time, Path} = timer:tc(fun() ->
+                                                        blockchain_poc_path_v2:build(TargetPubkeyBin,
+                                                                                     ActiveGateways,
+                                                                                     block_time(),
+                                                                                     Hash,
+                                                                                     PathLimit,
+                                                                                     Vars)
+                                                end),
 
-                PathLength = length(Path),
+                        blockchain_ledger_v1:close(Ledger),
+                        blockchain_score_cache:stop(),
 
-                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
-                HumanPath = [name(P) || P <- Path],
+                        PathLength = length(Path),
 
-                case length(Path) > 1 of
-                    true ->
-                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
-                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
-                    false ->
-                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
-                end,
+                        B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+                        HumanPath = [name(P) || P <- Path],
+
+                        case length(Path) > 1 of
+                            true ->
+                                ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                                ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
+                            false ->
+                                ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
+                        end,
 
 
-                ?WHENFAIL(begin
-                              blockchain_ledger_v1:close(Ledger),
-                              io:format("Target: ~p~n", [TargetPubkeyBin]),
-                              io:format("PathLimit: ~p~n", [PathLimit]),
-                              io:format("Time: ~p, Path: ~p~n", [Time, HumanPath])
-                          end,
-                          %% Checks:
-                          %% - honor path limit
-                          %% - atleast one element in path
-                          %% - target is always in path
-                          %% - we never go back to the same h3 index in path
-                          %% - check next hop is an witness of previous gateway
-                          conjunction([{verify_path_length, PathLength =< PathLimit andalso PathLength >= 1},
-                                       {verify_path_uniqueness, length(Path) == length(lists:usort(Path))},
-                                       {verify_target_membership, lists:member(TargetPubkeyBin, Path)},
-                                       {verify_next_hops, check_next_hop(Path, ActiveGateways)}
-                                      ]))
+                        ?WHENFAIL(begin
+                                      blockchain_ledger_v1:close(Ledger),
+                                      io:format("Target: ~p~n", [TargetPubkeyBin]),
+                                      io:format("PathLimit: ~p~n", [PathLimit]),
+                                      io:format("Time: ~p, Path: ~p~n", [Time, HumanPath])
+                                  end,
+                                  %% Checks:
+                                  %% - honor path limit
+                                  %% - atleast one element in path
+                                  %% - target is always in path
+                                  %% - we never go back to the same h3 index in path
+                                  %% - check next hop is an witness of previous gateway
+                                  conjunction([{verify_path_length, PathLength =< PathLimit andalso PathLength >= 1},
+                                               {verify_path_uniqueness, length(Path) == length(lists:usort(Path))},
+                                               {verify_target_membership, lists:member(TargetPubkeyBin, Path)},
+                                               {verify_next_hops, check_next_hop(Path, ActiveGateways)}
+                                              ]))
+                end
 
             end).
 
