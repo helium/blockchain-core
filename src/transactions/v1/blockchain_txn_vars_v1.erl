@@ -659,6 +659,8 @@ validate_var(?poc_v4_prob_bad_rssi, Value) ->
     validate_float(Value, "poc_v4_prob_bad_rssi", 0.0, 1.0);
 validate_var(?poc_v4_target_score_curve, Value) ->
     validate_int(Value, "poc_v4_target_score_curve", 3, 7, false);
+validate_var(?poc_v4_target_exclusion_cells, Value) ->
+    validate_int(Value, "poc_v4_target_exclusion_cells", 6000, 40000, false);
 validate_var(?poc_v4_target_challenge_age, Value) ->
     validate_int(Value, "poc_v4_target_challenge_age", 30, 1000, false);
 validate_var(?poc_v4_target_prob_score_wt, Value) ->

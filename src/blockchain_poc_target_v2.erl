@@ -15,10 +15,15 @@
 -define(POC_V4_TARGET_CHALLENGE_AGE, 300).
 -define(POC_V4_TARGET_PROB_SCORE_WT, 0.8).
 -define(POC_V4_TARGET_PROB_EDGE_WT, 0.2).
--define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
+%% Normalize to 11 res by default unless chain var specified.
+-define(POC_V4_PARENT_RES, 11).
+%% Exclude 6000 grid cells when trying to find a potential by default
+%% target from a given challenger. Normalized to parent_res.
+%% This is roughly 100KM.
+-define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
 
 -export([
-         target/3, filter/4
+         target/3, filter/5
         ]).
 
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
@@ -42,21 +47,29 @@ target(Hash, GatewayScoreMap, Vars) ->
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
 %% - Dont target the challenger gateway itself.
+%% - Ensure that potential target is far from the challenger to avoid collusion.
 -spec filter(GatewayScoreMap :: gateway_score_map(),
-             Challenger :: libp2p_crypto:pubkey_bin(),
+             ChallengerAddr :: libp2p_crypto:pubkey_bin(),
+             ChallengerLoc :: h3:index(),
              Height :: pos_integer(),
              Vars :: map()) -> gateway_score_map().
-filter(GatewayScoreMap, Challenger, Height, Vars) ->
+filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
     maps:filter(fun(_Addr, {_Score, Gateway}) ->
                         case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
                             undefined ->
                                 %% No POC challenge, don't include
                                 false;
                             C ->
-                                (Height - C) < challenge_age(Vars)
+                                %% Check challenge age is recent depending on the set chain var
+                                (Height - C) < challenge_age(Vars) andalso
+                                %% Check that the potential target is far enough from the challenger
+                                %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
+                                %% so this should be safe.
+                                check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars)
+
                         end
                 end,
-                maps:without([Challenger], GatewayScoreMap)).
+                maps:without([ChallengerAddr], GatewayScoreMap)).
 
 %%%-------------------------------------------------------------------
 %% Helpers
@@ -154,7 +167,34 @@ score_curve(Score, Vars) ->
 parent_res(Vars) ->
     maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
 
+-spec target_exclusion_cells(Vars :: map()) -> pos_integer().
+target_exclusion_cells(Vars) ->
+    maps:get(poc_v4_target_exclusion_cells, Vars, ?POC_V4_TARGET_EXCLUSION_CELLS).
+
 -spec locations(GatewayScoreMap :: gateway_score_map()) -> [h3:index()].
 locations(GatewayScoreMap) ->
     %% Get all locations from score map
     [blockchain_ledger_gateway_v2:location(G) || {_, G} <- maps:values(GatewayScoreMap)].
+
+-spec check_challenger_distance(ChallengerLoc :: h3:index(),
+                                GatewayLoc :: h3:index(),
+                                Vars :: map()) -> boolean().
+check_challenger_distance(ChallengerLoc, GatewayLoc, Vars) ->
+    %% Number of grid cells to exclude when considering the gateway_loc as a potential target
+    ExclusionCells = target_exclusion_cells(Vars),
+    %% Normalizing resolution
+    ParentRes = parent_res(Vars),
+    %% Parent h3 index of the challenger
+    ChallengerParent = h3:parent(ChallengerLoc, ParentRes),
+    %% Parent h3 index of the gateway being considered
+    GatewayParent = h3:parent(GatewayLoc, ParentRes),
+    %% Check that they are far
+    try h3:grid_distance(ChallengerParent, GatewayParent) > ExclusionCells of
+        Res -> Res
+    catch
+        %% Grid distance may badarg because of pentagonal distortion or
+        %% non matching resolutions or just being too far.
+        %% In either of those cases, we assume that the gateway
+        %% is potentially legitimate to be a target.
+        _:_ -> true
+    end.
