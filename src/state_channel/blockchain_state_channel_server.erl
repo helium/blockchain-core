@@ -38,7 +38,7 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
-    keys :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
+    swarm :: pid(),
     state_channel :: blockchain_state_channel:state_channel()
 }).
 
@@ -70,12 +70,10 @@ burn(Amount) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(_Args) ->
+init([Swarm]=_Args) ->
+    lager:info("~p init with ~p", [?SERVER, _Args]),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, PubKey, SigFun, _} = blockchain_swarm:keys(),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Keys = {PubKeyBin, SigFun},
-    {ok, State} = load_state(DB, Keys),
+    {ok, State} = load_state(DB, Swarm),
     {ok, State}.
 
 handle_call(credits, _From, #state{state_channel=SC}=State) ->
@@ -91,7 +89,7 @@ handle_cast({burn, Amount}, #state{state_channel=SC0}=State0) ->
     SC1 = blockchain_state_channel:credits(Credits0+Amount, SC0),
     State1 = State0#state{state_channel=SC1},
     {noreply, save_state(State1)};
-handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, state_channel=SC0}=State0) ->
+handle_cast({payment_req, Req}, #state{swarm=Swarm, state_channel=SC0}=State0) ->
     case blockchain_dcs_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
@@ -104,6 +102,8 @@ handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, state_channel=
                     lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
                     {noreply, State0};
                 true ->
+                    {ok, PubKey, PayerSigFun, _} =libp2p_swarm:keys(Swarm),
+                    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
                     % TODO: Update packet stuff
                     Nonce = blockchain_state_channel:nonce(SC0),
                     Payee = blockchain_dcs_payment_req:payee(Req),
@@ -134,20 +134,24 @@ terminate(_Reason, _state) ->
 %% ------------------------------------------------------------------
 
 -spec save_state(state()) -> state().
-save_state(#state{db=DB, keys={PubKeyBin, _}}=State) ->
+save_state(#state{db=DB, swarm=Swarm}=State) ->
+    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     ok = rocksdb:put(DB, PubKeyBin, encode_state(State), []),
     State.
 
--spec load_state(rocksdb:db_handle(), {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()}) -> {ok, state()} | {error, any()}.
-load_state(DB, {PubKeyBin, _}=Keys) ->
+-spec load_state(rocksdb:db_handle(), pid()) -> {ok, state()} | {error, any()}.
+load_state(DB, Swarm) ->
+    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
         {ok, BinaryState} ->
             State = decode_state(BinaryState),
-            {ok, State#state{db=DB, keys=Keys}};
+            {ok, State#state{db=DB, swarm=Swarm}};
         not_found ->
             {ok, #state{
                 db=DB,
-                keys=Keys,
+                swarm=Swarm,
                 state_channel=blockchain_state_channel:new(PubKeyBin)
             }};
         Error ->
@@ -156,7 +160,7 @@ load_state(DB, {PubKeyBin, _}=Keys) ->
 
 -spec encode_state(state()) -> binary().
 encode_state(State) ->
-    erlang:term_to_binary(State#state{db=undefined, keys=undefined}).
+    erlang:term_to_binary(State#state{db=undefined, swarm=undefined}).
 
 -spec decode_state(binary()) -> state().
 decode_state(BinaryState) ->
@@ -170,28 +174,26 @@ decode_state(BinaryState) ->
 save_load_test() ->
     BaseDir = test_utils:tmp_dir("save_load_test"),
     {ok, DB} = open_db(BaseDir),
-    #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
+    {ok, Swarm0} = start_swarm(save_load_test0, BaseDir),
+    {ok, PubKey0, _, _} =libp2p_swarm:keys(Swarm0),
     PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
-    SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
-    Keys0 = {PubKeyBin0, SigFun0},
     State0 = #state{
         db=DB,
-        keys=Keys0,
+        swarm=Swarm0,
         state_channel=blockchain_state_channel:new(PubKeyBin0)
     },
     ?assertEqual(State0, save_state(State0)),
-    ?assertEqual({ok, State0}, load_state(DB, Keys0)),
+    ?assertEqual({ok, State0}, load_state(DB, Swarm0)),
 
-    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    {ok, Swarm1} = start_swarm(save_load_test1, BaseDir),
+    {ok, PubKey1, _, _} =libp2p_swarm:keys(Swarm1),
     PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
-    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
-    Keys1 = {PubKeyBin1, SigFun1},
     State1 = #state{
         db=DB,
-        keys=Keys1,
+        swarm=Swarm1,
         state_channel=blockchain_state_channel:new(PubKeyBin1)
     },
-    ?assertEqual({ok, State1}, load_state(DB, Keys1)),
+    ?assertEqual({ok, State1}, load_state(DB, Swarm1)),
 
     ok = rocksdb:close(DB),
     ok.
@@ -204,5 +206,10 @@ open_db(Dir) ->
     DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
     {ok, _DB} = rocksdb:open(DBDir, DBOptions).
 
+
+start_swarm(Name, BaseDir) ->
+    NewOpts = lists:keystore(base_dir, 1, [], {base_dir, BaseDir})
+        ++ [{libp2p_nat, [{enabled, false}]}],
+    libp2p_swarm:start(Name, NewOpts).
 
 -endif.
