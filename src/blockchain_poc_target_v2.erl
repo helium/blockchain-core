@@ -140,7 +140,9 @@ calc_edge_prob(Locations, Gateway, Vars) ->
     %% Prob of being loosely connected
     1 - (length(Intersect)/length(Locations)).
 
--spec select_target([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {ok, libp2p_crypto:pubkey_bin()}.
+-spec select_target([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
+select_target([], _) ->
+    {error, no_target};
 select_target([{GwAddr, Prob}=_Head | _], Rnd) when Rnd - Prob =< 0 ->
     {ok, GwAddr};
 select_target([{_GwAddr, Prob} | Tail], Rnd) ->
