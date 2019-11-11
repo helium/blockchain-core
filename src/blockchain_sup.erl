@@ -105,7 +105,7 @@ init(Args) ->
     %% we call `ets:give_away' every time we start_link the txn manager
     BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
     BTxnMgrSupOpts = [],
-    DCsSupOpts = [BaseDir],
+    StateChannelSupOpts = [BaseDir],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
@@ -114,7 +114,7 @@ init(Args) ->
         ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts]),
-        ?SUP(blockchain_dcs_sup, [DCsSupOpts])
+        ?SUP(blockchain_state_channel_sup, [StateChannelSupOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
