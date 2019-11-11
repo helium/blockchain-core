@@ -13,7 +13,9 @@
 
 -export([
     server/4,
-    client/2
+    client/2,
+    dial/3,
+    send_payment_req/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -25,6 +27,8 @@
     handle_info/3
 ]).
 
+-include("blockchain.hrl").
+
 -record(state, {}).
 
 %% ------------------------------------------------------------------
@@ -35,6 +39,16 @@ client(Connection, Args) ->
 
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
+
+dial(Swarm, Peer, Opts) ->
+    libp2p_swarm:dial_framed_stream(Swarm,
+                                    Peer,
+                                    ?STATE_CHANNEL_PROTOCOL,
+                                    ?MODULE,
+                                    Opts).
+
+send_payment_req(Pid, Req) ->
+    Pid ! {send_payment_req, Req}.
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
@@ -49,7 +63,10 @@ handle_data(client, _Data, State) ->
 handle_data(server, _Data, State) ->
     {noreply, State}.
 
-handle_info(client, _MSg, State) ->
+handle_info(client, {send_payment_req, Req}, State) ->
+    Data = blockchain_dcs_payment_req:encode(Req),
+    {noreply, State, Data};
+handle_info(client, _Msg, State) ->
     {noreply, State};
-handle_info(server, _MSg, State) ->
+handle_info(server, _Msg, State) ->
     {noreply, State}.
