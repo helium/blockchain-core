@@ -62,7 +62,6 @@ prop_path_check() ->
                                 %% fail in all other scenarios
                                 false
                         end,
-
                 unload_meck(),
                 ?WHENFAIL(begin
                               io:format("UseTarget: ~p~n", [UseTarget]),
@@ -189,7 +188,8 @@ build_fake_ledger(TestDir, ScoredIndices, ExclusionRingDist, MaxGridDist, PathLi
                                 {ok, L}
                         end
                 end),
-
+    meck:new(blockchain_score_cache, [passthrough]),
+    meck:expect(blockchain_score_cache, fetch, fun(_, Fun) -> Fun() end),
     N = length(ScoredIndices),
     OwnerAndGateways = [{O, G} || {{O, _}, {G, _}} <- lists:zip(generate_keys(N), generate_keys(N))],
 
@@ -225,7 +225,10 @@ nonl([]) -> [].
 
 unload_meck() ->
     ?assert(meck:validate(blockchain)),
-    meck:unload(blockchain).
+    meck:unload(blockchain),
+    ?assert(meck:validate(blockchain_score_cache)),
+    meck:unload(blockchain_score_cache).
+
 
 indexed_target(Hash, Index, ScoredIndices, ActiveGateways, Ledger) ->
     {TargetIndex, {_A, _B}} = lists:nth(Index + 1, ScoredIndices),
