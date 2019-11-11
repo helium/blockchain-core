@@ -40,9 +40,15 @@ start_link(Args) ->
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
+    Swarm = blockchain_swarm:swarm(),
+    ok = libp2p_swarm:add_stream_handler(
+        Swarm,
+        ?STATE_CHANNEL_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_state_channel_handler]}
+    ),
     DBOpts = [BaseDir],
-    ServerOpts = [],
-    ClientOpts = [],
+    ServerOpts = [Swarm],
+    ClientOpts = [Swarm],
     ChildSpecs = [
         ?WORKER(blockchain_state_channel_db, [DBOpts]),
         ?WORKER(blockchain_state_channel_server, [ServerOpts]),
