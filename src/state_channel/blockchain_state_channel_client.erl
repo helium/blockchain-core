@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
+    start_link/1,
+    payment/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -48,6 +49,10 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec payment(blockchain_dcs_payment:dcs_payment()) -> ok.
+payment(Payment) ->
+    gen_server:cast(?SERVER, {payment, Payment}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -60,15 +65,37 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({payment, Payment}, #state{state_channels=_SCS}=State) ->
+handle_cast({packet, Packet}, #state{swarm=Swarm}=State) ->
+    {ok, PubKey, SigFun, _} =libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    % TODO: Do something to save packet and create fingerprint
+    % TODO: Get amount from somewhere?
+    Req = blockchain_dcs_payment_req:new(PubKeyBin, 1, Packet),
+    SignedReq = blockchain_dcs_payment_req:sign(Req, SigFun),
+    Peer = <<>>, % TODO: get peer
+    case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
+        {error, _Reason} ->
+            {noreply, State};
+        {ok, Pid} ->
+            blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
+            {noreply, State}
+    end;
+handle_cast({payment, Payment}, #state{state_channels=SCS0}=State) ->
     case validate_payment(Payment, State) of
         {error, _Reason} ->
             lager:warning("ignored unvalid payment ~p ~p", [_Reason, Payment]),
             {noreply, State};
         ok ->
-            % Owner = blockchain_dcs_payment:payer(Payment),
-            % SC = maps:get(Owner, SCS, undefined),
-            {noreply, State}
+            Owner = blockchain_dcs_payment:payer(Payment),
+            case maps:get(Owner, SCS0, undefined) of
+                undefined ->
+                    lager:warning("ignored unknown payment ~p", [Payment]),
+                    {noreply, State};
+                SC0 ->
+                    SC1 = blockchain_state_channel:add_payment(Payment, SC0),
+                    SCS1 = maps:put(Owner, SC1, SCS0),
+                    {noreply, State#state{state_channels=SCS1}}
+            end
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
