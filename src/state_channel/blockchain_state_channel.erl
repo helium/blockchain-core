@@ -12,7 +12,8 @@
     nonce/1, nonce/2,
     payments/1, payments/2,
     packets/1, packets/2,
-    validate_payment/2
+    validate_payment/2,
+    add_payment/2
 ]).
 
 -ifdef(TEST).
@@ -99,6 +100,16 @@ validate_payment(Payment, SC) ->
                     end
             end
     end.
+
+-spec add_payment(blockchain_dcs_payment:dcs_payment(), state_channel()) -> state_channel().
+add_payment(Payment, SC0) ->
+    Credits = ?MODULE:credits(SC0),
+    Payments = ?MODULE:payments(SC0),
+    Nonce = blockchain_dcs_payment:nonce(Payment),
+    Amount = blockchain_dcs_payment:amount(Payment),
+    SC1 = ?MODULE:credits(Credits-Amount, SC0),
+    SC2 = ?MODULE:nonce(Nonce, SC1),
+    ?MODULE:payments([Payment|Payments], SC2).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
