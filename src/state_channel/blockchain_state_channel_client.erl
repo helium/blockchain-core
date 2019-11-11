@@ -36,6 +36,7 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
+    swarm :: pid(),
     state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
 }).
 
@@ -50,9 +51,10 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(_Args) ->
+init([Swarm]=_Args) ->
+    lager:info("~p init with ~p", [?SERVER, _Args]),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, #state{db=DB}}.
+    {ok, #state{db=DB, swarm=Swarm}}.
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
