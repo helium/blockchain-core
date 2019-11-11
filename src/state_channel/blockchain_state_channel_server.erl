@@ -39,7 +39,7 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     keys :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
-    channel :: blockchain_state_channel:state_channel()
+    state_channel :: blockchain_state_channel:state_channel()
 }).
 
 -type state() :: #state{}.
@@ -78,43 +78,40 @@ init(_Args) ->
     {ok, State} = load_state(DB, Keys),
     {ok, State}.
 
-handle_call(credits, _From, #state{channel=Channel}=State) ->
-    {reply, {ok, blockchain_state_channel:credits(Channel)}, State};
-handle_call(nonce, _From, #state{channel=Channel}=State) ->
-    {reply, {ok, blockchain_state_channel:nonce(Channel)}, State};
+handle_call(credits, _From, #state{state_channel=SC}=State) ->
+    {reply, {ok, blockchain_state_channel:credits(SC)}, State};
+handle_call(nonce, _From, #state{state_channel=SC}=State) ->
+    {reply, {ok, blockchain_state_channel:nonce(SC)}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, Amount}, #state{channel=Channel0}=State0) ->
-    Credits0 = blockchain_state_channel:credits(Channel0),
-    Channel1 = blockchain_state_channel:credits(Credits0+Amount, Channel0),
-    State1 = State0#state{channel=Channel1},
+handle_cast({burn, Amount}, #state{state_channel=SC0}=State0) ->
+    Credits0 = blockchain_state_channel:credits(SC0),
+    SC1 = blockchain_state_channel:credits(Credits0+Amount, SC0),
+    State1 = State0#state{state_channel=SC1},
     {noreply, save_state(State1)};
-handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, channel=Channel0}=State0) ->
+handle_cast({payment_req, Req}, #state{keys={Payer, PayerSigFun}, state_channel=SC0}=State0) ->
     case blockchain_dcs_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
             {noreply, State0};
         true ->
             Amount = blockchain_dcs_payment_req:amount(Req),
-            Credits = blockchain_state_channel:credits(Channel0),
+            Credits = blockchain_state_channel:credits(SC0),
             case Credits - Amount >= 0 of
                 false ->
                     lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
                     {noreply, State0};
                 true ->
                     % TODO: Update packet stuff
-                    Nonce = blockchain_state_channel:nonce(Channel0),
+                    Nonce = blockchain_state_channel:nonce(SC0),
                     Payee = blockchain_dcs_payment_req:payee(Req),
                     Payment = blockchain_dcs_payment:new(Payer, Payee, Amount, <<>>, Nonce+1),
                     SignedPayment = blockchain_dcs_payment:sign(Payment, PayerSigFun),
                     % TODO: Broadcast payment here
-                    Payments = blockchain_state_channel:payments(Channel0),
-                    Channel1 = blockchain_state_channel:credits(Credits-Amount, Channel0),
-                    Channel2 = blockchain_state_channel:nonce(Nonce+1, Channel1),
-                    Channel3 = blockchain_state_channel:payments([SignedPayment|Payments], Channel2),
-                    State1 = State0#state{channel=Channel3},
+                    SC1 = blockchain_state_channel:add_payment(SignedPayment, SC0),
+                    State1 = State0#state{state_channel=SC1},
                     {noreply, save_state(State1)}
             end
     end;
@@ -151,7 +148,7 @@ load_state(DB, {PubKeyBin, _}=Keys) ->
             {ok, #state{
                 db=DB,
                 keys=Keys,
-                channel=blockchain_state_channel:new(PubKeyBin)
+                state_channel=blockchain_state_channel:new(PubKeyBin)
             }};
         Error ->
             Error
@@ -180,7 +177,7 @@ save_load_test() ->
     State0 = #state{
         db=DB,
         keys=Keys0,
-        channel=blockchain_state_channel:new(PubKeyBin0)
+        state_channel=blockchain_state_channel:new(PubKeyBin0)
     },
     ?assertEqual(State0, save_state(State0)),
     ?assertEqual({ok, State0}, load_state(DB, Keys0)),
@@ -192,7 +189,7 @@ save_load_test() ->
     State1 = #state{
         db=DB,
         keys=Keys1,
-        channel=blockchain_state_channel:new(PubKeyBin1)
+        state_channel=blockchain_state_channel:new(PubKeyBin1)
     },
     ?assertEqual({ok, State1}, load_state(DB, Keys1)),
 
