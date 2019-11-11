@@ -15,7 +15,7 @@ prop_path_check() ->
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
-                Vars = #{},
+                Vars = #{poc_path_limit => PathLimit},
 
                 case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
                     undefined ->
@@ -36,7 +36,6 @@ prop_path_check() ->
                                                                                      ActiveGateways,
                                                                                      block_time(),
                                                                                      Hash,
-                                                                                     PathLimit,
                                                                                      Vars)
                                                 end),
 

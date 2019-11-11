@@ -41,7 +41,7 @@
 -module(blockchain_poc_path_v2).
 
 -export([
-    build/6
+    build/5
 ]).
 
 -define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
@@ -66,9 +66,8 @@
             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
             HeadBlockTime :: pos_integer(),
             Hash :: binary(),
-            Limit :: pos_integer(),
             Vars :: map()) -> path().
-build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
+build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Vars) ->
     true =  maps:is_key(TargetPubkeyBin, ActiveGateways),
     TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
     RandState = blockchain_utils:rand_state(Hash),
@@ -77,7 +76,6 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
            HeadBlockTime,
            Vars,
            RandState,
-           Limit,
            [TargetGwLoc],
            [TargetPubkeyBin]).
 
@@ -89,15 +87,13 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Limit, Vars) ->
              HeadBlockTime :: pos_integer(),
              Vars :: map(),
              RandState :: rand:state(),
-             Limit :: pos_integer(),
              Indices :: [h3:h3_index()],
              Path :: path()) -> path().
 build_(TargetPubkeyBin,
        ActiveGateways,
        HeadBlockTime,
-       Vars,
+       #{poc_path_limit := Limit}=Vars,
        RandState,
-       Limit,
        Indices,
        Path) when length(Path) < Limit ->
     %% Try to find a next hop
@@ -115,11 +111,10 @@ build_(TargetPubkeyBin,
                    HeadBlockTime,
                    Vars,
                    NewRandState,
-                   Limit,
                    [Index | Indices],
                    NewPath)
     end;
-build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Limit, _Indices, Path) ->
+build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
     lists:reverse(Path).
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
