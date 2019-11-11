@@ -36,10 +36,10 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
-    channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
+    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
 }).
 
-% -type state() :: #state{}.
+-type state() :: #state{}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -58,6 +58,16 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({payment, Payment}, #state{state_channels=_SCS}=State) ->
+    case validate_payment(Payment, State) of
+        {error, _Reason} ->
+            lager:warning("ignored unvalid payment ~p ~p", [_Reason, Payment]),
+            {noreply, State};
+        ok ->
+            % Owner = blockchain_dcs_payment:payer(Payment),
+            % SC = maps:get(Owner, SCS, undefined),
+            {noreply, State}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -75,6 +85,14 @@ terminate(_Reason,  #state{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec validate_payment(blockchain_dcs_payment:dcs_payment(), state()) -> ok | {error, any()}.
+validate_payment(Payment, #state{state_channels=SCS}) ->
+    Owner = blockchain_dcs_payment:payer(Payment),
+    case maps:get(Owner, SCS, undefined) of
+        undefined -> {error, unknown_payment};
+        SC -> blockchain_state_channel:validate_payment(Payment, SC)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
