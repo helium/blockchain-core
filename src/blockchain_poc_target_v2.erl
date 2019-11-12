@@ -34,7 +34,7 @@
 %% Favors high scoring gateways, dependent on score^5 curve.
 -spec target(Hash :: binary(),
              GatewayScoreMap :: gateway_score_map(),
-             Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()}.
+             Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
 target(Hash, GatewayScoreMap, Vars) ->
     ProbScores = score_prob(GatewayScoreMap, Vars),
     ProbEdges = edge_prob(GatewayScoreMap, Vars),
