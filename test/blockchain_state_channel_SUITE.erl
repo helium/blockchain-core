@@ -50,14 +50,16 @@ end_per_testcase(_TestCase, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic_test(Config) ->
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain_swarm, keys, fun() ->
-        #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-        SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-        {ok, PubKey, SigFun, undefined}
-    end),
-
     BaseDir = proplists:get_value(base_dir, Config),
+    SwarmOpts = [
+        {libp2p_nat, [{enabled, false}]},
+        {base_dir, BaseDir}
+    ],
+    {ok, Swarm} = libp2p_swarm:start(basic_test, SwarmOpts),
+
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
+    
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
 
     ?assert(erlang:is_process_alive(Sup)),
@@ -79,6 +81,7 @@ basic_test(Config) ->
     ?assertEqual({ok, 1}, blockchain_state_channel_server:nonce()),
 
     true = erlang:exit(Sup, normal),
+    ok = libp2p_swarm:stop(Swarm),
     ?assert(meck:validate(blockchain_swarm)),
     meck:unload(blockchain_swarm),
     ok.
