@@ -21,7 +21,7 @@
 
 -type dcs_payment_req() ::#helium_dcs_payment_req_v1_pb{}.
 
--spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), binary()) -> dcs_payment_req().
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> dcs_payment_req().
 new(Payee, Amount, Fingerprint) -> 
     #helium_dcs_payment_req_v1_pb{
         payee=Payee,
@@ -37,7 +37,7 @@ payee(#helium_dcs_payment_req_v1_pb{payee=Payee}) ->
 amount(#helium_dcs_payment_req_v1_pb{amount=Amount}) ->
     Amount.
 
--spec fingerprint(dcs_payment_req()) -> binary().
+-spec fingerprint(dcs_payment_req()) -> integer().
 fingerprint(#helium_dcs_payment_req_v1_pb{fingerprint=Fingerprint}) ->
     Fingerprint.
 
@@ -90,42 +90,42 @@ new_test() ->
     Req = #helium_dcs_payment_req_v1_pb{
         payee= <<"payee">>,
         amount=1,
-        fingerprint= <<"fingerprint">>
+        fingerprint= 12
     },
-    ?assertEqual(Req, new(<<"payee">>, 1, <<"fingerprint">>)).
+    ?assertEqual(Req, new(<<"payee">>, 1, 12)).
 
 payee_test() ->
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    Req = new(<<"payee">>, 1, 12),
     ?assertEqual(<<"payee">>, payee(Req)).
 
 amount_test() ->
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    Req = new(<<"payee">>, 1, 12),
     ?assertEqual(1, amount(Req)).
 
 fingerprint_test() ->
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
-    ?assertEqual(<<"fingerprint">>, fingerprint(Req)).
+    Req = new(<<"payee">>, 1, 12),
+    ?assertEqual(12, fingerprint(Req)).
 
 signature_test() ->
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    Req = new(<<"payee">>, 1, 12),
     ?assertEqual(<<>>, signature(Req)).
 
 sign_test() ->
     #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    Req = new(<<"payee">>, 1, 12),
     ?assertNotEqual(<<>>, signature(sign(Req, SigFun))).
 
 validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req0 = new(PubKeyBin, 1, <<"fingerprint">>),
+    Req0 = new(PubKeyBin, 1, 12),
     Req1 = sign(Req0, SigFun),
     ?assertEqual(true, validate(Req1)).
 
 encode_decode_test() ->
-    Req = new(<<"payee">>, 1, <<"fingerprint">>),
+    Req = new(<<"payee">>, 1, 12),
     ?assertEqual(Req, decode(encode(Req))).
 
 -endif.
