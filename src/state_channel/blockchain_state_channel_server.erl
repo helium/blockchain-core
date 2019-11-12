@@ -84,26 +84,25 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({burn, Amount}, #state{state_channel=SC0}=State0) ->
+handle_cast({burn, Amount}, #state{state_channel=SC0}=State) ->
     Credits0 = blockchain_state_channel:credits(SC0),
     SC1 = blockchain_state_channel:credits(Credits0+Amount, SC0),
-    State1 = State0#state{state_channel=SC1},
-    {noreply, save_state(State1)};
-handle_cast({payment_req, Req}, #state{swarm=Swarm, state_channel=SC0}=State0) ->
+    {noreply, State#state{state_channel=SC1}};
+handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm, state_channel=SC0}=State) ->
     case blockchain_dcs_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
-            {noreply, State0};
+            {noreply, State};
         true ->
             Amount = blockchain_dcs_payment_req:amount(Req),
             Credits = blockchain_state_channel:credits(SC0),
             case Credits - Amount >= 0 of
                 false ->
                     lager:warning("not enough data credits to handle req ~p/~p", [Amount, Credits]),
-                    {noreply, State0};
+                    {noreply, State};
                 true ->
-                    {ok, PubKey, PayerSigFun, _} =libp2p_swarm:keys(Swarm),
-                    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+                    % TODO: Maybe counter offer here?
+                    {Payer, PayerSigFun} = get_pubkeybin_sigfun(Swarm),
                     % TODO: Update packet stuff
                     Nonce = blockchain_state_channel:nonce(SC0),
                     Payee = blockchain_dcs_payment_req:payee(Req),
@@ -111,8 +110,8 @@ handle_cast({payment_req, Req}, #state{swarm=Swarm, state_channel=SC0}=State0) -
                     SignedPayment = blockchain_dcs_payment:sign(Payment, PayerSigFun),
                     % TODO: Broadcast payment here
                     SC1 = blockchain_state_channel:add_payment(SignedPayment, SC0),
-                    State1 = State0#state{state_channel=SC1},
-                    {noreply, save_state(State1)}
+                    ok = blockchain_state_channel:save(DB, SC1),
+                    {noreply, State#state{state_channel=SC1}}
             end
     end;
 handle_cast(_Msg, State) ->
@@ -133,22 +132,20 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec save_state(state()) -> state().
-save_state(#state{db=DB, swarm=Swarm}=State) ->
-    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
+-spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), fun()}.
+get_pubkeybin_sigfun(Swarm) ->
+    {ok, PubKey, PayerSigFun, _} =libp2p_swarm:keys(Swarm),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    ok = rocksdb:put(DB, PubKeyBin, encode_state(State), []),
-    State.
+    {PubKeyBin, PayerSigFun}.
 
 -spec load_state(rocksdb:db_handle(), pid()) -> {ok, state()} | {error, any()}.
 load_state(DB, Swarm) ->
     {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    case rocksdb:get(DB, PubKeyBin, [{sync, true}]) of
-        {ok, BinaryState} ->
-            State = decode_state(BinaryState),
-            {ok, State#state{db=DB, swarm=Swarm}};
-        not_found ->
+    case blockchain_state_channel:get(DB, PubKeyBin) of
+        {ok, SC} ->
+            {ok, #state{db=DB, swarm=Swarm, state_channel=SC}};
+        {error, not_found} ->
             {ok, #state{
                 db=DB,
                 swarm=Swarm,
@@ -158,46 +155,27 @@ load_state(DB, Swarm) ->
             Error
     end.
 
--spec encode_state(state()) -> binary().
-encode_state(State) ->
-    erlang:term_to_binary(State#state{db=undefined, swarm=undefined}).
-
--spec decode_state(binary()) -> state().
-decode_state(BinaryState) ->
-    erlang:binary_to_term(BinaryState).
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-save_load_test() ->
-    BaseDir = test_utils:tmp_dir("save_load_test"),
+load_test() ->
+    BaseDir = test_utils:tmp_dir("load_test"),
     {ok, DB} = open_db(BaseDir),
-    {ok, Swarm0} = start_swarm(save_load_test0, BaseDir),
-    {ok, PubKey0, _, _} =libp2p_swarm:keys(Swarm0),
-    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
-    State0 = #state{
+    {ok, Swarm} = start_swarm(load_test, BaseDir),
+    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    SC = blockchain_state_channel:new(PubKeyBin),
+    State = #state{
         db=DB,
-        swarm=Swarm0,
-        state_channel=blockchain_state_channel:new(PubKeyBin0)
+        swarm=Swarm,
+        state_channel=SC
     },
-    ?assertEqual(State0, save_state(State0)),
-    ?assertEqual({ok, State0}, load_state(DB, Swarm0)),
-
-    {ok, Swarm1} = start_swarm(save_load_test1, BaseDir),
-    {ok, PubKey1, _, _} =libp2p_swarm:keys(Swarm1),
-    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
-    State1 = #state{
-        db=DB,
-        swarm=Swarm1,
-        state_channel=blockchain_state_channel:new(PubKeyBin1)
-    },
-    ?assertEqual({ok, State1}, load_state(DB, Swarm1)),
-
+    ?assertEqual(ok, blockchain_state_channel:save(DB, SC)),
+    ?assertEqual({ok, State}, load_state(DB, Swarm)),
     ok = rocksdb:close(DB),
     ok.
-
 
 open_db(Dir) ->
     DBDir = filename:join(Dir, "state_channels.db"),
@@ -205,7 +183,6 @@ open_db(Dir) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
     {ok, _DB} = rocksdb:open(DBDir, DBOptions).
-
 
 start_swarm(Name, BaseDir) ->
     NewOpts = lists:keystore(base_dir, 1, [], {base_dir, BaseDir})
