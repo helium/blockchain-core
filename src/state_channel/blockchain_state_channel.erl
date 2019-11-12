@@ -12,6 +12,8 @@
     nonce/1, nonce/2,
     payments/1, payments/2,
     packets/1, packets/2,
+    encode/1, decode/1,
+    save/2, get/2,
     validate_payment/2,
     add_payment/2
 ]).
@@ -79,6 +81,27 @@ packets(#state_channel{packets=Packets}) ->
 -spec packets(merkerl:merkle(), state_channel()) -> state_channel().
 packets(Packets, SC) ->
     SC#state_channel{packets=Packets}.
+
+-spec encode(state_channel()) -> binary().
+encode(SC) ->
+    erlang:term_to_binary(SC).
+
+-spec decode(binary()) -> state_channel().
+decode(Binary) ->
+    erlang:binary_to_term(Binary).
+
+-spec save(rocksdb:db_handle(), state_channel()) -> ok.
+save(DB, SC) ->
+    Owner = ?MODULE:owner(SC),
+    ok = rocksdb:put(DB, Owner, ?MODULE:encode(SC), [{sync, true}]).
+
+-spec get(rocksdb:db_handle(), libp2p_crypto:pubkey_bin()) -> {ok, state_channel()} | {error, any()}.
+get(DB, Owner) ->
+    case rocksdb:get(DB, Owner, [{sync, true}]) of
+        {ok, BinarySC} -> {ok, ?MODULE:decode(BinarySC)};
+        not_found -> {error, not_found};
+        Error -> Error
+    end.
 
 -spec validate_payment(blockchain_dcs_payment:dcs_payment(), state_channel()) -> ok | {error, any()}.
 validate_payment(Payment, SC) ->
@@ -148,5 +171,23 @@ payments_test() ->
     SC = new(<<"owner">>),
     ?assertEqual([], payments(SC)),
     ?assertEqual([1, 2], payments(payments([1, 2], SC))).
+
+encode_decode_test() ->
+    SC = new(<<"owner">>),
+    ?assertEqual(SC, decode(encode(SC))).
+
+save_get_test() ->
+    BaseDir = test_utils:tmp_dir("save_get_test"),
+    {ok, DB} = open_db(BaseDir),
+    SC = new(<<"owner">>),
+    ?assertEqual(ok, save(DB, SC)),
+    ?assertEqual({ok, SC}, get(DB, <<"owner">>)).
+
+open_db(Dir) ->
+    DBDir = filename:join(Dir, "state_channels.db"),
+    ok = filelib:ensure_dir(DBDir),
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
+    {ok, _DB} = rocksdb:open(DBDir, DBOptions).
 
 -endif.
