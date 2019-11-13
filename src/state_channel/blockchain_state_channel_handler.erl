@@ -64,7 +64,7 @@ handle_data(server, _Data, State) ->
     {noreply, State}.
 
 handle_info(client, {send_payment_req, Req}, State) ->
-    Data = blockchain_dcs_payment_req:encode(Req),
+    Data = blockchain_state_channel_payment_req:encode(Req),
     {noreply, State, Data};
 handle_info(client, _Msg, State) ->
     {noreply, State};
