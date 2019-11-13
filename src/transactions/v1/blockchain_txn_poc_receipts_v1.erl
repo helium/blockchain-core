@@ -223,8 +223,14 @@ is_valid(Txn, Chain) ->
                                                                                                        ActiveGateways),
                                                                             Limit = blockchain:config(?poc_path_limit, OldLedger),
                                                                             Vars = #{poc_path_limit => Limit},
-
-                                                                            GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
+                                                                            GatewayScores = case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
+                                                                                                false ->
+                                                                                                    blockchain_poc_target_v2:filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars);
+                                                                                                true ->
+                                                                                                    %% Only for testing
+                                                                                                    GatewayScoreMap
+                                                                                            end,
+                                                                            %% If we make it to this point, we are bound to have a target.
                                                                             {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                                             Path = blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars),
                                                                             N = erlang:length(Path),
