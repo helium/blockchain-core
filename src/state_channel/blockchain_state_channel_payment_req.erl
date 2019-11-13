@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Data Credits Payment Request ==
+%% == Blockchain State Channel Payment Request ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_dcs_payment_req).
+-module(blockchain_state_channel_payment_req).
 
 -export([
     new/3,
@@ -13,47 +13,47 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_dcs_payment_v1_pb.hrl").
+-include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type dcs_payment_req() ::#helium_dcs_payment_req_v1_pb{}.
+-type payment_req() :: #helium_state_channel_payment_req_v1_pb{}.
 
--spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> dcs_payment_req().
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> payment_req().
 new(Payee, Amount, Fingerprint) -> 
-    #helium_dcs_payment_req_v1_pb{
+    #helium_state_channel_payment_req_v1_pb{
         payee=Payee,
         amount=Amount,
         fingerprint=Fingerprint
     }.
 
--spec payee(dcs_payment_req()) -> binary().
-payee(#helium_dcs_payment_req_v1_pb{payee=Payee}) ->
+-spec payee(payment_req()) -> libp2p_crypto:pubkey_bin().
+payee(#helium_state_channel_payment_req_v1_pb{payee=Payee}) ->
     Payee.
 
--spec amount(dcs_payment_req()) -> non_neg_integer().
-amount(#helium_dcs_payment_req_v1_pb{amount=Amount}) ->
+-spec amount(payment_req()) -> non_neg_integer().
+amount(#helium_state_channel_payment_req_v1_pb{amount=Amount}) ->
     Amount.
 
--spec fingerprint(dcs_payment_req()) -> integer().
-fingerprint(#helium_dcs_payment_req_v1_pb{fingerprint=Fingerprint}) ->
+-spec fingerprint(payment_req()) -> integer().
+fingerprint(#helium_state_channel_payment_req_v1_pb{fingerprint=Fingerprint}) ->
     Fingerprint.
 
--spec signature(dcs_payment_req()) -> binary().
-signature(#helium_dcs_payment_req_v1_pb{signature=Signature}) ->
+-spec signature(payment_req()) -> binary().
+signature(#helium_state_channel_payment_req_v1_pb{signature=Signature}) ->
     Signature.
 
--spec sign(dcs_payment_req(), function()) -> dcs_payment_req().
+-spec sign(payment_req(), function()) -> payment_req().
 sign(Req, SigFun) ->
-    EncodedReq = ?MODULE:encode(Req#helium_dcs_payment_req_v1_pb{signature= <<>>}),
+    EncodedReq = ?MODULE:encode(Req#helium_state_channel_payment_req_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedReq),
-    Req#helium_dcs_payment_req_v1_pb{signature=Signature}.
+    Req#helium_state_channel_payment_req_v1_pb{signature=Signature}.
 
--spec validate(dcs_payment_req()) -> true | {error, any()}.
+-spec validate(payment_req()) -> true | {error, any()}.
 validate(Req) ->
-    BaseReq = Req#helium_dcs_payment_req_v1_pb{signature = <<>>},
+    BaseReq = Req#helium_state_channel_payment_req_v1_pb{signature = <<>>},
     EncodedReq = ?MODULE:encode(BaseReq),
     Signature = ?MODULE:signature(Req),
     Payee = ?MODULE:payee(Req),
@@ -68,14 +68,13 @@ validate(Req) ->
             end
     end.
 
+-spec encode(payment_req()) -> binary().
+encode(#helium_state_channel_payment_req_v1_pb{}=Payment) ->
+    helium_state_channel_v1_pb:encode_msg(Payment).
 
--spec encode(dcs_payment_req()) -> binary().
-encode(#helium_dcs_payment_req_v1_pb{}=Payment) ->
-    helium_dcs_payment_v1_pb:encode_msg(Payment).
-
--spec decode(binary()) -> dcs_payment_req().
+-spec decode(binary()) -> payment_req().
 decode(BinaryPayment) ->
-    helium_dcs_payment_v1_pb:decode_msg(BinaryPayment, helium_dcs_payment_req_v1_pb).
+    helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_req_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -87,7 +86,7 @@ decode(BinaryPayment) ->
 -ifdef(TEST).
 
 new_test() ->
-    Req = #helium_dcs_payment_req_v1_pb{
+    Req = #helium_state_channel_payment_req_v1_pb{
         payee= <<"payee">>,
         amount=1,
         fingerprint= 12
