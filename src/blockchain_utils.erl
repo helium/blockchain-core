@@ -93,19 +93,28 @@ hex_to_bin(Hex) ->
 
 pmap(F, L) ->
     Parent = self(),
-    lists:foldl(
-      fun(X, N) ->
-              spawn(
-                fun() ->
-                        Parent ! {pmap, N, F(X)}
-                end),
-              N+1
-      end, 0, L),
-    L2 = [receive
-              {pmap, N, R} -> {N,R}
-          end || _ <- L],
-    {_, L3} = lists:unzip(lists:keysort(1, L2)),
-    L3.
+    Width = application:get_env(blockchain, validation_width, 3),
+    Len = length(L),
+    case Len =< Width of
+        true ->
+            lists:map(F, L);
+        false ->
+            Ct = ceil(Len/Width),
+            OL = [lists:sublist(L, 1 + Ct * N, Ct) || N <- lists:seq(0, Width - 1)],
+            lists:foldl(
+              fun(IL, N) ->
+                      spawn(
+                        fun() ->
+                                Parent ! {pmap, N, lists:map(F, IL)}
+                        end),
+                      N+1
+              end, 0, OL),
+            L2 = [receive
+                      {pmap, N, R} -> {N,R}
+                  end || _ <- OL],
+            {_, L3} = lists:unzip(lists:keysort(1, L2)),
+            lists:flatten(L3)
+    end.
 
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
