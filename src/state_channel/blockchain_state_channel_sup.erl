@@ -51,8 +51,8 @@ init([BaseDir]) ->
     ClientOpts = [Swarm],
     ChildSpecs = [
         ?WORKER(blockchain_state_channel_db, [DBOpts]),
-        ?WORKER(blockchain_state_channel_server, [ServerOpts]),
-        ?WORKER(blockchain_state_channel_client, [ClientOpts])
+        ?WORKER(blockchain_state_channels_server, [ServerOpts]),
+        ?WORKER(blockchain_state_channels_client, [ClientOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
 
