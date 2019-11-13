@@ -225,7 +225,7 @@ is_valid(Txn, Chain) ->
                                                                             Vars = #{poc_path_limit => Limit},
                                                                             GatewayScores = case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                                                                                                 false ->
-                                                                                                    blockchain_poc_target_v2:filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars);
+                                                                                                    blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars);
                                                                                                 true ->
                                                                                                     %% Only for testing
                                                                                                     GatewayScoreMap
