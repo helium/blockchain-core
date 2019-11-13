@@ -198,6 +198,34 @@ block_key(SecretKey, BlockHash, Ledger) ->
 
 -ifdef(TEST).
 
+encrypt_decrypt_multi_layer_poc_v4_test_() ->
+    [{"no blockhash entropy", fun() ->
+        TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
+        Ledger = blockchain_ledger_v1:new(TestDir),
+        encrypt_decrypt(Ledger)
+      end},
+     {"added blockhash entropy", fun() ->
+         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
+         Ledger = blockchain_ledger_v1:new(TestDir),
+         Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+         blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
+         encrypt_decrypt(Ledger1)
+      end}].
+
+encrypt_decrypt_single_layer_poc_v4_test_() ->
+    [{"no blockhash entropy", fun() ->
+        TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
+        Ledger = blockchain_ledger_v1:new(TestDir),
+        encrypt_decrypt_single_layer(Ledger)
+      end},
+     {"added blockhash entropy", fun() ->
+         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
+         Ledger = blockchain_ledger_v1:new(TestDir),
+         Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+         blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
+         encrypt_decrypt_single_layer(Ledger1)
+      end}].
+
 encrypt_decrypt_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
@@ -211,6 +239,45 @@ encrypt_decrypt_test_() ->
          blockchain_ledger_v1:vars(#{?poc_version => 2}, [], Ledger1),
          encrypt_decrypt(Ledger1)
       end}].
+
+encrypt_decrypt_single_layer(Ledger) ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+
+    OnionKey = libp2p_crypto:generate_keys(ecc_compact),
+
+    PubKeys = [PubKey1],
+    PrivKeys = [PrivKey1],
+
+    LayerData = [<<"abc">>],
+
+    KeysAndData = lists:zip(PubKeys, LayerData),
+
+    IV = rand:uniform(16384),
+    BlockHash = crypto:strong_rand_bytes(32),
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData, BlockHash, Ledger),
+    %% make sure it's deterministic
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData, BlockHash, Ledger),
+
+    #{secret := PrivOnionKey, public := PubOnionKey} = OnionKey,
+
+    ECDHFun1 = libp2p_crypto:mk_ecdh_fun(PrivKey1),
+    ECDHFun2 = libp2p_crypto:mk_ecdh_fun(PrivOnionKey),
+    SecretKey1 = ECDHFun1(PubOnionKey),
+    SecretKey2 = ECDHFun2(PubKey1),
+    ?assertEqual(SecretKey1, SecretKey2),
+    {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1), BlockHash, Ledger),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK), BlockHash, Ledger) || PK <- PrivKeys -- [PrivKey1]])),
+    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    %ExpectedIV = IV+1,
+    <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
+    %% check all packets are the same length
+    ?assertEqual(1, length(lists:usort([ byte_size(B) || B <- [OuterPacket, Remainder1]]))),
+    %% check all the packets at each decryption layer are as expected, and have the right IV
+    {IVs, Layers} = lists:unzip([{ThisIV, Layer} || <<ThisIV:16/integer-unsigned-little, ThisKey:33/binary, Layer/binary>>
+                        <- [OuterPacket, Remainder1], ThisKey == OnionCompactKey]),
+    ?assertEqual(Layers, Rows),
+    ?assertEqual(IVs, compute_ivs(IV, KeysAndData)),
+    ok.
 
 encrypt_decrypt(Ledger) ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
