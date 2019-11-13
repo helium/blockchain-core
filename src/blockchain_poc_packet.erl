@@ -128,15 +128,21 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
 
     %% now we need to re-encrypt the data cells now we have the padding in place, row by row, removing the padding bytes from the previous row
     %% and propogating the tags upwards
-    EncryptedMatrix = lists:foldl(fun(R, Acc) ->
-                                          PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + 5,
-                                          Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger),
-                                          TAcc = setelement(((R-2)*N)+2, Acc, binary:part(Row, 0, byte_size(Row) - PaddingSize)),
-                                          lists:foldl(fun(E, Acc2) ->
-                                                              %% zero out all the other columns but 1 and 2 for this row
-                                                              setelement(((R-2)*N)+E, Acc2, <<>>)
-                                                      end, TAcc, lists:seq(3, N))
-                                  end, setelement(N, PaddingMatrix, <<>>), lists:reverse(lists:seq(2,N))),
+    EncryptedMatrix = case N  of
+                         1 ->
+                              %% for a depth of 1 this step is unnecessary
+                             PaddingMatrix;
+                         _ ->
+                              lists:foldl(fun(R, Acc) ->
+                                                  PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + 5,
+                                                  Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger),
+                                                  TAcc = setelement(((R-2)*N)+2, Acc, binary:part(Row, 0, byte_size(Row) - PaddingSize)),
+                                                  lists:foldl(fun(E, Acc2) ->
+                                                                      %% zero out all the other columns but 1 and 2 for this row
+                                                                      setelement(((R-2)*N)+E, Acc2, <<>>)
+                                                              end, TAcc, lists:seq(3, N))
+                                          end, setelement(N, PaddingMatrix, <<>>), lists:reverse(lists:seq(2,N)))
+                      end,
 
     [FirstRow|_] = PacketRows = lists:map(fun(RowNumber) ->
                                                   case RowNumber > N of
@@ -226,6 +232,20 @@ encrypt_decrypt_single_layer_poc_v4_test_() ->
          encrypt_decrypt_single_layer(Ledger1)
       end}].
 
+encrypt_decrypt_double_layer_poc_v4_test_() ->
+    [{"no blockhash entropy", fun() ->
+        TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
+        Ledger = blockchain_ledger_v1:new(TestDir),
+        encrypt_decrypt_double_layer(Ledger)
+      end},
+     {"added blockhash entropy", fun() ->
+         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
+         Ledger = blockchain_ledger_v1:new(TestDir),
+         Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+         blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
+         encrypt_decrypt_double_layer(Ledger1)
+      end}].
+
 encrypt_decrypt_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
@@ -278,6 +298,48 @@ encrypt_decrypt_single_layer(Ledger) ->
     ?assertEqual(Layers, Rows),
     ?assertEqual(IVs, compute_ivs(IV, KeysAndData)),
     ok.
+
+encrypt_decrypt_double_layer(Ledger) ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+
+    OnionKey = libp2p_crypto:generate_keys(ecc_compact),
+
+    PubKeys = [PubKey1, PubKey2],
+    PrivKeys = [PrivKey1, PrivKey2],
+
+    LayerData = [<<"abc">>, <<"def">>],
+
+    KeysAndData = lists:zip(PubKeys, LayerData),
+
+    IV = rand:uniform(16384),
+    BlockHash = crypto:strong_rand_bytes(32),
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData, BlockHash, Ledger),
+    %% make sure it's deterministic
+    {OuterPacket, Rows} = build(OnionKey, IV, KeysAndData, BlockHash, Ledger),
+
+    #{secret := PrivOnionKey, public := PubOnionKey} = OnionKey,
+
+    ECDHFun1 = libp2p_crypto:mk_ecdh_fun(PrivKey1),
+    ECDHFun2 = libp2p_crypto:mk_ecdh_fun(PrivOnionKey),
+    SecretKey1 = ECDHFun1(PubOnionKey),
+    SecretKey2 = ECDHFun2(PubKey1),
+    ?assertEqual(SecretKey1, SecretKey2),
+    {<<"abc">>, Remainder1} = decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PrivKey1), BlockHash, Ledger),
+    ?assert(lists:all(fun(E) -> E == error end, [ decrypt(OuterPacket, libp2p_crypto:mk_ecdh_fun(PK), BlockHash, Ledger) || PK <- PrivKeys -- [PrivKey1]])),
+    OnionCompactKey = libp2p_crypto:pubkey_to_bin(PubOnionKey),
+    %ExpectedIV = IV+1,
+    <<_IV:16/integer-unsigned-little, OnionCompactKey:33/binary, _Rest/binary>> = Remainder1,
+    {<<"def">>, Remainder2} = decrypt(Remainder1, libp2p_crypto:mk_ecdh_fun(PrivKey2), BlockHash, Ledger),
+    %% check all packets are the same length
+    ?assertEqual(1, length(lists:usort([ byte_size(B) || B <- [OuterPacket, Remainder1]]))),
+    %% check all the packets at each decryption layer are as expected, and have the right IV
+    {IVs, Layers} = lists:unzip([{ThisIV, Layer} || <<ThisIV:16/integer-unsigned-little, ThisKey:33/binary, Layer/binary>>
+                        <- [OuterPacket, Remainder1, Remainder2], ThisKey == OnionCompactKey]),
+    ?assertEqual(Layers, Rows),
+    ?assertEqual(IVs, compute_ivs(IV, KeysAndData)),
+    ok.
+
 
 encrypt_decrypt(Ledger) ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
