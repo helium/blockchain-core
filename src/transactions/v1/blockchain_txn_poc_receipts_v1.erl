@@ -201,15 +201,46 @@ is_valid(Txn, Chain) ->
                                                                     PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
                                                                     Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
-                                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
-                                                                    {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
-                                                                    N = erlang:length(Path),
-                                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
-                                                                    %% no witness will exist with the first layer hash
-                                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                                    case blockchain:config(?poc_version, OldLedger) of
+                                                                        {ok, V} when V < 4 ->
+                                                                            {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
+                                                                            {ok, Path} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
+                                                                            N = erlang:length(Path),
+                                                                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                                                                            {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
+                                                                            %% no witness will exist with the first layer hash
+                                                                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                                                            validate(Txn, Path, LayerData, LayerHashes, OldLedger);
+                                                                        {ok, _V} ->
+                                                                            ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
+                                                                            Time = blockchain_block:time(Block1),
+                                                                            ChallengerLoc = blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)),
+                                                                            GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
+                                                                                                               {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, OldLedger),
+                                                                                                               {Score, Gateway}
+                                                                                                       end,
+                                                                                                       ActiveGateways),
+                                                                            Limit = blockchain:config(?poc_path_limit, OldLedger),
+                                                                            Vars = #{poc_path_limit => Limit},
+                                                                            GatewayScores = case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
+                                                                                                false ->
+                                                                                                    blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars);
+                                                                                                true ->
+                                                                                                    %% Only for testing
+                                                                                                    GatewayScoreMap
+                                                                                            end,
+                                                                            %% If we make it to this point, we are bound to have a target.
+                                                                            {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
+                                                                            Path = blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars),
+                                                                            N = erlang:length(Path),
+                                                                            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                                                                            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+                                                                            {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
+                                                                            %% no witness will exist with the first layer hash
+                                                                            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+                                                                            validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                                    end
                                                             end
                                                     end
                                             end
