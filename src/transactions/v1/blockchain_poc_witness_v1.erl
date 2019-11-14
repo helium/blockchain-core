@@ -117,7 +117,7 @@ print(#blockchain_poc_witness_v1_pb{
                    libp2p_crypto:bin_to_b58(Gateway),
                    TS,
                    Signal,
-                   PacketHash
+                   libp2p_crypto:bin_to_b58(PacketHash)
                   ]).
 
 %% ------------------------------------------------------------------

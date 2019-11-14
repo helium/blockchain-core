@@ -66,14 +66,14 @@ print(#blockchain_poc_path_element_v1_pb{
          receipt=Receipt,
          witnesses=Witnesses
         }) ->
-    io_lib:format("type=element challengee: ~s receipt: ~s, witnesses: ~s",
+    io_lib:format("type=element challengee: ~s receipt: ~s\n, witnesses: ~s",
                   [
                    libp2p_crypto:bin_to_b58(Challengee),
                    blockchain_poc_receipt_v1:print(Receipt),
                    string:join(lists:map(fun(Witness) ->
                                                  blockchain_poc_witness_v1:print(Witness)
                                          end,
-                                         Witnesses), ", ")
+                                         Witnesses), "\n")
                   ]).
 
 

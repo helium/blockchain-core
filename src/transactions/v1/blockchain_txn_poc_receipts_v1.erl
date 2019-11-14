@@ -631,7 +631,7 @@ print_path(Path) ->
     string:join(lists:map(fun(Element) ->
                                   blockchain_poc_path_element_v1:print(Element)
                           end,
-                          Path), ", ").
+                          Path), "\n").
 
 
 check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
