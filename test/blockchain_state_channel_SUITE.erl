@@ -61,24 +61,25 @@ basic_test(Config) ->
     meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
     
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
+    ID = <<"ID1">>,
 
     ?assert(erlang:is_process_alive(Sup)),
-    ?assertEqual({ok, 0}, blockchain_state_channel_server:credits()),
-    ?assertEqual({ok, 0}, blockchain_state_channel_server:nonce()),
+    ?assertEqual({error, not_found}, blockchain_state_channels_server:credits(ID)),
+    ?assertEqual({error, not_found}, blockchain_state_channels_server:nonce(ID)),
 
-    ok = blockchain_state_channel_server:burn(10),
-    ?assertEqual({ok, 10}, blockchain_state_channel_server:credits()),
-    ?assertEqual({ok, 0}, blockchain_state_channel_server:nonce()),
+    ok = blockchain_state_channels_server:burn(ID, 10),
+    ?assertEqual({ok, 10}, blockchain_state_channels_server:credits(ID)),
+    ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
 
     #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
     SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
-    Req0 = blockchain_dcs_payment_req:new(PubKeyBin0, 1, <<>>),
-    Req1 = blockchain_dcs_payment_req:sign(Req0, SigFun0),
-    ok = blockchain_state_channel_server:payment_req(Req1),
+    Req0 = blockchain_state_channel_payment_req:new(PubKeyBin0, 1, 12),
+    Req1 = blockchain_state_channel_payment_req:sign(Req0, SigFun0),
+    ok = blockchain_state_channels_server:payment_req(Req1),
 
-    ?assertEqual({ok, 9}, blockchain_state_channel_server:credits()),
-    ?assertEqual({ok, 1}, blockchain_state_channel_server:nonce()),
+    ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
+    ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
 
     true = erlang:exit(Sup, normal),
     ok = libp2p_swarm:stop(Swarm),
