@@ -72,9 +72,12 @@ validate(Req) ->
 encode(#helium_state_channel_payment_req_v1_pb{}=Payment) ->
     helium_state_channel_v1_pb:encode_msg(Payment).
 
--spec decode(binary()) -> payment_req().
+-spec decode(binary()) -> {ok, payment_req()} | {error, any()}.
 decode(BinaryPayment) ->
-    helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_req_v1_pb).
+    try helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_req_v1_pb) of
+        #helium_state_channel_payment_req_v1_pb{}=Req -> {ok, Req}
+    catch _:_ -> {error, failed_to_decode}
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -125,6 +128,6 @@ validate_test() ->
 
 encode_decode_test() ->
     Req = new(<<"payee">>, 1, 12),
-    ?assertEqual(Req, decode(encode(Req))).
+    ?assertEqual({ok, Req}, decode(encode(Req))).
 
 -endif.
