@@ -97,7 +97,7 @@ handle_call(_Msg, _From, State) ->
 
 % TODO: Replace this with real burn
 handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) ->
-    {Owner, _} = get_pubkeybin_sigfun(Swarm),
+    {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     SC0 = blockchain_state_channel:new(ID, Owner),
     SC1 = blockchain_state_channel:credits(Amount, SC0),
     {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}};
@@ -114,7 +114,7 @@ handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State) ->
                     {noreply, State};
                 {ok, SC0} ->
                     Amount = blockchain_state_channel_payment_req:amount(Req),
-                    {Payer, PayerSigFun} = get_pubkeybin_sigfun(Swarm),
+                    {Payer, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Payee = blockchain_state_channel_payment_req:payee(Req),
                     Payment = blockchain_state_channel_payment:new(Payer, Payee, Amount, <<>>),
                     case blockchain_state_channel:validate_payment(Payment, SC0) of
@@ -182,12 +182,6 @@ select_state_channel(Req, #state{state_channels=SCs, payees=Payees}=State) ->
                     end
             end
     end.
-
--spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
-get_pubkeybin_sigfun(Swarm) ->
-    {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {PubKeyBin, PayerSigFun}.
 
 -spec load_state(rocksdb:db_handle(), pid()) -> {ok, state()} | {error, any()}.
 load_state(DB, Swarm) ->
@@ -270,15 +264,6 @@ select_state_channel_test() ->
     SC4 = blockchain_state_channel:credits(10, blockchain_state_channel:new(ID4, <<"owner">>)),
     State4 = #state{state_channels= #{ID3 => SC3, ID4 => SC4}, payees= #{<<"payee">> => ID3}},
     ?assertEqual({ok, SC4}, select_state_channel(Req4, State4)),
-    ok.
-
-get_pubkeybin_sigfun_test() ->
-    BaseDir = test_utils:tmp_dir("get_pubkeybin_sigfun_test"),
-    {ok, Swarm} = start_swarm(get_pubkeybin_sigfun_test, BaseDir),
-    {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    ?assertEqual({PubKeyBin, PayerSigFun}, get_pubkeybin_sigfun(Swarm)),
-    libp2p_swarm:stop(Swarm),
     ok.
 
 load_test() ->
