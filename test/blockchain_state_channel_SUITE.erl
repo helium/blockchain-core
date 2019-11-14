@@ -6,49 +6,86 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
-    basic_test/1
+    basic_test/1,
+    full_test/1
 ]).
 
 -include("blockchain.hrl").
+-include_lib("helium_proto/src/pb/helium_longfi_pb.hrl").
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%%   Running tests for this suite
-%% @end
-%%--------------------------------------------------------------------
 all() ->
     [
-        basic_test
+        basic_test,
+        full_test
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
+init_per_testcase(basic_test, Config) ->
+    BaseDir = "data/blockchain_state_channel_SUITE/basic_test",
+    [{base_dir, BaseDir} |Config];
+init_per_testcase(TestCase, Config) ->
+    InitConfig = blockchain_ct_utils:init_per_testcase(TestCase, Config),
+    Nodes = proplists:get_value(nodes, InitConfig),
+    Balance = 5000,
+    NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
 
-init_per_testcase(TestCase, Config0) ->
-    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(TestCase),
-    [{base_dir, BaseDir} |Config0].
+    %% accumulate the address of each node
+    Addrs = lists:foldl(fun(Node, Acc) ->
+                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
+                                [Addr | Acc]
+                        end, [], Nodes),
+
+    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
+
+    {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+
+    % Create genesis block
+    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
+    GenDCsTxs = [blockchain_txn_dc_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
+    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
+    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ [GenConsensusGroupTx],
+    GenesisBlock = blockchain_block:new_genesis_block(Txs),
+
+    %% tell each node to integrate the genesis block
+    lists:foreach(fun(Node) ->
+                          ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
+                  end, Nodes),
+
+    %% wait till each worker gets the gensis block
+    ok = lists:foreach(
+           fun(Node) ->
+                   ok = blockchain_ct_utils:wait_until(
+                          fun() ->
+                                  C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                                  {ok, Height} = ct_rpc:call(Node, blockchain, height, [C0]),
+                                  ct:pal("node ~p height ~p", [Node, Height]),
+                                  Height == 1
+                          end, 100, 100)
+           end, Nodes),
+
+    ok = check_genesis_block(InitConfig, GenesisBlock),
+    ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
+    [{consensus_memebers, ConsensusMembers} | InitConfig].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(_TestCase, _Config) ->
-    ok.
+end_per_testcase(basic_test, _Config) ->
+    ok;
+end_per_testcase(TestCase, Config) ->
+    blockchain_ct_utils:end_per_testcase(TestCase, Config).
+
 
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 basic_test(Config) ->
     BaseDir = proplists:get_value(base_dir, Config),
     SwarmOpts = [
@@ -86,3 +123,68 @@ basic_test(Config) ->
     ?assert(meck:validate(blockchain_swarm)),
     meck:unload(blockchain_swarm),
     ok.
+
+full_test(Config) ->
+    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
+    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
+
+    {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterP2PAddress = ct_rpc:call(RouterNode, libp2p_swarm, p2p_address, [RouterSwarm]),
+    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], 1, 1, 0),
+    SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
+
+    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn]]),
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
+    end, 60, timer:seconds(1)),
+
+    ID = <<"123">>,
+    ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, burn, [ID, 10]),
+    ?assertEqual({ok, 10}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
+    ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
+
+    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
+
+    
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 9} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
+        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 60, timer:seconds(1)),
+
+    ok.
+
+%% ------------------------------------------------------------------
+%% Helper functions
+%% ------------------------------------------------------------------
+
+check_genesis_block(Config, GenesisBlock) ->
+    Nodes = proplists:get_value(nodes, Config),
+    lists:foreach(fun(Node) ->
+                          Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                          {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
+                          {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
+                          {ok, Height} = ct_rpc:call(Node, blockchain, height, [Blockchain]),
+                          ?assertEqual(GenesisBlock, HeadBlock),
+                          ?assertEqual(GenesisBlock, WorkerGenesisBlock),
+                          ?assertEqual(1, Height)
+                  end, Nodes).
+
+get_consensus_members(Config, ConsensusAddrs) ->
+    Nodes = proplists:get_value(nodes, Config),
+    lists:keysort(1, lists:foldl(fun(Node, Acc) ->
+                                         Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
+                                         case lists:member(Addr, ConsensusAddrs) of
+                                             false -> Acc;
+                                             true ->
+                                                 {ok, Pubkey, SigFun, _ECDHFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
+                                                 [{Addr, Pubkey, SigFun} | Acc]
+                                         end
+                                 end, [], Nodes)).
