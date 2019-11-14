@@ -9,7 +9,8 @@
     new/3,
     challengee/1,
     receipt/1,
-    witnesses/1
+    witnesses/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -59,6 +60,22 @@ receipt(Element) ->
 -spec witnesses(Element :: poc_element()) -> blockchain_poc_witness_v1:poc_witnesss().
 witnesses(Element) ->
     Element#blockchain_poc_path_element_v1_pb.witnesses.
+
+print(#blockchain_poc_path_element_v1_pb{
+         challengee=Challengee,
+         receipt=Receipt,
+         witnesses=Witnesses
+        }) ->
+    io_lib:format("type=element challengee: ~s receipt: ~s, witnesses: ~s",
+                  [
+                   libp2p_crypto:bin_to_b58(Challengee),
+                   blockchain_poc_receipt_v1:print(Receipt),
+                   string:join(lists:map(fun(Witness) ->
+                                                 blockchain_poc_witness_v1:print(Witness)
+                                         end,
+                                         Witnesses), ", ")
+                  ]).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

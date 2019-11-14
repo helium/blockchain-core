@@ -24,7 +24,8 @@
     create_secret_hash/2,
     connections/1,
     deltas/1,
-    check_path_continuation/1
+    check_path_continuation/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -614,6 +615,24 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
             blockchain_ledger_v1:delete_context(OldLedger),
             Result
     end.
+
+print(#blockchain_txn_poc_receipts_v1_pb{
+         challenger=Challenger,
+         onion_key_hash=OnionKeyHash,
+         path=Path
+        }=Txn) ->
+    io_lib:format("type=poc_receipts_v1 hash=~p challenger=~p path=~p onion=~p",
+                  [libp2p_crypto:bin_to_b58(?MODULE:hash(Txn)),
+                   libp2p_crypto:bin_to_b58(Challenger),
+                   print_path(Path),
+                   libp2p_crypto:bin_to_b58(OnionKeyHash)]).
+
+print_path(Path) ->
+    string:join(lists:map(fun(Element) ->
+                                  blockchain_poc_path_element_v1:print(Element)
+                          end,
+                          Path), ", ").
+
 
 check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     %% all the witnesses should have the right LayerHash
