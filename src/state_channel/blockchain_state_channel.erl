@@ -200,7 +200,7 @@ save_get_test() ->
     {ok, DB} = open_db(BaseDir),
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual(ok, save(DB, SC)),
-    ?assertEqual({ok, SC}, get(DB, <<"owner">>)).
+    ?assertEqual({ok, SC}, get(DB, <<"1">>)).
 
 open_db(Dir) ->
     DBDir = filename:join(Dir, "state_channels.db"),

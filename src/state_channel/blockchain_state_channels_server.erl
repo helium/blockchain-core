@@ -36,7 +36,7 @@
 -endif.
 
 -define(SERVER, ?MODULE).
--define(STATE_CHANNELS, <<"STATE_CHANNELS">>).
+-define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
