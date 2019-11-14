@@ -60,7 +60,11 @@ init(server, _Conn, _) ->
 
 handle_data(client, _Data, State) ->
     {noreply, State};
-handle_data(server, _Data, State) ->
+handle_data(server, Data, State) ->
+    case blockchain_state_channel_payment_req:decode(Data) of
+        {ok, Req} -> blockchain_state_channels_server:payment_req(Req);
+        {error, _Reason} -> ok
+    end,
     {noreply, State}.
 
 handle_info(client, {send_payment_req, Req}, State) ->
