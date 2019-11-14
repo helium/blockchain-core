@@ -66,7 +66,7 @@ print(#blockchain_poc_path_element_v1_pb{
          receipt=Receipt,
          witnesses=Witnesses
         }) ->
-    io_lib:format("type=element challengee: ~s\nreceipt: ~s\nwitnesses: ~s",
+    io_lib:format("type=element challengee: ~s, receipt: ~s\nwitnesses: ~s",
                   [
                    element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challengee))),
                    blockchain_poc_receipt_v1:print(Receipt),
