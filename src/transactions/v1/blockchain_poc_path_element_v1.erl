@@ -73,7 +73,7 @@ print(#blockchain_poc_path_element_v1_pb{
                    string:join(lists:map(fun(Witness) ->
                                                  blockchain_poc_witness_v1:print(Witness)
                                          end,
-                                         Witnesses), "\n")
+                                         Witnesses), "\n\t\t")
                   ]).
 
 
