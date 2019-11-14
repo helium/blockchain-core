@@ -104,6 +104,8 @@ is_valid(Receipt=#blockchain_poc_witness_v1_pb{gateway=Gateway, signature=Signat
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
 
+print(undefined) ->
+    undefined;
 print(#blockchain_poc_witness_v1_pb{
          gateway=Gateway,
          timestamp=TS,
