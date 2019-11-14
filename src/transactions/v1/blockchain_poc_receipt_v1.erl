@@ -127,7 +127,7 @@ print(#blockchain_poc_receipt_v1_pb{
         }) ->
     io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b origin: ~p",
                   [
-                   libp2p_crypto:bin_to_b58(Gateway),
+                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Gateway))),
                    TS,
                    Signal,
                    Origin

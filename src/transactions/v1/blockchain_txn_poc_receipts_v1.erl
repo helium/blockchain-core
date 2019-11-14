@@ -623,7 +623,7 @@ print(#blockchain_txn_poc_receipts_v1_pb{
         }=Txn) ->
     io_lib:format("type=poc_receipts_v1 hash=~p challenger=~p path=~s onion=~p",
                   [libp2p_crypto:bin_to_b58(?MODULE:hash(Txn)),
-                   libp2p_crypto:bin_to_b58(Challenger),
+                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger))),
                    print_path(Path),
                    libp2p_crypto:bin_to_b58(OnionKeyHash)]).
 

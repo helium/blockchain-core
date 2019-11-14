@@ -109,15 +109,13 @@ print(undefined) ->
 print(#blockchain_poc_witness_v1_pb{
          gateway=Gateway,
          timestamp=TS,
-         signal=Signal,
-         packet_hash=PacketHash
+         signal=Signal
         }) ->
-    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p packet_hash: ~p",
+    io_lib:format("type=witness gateway: ~p timestamp: ~p signal: ~p",
                   [
-                   libp2p_crypto:bin_to_b58(Gateway),
+                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Gateway))),
                    TS,
-                   Signal,
-                   libp2p_crypto:bin_to_b58(PacketHash)
+                   Signal
                   ]).
 
 %% ------------------------------------------------------------------
