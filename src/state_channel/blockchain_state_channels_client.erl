@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    payment/1
+    packet/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -43,6 +43,7 @@
 }).
 
 % -type state() :: #state{}.
+-define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -50,9 +51,8 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
--spec payment(blockchain_dcs_payment:dcs_payment()) -> ok.
-payment(Payment) ->
-    gen_server:cast(?SERVER, {payment, Payment}).
+packet(Packet) ->
+    gen_server:cast(?SERVER, {packet, Packet}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -66,22 +66,25 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-% handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
-%                                                fingerprint=Fingerprint}},
-%             #state{swarm=Swarm}=State) ->
-%     {ok, PubKey, SigFun, _} =libp2p_swarm:keys(Swarm),
-%     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-%     % TODO: Get amount from somewhere?
-%     Req = blockchain_dcs_payment_req:new(PubKeyBin, 1, Fingerprint),
-%     SignedReq = blockchain_dcs_payment_req:sign(Req, SigFun),
-%     Peer = find_routing(OUI), 
-%     case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
-%         {error, _Reason} ->
-%             {noreply, State};
-%         {ok, Pid} ->
-%             blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
-%             {noreply, State}
-%     end;
+handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
+                                               fingerprint=Fingerprint}},
+            #state{swarm=Swarm}=State) ->
+    case find_routing(OUI) of
+        {error, _Reason} ->
+             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]);
+        {ok, Peer} ->
+            case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
+                {error, _Reason} ->
+                    lager:warning("failed to dial ~p:~p", [Peer, _Reason]);
+                {ok, Pid} ->
+                    {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                    % TODO: Get amount from somewhere?
+                    Req = blockchain_state_channel_payment_req:new(PubKeyBin, 1, Fingerprint),
+                    SignedReq = blockchain_state_channel_payment_req:sign(Req, SigFun),
+                    blockchain_state_channel_handler:send_payment_req(Pid, SignedReq)
+            end
+    end,
+    {noreply, State};
 % handle_cast({payment, Payment}, #state{db=DB, state_channels=SCs}=State) ->
 %     case validate_payment(Payment, State) of
 %         {error, _Reason} ->
@@ -117,17 +120,17 @@ terminate(_Reason,  #state{db=DB}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-% -spec find_routing(non_neg_integer()) -> {ok, binary()} | {error, any()}.
-% find_routing(OUI) ->
-%     Chain = blockchain_worker:blockchain(),
-%     Ledger = blockchain:ledger(Chain),
-%     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-%         {error, _}=Error ->
-%             Error;
-%         {ok, Routing} ->
-%             [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
-%             {ok, Address}
-%     end.
+-spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.
+find_routing(OUI) ->
+    Chain = blockchain_worker:blockchain(),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Routing} ->
+            [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
+            {ok, erlang:binary_to_list(Address)}
+    end.
 
 % -spec validate_payment(blockchain_dcs_payment:dcs_payment(), state()) -> ok | {error, any()}.
 % validate_payment(Payment, #state{state_channels=SCs}) ->
