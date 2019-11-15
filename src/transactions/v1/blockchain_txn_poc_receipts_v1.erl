@@ -550,7 +550,9 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     case TxnPathLength == RebuiltPathLength of
         false ->
             lager:error("TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
-            lager:error("TxnPath: ~p\nRebuiltPath: ~p", [TxnPath, Path]),
+            HumanTxnPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_poc_path_element_v1:challengee(E)))) || E <- TxnPath],
+            HumanRebuiltPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(A))) || A <- Path],
+            lager:error("TxnPath: ~p\nRebuiltPath: ~p", [HumanTxnPath, HumanRebuiltPath]),
             {error, path_length_mismatch};
         true ->
             %% Now check whether layers are of equal length
