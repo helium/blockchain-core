@@ -826,7 +826,8 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gw1 = blockchain_ledger_gateway_v2:location(Location, Gw),
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
+            Gw3 = blockchain_ledger_gateway_v2:last_poc_challenge(1, Gw2),
+            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw3),
             %% we need to clear all our old witnesses out
             Bin = blockchain_ledger_gateway_v2:serialize(blockchain_ledger_gateway_v2:clear_witnesses(NewGw)),
             AGwsCF = active_gateways_cf(Ledger),
