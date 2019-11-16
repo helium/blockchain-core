@@ -66,8 +66,7 @@ filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
                                 %% Check that the potential target is far enough from the challenger
                                 %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
                                 %% so this should be safe.
-                                %Res2 = check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars),
-                                Res2 = true,
+                                Res2 = check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars) orelse true,
                                 lager:info("Filtering ~p ~p ~p ~p ~p", [Gateway, C, Height, Res1, Res2]),
                                 Res1 andalso Res2
                         end
