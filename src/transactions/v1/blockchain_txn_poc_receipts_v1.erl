@@ -222,7 +222,7 @@ is_valid(Txn, Chain) ->
                                                                                                                {Score, Gateway}
                                                                                                        end,
                                                                                                        ActiveGateways),
-                                                                            Limit = blockchain:config(?poc_path_limit, OldLedger),
+                                                                            {ok, Limit} = blockchain:config(?poc_path_limit, OldLedger),
                                                                             Vars = #{poc_path_limit => Limit},
                                                                             GatewayScores = case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                                                                                                 false ->
