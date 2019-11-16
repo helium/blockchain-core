@@ -224,6 +224,7 @@ is_valid(Txn, Chain) ->
                                                                                                        ActiveGateways),
                                                                             {ok, Limit} = blockchain:config(?poc_path_limit, OldLedger),
                                                                             Vars = #{poc_path_limit => Limit},
+                                                                            lager:info("poc_v4, ActiveGatewayScores: ~p", [GatewayScoreMap]),
                                                                             GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
                                                                             lager:info("poc_v4, GatewayScores: ~p", [GatewayScores]),
                                                                             %% If we make it to this point, we are bound to have a target.
