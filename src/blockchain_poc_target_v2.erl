@@ -57,16 +57,18 @@ filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
     maps:filter(fun(_Addr, {_Score, Gateway}) ->
                         case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
                             undefined ->
+                                lager:info("filtering ~p with no challenges", [Gateway]),
                                 %% No POC challenge, don't include
                                 false;
                             C ->
                                 %% Check challenge age is recent depending on the set chain var
-                                (Height - C) < challenge_age(Vars) andalso
+                                Res = (Height - C) < challenge_age(Vars) andalso
                                 %% Check that the potential target is far enough from the challenger
                                 %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
                                 %% so this should be safe.
-                                check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars)
-
+                                check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars),
+                                lager:info("Filtering ~p ~p", [Gateway, Res]),
+                                Res
                         end
                 end,
                 maps:without([ChallengerAddr], GatewayScoreMap)).
