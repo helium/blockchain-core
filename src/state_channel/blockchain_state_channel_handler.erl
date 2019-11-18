@@ -58,19 +58,33 @@ init(client, _Conn, _) ->
 init(server, _Conn, _) ->
     {ok, #state{}}.
 
-handle_data(client, _Data, State) ->
+handle_data(client, Data, State) ->
+    case blockchain_state_channel_message:decode(Data) of
+        {state_channel, _SC} ->
+            % TODO: Sent to client
+            ok;
+        _ -> ingore
+    end,
     {noreply, State};
 handle_data(server, Data, State) ->
-    case blockchain_state_channel_payment_req:decode(Data) of
-        {ok, Req} -> blockchain_state_channels_server:payment_req(Req);
-        {error, _Reason} -> ok
+    case blockchain_state_channel_message:decode(Data) of
+        {payment_req, Req} ->
+            blockchain_state_channels_server:payment_req(Req, self());
+        {state_channel, _SC} ->
+            % TODO: Sent to client
+            ok
     end,
     {noreply, State}.
 
 handle_info(client, {send_payment_req, Req}, State) ->
-    Data = blockchain_state_channel_payment_req:encode(Req),
+    Data = blockchain_state_channel_message:encode(Req),
     {noreply, State, Data};
-handle_info(client, _Msg, State) ->
-    {noreply, State};
-handle_info(server, _Msg, State) ->
+handle_info(client, {broadcast, SC}, State) ->
+    Data = blockchain_state_channel_message:encode(SC),
+    {noreply, State, Data};
+handle_info(server, {broadcast, SC}, State) ->
+    Data = blockchain_state_channel_message:encode(SC),
+    {noreply, State, Data};
+handle_info(_Type, _Msg, State) ->
+    lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),
     {noreply, State}.
