@@ -150,16 +150,16 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec broadcast_state_channel(blockchain_state_channel:state_channel(), state()) -> ok.
-broadcast_state_channel(SC, #state{clients=Clients}) ->
-    ID = blockchain_state_channel:id(SC),
-    Streams = maps:get(ID, Clients, []),
-    lists:foreach(
-        fun(Stream) ->
-            Stream ! {broadcast, SC}
-        end,
-        Streams
-    ).
+% -spec broadcast_state_channel(blockchain_state_channel:state_channel(), state()) -> ok.
+% broadcast_state_channel(SC, #state{clients=Clients}) ->
+%     ID = blockchain_state_channel:id(SC),
+%     Streams = maps:get(ID, Clients, []),
+%     lists:foreach(
+%         fun(Stream) ->
+%             Stream ! {broadcast, SC}
+%         end,
+%         Streams
+%     ).
 
 -spec select_state_channel(blockchain_state_channel_payment_req:payment_req(), state()) ->
     {ok, blockchain_state_channel:state_channel()} | {error, any()}.
