@@ -125,6 +125,6 @@ validate_test() ->
 
 encode_decode_test() ->
     Req = new(<<"payee">>, 1, 12),
-    ?assertEqual({ok, Req}, decode(encode(Req))).
+    ?assertEqual(Req, decode(encode(Req))).
 
 -endif.
