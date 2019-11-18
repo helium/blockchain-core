@@ -72,12 +72,9 @@ validate(Req) ->
 encode(#helium_state_channel_payment_req_v1_pb{}=Payment) ->
     helium_state_channel_v1_pb:encode_msg(Payment).
 
--spec decode(binary()) -> {ok, payment_req()} | {error, any()}.
+-spec decode(binary()) -> payment_req().
 decode(BinaryPayment) ->
-    try helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_req_v1_pb) of
-        #helium_state_channel_payment_req_v1_pb{}=Req -> {ok, Req}
-    catch _:_ -> {error, failed_to_decode}
-    end.
+    helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_req_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
