@@ -15,7 +15,8 @@
     server/4,
     client/2,
     dial/3,
-    send_payment_req/2
+    send_payment_req/2,
+    broadcast/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -50,6 +51,9 @@ dial(Swarm, Peer, Opts) ->
 send_payment_req(Pid, Req) ->
     Pid ! {send_payment_req, Req}.
 
+broadcast(Pid, SC) ->
+    Pid ! {broadcast, SC}.
+
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
@@ -69,7 +73,7 @@ handle_data(client, Data, State) ->
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message:decode(Data) of
         {payment_req, Req} ->
-            blockchain_state_channels_server:payment_req(Req, self());
+            blockchain_state_channels_server:payment_req(Req);
         {state_channel, _SC} ->
             % TODO: Sent to client
             ok
