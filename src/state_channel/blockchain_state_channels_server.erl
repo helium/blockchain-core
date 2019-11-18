@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     credits/1, nonce/1,
-    payment_req/1,
+    payment_req/2,
     burn/2
 ]).
 
@@ -42,7 +42,8 @@
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
     state_channels = #{} :: #{blockchain_state_channel:id() => blockchain_state_channel:state_channel()},
-    payees = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:id()}
+    payees = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:id()},
+    clients = #{} :: #{blockchain_state_channel:id() => [pid()]}
 }).
 
 -type state() :: #state{}.
@@ -61,9 +62,9 @@ credits(ID) ->
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec payment_req(blockchain_dcs_payment_req:dcs_payment_req()) -> ok.
-payment_req(Req) ->
-    gen_server:cast(?SERVER, {payment_req, Req}).
+-spec payment_req(blockchain_dcs_payment_req:dcs_payment_req(), pid()) -> ok.
+payment_req(Req, Stream) ->
+    gen_server:cast(?SERVER, {payment_req, Req, Stream}).
 
 % TODO: Replace this with real burn
 -spec burn(blockchain_state_channel:id(), non_neg_integer()) -> ok.
@@ -101,7 +102,7 @@ handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) -
     SC0 = blockchain_state_channel:new(ID, Owner),
     SC1 = blockchain_state_channel:credits(Amount, SC0),
     {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}};
-handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State) ->
+handle_cast({payment_req, Req, Stream}, #state{db=DB, swarm=Swarm}=State) ->
     case blockchain_state_channel_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
@@ -124,10 +125,10 @@ handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State) ->
                             {noreply, State};
                         ok ->
                             % TODO: Update packet stuffle
-                            % TODO: Broadcast payment here
+                            % TODO: Broadcast state channel here
                             SC1 = blockchain_state_channel:add_payment(Payment, PayerSigFun, SC0),
                             ok = blockchain_state_channel:save(DB, SC1),
-                            {noreply, update_state(SC1, Payment, State)}
+                            {noreply, update_state(SC1, Payment, Stream, State)}
                     end
             end
     end;
@@ -148,6 +149,17 @@ terminate(_Reason, _state) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec broadcast_state_channel(blockchain_state_channel:state_channel(), state()) -> ok.
+broadcast_state_channel(SC, #state{clients=Clients}) ->
+    ID = blockchain_state_channel:id(SC),
+    Streams = maps:get(ID, Clients, []),
+    lists:foreach(
+        fun(Stream) ->
+            Stream ! {broadcast, SC}
+        end,
+        Streams
+    ).
 
 -spec select_state_channel(blockchain_state_channel_payment_req:payment_req(), state()) ->
     {ok, blockchain_state_channel:state_channel()} | {error, any()}.
@@ -206,12 +218,17 @@ load_state(DB, Swarm) ->
             {ok, #state{db=DB, swarm=Swarm, state_channels=SCs}}
     end.
 
--spec update_state(blockchain_state_channel:state_channel(), blockchain_state_channel_payment:payment(), state()) -> state().
-update_state(SC, Payment, #state{db=DB, state_channels=SCs, payees=Payees}=State) ->
+-spec update_state(blockchain_state_channel:state_channel(), blockchain_state_channel_payment:payment(), pid(), state()) -> state().
+update_state(SC, Payment, Stream, #state{db=DB, state_channels=SCs, payees=Payees, clients=Clients}=State) ->
     ID = blockchain_state_channel:id(SC),
     Payee = blockchain_state_channel_payment:payee(Payment),
     ok = save_state_channels(DB, ID),
-    State#state{state_channels=maps:put(ID, SC, SCs), payees=maps:put(Payee, ID, Payees)}.
+    Streams0 = maps:get(ID, Clients, []),
+    Streams1 = case lists:member(Stream, Streams0) of
+        false -> [Stream|Streams0];
+        true -> Streams0
+    end,
+    State#state{state_channels=maps:put(ID, SC, SCs), payees=maps:put(Payee, ID, Payees), clients=maps:put(ID, Streams1, Clients)}.
 
 -spec save_state_channels(rocksdb:db_handle(), blockchain_state_channel:id()) -> ok | {error, any()}.
 save_state_channels(DB, ID) ->
@@ -298,9 +315,9 @@ update_state_test() ->
     Payee = <<"payee">>,
     Payment = blockchain_state_channel_payment:new(PubKeyBin, Payee, 1, <<>>),
     State0 = #state{db=DB, swarm=Swarm, state_channels=#{}, payees=#{}},
-    State1 = State0#state{state_channels=#{ID => SC}, payees=#{Payee => ID}},
+    State1 = State0#state{state_channels=#{ID => SC}, payees=#{Payee => ID}, clients=#{ID => [self()]}},
 
-    ?assertEqual(State1, update_state(SC, Payment, State0)),
+    ?assertEqual(State1, update_state(SC, Payment, self(), State0)),
     ?assertEqual({ok, [ID]}, get_state_channels(DB)),
 
     ok = rocksdb:close(DB),
