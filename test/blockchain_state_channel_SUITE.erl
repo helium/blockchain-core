@@ -142,7 +142,7 @@ full_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
         {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
-    end, 60, timer:seconds(1)),
+    end, 30, timer:seconds(1)),
 
     ID = <<"123">>,
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, burn, [ID, 10]),
@@ -152,12 +152,14 @@ full_test(Config) ->
     Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
-    
-
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 9} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
-    end, 60, timer:seconds(1)),
+    end, 30, timer:seconds(1)),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 9} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
+    end, 30, timer:seconds(1)),
 
     ok.
 
