@@ -3,7 +3,7 @@
 %% == Blockchain State Channel ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_state_channel).
+-module(blockchain_state_channel_v1).
 
 -export([
     new/2,
@@ -66,11 +66,11 @@ nonce(#helium_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#helium_state_channel_v1_pb{nonce=Nonce}.
 
--spec payments(state_channel()) -> [blockchain_state_channel_payment:payment()].
+-spec payments(state_channel()) -> [blockchain_state_channel_payment_v1:payment()].
 payments(#helium_state_channel_v1_pb{payments=Payments}) ->
     Payments.
 
--spec payments([blockchain_state_channel_payment:payment()], state_channel()) -> state_channel().
+-spec payments([blockchain_state_channel_payment_v1:payment()], state_channel()) -> state_channel().
 payments(Payments, SC) ->
     SC#helium_state_channel_v1_pb{payments=Payments}.
 
@@ -123,10 +123,10 @@ get(DB, ID) ->
         Error -> Error
     end.
 
--spec validate_payment(blockchain_state_channel_payment:payment(), state_channel()) -> ok | {error, any()}.
+-spec validate_payment(blockchain_state_channel_payment_v1:payment(), state_channel()) -> ok | {error, any()}.
 validate_payment(Payment, SC) ->
-    SCCredits = blockchain_state_channel:credits(SC),
-    PaymenAmount = blockchain_state_channel_payment:amount(Payment),
+    SCCredits = ?MODULE:credits(SC),
+    PaymenAmount = blockchain_state_channel_payment_v1:amount(Payment),
     case SCCredits-PaymenAmount >= 0 of
         false -> {error, not_enough_credits};
         true -> ok
@@ -135,12 +135,12 @@ validate_payment(Payment, SC) ->
 -spec add_payment(blockchain_state_channel_payment:payment(), function(), state_channel()) -> state_channel().
 add_payment(Payment, SigFun, SC0) ->
     Credits = ?MODULE:credits(SC0),
-    Payments = ?MODULE:payments(SC0),
+    Receipts = ?MODULE:payments(SC0),
     Nonce = ?MODULE:nonce(SC0),
-    Amount = blockchain_state_channel_payment:amount(Payment),
+    Amount = blockchain_state_channel_payment_v1:amount(Payment),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
-    SC3 = ?MODULE:payments([Payment|Payments], SC2),
+    SC3 = ?MODULE:payments([Payment|Receipts], SC2),
     ?MODULE:sign(SC3, SigFun).
 
 %% ------------------------------------------------------------------
