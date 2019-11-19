@@ -43,6 +43,7 @@
     swarm :: pid(),
     state_channels = #{} :: #{blockchain_state_channel:id() => blockchain_state_channel:state_channel()},
     clients = #{} :: clients(),
+
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:id()}
 }).
 
@@ -222,8 +223,27 @@ load_state(DB, Swarm) ->
                 maps:new(),
                 SCIDs
             ),
-            % TODO: rebuild clients from payments
-            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs}}
+            Clients = lists:foldl(
+                fun(SC, Acc0) ->
+                    ID = blockchain_state_channel:id(SC),
+                    Payments = blockchain_state_channel:payments(SC),
+                    Payees = lists:foldl(
+                        fun(Payment, Acc1) ->
+                            Payee = blockchain_state_channel_payment:payee(Payment),
+                            case lists:member(Payee, Acc1) of
+                                true -> Acc1;
+                                false -> [Payee|Acc1]
+                            end
+                        end,
+                        [],
+                        Payments
+                    ),
+                    maps:put(ID, Payees, Acc0)
+                end,
+                maps:new(),
+                maps:values(SCs)
+            ),
+            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs, clients=Clients}}
     end.
 
 -spec update_state(blockchain_state_channel:state_channel(), blockchain_state_channel_payment:payment(), state()) -> state().
@@ -306,6 +326,7 @@ load_test() ->
         db=DB,
         swarm=Swarm,
         state_channels=#{ID => SC},
+        clients=#{ID => []},
         payees_to_sc=#{}
     },
     ?assertEqual(ok, blockchain_state_channel:save(DB, SC)),
@@ -325,9 +346,9 @@ update_state_test() ->
     Payee = <<"payee">>,
     Payment = blockchain_state_channel_payment:new(PubKeyBin, Payee, 1, <<>>),
     State0 = #state{db=DB, swarm=Swarm, state_channels=#{}, payees_to_sc=#{}},
-    State1 = State0#state{state_channels=#{ID => SC}, payees_to_sc=#{Payee => ID}, clients=#{ID => [self()]}},
+    State1 = State0#state{state_channels=#{ID => SC}, payees_to_sc=#{Payee => ID}, clients=#{ID => [Payee]}},
 
-    ?assertEqual(State1, update_state(SC, Payment, self(), State0)),
+    ?assertEqual(State1, update_state(SC, Payment, State0)),
     ?assertEqual({ok, [ID]}, get_state_channels(DB)),
 
     ok = rocksdb:close(DB),
