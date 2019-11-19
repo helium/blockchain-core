@@ -6,8 +6,8 @@
 -module(blockchain_state_channel_payment_req).
 
 -export([
-    new/3,
-    payee/1, amount/1, fingerprint/1, signature/1,
+    new/4,
+    id/1, payee/1, amount/1, fingerprint/1, signature/1,
     sign/2, validate/1,
     encode/1, decode/1
 ]).
@@ -21,13 +21,18 @@
 
 -type payment_req() :: #helium_state_channel_payment_req_v1_pb{}.
 
--spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> payment_req().
-new(Payee, Amount, Fingerprint) -> 
+-spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> payment_req().
+new(ID, Payee, Amount, Fingerprint) -> 
     #helium_state_channel_payment_req_v1_pb{
+        id=ID,
         payee=Payee,
         amount=Amount,
         fingerprint=Fingerprint
     }.
+
+-spec id(payment_req()) -> binary().
+id(#helium_state_channel_payment_req_v1_pb{id=ID}) ->
+    ID.
 
 -spec payee(payment_req()) -> libp2p_crypto:pubkey_bin().
 payee(#helium_state_channel_payment_req_v1_pb{payee=Payee}) ->
@@ -87,44 +92,49 @@ decode(BinaryPayment) ->
 
 new_test() ->
     Req = #helium_state_channel_payment_req_v1_pb{
+        id= <<"id">>,
         payee= <<"payee">>,
         amount=1,
         fingerprint= 12
     },
-    ?assertEqual(Req, new(<<"payee">>, 1, 12)).
+    ?assertEqual(Req, new(<<"id">>, <<"payee">>, 1, 12)).
+
+id_test() ->
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    ?assertEqual(<<"id">>, id(Req)).
 
 payee_test() ->
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual(<<"payee">>, payee(Req)).
 
 amount_test() ->
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual(1, amount(Req)).
 
 fingerprint_test() ->
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual(12, fingerprint(Req)).
 
 signature_test() ->
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual(<<>>, signature(Req)).
 
 sign_test() ->
     #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertNotEqual(<<>>, signature(sign(Req, SigFun))).
 
 validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req0 = new(PubKeyBin, 1, 12),
+    Req0 = new(<<"id">>, PubKeyBin, 1, 12),
     Req1 = sign(Req0, SigFun),
     ?assertEqual(true, validate(Req1)).
 
 encode_decode_test() ->
-    Req = new(<<"payee">>, 1, 12),
+    Req = new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual(Req, decode(encode(Req))).
 
 -endif.
