@@ -41,5 +41,10 @@ message txn {
         txn_token_burn_v1 token_burn = 17;
         txn_dc_coinbase_v1 dc_coinbase = 18;
         txn_token_burn_exchange_rate_v1 token_burn_exchange_rate = 19;
+        txn_bundle_v1 bundle = 20;
     }
+}
+
+message txn_bundle_v1 {
+  repeated txn transactions = 1;
 }

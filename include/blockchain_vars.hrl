@@ -158,3 +158,10 @@
 -define(poc_witnesses_percent, poc_witnesses_percent).
 -define(poc_challengers_percent, poc_challengers_percent).
 -define(dc_percent, dc_percent).
+
+%%%
+%%% bundle txn vars
+%%%
+
+%% Only allow txns of this bundle length to appear on chain
+-define(max_bundle_size, max_bundle_size). %% default: 5

@@ -673,6 +673,10 @@ validate_var(?reward_version, Value) ->
             throw({error, {invalid_reward_version, Value}})
     end;
 
+%% bundle vars
+validate_var(?max_bundle_size, Value) ->
+    validate_int(Value, "max_bundle_size", 5, 100, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
