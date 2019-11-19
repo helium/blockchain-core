@@ -64,19 +64,18 @@ init(server, _Conn, _) ->
 
 handle_data(client, Data, State) ->
     case blockchain_state_channel_message:decode(Data) of
-        {state_channel, _SC} ->
-            % TODO: Sent to client
-            ok;
-        _ -> ingore
+        {state_channel, SC} ->
+           blockchain_state_channels_client:state_channel(SC);
+        _ ->
+            ingore
     end,
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message:decode(Data) of
         {payment_req, Req} ->
             blockchain_state_channels_server:payment_req(Req);
-        {state_channel, _SC} ->
-            % TODO: Sent to client
-            ok
+        {state_channel, SC} ->
+           blockchain_state_channels_client:state_channel(SC)
     end,
     {noreply, State}.
 

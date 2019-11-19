@@ -12,6 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
+    credits/1,
     packet/1,
     state_channel/1
 ]).
@@ -51,6 +52,10 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec credits(blockchain_state_channel:id()) -> {ok, non_neg_integer()}.
+credits(ID) ->
+    gen_server:call(?SERVER, {credits, ID}).
+
 packet(Packet) ->
     gen_server:cast(?SERVER, {packet, Packet}).
 
@@ -65,13 +70,20 @@ init([Swarm]=_Args) ->
     {ok, DB} = blockchain_state_channel_db:get(),
     {ok, #state{db=DB, swarm=Swarm}}.
 
+handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
+    Reply = case maps:get(ID, SCs, undefined) of
+        undefined -> {error, not_found};
+        SC -> {ok, blockchain_state_channel:credits(SC)}
+    end,
+    {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
 handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
-                                               fingerprint=Fingerprint}},
+                                               fingerprint=Fingerprint}=P},
             #state{swarm=Swarm}=State) ->
+    lager:debug("got packet ~p", [P]),
     case find_routing(OUI) of
         {error, _Reason} ->
              lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]);
@@ -84,11 +96,13 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     % TODO: Get amount from somewhere?
                     Req = blockchain_state_channel_payment_req:new(PubKeyBin, 1, Fingerprint),
                     SignedReq = blockchain_state_channel_payment_req:sign(Req, SigFun),
+                    lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_payment_req(Pid, SignedReq)
             end
     end,
     {noreply, State};
 handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs}=State) ->
+    lager:debug("received state channel update for ~p", [blockchain_state_channel:id(SC)]),
     ok = blockchain_state_channel:save(DB, SC),
     ID = blockchain_state_channel:id(SC),
     {noreply, State#state{state_channels=maps:put(ID, SC, SCs)}};
