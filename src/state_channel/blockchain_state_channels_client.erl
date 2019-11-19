@@ -41,7 +41,8 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
-    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
+    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()},
+    pending_reqs = [] :: [blockchain_state_channel_payment_req:payment_req()]
 }).
 
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
@@ -82,25 +83,28 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                                                fingerprint=Fingerprint}=P},
-            #state{swarm=Swarm}=State) ->
+            #state{swarm=Swarm, pending_reqs=PendingReqs}=State) ->
     lager:debug("got packet ~p", [P]),
     case find_routing(OUI) of
         {error, _Reason} ->
-             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]);
+             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
+             {noreply, State};
         {ok, Peer} ->
             case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
                 {error, _Reason} ->
-                    lager:warning("failed to dial ~p:~p", [Peer, _Reason]);
+                    lager:warning("failed to dial ~p:~p", [Peer, _Reason]),
+                    {noreply, State};
                 {ok, Pid} ->
                     {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     % TODO: Get amount from somewhere?
-                    Req = blockchain_state_channel_payment_req:new(PubKeyBin, 1, Fingerprint),
+                    RANDOM_ID = <<"id">>,
+                    Req = blockchain_state_channel_payment_req:new(RANDOM_ID, PubKeyBin, 1, Fingerprint),
                     SignedReq = blockchain_state_channel_payment_req:sign(Req, SigFun),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
-                    blockchain_state_channel_handler:send_payment_req(Pid, SignedReq)
+                    blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
+                    {noreply, State#state{pending_reqs=[SignedReq|PendingReqs]}}
             end
-    end,
-    {noreply, State};
+    end;
 handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs}=State) ->
     lager:debug("received state channel update for ~p", [blockchain_state_channel:id(SC)]),
     ok = blockchain_state_channel:save(DB, SC),

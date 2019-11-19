@@ -6,8 +6,8 @@
 -module(blockchain_state_channel_payment).
 
 -export([
-    new/4,
-    payer/1, payee/1, amount/1, packet/1,
+    new/5,
+    payer/1, payee/1, amount/1, packet/1, req_id/1,
     encode/1, decode/1
 ]).
 
@@ -20,13 +20,14 @@
 
 -type payment() :: #helium_state_channel_payment_v1_pb{}.
 
--spec new(binary(), binary(), non_neg_integer(), binary()) -> payment().
-new(Payer, Payee, Amount, Packet) -> 
+-spec new(binary(), binary(), non_neg_integer(), binary(), binary()) -> payment().
+new(Payer, Payee, Amount, Packet, ReqID) -> 
     #helium_state_channel_payment_v1_pb{
         payer=Payer,
         payee=Payee,
         amount=Amount,
-        packet=Packet
+        packet=Packet,
+        req_id=ReqID
     }.
 
 -spec payer(payment()) -> binary().
@@ -44,6 +45,10 @@ amount(#helium_state_channel_payment_v1_pb{amount=Amount}) ->
 -spec packet(payment()) -> binary().
 packet(#helium_state_channel_payment_v1_pb{packet=Packets}) ->
     Packets.
+
+-spec req_id(payment()) -> binary().
+req_id(#helium_state_channel_payment_v1_pb{req_id=ReqID}) ->
+    ReqID.
 
 -spec encode(payment()) -> binary().
 encode(#helium_state_channel_payment_v1_pb{}=Payment) ->
@@ -67,28 +72,33 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=10,
-        packet= <<>>
+        packet= <<>>,
+        req_id= <<"req_id">>
     },
-    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<>>)).
+    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>)).
 
 payer_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
     ?assertEqual(<<"payer">>, payer(Payment)).
 
 payee_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
     ?assertEqual(<<"payee">>, payee(Payment)).
 
 amount_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
     ?assertEqual(10, amount(Payment)).
 
 packet_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
     ?assertEqual(<<>>, packet(Payment)).
 
+req_id_test() ->
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    ?assertEqual(<<"req_id">>, req_id(Payment)).
+
 encode_decode_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
     ?assertEqual(Payment, decode(encode(Payment))).
 
 -endif.
