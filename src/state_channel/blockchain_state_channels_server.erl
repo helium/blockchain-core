@@ -104,17 +104,17 @@ handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) -
     SC0 = blockchain_state_channel:new(ID, Owner),
     SC1 = blockchain_state_channel:credits(Amount, SC0),
     {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}};
-handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State) ->
+handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State0) ->
     case blockchain_state_channel_payment_req:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
-            {noreply, State};
+            {noreply, State0};
         true ->
-            case select_state_channel(Req, State) of
+            case select_state_channel(Req, State0) of
                 {error, _Reason} ->
                     % TODO: Maybe counter offer here?
                     lager:warning("no valid state channel found for ~p:~p", [Req, _Reason]),
-                    {noreply, State};
+                    {noreply, State0};
                 {ok, SC0} ->
                     Amount = blockchain_state_channel_payment_req:amount(Req),
                     {Payer, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
@@ -124,13 +124,15 @@ handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State) ->
                         {error, _Reason} ->
                             % TODO: Maybe counter offer here?
                             lager:warning("failed to validate payment ~p:~p", [Payment, _Reason]),
-                            {noreply, State};
+                            {noreply, State0};
                         ok ->
                             % TODO: Update packet stuff
                             SC1 = blockchain_state_channel:add_payment(Payment, PayerSigFun, SC0),
-                            ok = broadcast_state_channel(SC1, State),
                             ok = blockchain_state_channel:save(DB, SC1),
-                            {noreply, update_state(SC1, Payment, State)}
+                            State1 = update_state(SC1, Payment, State0),
+                            ok = broadcast_state_channel(SC1, State1),
+                            lager:info("added payment ~p to state channel ~p", [Payment, blockchain_state_channel:id(SC1)]),
+                            {noreply, State1}
                     end
             end
     end;
