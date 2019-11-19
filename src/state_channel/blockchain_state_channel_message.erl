@@ -46,7 +46,7 @@ unwrap_msg(#helium_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Req = blockchain_state_channel_payment_req:new(<<"payee">>, 1, 12),
+    Req = blockchain_state_channel_payment_req:new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual({payment_req, Req}, decode(encode(Req))).
 
 -endif.

@@ -111,7 +111,7 @@ basic_test(Config) ->
     #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
     SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
-    Req0 = blockchain_state_channel_payment_req:new(PubKeyBin0, 1, 12),
+    Req0 = blockchain_state_channel_payment_req:new(<<"id">>, PubKeyBin0, 1, 12),
     Req1 = blockchain_state_channel_payment_req:sign(Req0, SigFun0),
     ok = blockchain_state_channels_server:payment_req(Req1),
 
