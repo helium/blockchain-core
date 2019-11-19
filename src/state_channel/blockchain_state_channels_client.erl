@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    packet/1
+    packet/1,
+    state_channel/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -42,7 +43,6 @@
     state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()}
 }).
 
-% -type state() :: #state{}.
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
 %% ------------------------------------------------------------------
@@ -53,6 +53,9 @@ start_link(Args) ->
 
 packet(Packet) ->
     gen_server:cast(?SERVER, {packet, Packet}).
+
+state_channel(SC) ->
+    gen_server:cast(?SERVER, {state_channel, SC}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -85,23 +88,10 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
             end
     end,
     {noreply, State};
-% handle_cast({payment, Payment}, #state{db=DB, state_channels=SCs}=State) ->
-%     case validate_payment(Payment, State) of
-%         {error, _Reason} ->
-%             lager:warning("ignored unvalid payment ~p ~p", [_Reason, Payment]),
-%             {noreply, State};
-%         ok ->
-%             Owner = blockchain_dcs_payment:payer(Payment),
-%             case maps:get(Owner, SCs, undefined) of
-%                 undefined ->
-%                     lager:warning("ignored unknown payment ~p", [Payment]),
-%                     {noreply, State};
-%                 SC0 ->
-%                     SC1 = blockchain_state_channel:add_payment(Payment, SC0),
-%                     ok = blockchain_state_channel:save(DB, SC1),
-%                     {noreply, State#state{state_channels=maps:put(Owner, SC1, SCs)}}
-%             end
-%     end;
+handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs}=State) ->
+    ok = blockchain_state_channel:save(DB, SC),
+    ID = blockchain_state_channel:id(SC),
+    {noreply, State#state{state_channels=maps:put(ID, SC, SCs)}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -131,14 +121,6 @@ find_routing(OUI) ->
             [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
             {ok, erlang:binary_to_list(Address)}
     end.
-
-% -spec validate_payment(blockchain_dcs_payment:dcs_payment(), state()) -> ok | {error, any()}.
-% validate_payment(Payment, #state{state_channels=SCs}) ->
-%     Owner = blockchain_dcs_payment:payer(Payment),
-%     case maps:get(Owner, SCs, undefined) of
-%         undefined -> {error, unknown_payment};
-%         SC -> blockchain_state_channel:validate_payment(Payment, SC)
-%     end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
