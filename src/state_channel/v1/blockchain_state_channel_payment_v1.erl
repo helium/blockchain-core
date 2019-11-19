@@ -3,11 +3,11 @@
 %% == Blockchain State Channel Payment ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_state_channel_payment).
+-module(blockchain_state_channel_payment_v1).
 
 -export([
-    new/5,
-    payer/1, payee/1, amount/1, packet/1, req_id/1,
+    new/4,
+    payer/1, payee/1, amount/1, req_id/1,
     encode/1, decode/1
 ]).
 
@@ -20,13 +20,14 @@
 
 -type payment() :: #helium_state_channel_payment_v1_pb{}.
 
--spec new(binary(), binary(), non_neg_integer(), binary(), binary()) -> payment().
-new(Payer, Payee, Amount, Packet, ReqID) -> 
+-export_type([payment/0]).
+
+-spec new(binary(), binary(), non_neg_integer(), blockchain_state_channel_payment_req_v1:id()) -> payment().
+new(Payer, Payee, Amount, ReqID) -> 
     #helium_state_channel_payment_v1_pb{
         payer=Payer,
         payee=Payee,
         amount=Amount,
-        packet=Packet,
         req_id=ReqID
     }.
 
@@ -42,21 +43,17 @@ payee(#helium_state_channel_payment_v1_pb{payee=Payee}) ->
 amount(#helium_state_channel_payment_v1_pb{amount=Amount}) ->
     Amount.
 
--spec packet(payment()) -> binary().
-packet(#helium_state_channel_payment_v1_pb{packet=Packets}) ->
-    Packets.
-
--spec req_id(payment()) -> binary().
+-spec req_id(payment()) -> blockchain_state_channel_payment_req_v1:id().
 req_id(#helium_state_channel_payment_v1_pb{req_id=ReqID}) ->
     ReqID.
 
 -spec encode(payment()) -> binary().
-encode(#helium_state_channel_payment_v1_pb{}=Payment) ->
-    helium_state_channel_v1_pb:encode_msg(Payment).
+encode(#helium_state_channel_payment_v1_pb{}=Receipt) ->
+    helium_state_channel_v1_pb:encode_msg(Receipt).
 
 -spec decode(binary()) -> payment().
-decode(BinaryPayment) ->
-    helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_payment_v1_pb).
+decode(BinaryReceipt) ->
+    helium_state_channel_v1_pb:decode_msg(BinaryReceipt, helium_state_channel_payment_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -72,33 +69,28 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=10,
-        packet= <<>>,
         req_id= <<"req_id">>
     },
-    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>)).
+    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<"req_id">>)).
 
 payer_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
     ?assertEqual(<<"payer">>, payer(Payment)).
 
 payee_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
     ?assertEqual(<<"payee">>, payee(Payment)).
 
 amount_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
     ?assertEqual(10, amount(Payment)).
 
-packet_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
-    ?assertEqual(<<>>, packet(Payment)).
-
 req_id_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
     ?assertEqual(<<"req_id">>, req_id(Payment)).
 
 encode_decode_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<>>, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
     ?assertEqual(Payment, decode(encode(Payment))).
 
 -endif.
