@@ -41,14 +41,14 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
-    state_channels = #{} :: #{blockchain_state_channel:id() => blockchain_state_channel:state_channel()},
+    state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
 
-    payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:id()}
+    payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()}
 }).
 
 -type state() :: #state{}.
--type clients() :: #{blockchain_state_channel:id() => [libp2p_crypto:pubkey_bin()]}.
+-type clients() :: #{blockchain_state_channel_v1:id() => [libp2p_crypto:pubkey_bin()]}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -56,20 +56,20 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
--spec credits(blockchain_state_channel:id()) -> {ok, non_neg_integer()}.
+-spec credits(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}).
 
--spec nonce(blockchain_state_channel:id()) -> {ok, non_neg_integer()}.
+-spec nonce(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec payment_req(blockchain_dcs_payment_req:dcs_payment_req()) -> ok.
+-spec payment_req(blockchain_dcs_payment_req_v1:dcs_payment_req()) -> ok.
 payment_req(Req) ->
     gen_server:cast(?SERVER, {payment_req, Req}).
 
 % TODO: Replace this with real burn
--spec burn(blockchain_state_channel:id(), non_neg_integer()) -> ok.
+-spec burn(blockchain_state_channel_v1:id(), non_neg_integer()) -> ok.
 burn(ID, Amount) ->
     gen_server:cast(?SERVER, {burn, ID, Amount}).
 
@@ -85,13 +85,13 @@ init([Swarm]=_Args) ->
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
         undefined -> {error, not_found};
-        SC -> {ok, blockchain_state_channel:credits(SC)}
+        SC -> {ok, blockchain_state_channel_v1:credits(SC)}
     end,
     {reply, Reply, State};
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
         undefined -> {error, not_found};
-        SC -> {ok, blockchain_state_channel:nonce(SC)}
+        SC -> {ok, blockchain_state_channel_v1:nonce(SC)}
     end,
     {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
@@ -101,11 +101,11 @@ handle_call(_Msg, _From, State) ->
 % TODO: Replace this with real burn
 handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) ->
     {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    SC0 = blockchain_state_channel:new(ID, Owner),
-    SC1 = blockchain_state_channel:credits(Amount, SC0),
+    SC0 = blockchain_state_channel_v1:new(ID, Owner),
+    SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
     {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}};
 handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State0) ->
-    case blockchain_state_channel_payment_req:validate(Req) of
+    case blockchain_state_channel_payment_req_v1:validate(Req) of
         {error, _Reason} ->
             lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
             {noreply, State0};
@@ -116,22 +116,23 @@ handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State0) ->
                     lager:warning("no valid state channel found for ~p:~p", [Req, _Reason]),
                     {noreply, State0};
                 {ok, SC0} ->
-                    Amount = blockchain_state_channel_payment_req:amount(Req),
+                    Amount = blockchain_state_channel_payment_req_v1:amount(Req),
                     {Payer, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    Payee = blockchain_state_channel_payment_req:payee(Req),
-                    Payment = blockchain_state_channel_payment:new(Payer, Payee, Amount, <<>>, blockchain_state_channel_payment_req:id(Req)),
-                    case blockchain_state_channel:validate_payment(Payment, SC0) of
+                    Payee = blockchain_state_channel_payment_req_v1:payee(Req),
+                    ReqID = blockchain_state_channel_payment_req_v1:id(Req),
+                    Receipt = blockchain_state_channel_payment_v1:new(Payer, Payee, Amount, ReqID),
+                    case blockchain_state_channel_v1:validate_payment(Receipt, SC0) of
                         {error, _Reason} ->
                             % TODO: Maybe counter offer here?
-                            lager:warning("failed to validate payment ~p:~p", [Payment, _Reason]),
+                            lager:warning("failed to validate payment ~p:~p", [Receipt, _Reason]),
                             {noreply, State0};
                         ok ->
                             % TODO: Update packet stuff
-                            SC1 = blockchain_state_channel:add_payment(Payment, PayerSigFun, SC0),
-                            ok = blockchain_state_channel:save(DB, SC1),
-                            State1 = update_state(SC1, Payment, State0),
-                            ok = broadcast_state_channel(SC1, State1),
-                            lager:info("added payment ~p to state channel ~p", [Payment, blockchain_state_channel:id(SC1)]),
+                            SC1 = blockchain_state_channel_v1:add_payment(Receipt, PayerSigFun, SC0),
+                            ok = blockchain_state_channel_v1:save(DB, SC1),
+                            State1 = update_state(SC1, Receipt, State0),
+                            ok = update_clients(SC1, State1),
+                            lager:info("added payment ~p to state channel ~p", [Receipt, blockchain_state_channel_v1:id(SC1)]),
                             {noreply, State1}
                     end
             end
@@ -154,9 +155,9 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec broadcast_state_channel(blockchain_state_channel:state_channel(), state()) -> ok.
-broadcast_state_channel(SC, #state{swarm=Swarm, clients=Clients}) ->
-    ID = blockchain_state_channel:id(SC),
+-spec update_clients(blockchain_state_channel_v1:state_channel(), state()) -> ok.
+update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
+    ID = blockchain_state_channel_v1:id(SC),
     PubKeyBins = maps:get(ID, Clients, []),
     lists:foreach(
         fun(PubKeyBin) ->
@@ -171,31 +172,31 @@ broadcast_state_channel(SC, #state{swarm=Swarm, clients=Clients}) ->
         PubKeyBins
     ).
 
--spec select_state_channel(blockchain_state_channel_payment_req:payment_req(), state()) ->
-    {ok, blockchain_state_channel:state_channel()} | {error, any()}.
+-spec select_state_channel(blockchain_state_channel_payment_req_v1:payment_req(), state()) ->
+    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
 select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=State) ->
     case maps:size(SCs) == 0 of
         true ->
             {error, no_state_channel};
         false ->
-            Amount = blockchain_state_channel_payment_req:amount(Req),
-            Payee = blockchain_state_channel_payment_req:payee(Req),
+            Amount = blockchain_state_channel_payment_req_v1:amount(Req),
+            Payee = blockchain_state_channel_payment_req_v1:payee(Req),
             case maps:get(Payee, PayeesToSC, undefined) of
                 undefined ->
                     [SC|_] = lists:sort(
                         fun(SCA, SCB) ->
-                            blockchain_state_channel:credits(SCA) >= blockchain_state_channel:credits(SCB)
+                            blockchain_state_channel_v1:credits(SCA) >= blockchain_state_channel_v1:credits(SCB)
                         end,
                         maps:values(SCs)
                     ),
-                    Credits = blockchain_state_channel:credits(SC),
+                    Credits = blockchain_state_channel_v1:credits(SC),
                     case Credits-Amount >= 0 of
                         false -> {error, not_enough_credits};
                         true -> {ok, SC}
                     end;
                 ID ->
                     SC = maps:get(ID, SCs),
-                    Credits = blockchain_state_channel:credits(SC),
+                    Credits = blockchain_state_channel_v1:credits(SC),
                     case Credits-Amount >= 0 of
                         false ->
                             select_state_channel(Req, State#state{payees_to_sc=#{}});
@@ -213,7 +214,7 @@ load_state(DB, Swarm) ->
         {ok, SCIDs} ->
             SCs = lists:foldl(
                 fun(ID, Acc) ->
-                    case blockchain_state_channel:get(DB, ID) of
+                    case blockchain_state_channel_v1:get(DB, ID) of
                         {error, _Reason} ->
                             % TODO: Maybe cleanup not_found state channels from list
                             lager:warning("could not get state channel ~p: ~p", [ID, _Reason]),
@@ -227,11 +228,11 @@ load_state(DB, Swarm) ->
             ),
             Clients = lists:foldl(
                 fun(SC, Acc0) ->
-                    ID = blockchain_state_channel:id(SC),
-                    Payments = blockchain_state_channel:payments(SC),
+                    ID = blockchain_state_channel_v1:id(SC),
+                    Payments = blockchain_state_channel_v1:payments(SC),
                     Payees = lists:foldl(
                         fun(Payment, Acc1) ->
-                            Payee = blockchain_state_channel_payment:payee(Payment),
+                            Payee = blockchain_state_channel_payment_v1:payee(Payment),
                             case lists:member(Payee, Acc1) of
                                 true -> Acc1;
                                 false -> [Payee|Acc1]
@@ -248,10 +249,10 @@ load_state(DB, Swarm) ->
             {ok, #state{db=DB, swarm=Swarm, state_channels=SCs, clients=Clients}}
     end.
 
--spec update_state(blockchain_state_channel:state_channel(), blockchain_state_channel_payment:payment(), state()) -> state().
+-spec update_state(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_payment_v1:payment(), state()) -> state().
 update_state(SC, Payment, #state{db=DB, state_channels=SCs, payees_to_sc=PayeesToSC, clients=Clients}=State) ->
-    ID = blockchain_state_channel:id(SC),
-    Payee = blockchain_state_channel_payment:payee(Payment),
+    ID = blockchain_state_channel_v1:id(SC),
+    Payee = blockchain_state_channel_payment_v1:payee(Payment),
     ok = save_state_channels(DB, ID),
     Payees0 = maps:get(ID, Clients, []),
     Payees1 = case lists:member(Payee, Payees0) of
@@ -262,7 +263,7 @@ update_state(SC, Payment, #state{db=DB, state_channels=SCs, payees_to_sc=PayeesT
                 clients=maps:put(ID, Payees1, Clients),
                 payees_to_sc=maps:put(Payee, ID, PayeesToSC)}.
 
--spec save_state_channels(rocksdb:db_handle(), blockchain_state_channel:id()) -> ok | {error, any()}.
+-spec save_state_channels(rocksdb:db_handle(), blockchain_state_channel_v1:id()) -> ok | {error, any()}.
 save_state_channels(DB, ID) ->
     case get_state_channels(DB) of
         {error, _}=Error ->
@@ -276,7 +277,7 @@ save_state_channels(DB, ID) ->
             end
     end.
 
--spec get_state_channels(rocksdb:db_handle()) -> {ok, [blockchain_state_channel:id()]} | {error, any()}.
+-spec get_state_channels(rocksdb:db_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
 get_state_channels(DB) ->
     case rocksdb:get(DB, ?STATE_CHANNELS, [{sync, true}]) of
         {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
@@ -290,27 +291,27 @@ get_state_channels(DB) ->
 -ifdef(TEST).
 
 select_state_channel_test() ->
-    Req0 = blockchain_state_channel_payment_req:new(<<"id0">>, <<"payee">>, 1, 12),
+    Req0 = blockchain_state_channel_payment_req_v1:new(<<"id0">>, <<"payee">>, 1, 12),
     State0 = #state{state_channels= #{}, payees_to_sc= #{}},
     ?assertEqual({error, no_state_channel}, select_state_channel(Req0, State0)),
 
-    Req1 = blockchain_state_channel_payment_req:new(<<"id1">>, <<"payee">>, 1, 12),
+    Req1 = blockchain_state_channel_payment_req_v1:new(<<"id1">>, <<"payee">>, 1, 12),
     ID1 = <<"1">>,
-    SC1 =blockchain_state_channel:new(ID1, <<"owner">>),
+    SC1 =blockchain_state_channel_v1:new(ID1, <<"owner">>),
     State1 = #state{state_channels= #{ID1 => SC1}, payees_to_sc= #{<<"payee">> => ID1}},
     ?assertEqual({error, not_enough_credits}, select_state_channel(Req1, State1)),
 
-    Req2 = blockchain_state_channel_payment_req:new(<<"id2">>, <<"payee">>, 1, 12),
+    Req2 = blockchain_state_channel_payment_req_v1:new(<<"id2">>, <<"payee">>, 1, 12),
     ID2 = <<"2">>,
-    SC2 = blockchain_state_channel:credits(10, blockchain_state_channel:new(ID2, <<"owner">>)),
+    SC2 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID2, <<"owner">>)),
     State2 = #state{state_channels= #{ID2 => SC2}, payees_to_sc= #{<<"payee">> => ID2}},
     ?assertEqual({ok, SC2}, select_state_channel(Req2, State2)),
 
-    Req4 = blockchain_state_channel_payment_req:new(<<"id4">>, <<"payee">>, 1, 12),
+    Req4 = blockchain_state_channel_payment_req_v1:new(<<"id4">>, <<"payee">>, 1, 12),
     ID3 = <<"3">>,
-    SC3 = blockchain_state_channel:new(ID3, <<"owner">>),
+    SC3 = blockchain_state_channel_v1:new(ID3, <<"owner">>),
     ID4 = <<"4">>,
-    SC4 = blockchain_state_channel:credits(10, blockchain_state_channel:new(ID4, <<"owner">>)),
+    SC4 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID4, <<"owner">>)),
     State4 = #state{state_channels= #{ID3 => SC3, ID4 => SC4}, payees_to_sc= #{<<"payee">> => ID3}},
     ?assertEqual({ok, SC4}, select_state_channel(Req4, State4)),
     ok.
@@ -322,7 +323,7 @@ load_test() ->
     {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     ID = <<"1">>,
-    SC = blockchain_state_channel:new(ID, PubKeyBin),
+    SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
     ok = rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID]), [{sync, true}]),
     State = #state{
         db=DB,
@@ -331,7 +332,7 @@ load_test() ->
         clients=#{ID => []},
         payees_to_sc=#{}
     },
-    ?assertEqual(ok, blockchain_state_channel:save(DB, SC)),
+    ?assertEqual(ok, blockchain_state_channel_v1:save(DB, SC)),
     ?assertEqual({ok, State}, load_state(DB, Swarm)),
     ok = rocksdb:close(DB),
     libp2p_swarm:stop(Swarm),
@@ -344,9 +345,9 @@ update_state_test() ->
     {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     ID = <<"1">>,
-    SC = blockchain_state_channel:new(ID, PubKeyBin),
+    SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
     Payee = <<"payee">>,
-    Payment = blockchain_state_channel_payment:new(PubKeyBin, Payee, 1, <<>>, <<"req_id">>),
+    Payment = blockchain_state_channel_payment_v1:new(PubKeyBin, Payee, 1, <<"req_id">>),
     State0 = #state{db=DB, swarm=Swarm, state_channels=#{}, payees_to_sc=#{}},
     State1 = State0#state{state_channels=#{ID => SC}, payees_to_sc=#{Payee => ID}, clients=#{ID => [Payee]}},
 

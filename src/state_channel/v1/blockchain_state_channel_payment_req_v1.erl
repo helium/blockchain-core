@@ -3,7 +3,7 @@
 %% == Blockchain State Channel Payment Request ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_state_channel_payment_req).
+-module(blockchain_state_channel_payment_req_v1).
 
 -export([
     new/4,
@@ -20,8 +20,11 @@
 -endif.
 
 -type payment_req() :: #helium_state_channel_payment_req_v1_pb{}.
+-type id() :: binary().
 
--spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> payment_req().
+-export_type([payment_req/0, id/0]).
+
+-spec new(id(), libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> payment_req().
 new(ID, Payee, Amount, Fingerprint) -> 
     #helium_state_channel_payment_req_v1_pb{
         id=ID,
@@ -30,7 +33,7 @@ new(ID, Payee, Amount, Fingerprint) ->
         fingerprint=Fingerprint
     }.
 
--spec id(payment_req()) -> binary().
+-spec id(payment_req()) -> id().
 id(#helium_state_channel_payment_req_v1_pb{id=ID}) ->
     ID.
 

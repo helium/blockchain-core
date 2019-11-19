@@ -3,7 +3,7 @@
 %% == Blockchain State Channel Message ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_state_channel_message).
+-module(blockchain_state_channel_message_v1).
 
 -export([encode/1, decode/1]).
 
@@ -15,8 +15,11 @@
 -endif.
 
 -type message() :: #helium_state_channel_message_v1_pb{}.
--type oneof() :: blockchain_state_channel_payment_req:payment_req() |
-                 blockchain_state_channel:state_channel().
+-type oneof() :: blockchain_state_channel_payment_req_v1:payment_req() |
+                 blockchain_state_channel_payment_v1:payment() |
+                blockchain_state_channel_packet_v1:packet().
+
+-export_type([message/0]).
 
 -spec encode(oneof()) -> binary().
 encode(Msg) ->
@@ -34,7 +37,9 @@ decode(Bin) ->
 wrap_msg(#helium_state_channel_v1_pb{}=SC) ->
     #helium_state_channel_message_v1_pb{msg={state_channel, SC}};
 wrap_msg(#helium_state_channel_payment_req_v1_pb{}=Req) ->
-    #helium_state_channel_message_v1_pb{msg={payment_req, Req}}.
+    #helium_state_channel_message_v1_pb{msg={payment_req, Req}};
+wrap_msg(#helium_state_channel_packet_v1_pb{}=Packet) ->
+    #helium_state_channel_message_v1_pb{msg={packet, Packet}}.
 
 -spec unwrap_msg(message()) -> {atom(), oneof()}.
 unwrap_msg(#helium_state_channel_message_v1_pb{msg={Type, Msg}}) ->
@@ -46,7 +51,7 @@ unwrap_msg(#helium_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Req = blockchain_state_channel_payment_req:new(<<"id">>, <<"payee">>, 1, 12),
+    Req = blockchain_state_channel_payment_req_v1:new(<<"id">>, <<"payee">>, 1, 12),
     ?assertEqual({payment_req, Req}, decode(encode(Req))).
 
 -endif.
