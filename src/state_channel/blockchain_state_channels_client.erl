@@ -41,8 +41,8 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
-    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel:state_channel()},
-    pending_reqs = [] :: [blockchain_state_channel_payment_req:payment_req()]
+    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:state_channel()},
+    pending_reqs = [] :: [blockchain_state_channel_payment_req_v1:payment_req()]
 }).
 
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
@@ -53,7 +53,7 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
--spec credits(blockchain_state_channel:id()) -> {ok, non_neg_integer()}.
+-spec credits(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}).
 
@@ -74,7 +74,7 @@ init([Swarm]=_Args) ->
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
         undefined -> {error, not_found};
-        SC -> {ok, blockchain_state_channel:credits(SC)}
+        SC -> {ok, blockchain_state_channel_v1:credits(SC)}
     end,
     {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
@@ -97,18 +97,18 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                 {ok, Pid} ->
                     {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     % TODO: Get amount from somewhere?
-                    RANDOM_ID = <<"id">>,
-                    Req = blockchain_state_channel_payment_req:new(RANDOM_ID, PubKeyBin, 1, Fingerprint),
-                    SignedReq = blockchain_state_channel_payment_req:sign(Req, SigFun),
+                    ReqID = crypto:strong_rand_bytes(32),
+                    Req = blockchain_state_channel_payment_req_v1:new(ReqID, PubKeyBin, 1, Fingerprint),
+                    SignedReq = blockchain_state_channel_payment_req_v1:sign(Req, SigFun),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
                     {noreply, State#state{pending_reqs=[SignedReq|PendingReqs]}}
             end
     end;
 handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs}=State) ->
-    lager:debug("received state channel update for ~p", [blockchain_state_channel:id(SC)]),
-    ok = blockchain_state_channel:save(DB, SC),
-    ID = blockchain_state_channel:id(SC),
+    lager:debug("received state channel update for ~p", [blockchain_state_channel_v1:id(SC)]),
+    ok = blockchain_state_channel_v1:save(DB, SC),
+    ID = blockchain_state_channel_v1:id(SC),
     {noreply, State#state{state_channels=maps:put(ID, SC, SCs)}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
