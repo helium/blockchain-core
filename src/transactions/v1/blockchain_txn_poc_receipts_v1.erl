@@ -410,7 +410,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                     Error3;
                                 {ok, Block1} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
-                                    case blockchain:get_block(HH - 1, Chain) of
+                                    case blockchain:get_block(HH + 1, Chain) of
                                         {error, _}=Error4 ->
                                             Error4;
                                         {ok, B} ->
