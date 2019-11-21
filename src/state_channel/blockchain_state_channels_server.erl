@@ -120,19 +120,19 @@ handle_cast({payment_req, Req}, #state{db=DB, swarm=Swarm}=State0) ->
                     {Payer, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Payee = blockchain_state_channel_payment_req_v1:payee(Req),
                     ReqID = blockchain_state_channel_payment_req_v1:id(Req),
-                    Receipt = blockchain_state_channel_payment_v1:new(Payer, Payee, Amount, ReqID),
-                    case blockchain_state_channel_v1:validate_payment(Receipt, SC0) of
+                    Payment = blockchain_state_channel_payment_v1:new(Payer, Payee, Amount, ReqID),
+                    case blockchain_state_channel_v1:validate_payment(Payment, SC0) of
                         {error, _Reason} ->
                             % TODO: Maybe counter offer here?
-                            lager:warning("failed to validate payment ~p:~p", [Receipt, _Reason]),
+                            lager:warning("failed to validate payment ~p:~p", [Payment, _Reason]),
                             {noreply, State0};
                         ok ->
                             % TODO: Update packet stuff
-                            SC1 = blockchain_state_channel_v1:add_payment(Receipt, PayerSigFun, SC0),
+                            SC1 = blockchain_state_channel_v1:add_payment(Payment, PayerSigFun, SC0),
                             ok = blockchain_state_channel_v1:save(DB, SC1),
-                            State1 = update_state(SC1, Receipt, State0),
+                            State1 = update_state(SC1, Payment, State0),
                             ok = update_clients(SC1, State1),
-                            lager:info("added payment ~p to state channel ~p", [Receipt, blockchain_state_channel_v1:id(SC1)]),
+                            lager:info("added payment ~p to state channel ~p", [Payment, blockchain_state_channel_v1:id(SC1)]),
                             {noreply, State1}
                     end
             end

@@ -42,8 +42,10 @@
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
     state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:state_channel()},
-    pending_reqs = [] :: [blockchain_state_channel_payment_req_v1:payment_req()]
+    pending = #{} :: pending()
 }).
+
+-type pending() :: #{blockchain_state_channel_payment_req_v1:id() => {blockchain_state_channel_payment_req_v1:payment_req(), any()}}.
 
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
@@ -82,9 +84,9 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
-                                               fingerprint=Fingerprint}=P},
-            #state{swarm=Swarm, pending_reqs=PendingReqs}=State) ->
-    lager:debug("got packet ~p", [P]),
+                                               fingerprint=Fingerprint}=Packet},
+            #state{swarm=Swarm, pending=Pending}=State) ->
+    lager:debug("got packet ~p", [Packet]),
     case find_routing(OUI) of
         {error, _Reason} ->
              lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
@@ -102,14 +104,22 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     SignedReq = blockchain_state_channel_payment_req_v1:sign(Req, SigFun),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
-                    {noreply, State#state{pending_reqs=[SignedReq|PendingReqs]}}
+                    {noreply, State#state{pending=maps:put(ReqID, {SignedReq, Packet}, Pending)}}
             end
     end;
-handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs}=State) ->
+handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs, pending=Pending}=State) ->
     lager:debug("received state channel update for ~p", [blockchain_state_channel_v1:id(SC)]),
-    ok = blockchain_state_channel_v1:save(DB, SC),
-    ID = blockchain_state_channel_v1:id(SC),
-    {noreply, State#state{state_channels=maps:put(ID, SC, SCs)}};
+    case check_pending_requests(SC, Pending) of
+        {error, _Reason} ->
+            lager:warning("state channel ~p is invalid ~p", [SC, _Reason]),
+            {noreply, State};
+        {ok, Found} ->
+            % TODO: Send found packets
+            ok = blockchain_state_channel_v1:save(DB, SC),
+            ID = blockchain_state_channel_v1:id(SC),
+            {noreply, State#state{state_channels=maps:put(ID, SC, SCs),
+                                  pending=maps:without(Found, Pending)}}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -127,6 +137,38 @@ terminate(_Reason,  #state{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec check_pending_requests(blockchain_state_channel_v1:state_channel(), pending()) ->
+    {ok, [blockchain_state_channel_payment_req_v1:id()]} | {error, any()}.
+check_pending_requests(SC, Pending) ->
+    case blockchain_state_channel_v1:validate(SC) of
+        {error, _}=Error -> 
+            Error;
+        true ->
+            Payments = blockchain_state_channel_v1:payments(SC),
+            Found = lists:filter(
+                fun(ReqID) ->
+                    case proplists:get_value(ReqID, Payments, undefined) of
+                        undefined -> false;
+                        Payment ->
+                            {Req, _} = maps:get(ReqID, Pending),
+                            check_request(Req, Payment)
+                    end
+                end,
+                maps:keys(Pending)
+            ),
+            {ok, Found}
+    end.
+
+-spec check_request(blockchain_state_channel_payment_req_v1:payment_req(),
+                    blockchain_state_channel_payment_v1:payment()) -> boolean().
+check_request(Req, Payment) ->
+    ReqAmount = blockchain_state_channel_payment_req_v1:amount(Req),
+    ReqPayee = blockchain_state_channel_payment_req_v1:payee(Req),
+    PaymentAmount = blockchain_state_channel_payment_v1:amount(Payment),
+    PaymentPayee = blockchain_state_channel_payment_v1:payee(Payment),
+    ReqAmount == PaymentAmount andalso ReqPayee == PaymentPayee.
+
 
 -spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.
 find_routing(OUI) ->
