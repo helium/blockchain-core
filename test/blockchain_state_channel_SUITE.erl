@@ -108,12 +108,10 @@ basic_test(Config) ->
     ?assertEqual({ok, 10}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
 
-    #{public := PubKey0, secret := PrivKey0} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
-    SigFun0 = libp2p_crypto:mk_sig_fun(PrivKey0),
-    Req0 = blockchain_state_channel_payment_req_v1:new(<<"id">>, PubKeyBin0, 1, 12),
-    Req1 = blockchain_state_channel_payment_req_v1:sign(Req0, SigFun0),
-    ok = blockchain_state_channels_server:payment_req(Req1),
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 12),
+    ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
