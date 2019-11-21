@@ -69,28 +69,28 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=10,
-        req_id= <<"req_id">>
+        req_id= "req_id"
     },
-    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, <<"req_id">>)).
+    ?assertEqual(Payment, new(<<"payer">>, <<"payee">>, 10, "req_id")).
 
 payer_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, "req_id"),
     ?assertEqual(<<"payer">>, payer(Payment)).
 
 payee_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, "req_id"),
     ?assertEqual(<<"payee">>, payee(Payment)).
 
 amount_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, "req_id"),
     ?assertEqual(10, amount(Payment)).
 
 req_id_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
-    ?assertEqual(<<"req_id">>, req_id(Payment)).
+    Payment = new(<<"payer">>, <<"payee">>, 10, "req_id"),
+    ?assertEqual("req_id", req_id(Payment)).
 
 encode_decode_test() ->
-    Payment = new(<<"payer">>, <<"payee">>, 10, <<"req_id">>),
+    Payment = new(<<"payer">>, <<"payee">>, 10, "req_id"),
     ?assertEqual(Payment, decode(encode(Payment))).
 
 -endif.

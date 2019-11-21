@@ -56,20 +56,20 @@ decode(BinaryPacket) ->
 new_test() ->
     Packet = #helium_state_channel_packet_v1_pb{
         packet= <<"data">>,
-        req_id= <<"req_id">>
+        req_id= "req_id"
     },
-    ?assertEqual(Packet, new(<<"data">>, <<"req_id">>)).
+    ?assertEqual(Packet, new(<<"data">>, "req_id")).
 
 packet_test() ->
-    Packet = new(<<"data">>, <<"req_id">>),
+    Packet = new(<<"data">>, "req_id"),
     ?assertEqual(<<"data">>, packet(Packet)).
 
 req_id_test() ->
-    Packet = new(<<"data">>, <<"req_id">>),
-    ?assertEqual(<<"req_id">>, req_id(Packet)).
+    Packet = new(<<"data">>, "req_id"),
+    ?assertEqual("req_id", req_id(Packet)).
 
 encode_decode_test() ->
-    Packet = new(<<"data">>, <<"req_id">>),
+    Packet = new(<<"data">>, "req_id"),
     ?assertEqual(Packet, decode(encode(Packet))).
 
 -endif.
