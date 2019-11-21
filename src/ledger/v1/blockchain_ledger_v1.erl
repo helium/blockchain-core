@@ -76,7 +76,8 @@
 
     delay_vars/3,
 
-    fingerprint/1,
+    fingerprint/1, fingerprint/2,
+    cf_fold/4,
 
     clean/1, close/1
 ]).
@@ -315,7 +316,33 @@ snapshot(Ledger) ->
             {ok, S}
     end.
 
+cf_fold(CF, F, Acc, #ledger_v1{mode = Mode} = Ledger) ->
+    try
+        SL = case Mode of
+                 active -> Ledger#ledger_v1.active;
+                 delayed -> Ledger#ledger_v1.delayed
+             end,
+
+        CFRef =
+            case CF of
+                default -> SL#sub_ledger_v1.default;
+                active_gateways -> SL#sub_ledger_v1.active_gateways;
+                entries -> SL#sub_ledger_v1.entries;
+                dc_entries -> SL#sub_ledger_v1.dc_entries;
+                htlcs -> SL#sub_ledger_v1.htlcs;
+                pocs -> SL#sub_ledger_v1.pocs;
+                securities -> SL#sub_ledger_v1.securities;
+                routing -> SL#sub_ledger_v1.routing
+            end,
+        cache_fold(Ledger, CFRef, F, Acc)
+    catch C:E:S ->
+            {error, {could_not_fold, C, E, S}}
+    end.
+
 fingerprint(#ledger_v1{mode = Mode} = Ledger) ->
+    fingerprint(#ledger_v1{mode = Mode} = Ledger, false).
+
+fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
     try
         SubLedger =
             case Mode of
@@ -334,14 +361,32 @@ fingerprint(#ledger_v1{mode = Mode} = Ledger) ->
            securities = SecuritiesCF,
            routing = RoutingCF
           } = SubLedger,
-        L = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
-             || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                       PoCsCF, SecuritiesCF, RoutingCF]],
-        L1 = lists:sort(L),
-        {ok, erlang:phash2(L1)}
+        L = [DefaultVals, GWsVals, EntriesVals, DCEntriesVals, HTLCs,
+             PoCs, Securities, Routings]
+            =  [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
+                || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
+                          PoCsCF, SecuritiesCF, RoutingCF]],
+        case Extended of
+            false ->
+                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L))}};
+            true ->
+                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L)),
+                       <<"gateways_fingerprint">> => fp(GWsVals),
+                       <<"core_fingerprint">> => fp(DefaultVals),
+                       <<"entries_fingerprint">> => fp(EntriesVals),
+                       <<"dc_entries_fingerprint">> => fp(DCEntriesVals),
+                       <<"htlc_fingerprint">> => fp(HTLCs),
+                       <<"securities_fingerprint">> => fp(Securities),
+                       <<"routings_fingerprint">> => fp(Routings),
+                       <<"poc_fingerprint">> => fp(PoCs)
+                      }}
+        end
     catch _:_ ->
             {error, could_not_fingerprint}
     end.
+
+fp(L) ->
+    erlang:phash2(lists:sort(L)).
 
 %%--------------------------------------------------------------------
 %% @doc
