@@ -203,7 +203,7 @@ packets_test() ->
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>),
     ?assertEqual(SC0, decode(encode(SC0))),
-    ReqID = crypto:strong_rand_bytes(32),
+    ReqID = erlang:binary_to_list(base64:encode(crypto:strong_rand_bytes(32))),
     Payment = blockchain_state_channel_payment_v1:new(<<"payer">>, <<"payee">>, 1, ReqID),
     SC1 = payments([{ReqID, Payment}], SC0),
     ?assertEqual(SC1, decode(encode(SC1))).
