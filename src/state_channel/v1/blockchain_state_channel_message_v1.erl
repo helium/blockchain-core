@@ -15,9 +15,9 @@
 -endif.
 
 -type message() :: #helium_state_channel_message_v1_pb{}.
--type oneof() :: blockchain_state_channel_payment_req_v1:payment_req() |
+-type oneof() :: blockchain_state_channel_request_v1:request() |
                  blockchain_state_channel_payment_v1:payment() |
-                blockchain_state_channel_packet_v1:packet().
+                 blockchain_state_channel_packet_v1:packet().
 
 -export_type([message/0]).
 
@@ -36,8 +36,8 @@ decode(Bin) ->
 -spec wrap_msg(oneof()) -> message().
 wrap_msg(#helium_state_channel_v1_pb{}=SC) ->
     #helium_state_channel_message_v1_pb{msg={state_channel, SC}};
-wrap_msg(#helium_state_channel_payment_req_v1_pb{}=Req) ->
-    #helium_state_channel_message_v1_pb{msg={payment_req, Req}};
+wrap_msg(#helium_state_channel_request_v1_pb{}=Req) ->
+    #helium_state_channel_message_v1_pb{msg={request, Req}};
 wrap_msg(#helium_state_channel_packet_v1_pb{}=Packet) ->
     #helium_state_channel_message_v1_pb{msg={packet, Packet}}.
 
@@ -51,13 +51,7 @@ unwrap_msg(#helium_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Req = blockchain_state_channel_payment_req_v1:new("id", <<"payee">>, 1, 12),
-    ?assertEqual({payment_req, Req}, decode(encode(Req))),
-
-    ReqID = erlang:binary_to_list(base64:encode(crypto:strong_rand_bytes(32))),
-    Payment = blockchain_state_channel_payment_v1:new(<<"payer">>, <<"payee">>, 1, ReqID),
-    SC0 = blockchain_state_channel_v1:new(<<"1">>, <<"owner">>),
-    SC1 = blockchain_state_channel_v1:payments([{ReqID, Payment}], SC0),
-    ?assertEqual({state_channel, SC1}, decode(encode(SC1))).
+    Req = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    ?assertEqual({request, Req}, decode(encode(Req))).
 
 -endif.

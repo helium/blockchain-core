@@ -6,8 +6,9 @@
 -module(blockchain_state_channel_packet_v1).
 
 -export([
-    new/2,
-    packet/1, req_id/1,
+    new/1,
+    packet/1, signature/1,
+    sign/2, validate/2,
     encode/1, decode/1
 ]).
 
@@ -21,20 +22,36 @@
 -type packet() :: #helium_state_channel_packet_v1_pb{}.
 -export_type([packet/0]).
 
--spec new(binary(), blockchain_state_channel_payment_req_v1:id()) -> packet().
-new(Packet, ReqID) -> 
+-spec new(binary()) -> packet().
+new(Packet) -> 
     #helium_state_channel_packet_v1_pb{
-        packet=Packet,
-        req_id=ReqID
+        packet=Packet
     }.
 
 -spec packet(packet()) -> binary().
 packet(#helium_state_channel_packet_v1_pb{packet=Packet}) ->
     Packet.
 
--spec req_id(packet()) -> blockchain_state_channel_payment_req_v1:id().
-req_id(#helium_state_channel_packet_v1_pb{req_id=ReqID}) ->
-    ReqID.
+-spec signature(packet()) -> binary().
+signature(#helium_state_channel_packet_v1_pb{signature=Signature}) ->
+    Signature.
+
+-spec sign(packet(), function()) -> packet().
+sign(Packet, SigFun) ->
+    EncodedReq = ?MODULE:encode(Packet#helium_state_channel_packet_v1_pb{signature= <<>>}),
+    Signature = SigFun(EncodedReq),
+    Packet#helium_state_channel_packet_v1_pb{signature=Signature}.
+
+-spec validate(packet(), libp2p_crypto:pubkey_bin()) -> true | {error, any()}.
+validate(Packet, PubKeyBin) ->
+    BasePacket = Packet#helium_state_channel_packet_v1_pb{signature = <<>>},
+    EncodedPacket = ?MODULE:encode(BasePacket),
+    Signature = ?MODULE:signature(Packet),
+    PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
+    case libp2p_crypto:verify(EncodedPacket, Signature, PubKey) of
+        false -> {error, bad_signature};
+        true -> true
+    end.
 
 -spec encode(packet()) -> binary().
 encode(#helium_state_channel_packet_v1_pb{}=Packet) ->
@@ -55,21 +72,34 @@ decode(BinaryPacket) ->
 
 new_test() ->
     Packet = #helium_state_channel_packet_v1_pb{
-        packet= <<"data">>,
-        req_id= "req_id"
+        packet= <<"data">>
     },
-    ?assertEqual(Packet, new(<<"data">>, "req_id")).
+    ?assertEqual(Packet, new(<<"data">>)).
 
 packet_test() ->
-    Packet = new(<<"data">>, "req_id"),
+    Packet = new(<<"data">>),
     ?assertEqual(<<"data">>, packet(Packet)).
 
-req_id_test() ->
-    Packet = new(<<"data">>, "req_id"),
-    ?assertEqual("req_id", req_id(Packet)).
+signature_test() ->
+    Packet = new(<<"data">>),
+    ?assertEqual(<<>>, signature(Packet)).
+
+sign_test() ->
+    #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Packet = new(<<"data">>),
+    ?assertNotEqual(<<>>, signature(sign(Packet, SigFun))).
+
+validate_test() ->
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Packet0 = new(<<"data">>),
+    Packet1 = sign(Packet0, SigFun),
+    ?assertEqual(true, validate(Packet1, PubKeyBin)).
 
 encode_decode_test() ->
-    Packet = new(<<"data">>, "req_id"),
+    Packet = new(<<"data">>),
     ?assertEqual(Packet, decode(encode(Packet))).
 
 -endif.
