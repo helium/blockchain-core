@@ -27,6 +27,7 @@
 -endif.
 
 -type state_channel() :: #helium_state_channel_v1_pb{}.
+-type payments() :: [{blockchain_state_channel_payment_req_v1:id(), blockchain_state_channel_payment_v1:payment()}].
 -type id() :: binary().
 
 -export_type([state_channel/0, id/0]).
@@ -66,11 +67,11 @@ nonce(#helium_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#helium_state_channel_v1_pb{nonce=Nonce}.
 
--spec payments(state_channel()) -> [blockchain_state_channel_payment_v1:payment()].
+-spec payments(state_channel()) -> payments().
 payments(#helium_state_channel_v1_pb{payments=Payments}) ->
     Payments.
 
--spec payments([blockchain_state_channel_payment_v1:payment()], state_channel()) -> state_channel().
+-spec payments(payments(), state_channel()) -> state_channel().
 payments(Payments, SC) ->
     SC#helium_state_channel_v1_pb{payments=Payments}.
 
@@ -125,22 +126,30 @@ get(DB, ID) ->
 
 -spec validate_payment(blockchain_state_channel_payment_v1:payment(), state_channel()) -> ok | {error, any()}.
 validate_payment(Payment, SC) ->
+    ReqID = blockchain_state_channel_payment_v1:req_id(Payment),
+    Payments = ?MODULE:payments(SC),
+    case proplists:is_defined(ReqID, Payments) of
+        true ->
+            {error, payment_already_exist};
+        false ->
     SCCredits = ?MODULE:credits(SC),
     PaymenAmount = blockchain_state_channel_payment_v1:amount(Payment),
     case SCCredits-PaymenAmount >= 0 of
         false -> {error, not_enough_credits};
         true -> ok
+            end
     end.
 
 -spec add_payment(blockchain_state_channel_payment:payment(), function(), state_channel()) -> state_channel().
 add_payment(Payment, SigFun, SC0) ->
     Credits = ?MODULE:credits(SC0),
-    Receipts = ?MODULE:payments(SC0),
+    Payments = ?MODULE:payments(SC0),
     Nonce = ?MODULE:nonce(SC0),
+    ReqID = blockchain_state_channel_payment_v1:req_id(Payment),
     Amount = blockchain_state_channel_payment_v1:amount(Payment),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
-    SC3 = ?MODULE:payments([Payment|Receipts], SC2),
+    SC3 = ?MODULE:payments([{ReqID, Payment}|Payments], SC2),
     ?MODULE:sign(SC3, SigFun).
 
 %% ------------------------------------------------------------------
@@ -184,7 +193,7 @@ nonce_test() ->
 payments_test() ->
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual([], payments(SC)),
-    ?assertEqual([1, 2], payments(payments([1, 2], SC))).
+    ?assertEqual([{1, 2}], payments(payments([{1, 2}], SC))).
 
 packets_test() ->
     SC = new(<<"1">>, <<"owner">>),
@@ -192,8 +201,12 @@ packets_test() ->
     ?assertEqual(<<"packets">>, packets(packets(<<"packets">>, SC))).
 
 encode_decode_test() ->
-    SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual(SC, decode(encode(SC))).
+    SC0 = new(<<"1">>, <<"owner">>),
+    ?assertEqual(SC0, decode(encode(SC0))),
+    ReqID = crypto:strong_rand_bytes(32),
+    Payment = blockchain_state_channel_payment_v1:new(<<"payer">>, <<"payee">>, 1, ReqID),
+    SC1 = payments([{ReqID, Payment}], SC0),
+    ?assertEqual(SC1, decode(encode(SC1))).
 
 save_get_test() ->
     BaseDir = test_utils:tmp_dir("save_get_test"),
