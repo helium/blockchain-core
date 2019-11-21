@@ -41,11 +41,11 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
-    state_channels = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:state_channel()},
-    pending = #{} :: pending()
+    state_channels = #{} :: #{binary() => blockchain_state_channel_v1:state_channel()},
+    pending = queue:new() :: pending()
 }).
 
--type pending() :: #{blockchain_state_channel_payment_req_v1:id() => {blockchain_state_channel_payment_req_v1:payment_req(), any()}}.
+-type pending() :: queue:new({blockchain_state_channel_request_v1:request(), any()}).
 
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
@@ -97,28 +97,27 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     lager:warning("failed to dial ~p:~p", [Peer, _Reason]),
                     {noreply, State};
                 {ok, Pid} ->
-                    {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                    {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     % TODO: Get amount from somewhere?
-                    ReqID = erlang:binary_to_list(base64:encode(crypto:strong_rand_bytes(32))),
-                    Req = blockchain_state_channel_payment_req_v1:new(ReqID, PubKeyBin, 1, Fingerprint),
-                    SignedReq = blockchain_state_channel_payment_req_v1:sign(Req, SigFun),
+                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
-                    blockchain_state_channel_handler:send_payment_req(Pid, SignedReq),
-                    {noreply, State#state{pending=maps:put(ReqID, {SignedReq, Packet}, Pending)}}
+                    blockchain_state_channel_handler:send_request(Pid, Req),
+                    {noreply, State#state{pending=queue:in({Req, Packet}, Pending)}}
             end
     end;
-handle_cast({state_channel, SC}, #state{db=DB, state_channels=SCs, pending=Pending}=State) ->
-    lager:debug("received state channel update for ~p", [blockchain_state_channel_v1:id(SC)]),
-    case check_pending_requests(SC, Pending) of
+handle_cast({state_channel, UpdateSC}, #state{db=DB, state_channels=SCs, pending=Pending}=State) ->
+    ID = blockchain_state_channel_v1:id(UpdateSC),
+    lager:debug("received state channel update for ~p", [ID]),
+    SC = maps:get(ID, SCs, undefined),
+    case check_pending_requests(SC, UpdateSC, Pending) of
         {error, _Reason} ->
-            lager:warning("state channel ~p is invalid ~p", [SC, _Reason]),
+            lager:warning("state channel ~p is invalid ~p", [UpdateSC, _Reason]),
             {noreply, State};
         {ok, Found} ->
             % TODO: Send found packets
-            ok = blockchain_state_channel_v1:save(DB, SC),
-            ID = blockchain_state_channel_v1:id(SC),
-            {noreply, State#state{state_channels=maps:put(ID, SC, SCs),
-                                  pending=maps:without(Found, Pending)}}
+            ok = blockchain_state_channel_v1:save(DB, UpdateSC),
+            {noreply, State#state{state_channels=maps:put(ID, UpdateSC, SCs),
+                                  pending=queue:filter(fun(E) -> not queue:member(E, Found) end, Pending)}}
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -138,37 +137,44 @@ terminate(_Reason,  #state{db=DB}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec check_pending_requests(blockchain_state_channel_v1:state_channel(), pending()) ->
-    {ok, [blockchain_state_channel_payment_req_v1:id()]} | {error, any()}.
-check_pending_requests(SC, Pending) ->
-    case blockchain_state_channel_v1:validate(SC) of
+-spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined, blockchain_state_channel_v1:state_channel(), pending()) ->
+    {ok, pending()} | {error, any()}.
+check_pending_requests(SC, UpdateSC, Pending0) ->
+     case blockchain_state_channel_v1:validate(UpdateSC) of
         {error, _}=Error -> 
             Error;
         true ->
-            Payments = blockchain_state_channel_v1:payments(SC),
-            Found = lists:filter(
-                fun(ReqID) ->
-                    case proplists:get_value(ReqID, Payments, undefined) of
-                        undefined -> false;
-                        Payment ->
-                            {Req, _} = maps:get(ReqID, Pending),
-                            check_request(Req, Payment)
-                    end
+            Pending1 = queue:filter(
+                fun({Req, Packet}) ->
+                    check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
                 end,
-                maps:keys(Pending)
+                Pending0
             ),
-            {ok, Found}
+            {ok, Pending1}
     end.
 
--spec check_request(blockchain_state_channel_payment_req_v1:payment_req(),
-                    blockchain_state_channel_payment_v1:payment()) -> boolean().
-check_request(Req, Payment) ->
-    ReqAmount = blockchain_state_channel_payment_req_v1:amount(Req),
-    ReqPayee = blockchain_state_channel_payment_req_v1:payee(Req),
-    PaymentAmount = blockchain_state_channel_payment_v1:amount(Payment),
-    PaymentPayee = blockchain_state_channel_payment_v1:payee(Payment),
-    ReqAmount == PaymentAmount andalso ReqPayee == PaymentPayee.
+% TODO: Verify merkle tree here
+-spec check_packet(any(), blockchain_state_channel_v1:state_channel()) -> true.
+check_packet(_Packet, SC) ->
+    _RootHash = blockchain_state_channel_v1:packets(SC),
+    true.
 
+-spec check_balance(blockchain_state_channel_request_v1:request(),
+                    blockchain_state_channel_v1:state_channel() | undefined,
+                    blockchain_state_channel_v1:state_channel()) -> boolean().
+check_balance(Req, SC, UpdateSC) ->
+    ReqPayee = blockchain_state_channel_request_v1:payee(Req),
+    case blockchain_state_channel_v1:balance(ReqPayee, UpdateSC) of
+        0 ->
+            false;
+        NewBalance ->
+            ReqAmount = blockchain_state_channel_request_v1:amount(Req),
+            OldBalance = case SC == undefined of
+                false -> blockchain_state_channel_v1:balance(ReqPayee, SC);
+                true -> 0
+            end,
+            NewBalance-OldBalance >= ReqAmount
+    end.
 
 -spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.
 find_routing(OUI) ->

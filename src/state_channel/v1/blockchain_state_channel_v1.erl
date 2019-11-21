@@ -11,13 +11,13 @@
     owner/1,
     credits/1, credits/2,
     nonce/1, nonce/2,
-    payments/1, payments/2,
+    balances/1, balances/2, balance/2, balance/3,
     packets/1, packets/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
-    validate_payment/2,
-    add_payment/3
+    validate_request/2,
+    add_request/3
 ]).
 
 -include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
@@ -27,7 +27,7 @@
 -endif.
 
 -type state_channel() :: #helium_state_channel_v1_pb{}.
--type payments() :: [{blockchain_state_channel_payment_req_v1:id(), blockchain_state_channel_payment_v1:payment()}].
+-type balances() :: [{string(), non_neg_integer()}].
 -type id() :: binary().
 
 -export_type([state_channel/0, id/0]).
@@ -39,7 +39,7 @@ new(ID, Owner) ->
         owner=Owner,
         credits=0,
         nonce=0,
-        payments=[],
+        balances=[],
         packets= <<>>
     }.
 
@@ -67,13 +67,33 @@ nonce(#helium_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#helium_state_channel_v1_pb{nonce=Nonce}.
 
--spec payments(state_channel()) -> payments().
-payments(#helium_state_channel_v1_pb{payments=Payments}) ->
-    Payments.
+-spec balances(state_channel()) -> balances().
+balances(#helium_state_channel_v1_pb{balances=Balances}) ->
+    lists:map(
+        fun({PayeeB58, Balance}) ->
+            {libp2p_crypto:b58_to_bin(PayeeB58), Balance}
+        end,
+        Balances
+    ).
 
--spec payments(payments(), state_channel()) -> state_channel().
-payments(Payments, SC) ->
-    SC#helium_state_channel_v1_pb{payments=Payments}.
+-spec balances(balances(), state_channel()) -> state_channel().
+balances(Balances, SC) ->
+    SC#helium_state_channel_v1_pb{balances=Balances}.
+
+-spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> non_neg_integer().
+balance(Payee, SC) ->
+    Balances = blockchain_state_channel_v1:balances(SC),
+    case lists:keyfind(Payee, 1, Balances) of
+        {Payee, Balance} -> Balance;
+        false -> 0
+    end.
+
+-spec balance(string(), non_neg_integer(), state_channel()) -> state_channel().
+balance(Payee, Balance, SC) ->
+    PayeeB58 = libp2p_crypto:bin_to_b58(Payee),
+    Balances0 = ?MODULE:balances(SC),
+    Balances1 = lists:keystore(PayeeB58, 1, Balances0, {PayeeB58, Balance}),
+    ?MODULE:balances(Balances1, SC).
 
 -spec packets(state_channel()) -> binary().
 packets(#helium_state_channel_v1_pb{packets=Packets}) ->
@@ -100,7 +120,6 @@ validate(SC) ->
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
-    % TODO: Maybe verify all payments
     libp2p_crypto:verify(EncodedSC, Signature, PubKey).
 
 -spec encode(state_channel()) -> binary().
@@ -124,32 +143,26 @@ get(DB, ID) ->
         Error -> Error
     end.
 
--spec validate_payment(blockchain_state_channel_payment_v1:payment(), state_channel()) -> ok | {error, any()}.
-validate_payment(Payment, SC) ->
-    ReqID = blockchain_state_channel_payment_v1:req_id(Payment),
-    Payments = ?MODULE:payments(SC),
-    case proplists:is_defined(ReqID, Payments) of
-        true ->
-            {error, payment_already_exist};
-        false ->
+-spec validate_request(blockchain_state_channel_request_v1:request(), state_channel()) -> ok | {error, any()}.
+validate_request(Request, SC) ->
+    ReqAmount = blockchain_state_channel_request_v1:amount(Request),
     SCCredits = ?MODULE:credits(SC),
-    PaymenAmount = blockchain_state_channel_payment_v1:amount(Payment),
-    case SCCredits-PaymenAmount >= 0 of
+    case SCCredits-ReqAmount >= 0 of
         false -> {error, not_enough_credits};
         true -> ok
-            end
     end.
 
--spec add_payment(blockchain_state_channel_payment:payment(), function(), state_channel()) -> state_channel().
-add_payment(Payment, SigFun, SC0) ->
+-spec add_request(blockchain_state_channel_request_v1:request(), function(), state_channel()) -> state_channel().
+add_request(Request, SigFun, SC0) ->
     Credits = ?MODULE:credits(SC0),
-    Payments = ?MODULE:payments(SC0),
     Nonce = ?MODULE:nonce(SC0),
-    ReqID = blockchain_state_channel_payment_v1:req_id(Payment),
-    Amount = blockchain_state_channel_payment_v1:amount(Payment),
+    Amount = blockchain_state_channel_request_v1:amount(Request),
+    % TODO: Payee should be p2p2 address (aka string)
+    Payee = blockchain_state_channel_request_v1:payee(Request),
+    Balance = ?MODULE:balance(Payee, SC0),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
-    SC3 = ?MODULE:payments([{ReqID, Payment}|Payments], SC2),
+    SC3 = ?MODULE:balance(Payee, Balance+Amount, SC2),
     ?MODULE:sign(SC3, SigFun).
 
 %% ------------------------------------------------------------------
@@ -167,7 +180,7 @@ new_test() ->
         owner= <<"owner">>,
         credits=0,
         nonce=0,
-        payments=[],
+        balances=[],
         packets= <<>>
     },
     ?assertEqual(SC, new(<<"1">>, <<"owner">>)).
@@ -190,10 +203,19 @@ nonce_test() ->
     ?assertEqual(0, nonce(SC)),
     ?assertEqual(1, nonce(nonce(1, SC))).
 
-payments_test() ->
+balances_test() ->
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual([], payments(SC)),
-    ?assertEqual([{1, 2}], payments(payments([{1, 2}], SC))).
+    ?assertEqual([], balances(SC)),
+    ?assertEqual([{PubKeyBin, 2}], balances(balances([{libp2p_crypto:bin_to_b58(PubKeyBin), 2}], SC))).
+
+balance_test() ->
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    SC = new(<<"1">>, <<"owner">>),
+    ?assertEqual(0, balance(PubKeyBin, SC)),
+    ?assertEqual(2, balance(PubKeyBin, balance(PubKeyBin, 2, SC))).
 
 packets_test() ->
     SC = new(<<"1">>, <<"owner">>),
@@ -203,9 +225,7 @@ packets_test() ->
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>),
     ?assertEqual(SC0, decode(encode(SC0))),
-    ReqID = erlang:binary_to_list(base64:encode(crypto:strong_rand_bytes(32))),
-    Payment = blockchain_state_channel_payment_v1:new(<<"payer">>, <<"payee">>, 1, ReqID),
-    SC1 = payments([{ReqID, Payment}], SC0),
+    SC1 = balances([{"ReqID", 12}], SC0),
     ?assertEqual(SC1, decode(encode(SC1))).
 
 save_get_test() ->
