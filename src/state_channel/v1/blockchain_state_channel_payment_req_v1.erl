@@ -20,7 +20,7 @@
 -endif.
 
 -type payment_req() :: #helium_state_channel_payment_req_v1_pb{}.
--type id() :: binary().
+-type id() :: string().
 
 -export_type([payment_req/0, id/0]).
 
@@ -95,49 +95,49 @@ decode(BinaryPayment) ->
 
 new_test() ->
     Req = #helium_state_channel_payment_req_v1_pb{
-        id= <<"id">>,
+        id= "id",
         payee= <<"payee">>,
         amount=1,
         fingerprint= 12
     },
-    ?assertEqual(Req, new(<<"id">>, <<"payee">>, 1, 12)).
+    ?assertEqual(Req, new("id", <<"payee">>, 1, 12)).
 
 id_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
-    ?assertEqual(<<"id">>, id(Req)).
+    Req = new("id", <<"payee">>, 1, 12),
+    ?assertEqual("id", id(Req)).
 
 payee_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertEqual(<<"payee">>, payee(Req)).
 
 amount_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertEqual(1, amount(Req)).
 
 fingerprint_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertEqual(12, fingerprint(Req)).
 
 signature_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertEqual(<<>>, signature(Req)).
 
 sign_test() ->
     #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertNotEqual(<<>>, signature(sign(Req, SigFun))).
 
 validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Req0 = new(<<"id">>, PubKeyBin, 1, 12),
+    Req0 = new("id", PubKeyBin, 1, 12),
     Req1 = sign(Req0, SigFun),
     ?assertEqual(true, validate(Req1)).
 
 encode_decode_test() ->
-    Req = new(<<"id">>, <<"payee">>, 1, 12),
+    Req = new("id", <<"payee">>, 1, 12),
     ?assertEqual(Req, decode(encode(Req))).
 
 -endif.
