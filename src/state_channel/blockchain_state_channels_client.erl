@@ -99,7 +99,7 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                 {ok, Pid} ->
                     {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     % TODO: Get amount from somewhere?
-                    ReqID = crypto:strong_rand_bytes(32),
+                    ReqID = erlang:binary_to_list(base64:encode(crypto:strong_rand_bytes(32))),
                     Req = blockchain_state_channel_payment_req_v1:new(ReqID, PubKeyBin, 1, Fingerprint),
                     SignedReq = blockchain_state_channel_payment_req_v1:sign(Req, SigFun),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
