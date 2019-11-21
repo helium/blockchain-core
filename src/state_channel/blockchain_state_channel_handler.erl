@@ -15,7 +15,7 @@
     server/4,
     client/2,
     dial/3,
-    send_payment_req/2,
+    send_request/2,
     broadcast/2
 ]).
 
@@ -48,8 +48,8 @@ dial(Swarm, Peer, Opts) ->
                                     ?MODULE,
                                     Opts).
 
-send_payment_req(Pid, Req) ->
-    Pid ! {send_payment_req, Req}.
+send_request(Pid, Req) ->
+    Pid ! {send_request, Req}.
 
 broadcast(Pid, SC) ->
     Pid ! {broadcast, SC}.
@@ -72,14 +72,14 @@ handle_data(client, Data, State) ->
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
-        {payment_req, Req} ->
-            blockchain_state_channels_server:payment_req(Req);
+        {request, Req} ->
+            blockchain_state_channels_server:request(Req);
         {state_channel, SC} ->
            blockchain_state_channels_client:state_channel(SC)
     end,
     {noreply, State}.
 
-handle_info(client, {send_payment_req, Req}, State) ->
+handle_info(client, {send_request, Req}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Req),
     {noreply, State, Data};
 handle_info(client, {broadcast, SC}, State) ->
