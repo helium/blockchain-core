@@ -409,7 +409,8 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                     lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
                                     Error3;
                                 {ok, Block1} ->
-                                    case blockchain:head_block(Chain) of
+                                    {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
+                                    case blockchain:get_block(HH, Chain) of
                                         {error, _}=Error4 ->
                                             Error4;
                                         {ok, B} ->

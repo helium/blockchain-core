@@ -361,11 +361,21 @@ fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            securities = SecuritiesCF,
            routing = RoutingCF
           } = SubLedger,
-        L = [DefaultVals, GWsVals, EntriesVals, DCEntriesVals, HTLCs,
-             PoCs, Securities, Routings]
-            =  [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
-                || CF <- [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                          PoCsCF, SecuritiesCF, RoutingCF]],
+        %% NB: keep in sync with upgrades macro in blockchain.erl
+        Filter = [<<"gateway_v2">>],
+        DefaultVals = cache_fold(Ledger, DefaultCF,
+                                 fun({K, _} = X, Acc) ->
+                                         case lists:member(K, Filter) of
+                                             true -> Acc;
+                                             _ -> [X | Acc]
+                                         end
+                                 end, []),
+        L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
+              PoCs, Securities, Routings]
+            = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
+               || CF <- [AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
+                         PoCsCF, SecuritiesCF, RoutingCF]],
+        L = lists:append(L0, DefaultVals),
         case Extended of
             false ->
                 {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L))}};
@@ -1054,37 +1064,26 @@ request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger) ->
 request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs) ->
     case blockchain_ledger_gateway_v2:last_poc_onion_key_hash(Gw0) of
         undefined ->
-            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-            Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
-            Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-            GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
-            AGwsCF = active_gateways_cf(Ledger),
-            ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
-
-            PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
-            PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
-            BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)]),
-            PoCsCF = pocs_cf(Ledger),
-            cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs);
+            ok;
         LastOnionKeyHash  ->
             case delete_poc(LastOnionKeyHash, Challenger, Ledger) of
                 {error, _}=Error ->
                     Error;
-                ok ->
-                    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
-                    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-                    GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
-                    AGwsCF = active_gateways_cf(Ledger),
-                    ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
-
-                    PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
-                    PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
-                    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)]),
-                    PoCsCF = pocs_cf(Ledger),
-                    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
+                ok -> ok
             end
-    end.
+    end,
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
+    Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
+    GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
+    AGwsCF = active_gateways_cf(Ledger),
+    ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+
+    PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
+    PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
+    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)]),
+    PoCsCF = pocs_cf(Ledger),
+    cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1732,12 +1731,7 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
 -spec cache_delete(ledger(), rocksdb:cf_handle(), any()) -> ok.
 cache_delete(Ledger, CF, Key) ->
     {Context, Cache} = context_cache(Ledger),
-    case ets:lookup(Cache, {CF, Key}) of
-        [] ->
-            ok;
-        [{_, _Value}] ->
-            ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE})
-    end,
+    ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
     rocksdb:batch_delete(Context, CF, Key).
 
 cache_fold(Ledger, CF, Fun0, Acc) ->
@@ -1783,8 +1777,10 @@ rocks_fold(Ledger = #ledger_v1{db=DB}, CF, Opts0, Fun, Acc) ->
            end,
     try
         Loop(Init, Acc)
+    %% catch _:_ ->
+    %%         Acc
     after
-        rocksdb:iterator_close(Itr)
+        catch rocksdb:iterator_close(Itr)
     end.
 
 mk_cache_fold_fun(Cache, CF, Start, End, Fun) ->
@@ -2032,6 +2028,78 @@ debit_security_test() ->
     {ok, Entry} = find_security_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_security_entry_v1:balance(Entry)),
     ?assertEqual(1, blockchain_ledger_security_entry_v1:nonce(Entry)).
+
+fold_test() ->
+    BaseDir = test_utils:tmp_dir("poc_test"),
+    Ledger = new(BaseDir),
+    commit(fun(L) ->
+                   CF = default_cf(L),
+                   [begin
+                        K = <<"key_", (integer_to_binary(N))/binary>>,
+                        V = <<"asdlkjasdlkjasd">>,
+                        cache_put(L, CF, K, V)
+                    end || N <- lists:seq(1, 20)]
+           end,
+           Ledger),
+
+    DCF = default_cf(Ledger),
+    F = cache_fold(Ledger, DCF, fun({K, _V}, A) -> [K | A] end, []),
+    ?assertEqual([<<"key_1">>,<<"key_10">>,<<"key_11">>,<<"key_12">>,
+                  <<"key_13">>,<<"key_14">>,<<"key_15">>,<<"key_16">>,
+                  <<"key_17">>,<<"key_18">>,<<"key_19">>,<<"key_2">>,
+                  <<"key_20">>,<<"key_3">>,<<"key_4">>,<<"key_5">>,
+                  <<"key_6">>,<<"key_7">>,<<"key_8">>,<<"key_9">>],
+                 lists:sort(F)),
+
+    Ledger1 = new_context(Ledger),
+
+    [cache_delete(Ledger1, DCF, K1)
+     || K1 <- [<<"key_13">>,<<"key_14">>,<<"key_15">>,<<"key_16">>]],
+
+    cache_put(Ledger1, DCF, <<"aaa">>, <<"bbb">>),
+    cache_put(Ledger1, DCF, <<"key_1">>, <<"bbb">>),
+
+    %% check cache fold
+    F1 = cache_fold(Ledger1, DCF, fun({K, _V}, A) -> [K | A] end, []),
+    ?assertEqual([<<"aaa">>,
+                  <<"key_1">>,<<"key_10">>,<<"key_11">>,<<"key_12">>,
+                  <<"key_17">>,<<"key_18">>,<<"key_19">>,<<"key_2">>,
+                  <<"key_20">>,<<"key_3">>,<<"key_4">>,<<"key_5">>,
+                  <<"key_6">>,<<"key_7">>,<<"key_8">>,<<"key_9">>],
+                 lists:sort(F1)),
+
+    %% check cached and uncached reads
+    ?assertEqual(not_found, cache_get(Ledger, DCF, <<"aaa">>, [])),
+    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger1, DCF, <<"aaa">>, [])),
+
+    ?assertEqual({ok, <<"asdlkjasdlkjasd">>}, cache_get(Ledger, DCF, <<"key_1">>, [])),
+    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger1, DCF, <<"key_1">>, [])),
+
+    %% check uncached fold
+    F2 = cache_fold(Ledger, DCF, fun({K, _V}, A) -> [K | A] end, []),
+    ?assertEqual([<<"key_1">>,<<"key_10">>,<<"key_11">>,<<"key_12">>,
+                  <<"key_13">>,<<"key_14">>,<<"key_15">>,<<"key_16">>,
+                  <<"key_17">>,<<"key_18">>,<<"key_19">>,<<"key_2">>,
+                  <<"key_20">>,<<"key_3">>,<<"key_4">>,<<"key_5">>,
+                  <<"key_6">>,<<"key_7">>,<<"key_8">>,<<"key_9">>],
+                 lists:sort(F2)),
+
+    %% commit, recheck
+    commit_context(Ledger1),
+
+    F3 = cache_fold(Ledger, DCF, fun({K, _V}, A) -> [K | A] end, []),
+    ?assertEqual([<<"aaa">>,
+                  <<"key_1">>,<<"key_10">>,<<"key_11">>,<<"key_12">>,
+                  <<"key_17">>,<<"key_18">>,<<"key_19">>,<<"key_2">>,
+                  <<"key_20">>,<<"key_3">>,<<"key_4">>,<<"key_5">>,
+                  <<"key_6">>,<<"key_7">>,<<"key_8">>,<<"key_9">>],
+                 lists:sort(F3)),
+
+    %% check cached and uncached reads
+    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"aaa">>, [])),
+
+    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"key_1">>, [])).
+
 
 poc_test() ->
     BaseDir = test_utils:tmp_dir("poc_test"),
