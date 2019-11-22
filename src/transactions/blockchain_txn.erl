@@ -29,7 +29,8 @@
              | blockchain_txn_rewards_v1:txn_rewards()
              | blockchain_txn_token_burn_v1:txn_token_burn()
              | blockchain_txn_dc_coinbase_v1:txn_dc_coinbase()
-             | blockchain_txn_token_burn_exchange_rate_v1:txn_token_burn_exchange_rate().
+             | blockchain_txn_token_burn_exchange_rate_v1:txn_token_burn_exchange_rate()
+             | blockchain_txn_bundle_v1:txn_bundle().
 
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
@@ -55,6 +56,7 @@
     absorb_and_commit/3, absorb_and_commit/4,
     unvalidated_absorb_and_commit/4,
     absorb_block/2, absorb_block/3,
+    absorb_txns/3,
     sort/2,
     type/1,
     serialize/1,
@@ -143,9 +145,13 @@ wrap_txn(#blockchain_txn_token_burn_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_dc_coinbase_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={dc_coinbase, Txn}};
 wrap_txn(#blockchain_txn_token_burn_exchange_rate_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={token_burn_exchange_rate, Txn}}.
+    #blockchain_txn_pb{txn={token_burn_exchange_rate, Txn}};
+wrap_txn(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn) ->
+    #blockchain_txn_pb{txn={bundle, Txn#blockchain_txn_bundle_v1_pb{transactions=lists:map(fun wrap_txn/1, Txns)}}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
+unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
+    Bundle#blockchain_txn_bundle_v1_pb{transactions=lists:map(fun unwrap_txn/1, Txns)};
 unwrap_txn(#blockchain_txn_pb{txn={_, Txn}}) ->
     Txn.
 
@@ -443,7 +449,9 @@ type(#blockchain_txn_token_burn_v1_pb{}) ->
 type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
     blockchain_txn_dc_coinbase_v1;
 type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
-    blockchain_txn_token_burn_exchange_rate_v1.
+    blockchain_txn_token_burn_exchange_rate_v1;
+type(#blockchain_txn_bundle_v1_pb{}) ->
+    blockchain_txn_bundle_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
