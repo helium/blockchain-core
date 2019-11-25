@@ -232,7 +232,11 @@ election_info(Ledger, Chain) ->
     {ok, Block} = blockchain:get_block(Height, Chain),
 
     %% get the election info
-    {Epoch, StartHeight} = blockchain_block_v1:election_info(Block),
+    {Epoch, StartHeight0} = blockchain_block_v1:election_info(Block),
+
+    %% genesis block thinks that the start height is 0, but it is
+    %% block 1, so force it.
+    StartHeight = max(1, StartHeight0),
 
     %% get the election txn
     {ok, StartBlock} = blockchain:get_block(StartHeight, Chain),
