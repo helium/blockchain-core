@@ -63,6 +63,7 @@
 %% not run their code later.
 -define(upgrades,
         [{<<"gateway_v2">>, fun upgrade_gateways_v2/1}]).
+%% NB: we need to keep this in sync with the filter in the fingerprints
 
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
