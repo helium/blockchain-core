@@ -239,8 +239,16 @@ rejected(Txn, Member, State=#state{txn_map=TxnMap, chain=Chain}) ->
             F = (N - 1) div 3,
             case length(lists:usort([Member|Rejections])) > F of
                 true ->
-                    %% too many rejections
-                    State#state{txn_map=maps:remove(Txn, TxnMap)};
+                    %% Temporary patch to keep retrying assert location
+                    %% transactions while we make bundles work solid
+                    case blockchain_txn:type(Txn) == blockchain_txn_assert_location_v1 of
+                        false ->
+                            %% too many rejections
+                            State#state{txn_map=maps:remove(Txn, TxnMap)};
+                        true ->
+                            %% retry, keep the txn in TxnMap and reset the rejection list
+                            retry(Txn, State#state{txn_map=maps:put(Txn, {Callback, [], Dialer}, TxnMap)})
+                    end;
                 false ->
                     retry(Txn, State#state{txn_map=maps:put(Txn, {Callback, [Member|Rejections], Dialer}, TxnMap)})
             end
