@@ -100,10 +100,15 @@ handle_call(_Msg, _From, State) ->
 
 % TODO: Replace this with real burn
 handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) ->
-    {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    SC0 = blockchain_state_channel_v1:new(ID, Owner),
-    SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-    {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}};
+    case maps:is_key(ID, SCs) of
+        true ->
+            {noreply, State};
+        false ->
+            {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+            SC0 = blockchain_state_channel_v1:new(ID, Owner),
+            SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
+            {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
+    end;
 handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
     case blockchain_state_channel_request_v1:validate(Req) of
         {error, _Reason} ->
