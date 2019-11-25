@@ -239,7 +239,7 @@ rejected(Txn, Member, State=#state{txn_map=TxnMap, chain=Chain}) ->
             F = (N - 1) div 3,
             case length(lists:usort([Member|Rejections])) > F of
                 true ->
-                    %% Temporary patch to keep retrying assert location
+                    %% TODO XXX Temporary patch to keep retrying assert location
                     %% transactions while we make bundles work solid
                     case blockchain_txn:type(Txn) == blockchain_txn_assert_location_v1 of
                         false ->
