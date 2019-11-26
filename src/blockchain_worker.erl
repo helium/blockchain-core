@@ -231,7 +231,10 @@ signed_metadata_fun() ->
                         {error, _} ->
                             #{}
                     end,
-                FPMD = case blockchain_ledger_v1:fingerprint(blockchain:ledger(Chain)) of
+                Ht0 = maps:get(<<"height">>, HeightMD, 1),
+                Ht = max(1, Ht0 - (Ht0 rem 40)),
+                {ok, Ledger} = blockchain:ledger_at(Ht, Chain),
+                FPMD = case blockchain_ledger_v1:fingerprint(Ledger) of
                     {ok, Fingerprint} ->
                         maps:merge(HeightMD, Fingerprint);
                     _ ->
