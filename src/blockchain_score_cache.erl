@@ -88,19 +88,24 @@ stop() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
-    ok = blockchain_event:add_handler(self()),
     Cache = ets:new(score_cache,
                     [named_table,
                      public,
                      {write_concurrency, true},
                      {read_concurrency, true}]),
-    case  blockchain_worker:blockchain() of
-        undefined ->
-            erlang:send_after(500, self(), chain_init),
-            {ok, #state{cache=Cache}};
-        Chain ->
-            ok = blockchain_event:add_handler(self()),
-            {ok, #state{chain=Chain, cache=Cache}}
+
+    case application:get_env(blockchain, disable_score_cache, false) of
+        false ->
+            case  blockchain_worker:blockchain() of
+                undefined ->
+                    erlang:send_after(500, self(), chain_init),
+                    {ok, #state{cache=Cache}};
+                Chain ->
+                    ok = blockchain_event:add_handler(self()),
+                    {ok, #state{chain=Chain, cache=Cache}}
+            end;
+        _ ->
+            {ok, #state{cache=Cache}}
     end.
 
 handle_call(stop, _From, State) ->

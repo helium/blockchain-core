@@ -378,16 +378,6 @@ entropy(Entropy) ->
     rand:seed_s(exs1024s, {A, B, C}).
 
 
-score_gateways(Height, Ledger) ->
-    e2qc:cache(gw_cache, {Height},
-               fun() ->
-                       Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-                       maps:map(fun(A, G) ->
-                                        {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
-                                        {G, S}
-                                end, Gateways0)
-               end).
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -395,7 +385,7 @@ score_gateways(Height, Ledger) ->
 -spec active_gateways(blockchain_ledger_v1:ledger(), libp2p_crypto:pubkey_bin()) -> gateways().
 active_gateways(Ledger, Challenger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    Gateways = score_gateways(Height, Ledger),
+    Gateways = blockchain_utils:score_gateways(Ledger),
     {ok, MinScore} = blockchain:config(?min_score, Ledger),
     %% fold over all the gateways
     maps:fold(

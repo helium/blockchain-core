@@ -819,7 +819,14 @@ add_gateway(OwnerAddr,
             {ok, Height} = ?MODULE:current_height(Ledger),
             Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, Location, Nonce),
 
-            NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
+            NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
+
+            NewGw = case ?MODULE:config(?poc_version, Ledger) of
+                        {ok, V} when V > 3 ->
+                            blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
+                        _ ->
+                            NewGw0
+                    end,
 
             Gateways = active_gateways(Ledger),
             Neighbors = blockchain_poc_path:neighbors(NewGw, Gateways, Ledger),

@@ -26,7 +26,8 @@
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
-    witnesses/1
+    witnesses/1,
+    witness_hist/1, witness_recent_time/1, witness_first_time/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -62,11 +63,13 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
+    witnesses = #{} ::  witnesses()
 }).
 
 -type gateway() :: #gateway_v2{}.
--export_type([gateway/0]).
+-type gateway_witness() :: #witness{}.
+-type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-export_type([gateway/0, gateway_witness/0, witnesses/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -363,32 +366,10 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
                                                   Witnesses)}
     end.
 
-
-distance(#gateway_v2{location=L1}, #gateway_v2{location=L1}) ->
-    %% Same location, defaulting the distance to 1m
-    0.001;
-distance(#gateway_v2{location=L1}, #gateway_v2{location=L2}) ->
-    %% distance in kms
-    case vincenty:distance(h3:to_geo(L1), h3:to_geo(L2)) of
-        {error, _} ->
-            %% An off chance that the points are antipodal and
-            %% vincenty_distance fails to converge. In this case
-            %% we default to some max distance we consider good enough
-            %% for witnessing
-            1000;
-        {ok, D} ->
-            D - hex_adjustment(L1) - hex_adjustment(L2)
-    end.
-
-hex_adjustment(Loc) ->
-    %% Distance from hex center to edge, sqrt(3)*edge_length/2.
-    Res = h3:get_resolution(Loc),
-    EdgeLength = h3:edge_length_kilometers(Res),
-    EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
-
-create_histogram(WitnessGW, Gateway) ->
+create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
+                 #gateway_v2{location=GatewayLoc}=_Gateway) ->
     %% First, calculate the ideal free space path loss between the 2 locations
-    Distance = distance(Gateway, WitnessGW),
+    Distance = blockchain_utils:distance(WitnessLoc, GatewayLoc),
     %% TODO support regional parameters for non-US based hotspots
     FreeSpacePathLoss = ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN),
     %% Maximum number of bins in the histogram
@@ -409,17 +390,34 @@ update_histogram_(Val, [Key | [Bound | _]], Histogram) when Val > Bound ->
 update_histogram_(Val, [_ | Tail], Histogram) ->
     update_histogram_(Val, Tail, Histogram).
 
+-spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
     Gateway#gateway_v2{witnesses=#{}}.
 
-remove_witness(Gateway, Witness) ->
-    Gateway#gateway_v2{witnesses=maps:remove(Witness, Gateway#gateway_v2.witnesses)}.
+-spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
+remove_witness(Gateway, WitnessAddr) ->
+    Gateway#gateway_v2{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v2.witnesses)}.
 
-has_witness(#gateway_v2{witnesses=Witnesses}, Witness) ->
-    maps:is_key(Witness, Witnesses).
+-spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
+has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
+    maps:is_key(WitnessAddr, Witnesses).
 
+-spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
+
+-spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | #{integer() => integer()}.
+witness_hist(Witness) ->
+    Witness#witness.hist.
+
+-spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
+witness_recent_time(Witness) ->
+    Witness#witness.recent_time.
+
+-spec witness_first_time(gateway_witness()) -> undefined | non_neg_integer().
+witness_first_time(Witness) ->
+    Witness#witness.first_time.
+
 
 %%--------------------------------------------------------------------
 %% @doc
