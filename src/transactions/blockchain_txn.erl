@@ -30,7 +30,8 @@
              | blockchain_txn_token_burn_v1:txn_token_burn()
              | blockchain_txn_dc_coinbase_v1:txn_dc_coinbase()
              | blockchain_txn_token_burn_exchange_rate_v1:txn_token_burn_exchange_rate()
-             | blockchain_txn_bundle_v1:txn_bundle().
+             | blockchain_txn_bundle_v1:txn_bundle()
+             | blockchain_txn_state_channel_open_v1:txn_state_channel_open().
 
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
@@ -90,7 +91,8 @@
     {blockchain_txn_assert_location_v1, 15},
     {blockchain_txn_redeem_htlc_v1, 16},
     {blockchain_txn_poc_request_v1, 17},
-    {blockchain_txn_poc_receipts_v1, 18}
+    {blockchain_txn_poc_receipts_v1, 18},
+    {blockchain_txn_state_channel_open_v1, 19}
 ]).
 
 block_delay() ->
@@ -151,7 +153,9 @@ wrap_txn(#blockchain_txn_dc_coinbase_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_token_burn_exchange_rate_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={token_burn_exchange_rate, Txn}};
 wrap_txn(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn) ->
-    #blockchain_txn_pb{txn={bundle, Txn#blockchain_txn_bundle_v1_pb{transactions=lists:map(fun wrap_txn/1, Txns)}}}.
+    #blockchain_txn_pb{txn={bundle, Txn#blockchain_txn_bundle_v1_pb{transactions=lists:map(fun wrap_txn/1, Txns)}}};
+wrap_txn(#blockchain_txn_state_channel_open_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={state_channel_open, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -470,7 +474,9 @@ type(#blockchain_txn_dc_coinbase_v1_pb{}) ->
 type(#blockchain_txn_token_burn_exchange_rate_v1_pb{}) ->
     blockchain_txn_token_burn_exchange_rate_v1;
 type(#blockchain_txn_bundle_v1_pb{}) ->
-    blockchain_txn_bundle_v1.
+    blockchain_txn_bundle_v1;
+type(#blockchain_txn_state_channel_open_v1_pb{}) ->
+    blockchain_txn_state_channel_open_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -617,6 +623,8 @@ actor(Txn) ->
             blockchain_txn_token_burn_v1:payer(Txn);
         blockchain_txn_dc_coinbase_v1 ->
             blockchain_txn_dc_coinbase_v1:payee(Txn);
+        blockchain_txn_state_channel_open_v1 ->
+            blockchain_txn_state_channel_open_v1:owner(Txn);
         _ ->
             <<>>
     end.
