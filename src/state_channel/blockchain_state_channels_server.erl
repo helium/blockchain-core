@@ -38,13 +38,14 @@
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
+
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
-
-    payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()}
+    payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
+    owners = [] :: [libp2p_crypto:pubkey_bin()]
 }).
 
 -type state() :: #state{}.
@@ -76,10 +77,10 @@ burn(ID, Amount) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Swarm]=_Args) ->
+init([Swarm, Owners]=_Args) ->
     lager:info("~p init with ~p", [?SERVER, _Args]),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, State} = load_state(DB, Swarm),
+    {ok, State} = load_state(DB, Swarm, Owners),
     {ok, State}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
@@ -111,9 +112,9 @@ handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) -
     end;
 handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
     case blockchain_state_channel_request_v1:validate(Req) of
-        {error, _Reason} ->
-            lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
-            {noreply, State0};
+        % {error, _Reason} ->
+        %     lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
+        %     {noreply, State0};
         true ->
             case select_state_channel(Req, State0) of
                 {error, _Reason} ->
@@ -184,16 +185,21 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             Payee = blockchain_state_channel_request_v1:payee(Req),
             case maps:get(Payee, PayeesToSC, undefined) of
                 undefined ->
-                    [SC|_] = lists:sort(
-                        fun(SCA, SCB) ->
-                            blockchain_state_channel_v1:credits(SCA) >= blockchain_state_channel_v1:credits(SCB)
-                        end,
-                        maps:values(SCs)
-                    ),
-                    Credits = blockchain_state_channel_v1:credits(SC),
-                    case Credits-Amount >= 0 of
-                        false -> {error, not_enough_credits};
-                        true -> {ok, SC}
+                    case Amount == 0 of
+                        true ->
+                            {ok, maps:get(blockchain_state_channel_v1:zero_id(), SCs)};
+                        false ->
+                            [SC|_] = lists:sort(
+                                fun(SCA, SCB) ->
+                                    blockchain_state_channel_v1:credits(SCA) >= blockchain_state_channel_v1:credits(SCB)
+                                end,
+                                maps:values(SCs)
+                            ),
+                            Credits = blockchain_state_channel_v1:credits(SC),
+                            case Credits-Amount >= 0 of
+                                false -> {error, not_enough_credits};
+                                true -> {ok, SC}
+                            end
                     end;
                 ID ->
                     SC = maps:get(ID, SCs),
@@ -207,13 +213,13 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             end
     end.
 
--spec load_state(rocksdb:db_handle(), pid()) -> {ok, state()} | {error, any()}.
-load_state(DB, Swarm) ->
+-spec load_state(rocksdb:db_handle(), pid(), [libp2p_crypto:pubkey_bin()]) -> {ok, state()} | {error, any()}.
+load_state(DB, Swarm, Owners) ->
     case get_state_channels(DB) of
         {error, _}=Error ->
             Error;
         {ok, SCIDs} ->
-            SCs = lists:foldl(
+            SCs0 = lists:foldl(
                 fun(ID, Acc) ->
                     case blockchain_state_channel_v1:get(DB, ID) of
                         {error, _Reason} ->
@@ -244,9 +250,20 @@ load_state(DB, Swarm) ->
                     maps:put(ID, Payees, Acc0)
                 end,
                 maps:new(),
-                maps:values(SCs)
+                maps:values(SCs0)
             ),
-            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs, clients=Clients}}
+            ZeroID = blockchain_state_channel_v1:zero_id(),
+            SCs1 = case lists:member(ZeroID, SCIDs) of
+                true ->
+                    SCs0;
+                false ->
+                    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
+                    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+                    SC = blockchain_state_channel_v1:zero(PubKeyBin),
+                    maps:put(ZeroID, SC, SCs0)
+            end,
+            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs1,
+                        clients=Clients, owners=Owners}}
     end.
 
 -spec update_state(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_request_v1:request(), state()) -> state().
@@ -324,16 +341,18 @@ load_test() ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     ID = <<"1">>,
     SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
+    ZeroSC = blockchain_state_channel_v1:zero(PubKeyBin),
     ok = rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID]), [{sync, true}]),
     State = #state{
         db=DB,
         swarm=Swarm,
-        state_channels=#{ID => SC},
+        state_channels=#{ID => SC, blockchain_state_channel_v1:zero_id() => ZeroSC},
         clients=#{ID => []},
-        payees_to_sc=#{}
+        payees_to_sc=#{},
+        owners=[]
     },
     ?assertEqual(ok, blockchain_state_channel_v1:save(DB, SC)),
-    ?assertEqual({ok, State}, load_state(DB, Swarm)),
+    ?assertEqual({ok, State}, load_state(DB, Swarm, [])),
     ok = rocksdb:close(DB),
     libp2p_swarm:stop(Swarm),
     ok.

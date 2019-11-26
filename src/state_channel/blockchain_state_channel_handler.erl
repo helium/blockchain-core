@@ -48,11 +48,15 @@ dial(Swarm, Peer, Opts) ->
                                     ?MODULE,
                                     Opts).
 
+-spec send_request(pid(), blockchain_state_channel_request_v1:request()) -> ok.
 send_request(Pid, Req) ->
-    Pid ! {send_request, Req}.
+    Pid ! {send_request, Req},
+    ok.
 
+-spec broadcast(pid(), blockchain_state_channel_v1:state_channel()) -> ok.
 broadcast(Pid, SC) ->
-    Pid ! {broadcast, SC}.
+    Pid ! {broadcast, SC},
+    ok.
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions

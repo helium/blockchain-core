@@ -6,8 +6,8 @@
 -module(blockchain_state_channel_v1).
 
 -export([
-    new/2,
-    id/1,
+    new/2, zero/1,
+    zero_id/0, id/1,
     owner/1,
     credits/1, credits/2,
     nonce/1, nonce/2,
@@ -26,6 +26,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(ZERO_SC_ID, <<0>>).
+
 -type state_channel() :: #helium_state_channel_v1_pb{}.
 -type balances() :: [{string(), non_neg_integer()}].
 -type id() :: binary().
@@ -42,6 +44,14 @@ new(ID, Owner) ->
         balances=[],
         packets= <<>>
     }.
+
+-spec zero(libp2p_crypto:pubkey_bin()) -> state_channel().
+zero(Owner) ->
+    ?MODULE:new(?ZERO_SC_ID, Owner).
+
+-spec zero_id() -> binary().
+zero_id() ->
+    ?ZERO_SC_ID.
 
 -spec id(state_channel()) -> binary().
 id(#helium_state_channel_v1_pb{id=ID}) ->
