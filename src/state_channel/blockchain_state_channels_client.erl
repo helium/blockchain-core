@@ -59,9 +59,11 @@ start_link(Args) ->
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}).
 
+-spec packet(any()) -> ok.
 packet(Packet) ->
     gen_server:cast(?SERVER, {packet, Packet}).
 
+-spec state_channel(blockchain_state_channel_v1:state_channel()) -> ok.
 state_channel(SC) ->
     gen_server:cast(?SERVER, {state_channel, SC}).
 
