@@ -58,6 +58,7 @@
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
+    debit_dc/3,
     debit_fee/3,
     check_dc_balance/3,
 
@@ -1338,6 +1339,33 @@ credit_account(Address, Amount, Ledger) ->
             cache_put(Ledger, EntriesCF, Address, Bin);
         {error, _}=Error ->
             Error
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec debit_dc(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
+debit_dc(_Address, 0,_Ledger) ->
+    ok;
+debit_dc(Address, Fee, Ledger) ->
+    case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+            case (Balance - Fee) >= 0 of
+                true ->
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(
+                        blockchain_ledger_data_credits_entry_v1:nonce(Entry),
+                        (Balance - Fee)
+                    ),
+                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
+                    EntriesCF = dc_entries_cf(Ledger),
+                    cache_put(Ledger, EntriesCF, Address, Bin);
+                false ->
+                    {error, {insufficient_balance, Fee, Balance}}
+            end
     end.
 
 %%--------------------------------------------------------------------
