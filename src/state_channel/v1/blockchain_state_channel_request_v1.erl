@@ -43,12 +43,9 @@ amount(#helium_state_channel_request_v1_pb{amount=Amount}) ->
 fingerprint(#helium_state_channel_request_v1_pb{fingerprint=Fingerprint}) ->
     Fingerprint.
 
--spec validate(request()) -> true | {error, any()}.
-validate(Req) ->
-    case ?MODULE:amount(Req) > 0 of
-        true -> true;
-        false -> {error, bad_amount}
-    end.
+-spec validate(request()) -> true.
+validate(_Req) ->
+    true.
 
 -spec encode(request()) -> binary().
 encode(#helium_state_channel_request_v1_pb{}=Payment) ->

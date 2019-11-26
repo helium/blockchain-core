@@ -7,6 +7,7 @@
 
 -export([
     basic_test/1,
+    zero_test/1,
     full_test/1
 ]).
 
@@ -20,17 +21,15 @@
 all() ->
     [
         basic_test,
+        zero_test,
         full_test
     ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
-init_per_testcase(basic_test, Config) ->
-    BaseDir = "data/blockchain_state_channel_SUITE/basic_test",
-    [{base_dir, BaseDir} |Config];
-init_per_testcase(TestCase, Config) ->
-    InitConfig = blockchain_ct_utils:init_per_testcase(TestCase, Config),
+init_per_testcase(full_test, Config) ->
+    InitConfig = blockchain_ct_utils:init_per_testcase(full_test, Config),
     Nodes = proplists:get_value(nodes, InitConfig),
     Balance = 5000,
     NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
@@ -71,15 +70,18 @@ init_per_testcase(TestCase, Config) ->
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_memebers, ConsensusMembers} | InitConfig].
+    [{consensus_memebers, ConsensusMembers} | InitConfig];
+init_per_testcase(Test, Config) ->
+    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(Test),
+    [{base_dir, BaseDir} |Config].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(basic_test, _Config) ->
-    ok;
-end_per_testcase(TestCase, Config) ->
-    blockchain_ct_utils:end_per_testcase(TestCase, Config).
+end_per_testcase(full_test, Config) ->
+    blockchain_ct_utils:end_per_testcase(full_test, Config);
+end_per_testcase(_Test, _Config) ->
+    ok.
 
 
 %%--------------------------------------------------------------------
@@ -114,6 +116,39 @@ basic_test(Config) ->
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
+    ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
+
+    true = erlang:exit(Sup, normal),
+    ok = libp2p_swarm:stop(Swarm),
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm),
+    ok.
+
+zero_test(Config) ->
+    BaseDir = proplists:get_value(base_dir, Config),
+    SwarmOpts = [
+        {libp2p_nat, [{enabled, false}]},
+        {base_dir, BaseDir}
+    ],
+    {ok, Swarm} = libp2p_swarm:start(zero_test, SwarmOpts),
+
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
+    
+    {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
+    ID = blockchain_state_channel_v1:zero_id(),
+
+    ?assert(erlang:is_process_alive(Sup)),
+
+    ?assertEqual({ok, 0}, blockchain_state_channels_server:credits(ID)),
+    ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
+
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 0, 12),
+    ok = blockchain_state_channels_server:request(Req),
+
+    ?assertEqual({ok, 0}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
 
     true = erlang:exit(Sup, normal),
