@@ -212,11 +212,7 @@ is_valid(Txn, Chain) ->
                                                                     Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
-                                                                               {ok, V} when V < 4 ->
-                                                                                   {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
-                                                                                   {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
-                                                                                   P;
-                                                                               {ok, _V} ->
+                                                                               {ok, V} when V > 3 ->
                                                                                    ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
                                                                                    Time = blockchain_block:time(Block1),
                                                                                    ChallengerLoc = blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)),
@@ -227,7 +223,11 @@ is_valid(Txn, Chain) ->
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
                                                                                    %% If we make it to this point, we are bound to have a target.
                                                                                    {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
-                                                                                   blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars)
+                                                                                   blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars);
+                                                                               _ ->
+                                                                                   {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
+                                                                                   {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
+                                                                                   P
                                                                            end,
                                                                     N = erlang:length(Path),
                                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
