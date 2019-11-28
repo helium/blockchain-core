@@ -641,21 +641,20 @@ absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
-    Ledger = blockchain:ledger(Blockchain),
     BeforeCommit = fun() ->
                            lager:info("adding block ~p", [Height]),
                            ok = ?save_block(Block, Blockchain)
                    end,
-    case blockchain_ledger_v1:new_snapshot(Ledger) of
+    case blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
         {error, Reason}=Error ->
-            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
             Error;
-        {ok, NewLedger} ->
-            case blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, BeforeCommit, blockchain_block:is_rescue_block(Block)) of
+        ok ->
+            case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
                 {error, Reason}=Error ->
-                    lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                     Error;
-                ok ->
+                {ok, NewLedger} ->
                     lager:info("Notifying new block ~p", [Height]),
                     ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
                     absorb_temp_blocks(Chain, Blockchain, Syncing)
