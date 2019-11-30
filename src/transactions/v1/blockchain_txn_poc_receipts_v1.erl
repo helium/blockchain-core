@@ -211,6 +211,8 @@ is_valid(Txn, Chain) ->
                                                                     PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
                                                                     Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
+                                                                    lager:error([{poc_id, HexPOCID}], "Ledger ~p fingerprints ~p", [blockchain_ledger_v1:current_height(OldLedger),
+                                                                                                                                    blockchain_ledger_v1:fingerprint(OldLedger, true)]),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V > 3 ->
                                                                                    ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
