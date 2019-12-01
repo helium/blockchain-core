@@ -13,7 +13,7 @@
     check_key/2, mark_key/2,
 
     new_context/1, delete_context/1, reset_context/1, commit_context/1, context_cache/1,
-    new_snapshot/1, release_snapshot/1, snapshot/1,
+    new_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
@@ -92,6 +92,7 @@
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
+    snapshots :: ets:tid(),
     mode = active :: active | delayed,
     active :: sub_ledger(),
     delayed :: sub_ledger(),
@@ -148,6 +149,7 @@ new(Dir) ->
         dir=Dir,
         db=DB,
         mode=active,
+        snapshots = ets:new(snapshot_cache, [set, public, {keypos, 1}]),
         active= #sub_ledger_v1{
             default=DefaultCF,
             active_gateways=AGwsCF,
@@ -283,14 +285,28 @@ context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, c
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
+                        snapshots=Cache,
                         active=#sub_ledger_v1{context=undefined, cache=undefined},
                         delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
     case rocksdb:snapshot(DB) of
         {ok, SnapshotHandle} ->
+            {ok, Height} = current_height(Ledger),
+            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+            {ok, DelayedHeight} = current_height(DelayedLedger),
+            ets:delete(Cache, DelayedHeight),
+            ets:insert(Cache, {Height, SnapshotHandle}  ),
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
         {error, Reason}=Error ->
             lager:error("Error creating new snapshot, reason: ~p", [Reason]),
             Error
+    end.
+
+has_snapshot(Height, #ledger_v1{snapshots=Cache}=Ledger) ->
+    case ets:lookup(Cache, Height) of
+        [{Height, SnapshotHandle}] ->
+            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
+        _ ->
+            {error, snapshot_not_found}
     end.
 
 %%--------------------------------------------------------------------
