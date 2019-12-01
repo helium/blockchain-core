@@ -349,18 +349,23 @@ ledger_at(Height, Chain0) ->
             case blockchain_ledger_v1:current_height(DelayedLedger) of
                 {ok, Height} ->
                     %% Delayed height is the height we want, just return a new context
-                    {ok, blockchain_ledger_v1:new_context(DelayedLedger), Chain0};
+                    {ok, blockchain_ledger_v1:new_context(DelayedLedger)};
                 {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
-                    Chain1 = lists:foldl(
-                        fun(H, ChainAcc) ->
-                            {ok, Block} = ?MODULE:get_block(H, Chain0),
-                            {ok, Chain1} = blockchain_txn:absorb_block(Block, ChainAcc),
-                            Chain1
-                        end,
-                        ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0),
-                        lists:seq(DelayedHeight+1, Height)
-                    ),
-                    {ok, ?MODULE:ledger(Chain1)};
+                    case blockchain_ledger_v1:has_snapshot(Height, Ledger) of
+                        {ok, SnapshotLedger} ->
+                            {ok, blockchain_ledger_v1:new_context(SnapshotLedger)};
+                        _ ->
+                            Chain1 = lists:foldl(
+                                       fun(H, ChainAcc) ->
+                                               {ok, Block} = ?MODULE:get_block(H, Chain0),
+                                               {ok, Chain1} = blockchain_txn:absorb_block(Block, ChainAcc),
+                                               Chain1
+                                       end,
+                                       ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0),
+                                       lists:seq(DelayedHeight+1, Height)
+                                      ),
+                            {ok, ?MODULE:ledger(Chain1)}
+                    end;
                 {ok, DelayedHeight} when Height < DelayedHeight ->
                     {error, height_too_old};
                 {error, _}=Error ->
