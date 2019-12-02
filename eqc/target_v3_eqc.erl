@@ -19,7 +19,7 @@ prop_target_check() ->
                             undefined ->
                                 true;
                             ChallengerLoc ->
-                                GatewayScoreMap = blockchain_poc_zone_v2:pick(Hash, Ledger, Vars),
+                                GatewayScoreMap = blockchain_poc_target_v2:pick_zone(Hash, Ledger, Vars),
 
                                 case blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars) of
                                     M when map_size(M) == 0 ->

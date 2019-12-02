@@ -23,10 +23,26 @@
 -define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
 
 -export([
-         target/3, filter/5
+         pick_zone/3,
+         target/3,
+         filter/5
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
+
+%% @doc Pick a random zone
+-spec pick_zone(Hash :: binary(),
+                Ledger :: blockchain_ledger_v1:ledger(),
+                Vars :: map()) -> blockchain_utils:gateway_score_map().
+pick_zone(Hash, Ledger, Vars) ->
+    %% Get zones
+    Zones = blockchain_utils:zones(Ledger, Vars),
+    Entropy = blockchain_utils:rand_state(Hash),
+    SortedZoneIndices = lists:sort(maps:keys(Zones)),
+    {RandIndex, _} = rand:uniform_s(length(SortedZoneIndices), Entropy),
+    PickedZoneIndex = lists:nth(RandIndex, SortedZoneIndices),
+    %% It's impossible to build a zone without having a gateway score map in it.
+    maps:get(PickedZoneIndex, Zones).
 
 %% @doc Finds a potential target to start the path from.
 %% This must always return a target.
