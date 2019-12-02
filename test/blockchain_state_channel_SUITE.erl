@@ -168,7 +168,11 @@ full_test(Config) ->
     OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], 1, 1, 0),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
 
-    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn]]),
+    ID = crypto:strong_rand_bytes(32),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 10),
+    SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
+
+    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
 
@@ -177,8 +181,12 @@ full_test(Config) ->
         {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
     end, 30, timer:seconds(1)),
 
-    ID = <<"123">>,
-    ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, burn, [ID, 10]),
+    RouterLedger = blockchain:ledger(RouterChain),
+    {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterLedger]),
+    ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
+    ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
+    ?assertEqual(10, blockchain_ledger_state_channel_v1:amount(SC)),
+    
     ?assertEqual({ok, 10}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
