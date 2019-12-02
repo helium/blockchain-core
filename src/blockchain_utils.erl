@@ -27,13 +27,14 @@
 -endif.
 
 -define(CHALLENGE_INTERVAL, poc_challenge_interval).
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-define(FREQUENCY, 915).
+-define(TRANSMIT_POWER, 28).
+-define(MAX_ANTENNA_GAIN, 6).
+
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
+-type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
 
 -export_type([gateway_score_map/0, zone_map/0]).
-
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
--export_type([gateway_score_map/0]).
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
@@ -241,16 +242,16 @@ zones_(Ledger, Vars) ->
 
     lists:foldl(fun({Addr, {Gw, S}}, Acc) ->
                         ZoneIndex = h3:parent(blockchain_ledger_gateway_v2:location(Gw),
-                                              poc_v5_target_parent_zone_res(Vars)),
+                                              poc_v5_target_zone_parent_res(Vars)),
                         ZonedGatewayScoreMap = maps:get(ZoneIndex, Acc, #{}),
                         maps:put(ZoneIndex, maps:put(Addr, {Gw, S}, ZonedGatewayScoreMap) , Acc)
                 end,
                 #{},
                 maps:to_list(GatewayScoreMapFilteredByLocs)).
 
--spec poc_v5_target_parent_zone_res(Vars :: map()) -> pos_integer().
-poc_v5_target_parent_zone_res(Vars) ->
-    maps:get(poc_v5_target_parent_zone_res, Vars, ?POC_V5_TARGET_ZONE_PARENT_RES).
+-spec poc_v5_target_zone_parent_res(Vars :: map()) -> pos_integer().
+poc_v5_target_zone_parent_res(Vars) ->
+    maps:get(poc_v5_target_zone_parent_res, Vars).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

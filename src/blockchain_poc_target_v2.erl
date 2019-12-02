@@ -14,11 +14,26 @@
 -include("blockchain_utils.hrl").
 
 -export([
-         target/3, filter/5
+         pick_zone/3,
+         target/3,
+         filter/5
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
+%% @doc Pick a random zone
+-spec pick_zone(Hash :: binary(),
+                Ledger :: blockchain_ledger_v1:ledger(),
+                Vars :: map()) -> {h3:h3_index(), blockchain_utils:gateway_score_map()}.
+pick_zone(Hash, Ledger, Vars) ->
+    %% Get zones
+    Zones = blockchain_utils:zones(Ledger, Vars),
+    Entropy = blockchain_utils:rand_state(Hash),
+    SortedZoneIndices = lists:sort(maps:keys(Zones)),
+    {RandIndex, _} = rand:uniform_s(length(SortedZoneIndices), Entropy),
+    PickedZoneIndex = lists:nth(RandIndex, SortedZoneIndices),
+    %% It's impossible to build a zone without having a gateway score map in it.
+    {PickedZoneIndex, maps:get(PickedZoneIndex, Zones)}.
 
 %% @doc Finds a potential target to start the path from.
 %% This must always return a target.
@@ -158,7 +173,8 @@ scaled_prob(PTarget, Vars) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
 
--spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
+-spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
+                Vars :: #{}) -> #{h3:index() => integer()}.
 locations(GatewayScoreMap, Vars) ->
     %% Get all locations from score map
     Res = parent_res(Vars),
