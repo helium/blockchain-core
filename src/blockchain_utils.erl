@@ -16,7 +16,8 @@
     pmap/2,
     addr2name/1,
     distance/2,
-    score_gateways/1
+    score_gateways/1,
+    zones/2
 ]).
 
 -ifdef(TEST).
@@ -190,6 +191,52 @@ score_tagged_gateways(Height, Ledger) ->
                      {G, S}
              end, Gateways).
 
+
+-spec zones(Ledger :: blockchain_ledger_v1:ledger(),
+            Vars :: map()) -> zone_map().
+zones(Ledger, Vars) ->
+    %% Create a zone map of gateways in ledger
+    %% With the keys being h3 indices at some parent resolution, XXX: setting to 5 for now...
+    %% The key in the zones map are basically our partition of the network we know so far
+    %% The value is the tagged gateway score map
+    %% TODO: Quantify zones somehow?
+    %% Once we pick a zone we will run the target_v2:target/4 fun using that value.
+    %% Upshot: Theoretically zoning would reduce our space size substantially, well atleast
+    %% that's the hope.
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    case blockchain_ledger_v1:mode(Ledger) of
+        delayed ->
+            %% Use the cache in delayed ledger mode
+            e2qc:cache(zones, {Height},
+                       fun() ->
+                               zones_(Ledger, Vars)
+                       end);
+        active ->
+            %% recalculate in active ledger mode
+            zones_(Ledger, Vars)
+    end.
+
+-spec zones_(Ledger :: blockchain_ledger_v1:ledger(),
+             Vars :: map()) -> zone_map().
+zones_(Ledger, Vars) ->
+    GatewayScoreMap = score_gateways(Ledger),
+    GatewayScoreMapFilteredByLocs = maps:filter(fun(_Addr, {Gw, _S}) ->
+                                                        blockchain_ledger_gateway_v2:location(Gw) /= undefined
+                                                end,
+                                                GatewayScoreMap),
+
+    lists:foldl(fun({Addr, {Gw, S}}, Acc) ->
+                        ZoneIndex = h3:parent(blockchain_ledger_gateway_v2:location(Gw),
+                                              poc_v5_target_parent_zone_res(Vars)),
+                        ZonedGatewayScoreMap = maps:get(ZoneIndex, Acc, #{}),
+                        maps:put(ZoneIndex, maps:put(Addr, {Gw, S}, ZonedGatewayScoreMap) , Acc)
+                end,
+                #{},
+                maps:to_list(GatewayScoreMapFilteredByLocs)).
+
+-spec poc_v5_target_parent_zone_res(Vars :: map()) -> pos_integer().
+poc_v5_target_parent_zone_res(Vars) ->
+    maps:get(poc_v5_target_parent_zone_res, Vars, ?POC_V5_TARGET_ZONE_PARENT_RES).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
