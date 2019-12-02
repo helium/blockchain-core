@@ -221,4 +221,8 @@
 %%% POC V5 vars
 %% Dictates how much randomness we want in the target selection
 -define(poc_v5_target_prob_randomness_wt, poc_v5_target_prob_randomness_wt).
+
+%% Target Zone Vars
+%% Create zones at this resolution for all the hotspots on the network.
+-define(poc_v5_target_zone_parent_res, poc_v5_target_zone_parent_res).
 %% ------------------------------------------------------------------

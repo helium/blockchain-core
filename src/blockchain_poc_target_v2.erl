@@ -26,6 +26,10 @@
 -spec target(Hash :: binary(),
              GatewayScoreMap :: blockchain_utils:gateway_score_map(),
              Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
+target(_Hash, GatewayScoreMap, _Vars) when map_size(GatewayScoreMap) == 1 ->
+    %% We picked a zone which has just one hotspot,
+    %% just select that as target
+    {ok, hd(maps:keys(GatewayScoreMap))};
 target(Hash, GatewayScoreMap, Vars) ->
     ProbScores = score_prob(GatewayScoreMap, Vars),
     ProbEdges = edge_prob(GatewayScoreMap, Vars),

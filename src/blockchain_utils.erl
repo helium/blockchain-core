@@ -26,9 +26,10 @@
 -endif.
 
 -define(CHALLENGE_INTERVAL, poc_challenge_interval).
--define(FREQUENCY, 915).
--define(TRANSMIT_POWER, 28).
--define(MAX_ANTENNA_GAIN, 6).
+-type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-type zone_map() :: #{h3:index() => gateway_score_map()}.
+
+-export_type([gateway_score_map/0, zone_map/0]).
 
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
 -export_type([gateway_score_map/0]).
@@ -169,7 +170,7 @@ hex_adjustment(Loc) ->
     EdgeLength = h3:edge_length_kilometers(Res),
     EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
 
--spec score_gateways(blockchain_ledger_v1:ledger()) -> gateway_score_map().
+-spec score_gateways(Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case blockchain_ledger_v1:mode(Ledger) of
