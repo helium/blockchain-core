@@ -135,16 +135,17 @@ scaled_prob(PTarget) ->
                      Vars :: map()) -> float().
 calc_edge_prob(Locations, Gateway, Vars) ->
     Loc = blockchain_ledger_gateway_v2:location(Gateway),
-    %% Get resolution
-    Res = h3:get_resolution(Loc),
     %% Find parent location
     GatewayParent = h3:parent(Loc, parent_res(Vars)),
-    %% Get all children for the gateway parent at gateway res
-    Children = h3:children(GatewayParent, Res),
-    %% Intersection of children with known locations
-    Intersect = sets:to_list(sets:intersection(sets:from_list(Children), sets:from_list(Locations))),
+    %% Intersection with known locations
+    IntersectionCount = lists:foldl(fun(L, A) ->
+                                             case h3:parent(L, parent_res(Vars)) == GatewayParent of
+                                                 true -> A+1;
+                                                 _ -> A
+                                             end
+                                     end, 0, Locations),
     %% Prob of being loosely connected
-    1 - (length(Intersect)/length(Locations)).
+    1 - (IntersectionCount/length(Locations)).
 
 -spec select_target([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
 select_target([], _) ->
