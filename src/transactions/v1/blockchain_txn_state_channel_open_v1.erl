@@ -10,8 +10,9 @@
 -include("pb/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/2,
+    new/3,
     hash/1,
+    id/1,
     owner/1,
     amount/1,
     fee/1,
@@ -28,9 +29,10 @@
 -type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
 -export_type([txn_state_channel_open/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer()) -> txn_state_channel_open().
-new(Owner, Amount) ->
+-spec new(binary(), libp2p_crypto:pubkey_bin(), pos_integer()) -> txn_state_channel_open().
+new(ID, Owner, Amount) ->
     #blockchain_txn_state_channel_open_v1_pb{
+        id=ID,
         owner=Owner,
         amount=Amount,
         signature = <<>>
@@ -41,6 +43,10 @@ hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_state_channel_open_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
+
+-spec id(txn_state_channel_open()) -> binary().
+id(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.id.
 
 -spec owner(txn_state_channel_open()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
@@ -85,7 +91,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
-    blockchain_ledger_v1:dc_dc(Owner, Amount, Ledger).
+    blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger).
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -94,27 +100,32 @@ absorb(Txn, Chain) ->
 
 new_test() ->
     Tx = #blockchain_txn_state_channel_open_v1_pb{
+        id = <<"id">>,
         owner= <<"owner">>,
         amount=666,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"owner">>, 666)).
+    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 666)).
+
+id_test() ->
+    Tx = new(<<"id">>, <<"owner">>, 666),
+    ?assertEqual(<<"id">>, id(Tx)).
 
 owner_test() ->
-    Tx = new(<<"owner">>, 666),
+    Tx = new(<<"id">>, <<"owner">>, 666),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 amount_test() ->
-    Tx = new(<<"owner">>, 666),
+    Tx = new(<<"id">>, <<"owner">>, 666),
     ?assertEqual(666, amount(Tx)).
 
 signature_test() ->
-    Tx = new(<<"owner">>, 666),
+    Tx = new(<<"id">>, <<"owner">>, 666),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner">>, 666),
+    Tx0 = new(<<"id">>, <<"owner">>, 666),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
