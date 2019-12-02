@@ -81,17 +81,28 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            Amount = ?MODULE:amount(Txn),
-            blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger)
+            ID = ?MODULE:id(Txn),
+            case blockchain_ledger_v1:find_state_channel(ID, Ledger) of
+                {error, not_found} ->
+                    Amount = ?MODULE:amount(Txn),
+                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
+                {ok, _} ->
+                    {error, state_channel_already_exist};
+                {error, _}=Err ->
+                    Err
+            end
     end.
-
 
 -spec absorb(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
-    blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger).
+    case blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, Ledger) of
+        ok -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger);
+        {error, _}=Err -> Err
+    end.
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
