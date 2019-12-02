@@ -213,3 +213,9 @@
 %% Weight associated with target being loosely connected probability
 -define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt). %% default: 0.2
 %% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% Target Zone Vars
+%% Create zones at this resolution for all the hotspots on the network.
+-define(poc_v5_target_zone_parent_res, poc_v5_target_zone_parent_res). %% default: 5
+%% ------------------------------------------------------------------
