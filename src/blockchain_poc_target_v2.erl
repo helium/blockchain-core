@@ -26,15 +26,18 @@
          target/3, filter/5
         ]).
 
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
 %% @doc Finds a potential target to start the path from.
 %% This must always return a target.
 %% Favors high scoring gateways, dependent on score^poc_v4_target_score_curve curve.
 -spec target(Hash :: binary(),
-             GatewayScoreMap :: gateway_score_map(),
+             GatewayScoreMap :: blockchain_utils:gateway_score_map(),
              Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
+target(_Hash, GatewayScoreMap, _Vars) when map_size(GatewayScoreMap) == 1 ->
+    %% We picked a zone which has just one hotspot,
+    %% just select that as target
+    {ok, hd(maps:keys(GatewayScoreMap))};
 target(Hash, GatewayScoreMap, Vars) ->
     ProbScores = score_prob(GatewayScoreMap, Vars),
     ProbEdges = edge_prob(GatewayScoreMap, Vars),
@@ -49,11 +52,11 @@ target(Hash, GatewayScoreMap, Vars) ->
 %% - Inactive gateways (those which haven't challenged in a long time).
 %% - Dont target the challenger gateway itself.
 %% - Ensure that potential target is far from the challenger to avoid collusion.
--spec filter(GatewayScoreMap :: gateway_score_map(),
+-spec filter(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
              ChallengerAddr :: libp2p_crypto:pubkey_bin(),
              ChallengerLoc :: h3:index(),
              Height :: pos_integer(),
-             Vars :: map()) -> gateway_score_map().
+             Vars :: map()) -> blockchain_utils:gateway_score_map().
 filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
     maps:filter(fun(_Addr, {Gateway, _Score}) ->
                         case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
@@ -80,7 +83,7 @@ filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
 %%%-------------------------------------------------------------------
 %% Helpers
 %%%-------------------------------------------------------------------
--spec score_prob(GatewayScoreMap :: gateway_score_map(), Vars :: map()) -> prob_map().
+-spec score_prob(GatewayScoreMap :: blockchain_utils:gateway_score_map(), Vars :: map()) -> prob_map().
 score_prob(GatewayScoreMap, Vars) ->
     %% Assign probability to each gateway
     ProbScores = maps:map(fun(_Addr, {_G, Score}) ->
@@ -95,7 +98,7 @@ score_prob(GatewayScoreMap, Vars) ->
              end,
              ProbScores).
 
--spec edge_prob(GatewayScoreMap :: gateway_score_map(), Vars :: map()) -> prob_map().
+-spec edge_prob(GatewayScoreMap :: blockchain_utils:gateway_score_map(), Vars :: map()) -> prob_map().
 edge_prob(GatewayScoreMap, Vars) ->
     %% Get all locations
     case prob_edge_wt(Vars) of
