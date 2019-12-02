@@ -1,7 +1,8 @@
 syntax = "proto3";
 
 message txn_state_channel_open_v1 {
-    bytes owner = 1;
-    uint64 amount = 2;
-    bytes signature = 3;
+    bytes id = 1;
+    bytes owner = 2;
+    uint64 amount = 3;
+    bytes signature = 4;
 }  
