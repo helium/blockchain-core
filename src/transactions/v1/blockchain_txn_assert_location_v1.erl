@@ -32,6 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     calculate_staking_fee/1
 ]).
 
@@ -369,6 +370,25 @@ absorb(Txn, Chain) ->
     ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
     ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorb(txn_assert_location(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = ?MODULE:gateway(Txn),
+    %% if the ledger gateway nonce is equal or greater than txn nonce
+    %% then assume we have seen this txn before
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Gw} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_gateway_v2:nonce(Gw) >= TxnNonce
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

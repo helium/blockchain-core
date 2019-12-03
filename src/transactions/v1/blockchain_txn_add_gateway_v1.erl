@@ -28,6 +28,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     calculate_staking_fee/1
 ]).
 
@@ -251,7 +252,7 @@ is_valid(Txn, Chain) ->
                             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
                             case ExpectedStakingFee == StakingFee of
                                 false ->
-                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
                                 true ->
                                     Payer = ?MODULE:payer(Txn),
                                     Owner = ?MODULE:owner(Txn),
@@ -287,6 +288,25 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_add_gateway(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = ?MODULE:gateway(Txn),
+    %% if the gateway is already registered with the same owner then we dont
+    %% replay this txn
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, BinCurGW} ->
+            CurGW = blockchain_ledger_gateway_v2:deserialize(BinCurGW),
+            ?MODULE:owner(Txn) == blockchain_ledger_gateway_v2:owner_address(CurGW);
+        _ ->
+            false
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

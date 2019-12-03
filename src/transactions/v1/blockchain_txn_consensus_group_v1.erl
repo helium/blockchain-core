@@ -20,6 +20,7 @@
     fee/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     print/1
 ]).
 
@@ -203,6 +204,25 @@ absorb(Txn, Chain) ->
         {error, _} = Err ->
             Err
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_consensus_group(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    TxnHeight = ?MODULE:height(Txn),
+    TxnMembers = ?MODULE:members(Txn),
+    CurLedgerMembers = blockchain_ledger_v1:consensus_members(Ledger),
+    %% if the ledger election height is greater or equal to txn height AND
+    %% the ledger consensus members is same as the txn members
+    %% then assume we have seen this txn before
+    blockchain_ledger_v1:election_height(Ledger) >= TxnHeight andalso
+        lists:sort(CurLedgerMembers) =:= lists:sort(TxnMembers).
+
+
+
 
 print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                                             delay = Delay,

@@ -15,8 +15,10 @@
     payee/1,
     amount/1,
     fee/1,
+    nonce/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     sign/2
 ]).
 
@@ -78,6 +80,15 @@ fee(_Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec nonce(txn_coinbase()) -> non_neg_integer().
+nonce(Txn) ->
+    Txn#blockchain_txn_coinbase_v1_pb.nonce.
+
+
+%%--------------------------------------------------------------------
+%% @doc
 %% This transaction is only allowed in the genesis block
 %% @end
 %%--------------------------------------------------------------------
@@ -107,6 +118,17 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_coinbase(), blockchain:blockchain()) -> true | false.
+absorbed(_Txn, _Chain) ->
+    %% impossible to determine whether this type of transaction has already been absorbed
+    %% so we return false in all cases
+    %% have to rely upon is_valid/2
+    false.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

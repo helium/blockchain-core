@@ -17,6 +17,7 @@
     fee/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     sign/2
 ]).
 
@@ -107,6 +108,17 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_dc(Payee, Amount, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_coinbase(), blockchain:blockchain()) -> true | false.
+absorbed(_Txn, _Chain) ->
+    %% impossible to determine whether this type of transaction has already been absorbed
+    %% so we return false in all cases
+    %% atm this function is just here to highlight the lack of data to determine absorbed/2
+    false.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

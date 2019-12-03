@@ -51,6 +51,7 @@
     hash/1,
     validate/2, validate/3,
     absorb/2,
+    absorbed/2,
     print/1, print/2,
     sign/2,
     absorb_and_commit/3, absorb_and_commit/4,
@@ -365,6 +366,28 @@ absorb(Txn, Chain) ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
             {error, {Type, What, {Why, Stack}}}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn(),blockchain:blockchain()) -> ok | true | false.
+absorbed(Txn, Chain) ->
+    Type = ?MODULE:type(Txn),
+    case erlang:function_exported(Type, absorbed, 2) of
+        true ->
+            try Type:absorbed(Txn, Chain) of
+                true -> true;
+                false -> false
+            catch
+                _What:Why:Stack ->
+                    lager:warning("crash during absorbed: ~p ~p", [Why, Stack]),
+                    false
+            end;
+        false ->
+            false
+    end.
+
 
 print(Txn) ->
     print(Txn, false).

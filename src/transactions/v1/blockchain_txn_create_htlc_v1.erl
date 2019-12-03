@@ -25,7 +25,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -211,6 +212,28 @@ absorb(Txn, Chain) ->
                     end
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_create_htlc(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    %% cant use the nonce here to determine if the txn has already been absorbed
+    %% as no nonce is specified in the txn, instead a nonce is auto generated in absorb/1
+    %% and always set equal to the last ledger entry + 1
+    %% Question: if nonce is saved as part of the ledger entry, why is it not part of the txn?
+
+    %% if the ledger htlc address is the same as that specified in the txn
+    %% then assume we have seen this txn before
+    %% i suspect this is an inadequate check but I dont see much else to go on
+    Ledger = blockchain:ledger(Chain),
+    Address = ?MODULE:address(Txn),
+    case blockchain_ledger_v1:find_htlc(Address, Ledger) of
+        {ok, _}     -> true;
+        {error, _}  -> false
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

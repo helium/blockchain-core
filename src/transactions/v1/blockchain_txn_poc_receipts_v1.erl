@@ -21,6 +21,7 @@
     sign/2,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     create_secret_hash/2,
     connections/1,
     deltas/1,
@@ -408,6 +409,31 @@ absorb(Txn, Chain) ->
     catch _:_ ->
             {error, state_missing}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+ -spec absorbed(txn_poc_receipts(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Challenger = ?MODULE:challenger(Txn),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    %% get these to make sure we're not replaying.
+    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+        {ok, GwInfo} ->
+            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+            LastChallenge + PoCInterval < Height;
+        {error, _} ->
+            false
+    end.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),

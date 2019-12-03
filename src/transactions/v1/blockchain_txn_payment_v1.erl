@@ -20,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -179,7 +180,25 @@ absorb(Txn, Chain) ->
                     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
             end
     end.
-    
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_payment(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    %% if the ledger gateway nonce is equal or greater than txn nonce
+    %% then assume we have seen this txn before
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Entry} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_entry_v1:nonce(Entry) >= TxnNonce
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
