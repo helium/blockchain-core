@@ -6,7 +6,7 @@
 -module(blockchain_state_channel_v1).
 
 -export([
-    new/2, zero/1,
+    new/2,
     zero_id/0, id/1,
     owner/1,
     credits/1, credits/2,
@@ -44,10 +44,6 @@ new(ID, Owner) ->
         balances=[],
         packets= <<>>
     }.
-
--spec zero(libp2p_crypto:pubkey_bin()) -> state_channel().
-zero(Owner) ->
-    ?MODULE:new(?ZERO_SC_ID, Owner).
 
 -spec zero_id() -> binary().
 zero_id() ->
@@ -167,7 +163,6 @@ add_request(Request, SigFun, SC0) ->
     Credits = ?MODULE:credits(SC0),
     Nonce = ?MODULE:nonce(SC0),
     Amount = blockchain_state_channel_request_v1:amount(Request),
-    % TODO: Payee should be p2p2 address (aka string)
     Payee = blockchain_state_channel_request_v1:payee(Request),
     Balance = ?MODULE:balance(Payee, SC0),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
