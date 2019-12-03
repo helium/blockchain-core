@@ -70,7 +70,7 @@
     check_security_balance/3,
 
     find_htlc/2,
-    add_htlc/7,
+    add_htlc/8,
     redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/2,
@@ -1442,6 +1442,9 @@ debit_fee(Address, Fee, Ledger) ->
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
+            %% TODO: the nonce used below in the dc entry is off no value, it should probably be removed
+            %%       replays are prevented as debiting DCs are always part of another transaction
+            %%       and the absorbed function called on that parent txn will guard against the DC debit replays
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case (Balance - Fee) >= 0 of
                 true ->
@@ -1612,7 +1615,7 @@ check_security_balance(Address, Amount, Ledger) ->
 -spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
 find_ouis(Owner, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, Owner, []) of
+    case catch cache_get(Ledger, RoutingCF, Owner, []) of
         {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
         not_found -> {ok, []};
         Error -> Error
@@ -1641,14 +1644,14 @@ find_htlc(Address, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-               non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
+               non_neg_integer(), non_neg_integer(), binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
+add_htlc(Address, Payer, Payee, Amount, Nonce, Hashlock, Timelock, Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
     case ?MODULE:find_htlc(Address, Ledger) of
         {ok, _} ->
             {error, address_already_exists};
         {error, _} ->
-            HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
+            HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Nonce, Hashlock, Timelock),
             Bin = blockchain_ledger_htlc_v1:serialize(HTLC),
             cache_put(Ledger, HTLCsCF, Address, Bin)
     end.

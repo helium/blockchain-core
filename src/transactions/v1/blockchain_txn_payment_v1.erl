@@ -22,7 +22,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -193,6 +194,22 @@ print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
                                     fee=Fee, nonce=Nonce, signature = S }) ->
     io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~p",
                   [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, S]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_payment(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Entry} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_entry_v1:nonce(Entry) >= TxnNonce
+    end.
 
 
 %% ------------------------------------------------------------------

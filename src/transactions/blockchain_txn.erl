@@ -51,6 +51,7 @@
     hash/1,
     validate/2, validate/3,
     absorb/2,
+    absorbed/2,
     print/1, print/2,
     sign/2,
     absorb_and_commit/3, absorb_and_commit/4,
@@ -188,7 +189,7 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
                         fun(T) ->
                                 Start = erlang:monotonic_time(millisecond),
                                 Type = ?MODULE:type(T),
-                                Ret = (catch Type:is_valid(T, Chain)),
+                                Ret = (catch ?MODULE:is_valid(T, Chain)),
                                 maybe_log_duration(Type, Start),
                                 {T, Ret}
                         end, lists:reverse(PBuf)),
@@ -207,7 +208,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
             Start = erlang:monotonic_time(millisecond),
-            case catch Type:is_valid(Txn, Chain) of
+            case catch ?MODULE:is_valid(Txn, Chain) of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
@@ -222,6 +223,9 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     %% we don't have enough context to decide if this transaction is valid yet, keep it
                     %% but don't include it in the block (so it stays in the buffer)
                     validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                {error, txn_already_absorbed = Error} ->
+                    lager:warning("invalid txn as already absorbed: ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                    validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain);
                 Error ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
@@ -232,7 +236,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                     fun(T) ->
                             Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
-                            Ret = (catch Ty:is_valid(T, Chain)),
+                            Ret = (catch ?MODULE:is_valid(T, Chain)),
                             maybe_log_duration(Ty, Start),
                             {T, Ret}
                     end, lists:reverse(PBuf)),
@@ -385,6 +389,8 @@ absorb(Txn, Chain) ->
             {error, {Type, What, {Why, Stack}}}
     end.
 
+
+
 print(Txn) ->
     print(Txn, false).
 
@@ -408,15 +414,41 @@ print(Txn, Verbose) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
+    case ?MODULE:absorbed(Txn, Chain) of
+        true ->
+            {error, txn_already_absorbed};
+        false ->
+            Type = ?MODULE:type(Txn),
+            try Type:is_valid(Txn, Chain) of
+                Res ->
+                    Res
+            catch
+                What:Why:Stack ->
+                    lager:warning("crash during validation: ~p ~p", [Why, Stack]),
+                    {error, {Type, What, {Why, Stack}}}
+            end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
-    try Type:is_valid(Txn, Chain) of
-        Res ->
-            Res
-    catch
-        What:Why:Stack ->
-            lager:warning("crash during validation: ~p ~p", [Why, Stack]),
-            {error, {Type, What, {Why, Stack}}}
-end.
+    case erlang:function_exported(Type, absorbed, 2) of
+        true ->
+            try Type:absorbed(Txn, Chain) of
+                true -> true;
+                false -> false
+            catch
+                _What:Why:Stack ->
+                    lager:warning("crash during absorbed: ~p ~p", [Why, Stack]),
+                    false
+            end;
+        false ->
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

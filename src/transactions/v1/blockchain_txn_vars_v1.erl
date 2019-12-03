@@ -25,6 +25,7 @@
          cancels/1,
          nonce/1,
          absorb/2,
+         absorbed/2,
          rescue_absorb/2,
          sign/2,
          print/1
@@ -215,16 +216,13 @@ is_valid(Txn, Chain) ->
             Artifact = create_artifact(Txn),
             lager:debug("validating vars ~p artifact ~p", [Vars, Artifact]),
             try
-                Nonce = nonce(Txn),
                 case blockchain_ledger_v1:vars_nonce(Ledger) of
-                    {ok, LedgerNonce} when Nonce == (LedgerNonce + 1) ->
+                    {ok, _LedgerNonce} ->
                         ok;
                     {error, not_found} when Gen == true ->
                         ok;
                     {error, not_found} ->
-                        throw({error, missing_ledger_nonce});
-                    {ok, LedgerNonce} ->
-                        throw({error, bad_nonce, {exp, (LedgerNonce + 1), {got, Nonce}}})
+                        throw({error, missing_ledger_nonce})
                 end,
 
                 %% here we can accept a valid master key
@@ -388,6 +386,21 @@ absorb(Txn, Chain) ->
             ok;
         false ->
             ok = blockchain_ledger_v1:save_threshold_txn(Txn, Ledger)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_vars(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:vars_nonce(Ledger) of
+        {error, _}  ->
+            false;
+        {ok, LedgerVarsNonce} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            LedgerVarsNonce >= TxnNonce
     end.
 
 %% in a rescue situation, we apply vars immediately.

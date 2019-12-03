@@ -34,7 +34,8 @@
     is_valid/2,
     absorb/2,
     calculate_staking_fee/1,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -293,7 +294,6 @@ is_valid(Txn, Chain) ->
             {error, bad_payer_signature};
         {true, true, true} ->
             Owner = ?MODULE:owner(Txn),
-            Nonce = ?MODULE:nonce(Txn),
             StakingFee = ?MODULE:staking_fee(Txn),
             Fee = ?MODULE:fee(Txn),
             Payer = ?MODULE:payer(Txn),
@@ -327,13 +327,7 @@ is_valid(Txn, Chain) ->
                                                 false ->
                                                     {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
                                                 true ->
-                                                    LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
-                                                    case Nonce =:= LedgerNonce + 1 of
-                                                        false ->
-                                                            {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
-                                                        true ->
-                                                            ok
-                                                    end
+                                                    ok
                                             end
                                     end
                             end
@@ -406,6 +400,23 @@ absorb(Txn, Chain) ->
             Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
             ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_assert_location(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = ?MODULE:gateway(Txn),
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Gw} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_gateway_v2:nonce(Gw) >= TxnNonce
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

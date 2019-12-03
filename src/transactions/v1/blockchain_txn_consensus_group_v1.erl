@@ -20,6 +20,7 @@
     fee/1,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     print/1
 ]).
 
@@ -204,6 +205,7 @@ absorb(Txn, Chain) ->
             Err
     end.
 
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -219,6 +221,21 @@ print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                    Delay,
                    lists:map(fun blockchain_utils:addr2name/1, Members),
                    erlang:phash2(Proof)]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_consensus_group(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    TxnHeight = ?MODULE:height(Txn),
+    TxnMembers = ?MODULE:members(Txn),
+    {ok, CurLedgerMembers} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, CurHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
+    (CurHeight > 0 andalso ElectionHeight > TxnHeight) orelse
+        lists:sort(CurLedgerMembers) =:= lists:sort(TxnMembers).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

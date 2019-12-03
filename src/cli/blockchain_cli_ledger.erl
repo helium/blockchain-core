@@ -153,7 +153,8 @@ ledger_create_htlc_helper(Flags, Address) ->
     Hashlock = blockchain_utils:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
     Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
     Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
-    blockchain_worker:create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee).
+    Nonce = list_to_integer(clean(proplists:get_value(nonce, Flags))),
+    blockchain_worker:create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee, Nonce).
 
 %%--------------------------------------------------------------------
 %% ledger redeem

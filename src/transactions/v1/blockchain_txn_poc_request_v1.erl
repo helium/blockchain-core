@@ -25,7 +25,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -142,38 +143,30 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
-    case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
-        false ->
-            {error, bad_signature};
-        true ->
-            case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, Info} ->
-                    case blockchain_ledger_gateway_v2:location(Info) of
-                        undefined ->
-                            {error, no_gateway_location};
-                        _Location ->
-                            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
-                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
-                                false ->
-                                    {error, too_many_challenges};
-                                true ->
-                                    BlockHash = ?MODULE:block_hash(Txn),
-                                    case blockchain:get_block(BlockHash, Chain) of
-                                        {error, _}=Error ->
-                                            Error;
-                                        {ok, Block1} ->
-                                            case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
-                                                false ->
-                                                    {error, replaying_request};
-                                                true ->
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = blockchain_ledger_gateway_v2:owner_address(Info),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
-                                            end
+    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Info} ->
+            case blockchain_ledger_gateway_v2:location(Info) of
+                undefined ->
+                    {error, no_gateway_location};
+                _Location ->
+                    BlockHash = ?MODULE:block_hash(Txn),
+                    case blockchain:get_block(BlockHash, Chain) of
+                        {error, _} ->
+                            {error, poc_request_invalid_blockhash};
+                        {ok, _Block} ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = blockchain_ledger_gateway_v2:owner_address(Info),
+                            case blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger) of
+                                {error, _} = Error ->
+                                    {error, Error};
+                                ok ->
+                                    case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
+                                        false ->
+                                            {error, bad_signature};
+                                        true ->
+                                            ok
                                     end
                             end
                     end
@@ -189,6 +182,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     Version = version(Txn),
+
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
         {ok, Gw} ->
             Gw1 = blockchain_ledger_gateway_v2:version(Version, Gw),
@@ -199,7 +193,7 @@ absorb(Txn, Chain) ->
                     BlockHash = ?MODULE:block_hash(Txn),
                     blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger)
             end;
-        {error, _Reason}=Error ->
+        {error, _} = Error ->
             Error
     end.
 
@@ -215,6 +209,43 @@ print(#blockchain_txn_poc_request_v1_pb{challenger=Challenger, secret_hash=Secre
     %% XXX: Should we really print the secret hash in a log???
     io_lib:format("type=poc_request challenger=~p, secret_hash=~p, onion_key_hash=~p, block_hash=~p, fee=~p, signature=~p, version=~p",
                   [?TO_ANIMAL_NAME(Challenger), SecretHash, ?TO_B58(OnionKeyHash), BlockHash, Fee, Sig, Version]).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+%% TODO: maybe just having all of this in is_valid be better, save on dup reads from the ledger ?
+-spec absorbed(txn_poc_request(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    BlockHash = ?MODULE:block_hash(Txn),
+    Challenger = ?MODULE:challenger(Txn),
+    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+        {error, _} ->
+            %% no GW found, so this is a  malformed request
+            %% however malformedness is handled in is_valid, so we ignore at this point
+            false;
+        {ok, Info} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
+            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
+                false ->
+                    %% too many challenges
+                    true;
+                true ->
+                    BlockHash = ?MODULE:block_hash(Txn),
+                    case blockchain:get_block(BlockHash, Chain) of
+                        {error, _} ->
+                            %% challenge is pinned to an unknown block so its a malformed request
+                            %% however malformedness is handled in is_valid, so we ignore at this point
+                            false;
+                        {ok, Block} ->
+                            not ((blockchain_block:height(Block) + PoCInterval) > (Height+1))
+                    end
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

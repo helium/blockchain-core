@@ -22,7 +22,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -132,31 +133,25 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_owner};
                 true ->
-                    Nonce = ?MODULE:nonce(Txn),
-                    LedgerNonce = blockchain_ledger_routing_v1:nonce(Routing),
-                    case Nonce == LedgerNonce + 1 of
+                    Signature = ?MODULE:signature(Txn),
+                    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+                    BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
+                    EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
+                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                         false ->
-                            {error, {bad_nonce, {routing, Nonce, LedgerNonce}}};
+                            {error, bad_signature};
                         true ->
-                            Signature = ?MODULE:signature(Txn),
-                            PubKey = libp2p_crypto:bin_to_pubkey(Owner),
-                            BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
-                            EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
-                            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                            Addresses = ?MODULE:addresses(Txn),
+                            case validate_addresses(Addresses) of
                                 false ->
-                                    {error, bad_signature};
+                                    {error, invalid_addresses};
                                 true ->
-                                    Addresses = ?MODULE:addresses(Txn),
-                                    case validate_addresses(Addresses) of
-                                        false ->
-                                            {error, invalid_addresses};
-                                        true ->
-                                            Fee = ?MODULE:fee(Txn),
-                                            Owner = ?MODULE:owner(Txn),
-                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
-                                    end
+                                    Fee = ?MODULE:fee(Txn),
+                                    Owner = ?MODULE:owner(Txn),
+                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
                             end
                     end
+
             end
     end.
 
@@ -191,6 +186,22 @@ print(#blockchain_txn_routing_v1_pb{oui=OUI, owner=Owner,
                                     nonce=Nonce, signature=Sig}) ->
     io_lib:format("type=routing oui=~p owner=~p addresses=~p fee=~p nonce=~p signature=~p",
                   [OUI, ?TO_B58(Owner), Addresses, Fee, Nonce, Sig]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_routing(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    OUI = ?MODULE:oui(Txn),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Routing} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_routing_v1:nonce(Routing) >= TxnNonce
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

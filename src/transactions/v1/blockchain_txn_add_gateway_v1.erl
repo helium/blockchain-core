@@ -30,7 +30,8 @@
     is_valid/2,
     absorb/2,
     calculate_staking_fee/1,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -254,7 +255,7 @@ is_valid(Txn, Chain) ->
                             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
                             case ExpectedStakingFee == StakingFee of
                                 false ->
-                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
                                 true ->
                                     Payer = ?MODULE:payer(Txn),
                                     Owner = ?MODULE:owner(Txn),
@@ -290,6 +291,25 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_add_gateway(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Gateway = ?MODULE:gateway(Txn),
+    %% if the gateway is already registered with the same owner then we dont
+    %% replay this txn
+    %% Maybe a GW can never be transferred to another owner ?
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+        {ok, CurGW} ->
+            blockchain_ledger_gateway_v2:owner_address(CurGW) == ?MODULE:owner(Txn);
+        _ ->
+            false
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc

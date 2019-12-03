@@ -20,8 +20,26 @@
          end_per_testcase/2,
          create_vars/0, create_vars/1,
          raw_vars/1,
-         init_base_dir_config/3
+         init_base_dir_config/3,
+         generate_keys/1,
+         new_random_key/1
         ]).
+
+generate_keys(N) ->
+    lists:foldl(
+        fun(_, Acc) ->
+            {PrivKey, PubKey} = new_random_key(ecc_compact),
+            SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+        end,
+        [],
+        lists:seq(1, N)
+    ).
+
+new_random_key(Curve) ->
+    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(Curve),
+    {PrivKey, PubKey}.
+
 
 pmap(F, L) ->
     Parent = self(),

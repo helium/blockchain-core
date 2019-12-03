@@ -21,7 +21,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -153,6 +154,22 @@ print(#blockchain_txn_gen_gateway_v1_pb{
          location=L, nonce=Nonce}) ->
     io_lib:format("type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
                   [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), L, Nonce]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_genesis_gateway(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    GatewayAddress = ?MODULE:gateway(Txn),
+    case blockchain_ledger_v1:find_gateway_info(GatewayAddress, Ledger) of
+        {ok, GW} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_gateway_v2:nonce(GW) >= TxnNonce;
+        _ ->
+            false
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
