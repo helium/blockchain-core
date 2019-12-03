@@ -69,7 +69,7 @@ nonce(ID) ->
 request(Req) ->
     gen_server:cast(?SERVER, {request, Req}).
 
-% TODO: Replace this with real burn
+%% Helper function for tests (remove)
 -spec burn(blockchain_state_channel_v1:id(), non_neg_integer()) -> ok.
 burn(ID, Amount) ->
     gen_server:cast(?SERVER, {burn, ID, Amount}).
@@ -100,7 +100,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-% TODO: Replace this with real burn
+%% Helper function for tests (remove)
 handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) ->
     case maps:is_key(ID, SCs) of
         true ->
@@ -197,7 +197,8 @@ get_state_channels_from_block(BlockHash, Owner, SCs, Ledger) ->
                           blockchain_ledger_v1:ledger()) -> boolean().
 found_state_channel(Txn, Ledger) ->
     ID = blockchain_txn_state_channel_open_v1:id(Txn),
-    case blockchain_ledger_v1:find_state_channel(ID, Ledger) of
+    Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
+    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
         {error, _} -> false;
         {ok, _} -> true
     end.
@@ -230,16 +231,17 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             Payee = blockchain_state_channel_request_v1:payee(Req),
             case maps:get(Payee, PayeesToSC, undefined) of
                 undefined ->
+                    SortedSCs = lists:sort(
+                        fun(SCA, SCB) ->
+                            blockchain_state_channel_v1:credits(SCA) >= blockchain_state_channel_v1:credits(SCB)
+                        end,
+                        maps:values(SCs)
+                    ),
                     case Amount == 0 of
                         true ->
-                            {ok, maps:get(blockchain_state_channel_v1:zero_id(), SCs)};
+                            {ok, lists:last(SortedSCs)};
                         false ->
-                            [SC|_] = lists:sort(
-                                fun(SCA, SCB) ->
-                                    blockchain_state_channel_v1:credits(SCA) >= blockchain_state_channel_v1:credits(SCB)
-                                end,
-                                maps:values(SCs)
-                            ),
+                            [SC|_] = SortedSCs,
                             Credits = blockchain_state_channel_v1:credits(SC),
                             case Credits-Amount >= 0 of
                                 false -> {error, not_enough_credits};
@@ -260,11 +262,12 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
 
 -spec load_state(rocksdb:db_handle(), pid(), [libp2p_crypto:pubkey_bin()]) -> {ok, state()} | {error, any()}.
 load_state(DB, Swarm, Owners) ->
+    % TODO: We should also check the ledger make sure we did not miss any new state channel
     case get_state_channels(DB) of
         {error, _}=Error ->
             Error;
         {ok, SCIDs} ->
-            SCs0 = lists:foldl(
+            SCs = lists:foldl(
                 fun(ID, Acc) ->
                     case blockchain_state_channel_v1:get(DB, ID) of
                         {error, _Reason} ->
@@ -295,19 +298,9 @@ load_state(DB, Swarm, Owners) ->
                     maps:put(ID, Payees, Acc0)
                 end,
                 maps:new(),
-                maps:values(SCs0)
+                maps:values(SCs)
             ),
-            ZeroID = blockchain_state_channel_v1:zero_id(),
-            SCs1 = case lists:member(ZeroID, SCIDs) of
-                true ->
-                    SCs0;
-                false ->
-                    {ok, PubKey, _, _} =libp2p_swarm:keys(Swarm),
-                    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-                    SC = blockchain_state_channel_v1:zero(PubKeyBin),
-                    maps:put(ZeroID, SC, SCs0)
-            end,
-            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs1,
+            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs,
                         clients=Clients, owners=Owners}}
     end.
 
@@ -376,6 +369,9 @@ select_state_channel_test() ->
     SC4 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID4, <<"owner">>)),
     State4 = #state{state_channels= #{ID3 => SC3, ID4 => SC4}, payees_to_sc= #{<<"payee">> => ID3}},
     ?assertEqual({ok, SC4}, select_state_channel(Req4, State4)),
+
+    Req5 = blockchain_state_channel_request_v1:new(<<"payee">>, 0, 12),
+    ?assertEqual({ok, SC3}, select_state_channel(Req5, State4)),
     ok.
 
 load_test() ->
@@ -386,12 +382,11 @@ load_test() ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     ID = <<"1">>,
     SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
-    ZeroSC = blockchain_state_channel_v1:zero(PubKeyBin),
     ok = rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID]), [{sync, true}]),
     State = #state{
         db=DB,
         swarm=Swarm,
-        state_channels=#{ID => SC, blockchain_state_channel_v1:zero_id() => ZeroSC},
+        state_channels=#{ID => SC},
         clients=#{ID => []},
         payees_to_sc=#{},
         owners=[]

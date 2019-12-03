@@ -1299,8 +1299,6 @@ find_dc_entry(Address, Ledger) ->
             Error
     end.
 
-<<<<<<< HEAD
-=======
 -spec credit_dc(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
 credit_dc(Address, Amount, Ledger) ->
     EntriesCF = dc_entries_cf(Ledger),
@@ -1343,8 +1341,6 @@ debit_dc(Address, Fee, Ledger) ->
             end
     end.
 
-<<<<<<< HEAD
->>>>>>> Add state channels to ledger
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -1372,8 +1368,6 @@ credit_dc(Address, Amount, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-=======
->>>>>>> Add state channels to ledger
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(_Address, 0,_Ledger) ->
     ok;
@@ -1632,10 +1626,11 @@ add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
     cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin).
 
--spec find_state_channel(binary(), ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
-find_state_channel(ID, Ledger) ->
+-spec find_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
+find_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
-    case cache_get(Ledger, SCsCF, ID, []) of
+    Key = state_channel_key(ID, Owner),
+    case cache_get(Ledger, SCsCF, Key, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_state_channel_v1:deserialize(BinEntry)};
         not_found ->
@@ -1644,12 +1639,13 @@ find_state_channel(ID, Ledger) ->
             Error
     end.
 
--spec add_state_channel(binary(), binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
+-spec add_state_channel(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), ledger()) -> ok | {error, any()}.
 add_state_channel(ID, Owner, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount),
     Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
-    cache_put(Ledger, SCsCF, ID, Bin).
+    Key = state_channel_key(ID, Owner),
+    cache_put(Ledger, SCsCF, Key, Bin).
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
@@ -1688,6 +1684,10 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
     rocksdb:compact_range(DB, Routing, undefined, undefined, []),
     ok.
 
+-spec state_channel_key(libp2p_crypto:pubkey_bin(), binary()) -> binary().
+state_channel_key(ID, Owner) ->
+    <<Owner/binary, ID/binary>>.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% need to prefix to keep people from messing with existing names on accident
@@ -1696,7 +1696,6 @@ compact_ledger(DB, #sub_ledger_v1{default=Default,
 var_name(Name) ->
     <<"$var_", (atom_to_binary(Name, utf8))/binary>>.
 
-<<<<<<< HEAD
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -1706,13 +1705,6 @@ context_cache(Cache, #ledger_v1{mode=active, active=Active}=Ledger) ->
     Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache}};
 context_cache(Cache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
     Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache}}.
-=======
--spec context_cache({undefined | rocksdb:batch_handle(), undefined | ets:tid()}, ledger()) -> ledger().
-context_cache({Context, Cache}, #ledger_v1{mode=active, active=Active}=Ledger) ->
-    Ledger#ledger_v1{active=Active#sub_ledger_v1{context=Context, cache=Cache}};
-context_cache({Context, Cache}, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
-    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{context=Context, cache=Cache}}.
->>>>>>> Add state channels to ledger
 
 -spec default_cf(ledger()) -> rocksdb:cf_handle().
 default_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{default=DefaultCF}}) ->
@@ -2438,15 +2430,16 @@ state_channels_test() ->
     Ledger = new(BaseDir),
     Ledger1 = new_context(Ledger),
     ID = crypto:strong_rand_bytes(32),
+    Owner = <<"owner">>,
 
-    ?assertEqual({error, not_found}, find_state_channel(ID, Ledger1)),
+    ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, <<"owner">>, 12, Ledger2),
+    ok = add_state_channel(ID, Owner, 12, Ledger2),
     ok = commit_context(Ledger2),
-    {ok, SC} = find_state_channel(ID, Ledger),
+    {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
-    ?assertEqual(<<"owner">>, blockchain_ledger_state_channel_v1:owner(SC)),
+    ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(12, blockchain_ledger_state_channel_v1:amount(SC)),
 
     ok.
