@@ -28,8 +28,11 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
-init_per_testcase(full_test, Config) ->
-    InitConfig = blockchain_ct_utils:init_per_testcase(full_test, Config),
+init_per_testcase(basic_test, Config) ->
+    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
+    [{base_dir, BaseDir} |Config];
+init_per_testcase(Test, Config) ->
+    InitConfig = blockchain_ct_utils:init_per_testcase(Test, Config),
     Nodes = proplists:get_value(nodes, InitConfig),
     Balance = 5000,
     NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
@@ -70,18 +73,15 @@ init_per_testcase(full_test, Config) ->
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_memebers, ConsensusMembers} | InitConfig];
-init_per_testcase(Test, Config) ->
-    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(Test),
-    [{base_dir, BaseDir} |Config].
+    [{consensus_memebers, ConsensusMembers} | InitConfig].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(full_test, Config) ->
-    blockchain_ct_utils:end_per_testcase(full_test, Config);
-end_per_testcase(_Test, _Config) ->
-    ok.
+end_per_testcase(basic_test, _Config) ->
+    ok;
+end_per_testcase(Test, Config) ->
+    blockchain_ct_utils:end_per_testcase(Test, Config).
 
 
 %%--------------------------------------------------------------------
@@ -125,36 +125,50 @@ basic_test(Config) ->
     ok.
 
 zero_test(Config) ->
-    BaseDir = proplists:get_value(base_dir, Config),
-    SwarmOpts = [
-        {libp2p_nat, [{enabled, false}]},
-        {base_dir, BaseDir}
-    ],
-    {ok, Swarm} = libp2p_swarm:start(zero_test, SwarmOpts),
+    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
+    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
 
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
-    
-    {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
+    {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
+    RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterP2PAddress = ct_rpc:call(RouterNode, libp2p_swarm, p2p_address, [RouterSwarm]),
+    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], 1, 1, 0),
+    SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
+
     ID = blockchain_state_channel_v1:zero_id(),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 0),
+    SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
-    ?assert(erlang:is_process_alive(Sup)),
+    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
 
-    ?assertEqual({ok, 0}, blockchain_state_channels_server:credits(ID)),
-    ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
+    end, 30, timer:seconds(1)),
 
-    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 0, 12),
-    ok = blockchain_state_channels_server:request(Req),
+    RouterLedger = blockchain:ledger(RouterChain),
+    {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
+    ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
+    ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
+    ?assertEqual(0, blockchain_ledger_state_channel_v1:amount(SC)),
+    
+    ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
+    ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
-    ?assertEqual({ok, 0}, blockchain_state_channels_server:credits(ID)),
-    ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
+    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
-    true = erlang:exit(Sup, normal),
-    ok = libp2p_swarm:stop(Swarm),
-    ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
+        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
+    end, 30, timer:seconds(1)),
+
     ok.
 
 full_test(Config) ->
@@ -182,7 +196,7 @@ full_test(Config) ->
     end, 30, timer:seconds(1)),
 
     RouterLedger = blockchain:ledger(RouterChain),
-    {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterLedger]),
+    {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(10, blockchain_ledger_state_channel_v1:amount(SC)),
