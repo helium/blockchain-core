@@ -101,21 +101,28 @@ pmap(F, L) ->
         true ->
             lists:map(F, L);
         false ->
+            %% TODO: incorporate this somehow
+            %% Workers = 8,
+            %% Count = 21,
+            %% Min = floor(Count/Workers),
+            %% Rem = Count rem Workers,
+            %% lists:duplicate(Rem, Min+1)++ lists:duplicate(Workers - Rem, Min).
+            %% [3,3,3,3,3,2,2,2]
             Ct = ceil(Len/Width),
             OL = [lists:sublist(L, 1 + Ct * N, Ct) || N <- lists:seq(0, Width - 1)],
-            lists:foldl(
-              fun([], N) ->
-                      N;
-                 (IL, N) ->
-                      spawn(
-                        fun() ->
-                                Parent ! {pmap, N, lists:map(F, IL)}
-                        end),
-                      N+1
-              end, 0, OL),
+            St = lists:foldl(
+                   fun([], N) ->
+                           N;
+                      (IL, N) ->
+                           spawn(
+                             fun() ->
+                                     Parent ! {pmap, N, lists:map(F, IL)}
+                             end),
+                           N+1
+                   end, 0, OL),
             L2 = [receive
                       {pmap, N, R} -> {N,R}
-                  end || _ <- OL],
+                  end || _ <- lists:seq(1, St)],
             {_, L3} = lists:unzip(lists:keysort(1, L2)),
             lists:flatten(L3)
     end.
