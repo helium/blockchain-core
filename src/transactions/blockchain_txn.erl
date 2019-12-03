@@ -371,7 +371,7 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorbed(txn(),blockchain:blockchain()) -> ok | true | false.
+-spec absorbed(txn(), blockchain:blockchain()) -> true | false.
 absorbed(Txn, Chain) ->
     Type = ?MODULE:type(Txn),
     case erlang:function_exported(Type, absorbed, 2) of
