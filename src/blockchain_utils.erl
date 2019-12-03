@@ -94,8 +94,11 @@ hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
 
 pmap(F, L) ->
-    Parent = self(),
     Width = application:get_env(blockchain, validation_width, 3),
+    pmap(F, L, Width).
+
+pmap(F, L, Width) ->
+    Parent = self(),
     Len = length(L),
     Min = floor(Len/Width),
     Rem = Len rem Width,
@@ -192,5 +195,15 @@ score_tagged_gateways(Height, Ledger) ->
 serialize_deserialize_test() ->
     Hash = <<"123abc">>,
     ?assertEqual(Hash, deserialize_hash(serialize_hash(Hash))).
+
+pmap_test() ->
+    Input = lists:seq(1, 21),
+    {Pids, Results} = lists:unzip(pmap(fun(E) -> {self(), E} end, Input, 6)),
+    Map = lists:foldl(fun(E, A) ->
+                        maps:update_with(E, fun(X) -> X + 1 end, 1, A)
+                end, #{}, Pids),
+    ?assertEqual(6, maps:size(Map)),
+    ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
+    ?assertEqual(Input, lists:sort(Results)).
 
 -endif.
