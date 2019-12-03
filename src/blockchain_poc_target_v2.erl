@@ -98,19 +98,37 @@ score_prob(GatewayScoreMap, Vars) ->
 -spec edge_prob(GatewayScoreMap :: gateway_score_map(), Vars :: map()) -> prob_map().
 edge_prob(GatewayScoreMap, Vars) ->
     %% Get all locations
-    Locations = locations(GatewayScoreMap),
-    %% Assign probability to each gateway
-    ProbEdges = maps:map(fun(_Addr, {Gateway, _Score}) ->
-                                     calc_edge_prob(Locations, Gateway, Vars)
-                             end,
-                             GatewayScoreMap),
-    %% Calculate sum of all probs
-    SumEdgeProbs = lists:sum([S || {_A, S} <- maps:to_list(ProbEdges)]),
-    %% Scale probabilities so they add up to 1.0
-    maps:map(fun(_, E) ->
-                     E / SumEdgeProbs
-             end,
-             ProbEdges).
+    case prob_edge_wt(Vars) of
+        %% if we're just going to throw this away, no reason to do
+        %% this work at all.
+        0.0 ->
+            maps:map(fun(_, _) ->
+                             0.0
+                     end,
+                     GatewayScoreMap);
+        _ ->
+            Locations = locations(GatewayScoreMap, Vars),
+            %% Assign probability to each gateway
+            %% TODO: this is basically n^2
+            LocSz = maps:size(Locations),
+            ParentRes = parent_res(Vars),
+            ProbEdges =
+                maps:map(
+                  fun(_Addr, {Gateway, _Score}) ->
+                          Loc = blockchain_ledger_gateway_v2:location(Gateway),
+                          GatewayParent = h3:parent(Loc, ParentRes),
+                          PopCt = maps:get(GatewayParent, Locations),
+                          1 - (PopCt/LocSz)
+                  end,
+                  GatewayScoreMap),
+            %% Calculate sum of all probs
+            SumEdgeProbs = lists:sum([S || {_A, S} <- maps:to_list(ProbEdges)]),
+            %% Scale probabilities so they add up to 1.0
+            maps:map(fun(_, E) ->
+                             E / SumEdgeProbs
+                     end,
+                     ProbEdges)
+    end.
 
 -spec target_prob(ProbScores :: prob_map(),
                   ProbEdges :: prob_map(),
@@ -130,22 +148,16 @@ scaled_prob(PTarget) ->
                      P / SumProbs
              end, PTarget).
 
--spec calc_edge_prob(Locations :: [h3:index()],
-                     Gateway :: blockchain_ledger_gateway_v2:gateway(),
-                     Vars :: map()) -> float().
-calc_edge_prob(Locations, Gateway, Vars) ->
-    Loc = blockchain_ledger_gateway_v2:location(Gateway),
-    %% Find parent location
-    GatewayParent = h3:parent(Loc, parent_res(Vars)),
-    %% Intersection with known locations
-    IntersectionCount = lists:foldl(fun(L, A) ->
-                                             case h3:parent(L, parent_res(Vars)) == GatewayParent of
-                                                 true -> A+1;
-                                                 _ -> A
-                                             end
-                                     end, 0, Locations),
-    %% Prob of being loosely connected
-    1 - (IntersectionCount/length(Locations)).
+-spec locations(GatewayScoreMap :: gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
+locations(GatewayScoreMap, Vars) ->
+    %% Get all locations from score map
+    Res = parent_res(Vars),
+    AllRes = [h3:parent(blockchain_ledger_gateway_v2:location(G), Res) || {G, _S} <- maps:values(GatewayScoreMap)],
+    lists:foldl(fun(R, M) ->
+                        maps:update_with(R, fun(V) -> V + 1 end, 1, M)
+                end,
+                #{},
+                AllRes).
 
 -spec select_target([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
 select_target([], _) ->
@@ -179,11 +191,6 @@ parent_res(Vars) ->
 -spec target_exclusion_cells(Vars :: map()) -> pos_integer().
 target_exclusion_cells(Vars) ->
     maps:get(poc_v4_target_exclusion_cells, Vars, ?POC_V4_TARGET_EXCLUSION_CELLS).
-
--spec locations(GatewayScoreMap :: gateway_score_map()) -> [h3:index()].
-locations(GatewayScoreMap) ->
-    %% Get all locations from score map
-    [blockchain_ledger_gateway_v2:location(G) || {G, _S} <- maps:values(GatewayScoreMap)].
 
 -spec check_challenger_distance(ChallengerLoc :: h3:index(),
                                 GatewayLoc :: h3:index(),
