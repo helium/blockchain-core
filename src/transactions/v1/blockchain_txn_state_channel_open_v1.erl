@@ -29,7 +29,7 @@
 -type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
 -export_type([txn_state_channel_open/0]).
 
--spec new(binary(), libp2p_crypto:pubkey_bin(), pos_integer()) -> txn_state_channel_open().
+-spec new(binary(), libp2p_crypto:pubkey_bin(), integer()) -> txn_state_channel_open().
 new(ID, Owner, Amount) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
@@ -52,7 +52,7 @@ id(Txn) ->
 owner(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.owner.
 
--spec amount(txn_state_channel_open()) -> pos_integer().
+-spec amount(txn_state_channel_open()) -> integer().
 amount(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.amount.
 
@@ -82,10 +82,21 @@ is_valid(Txn, Chain) ->
             {error, bad_signature};
         true ->
             ID = ?MODULE:id(Txn),
-            case blockchain_ledger_v1:find_state_channel(ID, Ledger) of
+            case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                 {error, not_found} ->
                     Amount = ?MODULE:amount(Txn),
-                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
+                    case Amount of
+                        A when A < 0 ->
+                            {error, bad_amount};
+                        A when A > 0 ->
+                            blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
+                        0 ->
+                            ID = ?MODULE:id(Txn),
+                            case blockchain_state_channel_v1:zero_id() == ID of
+                                false -> {error, mistmaching_id};
+                                true -> ok
+                            end
+                    end;
                 {ok, _} ->
                     {error, state_channel_already_exist};
                 {error, _}=Err ->
@@ -100,8 +111,7 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
     case blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, Ledger) of
-        ok -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger);
-        {error, _}=Err -> Err
+        ok -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger)
     end.
 
  %% ------------------------------------------------------------------
