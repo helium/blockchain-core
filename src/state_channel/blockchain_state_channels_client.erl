@@ -100,8 +100,8 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     {noreply, State};
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    % TODO: Get amount from somewhere?
-                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, Fingerprint),
+                    Amount = calculate_amount(),
+                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_request(Pid, Req),
                     {noreply, State#state{pending=queue:in({Req, Packet}, Pending)}}
@@ -138,6 +138,9 @@ terminate(_Reason,  #state{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+calculate_amount() ->
+    1.
 
 -spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined, blockchain_state_channel_v1:state_channel(), pending()) ->
     {ok, pending()} | {error, any()}.
