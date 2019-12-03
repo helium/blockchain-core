@@ -101,15 +101,10 @@ pmap(F, L) ->
         true ->
             lists:map(F, L);
         false ->
-            %% TODO: incorporate this somehow
-            %% Workers = 8,
-            %% Count = 21,
-            %% Min = floor(Count/Workers),
-            %% Rem = Count rem Workers,
-            %% lists:duplicate(Rem, Min+1)++ lists:duplicate(Workers - Rem, Min).
-            %% [3,3,3,3,3,2,2,2]
-            Ct = ceil(Len/Width),
-            OL = [lists:sublist(L, 1 + Ct * N, Ct) || N <- lists:seq(0, Width - 1)],
+            Min = floor(Len/Width),
+            Rem = Len rem Width,
+            Lengths = lists:duplicate(Rem, Min+1)++ lists:duplicate(Width - Rem, Min),
+            OL = partition_list(L, Lengths, []),
             St = lists:foldl(
                    fun([], N) ->
                            N;
@@ -126,6 +121,12 @@ pmap(F, L) ->
             {_, L3} = lists:unzip(lists:keysort(1, L2)),
             lists:flatten(L3)
     end.
+
+partition_list([], [], Acc) ->
+    Acc;
+partition_list(L, [H | T], Acc) ->
+    {Take, Rest} = lists:split(H, L),
+    partition_list(Rest, T, [Take | Acc]).
 
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
