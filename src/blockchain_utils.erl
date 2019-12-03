@@ -104,7 +104,9 @@ pmap(F, L) ->
             Ct = ceil(Len/Width),
             OL = [lists:sublist(L, 1 + Ct * N, Ct) || N <- lists:seq(0, Width - 1)],
             lists:foldl(
-              fun(IL, N) ->
+              fun([], N) ->
+                      N;
+                 (IL, N) ->
                       spawn(
                         fun() ->
                                 Parent ! {pmap, N, lists:map(F, IL)}
