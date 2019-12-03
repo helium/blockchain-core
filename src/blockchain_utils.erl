@@ -97,33 +97,30 @@ pmap(F, L) ->
     Parent = self(),
     Width = application:get_env(blockchain, validation_width, 3),
     Len = length(L),
-    case Len =< Width of
-        true ->
-            lists:map(F, L);
-        false ->
-            Min = floor(Len/Width),
-            Rem = Len rem Width,
-            Lengths = lists:duplicate(Rem, Min+1)++ lists:duplicate(Width - Rem, Min),
-            OL = partition_list(L, Lengths, []),
-            St = lists:foldl(
-                   fun([], N) ->
-                           N;
-                      (IL, N) ->
-                           spawn(
-                             fun() ->
-                                     Parent ! {pmap, N, lists:map(F, IL)}
-                             end),
-                           N+1
-                   end, 0, OL),
-            L2 = [receive
-                      {pmap, N, R} -> {N,R}
-                  end || _ <- lists:seq(1, St)],
-            {_, L3} = lists:unzip(lists:keysort(1, L2)),
-            lists:flatten(L3)
-    end.
+    Min = floor(Len/Width),
+    Rem = Len rem Width,
+    Lengths = lists:duplicate(Rem, Min+1)++ lists:duplicate(Width - Rem, Min),
+    OL = partition_list(L, Lengths, []),
+    St = lists:foldl(
+           fun([], N) ->
+                   N;
+              (IL, N) ->
+                   spawn(
+                     fun() ->
+                             Parent ! {pmap, N, lists:map(F, IL)}
+                     end),
+                   N+1
+           end, 0, OL),
+    L2 = [receive
+              {pmap, N, R} -> {N,R}
+          end || _ <- lists:seq(1, St)],
+    {_, L3} = lists:unzip(lists:keysort(1, L2)),
+    lists:flatten(L3).
 
 partition_list([], [], Acc) ->
     Acc;
+partition_list(L, [0 | T], Acc) ->
+    partition_list(L, T, Acc);
 partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
