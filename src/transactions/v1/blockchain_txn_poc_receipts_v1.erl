@@ -212,6 +212,18 @@ is_valid(Txn, Chain) ->
                                                                     Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
+                                                                               {ok, V} when V > 4 ->
+                                                                                   ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
+                                                                                   Time = blockchain_block:time(Block1),
+                                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)),
+                                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
+                                                                                   GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
+                                                                                   {ok, Limit} = blockchain:config(?poc_path_limit, OldLedger),
+                                                                                   Vars = #{poc_path_limit => Limit},
+                                                                                   GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
+                                                                                   %% If we make it to this point, we are bound to have a target.
+                                                                                   {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
+                                                                                   blockchain_poc_path_v3:build(Target, ActiveGateways, Time, OldHeight, Entropy, Vars);
                                                                                {ok, V} when V > 3 ->
                                                                                    ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
                                                                                    Time = blockchain_block:time(Block1),
