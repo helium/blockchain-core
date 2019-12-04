@@ -167,7 +167,8 @@ scaled_prob(PTarget) ->
                      P / SumProbs
              end, PTarget).
 
--spec locations(GatewayScoreMap :: gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
+-spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
+                Vars :: #{}) -> #{h3:index() => integer()}.
 locations(GatewayScoreMap, Vars) ->
     %% Get all locations from score map
     Res = parent_res(Vars),

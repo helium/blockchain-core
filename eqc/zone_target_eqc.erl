@@ -1,4 +1,4 @@
--module(target_v3_eqc).
+-module(zone_target_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
