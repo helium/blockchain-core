@@ -332,9 +332,11 @@ check_witness_bad_rssi(Witness, Vars) ->
                         0 ->
                             %% No bad RSSIs found, include
                             true;
-                        _ ->
-                            %% Has impossible RSSIs, exclude
-                            false
+                        BadCount ->
+                            %% If the bad RSSI count does not dominate
+                            %% the overall RSSIs this witness has, include,
+                            %% otherwise exclude
+                            BadCount < lists:sum(maps:values(Hist))
                     end;
                 _ ->
                     true
