@@ -30,7 +30,8 @@
     chain_vars_set_unset_test/1,
     token_burn_test/1,
     payer_test/1,
-    poc_sync_interval_test/1
+    poc_sync_interval_test/1,
+    state_channel_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -66,7 +67,8 @@ all() ->
         chain_vars_set_unset_test,
         token_burn_test,
         payer_test,
-        poc_sync_interval_test
+        poc_sync_interval_test,
+        state_channel_test
     ].
 
 %%--------------------------------------------------------------------
@@ -126,11 +128,6 @@ end_per_testcase(_, Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 basic_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
@@ -162,11 +159,6 @@ basic_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 reload_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -773,11 +765,6 @@ export_test(Config) ->
     ok.
 
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 delayed_ledger_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -860,11 +847,6 @@ delayed_ledger_test(Config) ->
     ?assertEqual(Balance + 50, blockchain_ledger_entry_v1:balance(Entry4)),
     ok.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 fees_since_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -898,11 +880,6 @@ fees_since_test(Config) ->
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 security_token_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -935,11 +912,6 @@ security_token_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_security_entry_v1:balance(NewEntry1)),
     ok.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 routing_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1002,11 +974,6 @@ routing_test(Config) ->
     meck:unload(blockchain_txn_oui_v1),
     ok.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 block_save_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1048,11 +1015,6 @@ block_save_failed_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 absorb_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
@@ -1107,10 +1069,6 @@ absorb_failed_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 epoch_reward_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1171,10 +1129,6 @@ epoch_reward_test(Config) ->
     ?assert(meck:validate(blockchain_txn_consensus_group_v1)),
     meck:unload(blockchain_txn_consensus_group_v1).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 election_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1349,10 +1303,6 @@ chain_vars_set_unset_test(Config) ->
 
     ok.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 token_burn_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1451,10 +1401,6 @@ token_burn_test(Config) ->
 
     ok.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 payer_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
@@ -1493,7 +1439,6 @@ payer_test(Config) ->
                end,
                lists:seq(1, 20)),
     ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
-
 
     % Step 2: Token burn txn should pass now
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 1),
@@ -1703,6 +1648,69 @@ poc_sync_interval_test(Config) ->
     {ok, AddedGw4} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
+    ok.
+
+state_channel_test(Config) ->
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    [_, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    % Step 1: Add exchange rate to ledger
+    Rate = 1000000,
+    {Priv, _} = proplists:get_value(master_key, Config),
+    Vars = #{token_burn_exchange_rate => Rate},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    Block2 = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
+    lists:foreach(
+        fun(_) ->
+                Block = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
+        end,
+        lists:seq(1, 20)
+    ),
+    ok = test_utils:wait_until(fun() -> {ok, 22} == blockchain:height(Chain) end),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
+
+    % Step 2: Burn some token to get some DCs
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+
+    Block23 = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block23, Chain, self()),
+    ok = test_utils:wait_until(fun() -> {ok, 23} == blockchain:height(Chain) end),
+
+    % Step 3: Create a Gateway and OUI
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+    AddGatewayTxn = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
+    SignedOwnerAddGatewayTxn = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, OwnerSigFun),
+    SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTxn, GatewaySigFun),
+    OUI1 = 1,
+    Addresses = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
+    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, OUI1, 1, 1),
+    SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
+    Block24 = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
+    ok = test_utils:wait_until(fun() -> {ok, 24} == blockchain:height(Chain) end),
+
+    % Step 3: Updating a Gateway's OUI
+
+    UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(Gateway, OUI1, 1, 1),
+    SignedUpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun), OwnerSigFun),
+    Block25 = test_utils:create_block(ConsensusMembers, [SignedUpdateGatewayOUITxn]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, self()),
+    ok = test_utils:wait_until(fun() -> {ok, 25} == blockchain:height(Chain) end),
+    {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
+    
     ok.
 
 create_gateway() ->
