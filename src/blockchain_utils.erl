@@ -121,7 +121,7 @@ pmap(F, L, Width) ->
     lists:flatten(L3).
 
 partition_list([], [], Acc) ->
-    Acc;
+    lists:reverse(Acc);
 partition_list(L, [0 | T], Acc) ->
     partition_list(L, T, Acc);
 partition_list(L, [H | T], Acc) ->
