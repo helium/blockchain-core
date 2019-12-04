@@ -63,6 +63,8 @@
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
+-import(blockchain_utils, [normalize_float/1]).
+
 %% @doc Build a path starting at `TargetPubkeyBin`.
 %% It is expected that the "ActiveGateways" being passed to build/6 fun
 %% has already been pre-filtered to remove "inactive" gateways.
@@ -158,23 +160,23 @@ scaled_prob(PWitness) ->
     %% Scale probabilities assigned to filtered witnesses so they add up to 1 to do the selection
     SumProbs = lists:sum(maps:values(PWitness)),
     maps:map(fun(_WitnessPubkeyBin, P) ->
-                     P / SumProbs
+                     normalize_float(P / SumProbs)
              end, PWitness).
 
 -spec witness_prob(Vars :: map(), PWitnessRSSI :: prob_map(), PWitnessTime :: prob_map(), PWitnessCount :: prob_map()) -> prob_map().
 witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount) ->
     %% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
     maps:map(fun(WitnessPubkeyBin, PTime) ->
-                     (time_weight(Vars) * PTime) +
-                     (rssi_weight(Vars) * maps:get(WitnessPubkeyBin, PWitnessRSSI)) +
-                     (count_weight(Vars) * maps:get(WitnessPubkeyBin, PWitnessCount)) +
+                     normalize_float((time_weight(Vars) * PTime)) +
+                     normalize_float(rssi_weight(Vars) * maps:get(WitnessPubkeyBin, PWitnessRSSI)) +
+                     normalize_float(count_weight(Vars) * maps:get(WitnessPubkeyBin, PWitnessCount)) +
                      %% NOTE: The randomness weight is always multiplied with a probability of 1.0
                      %% So we can do something like:
                      %%  - Set all the other weights to 0.0
                      %%  - Set randomness_wt to 1.0
                      %% Doing that would basically eliminate the other associated weights and
                      %% make each witness have equal 1.0 probability of getting picked as next hop
-                     (randomness_wt(Vars) * 1.0)
+                     normalize_float(randomness_wt(Vars) * 1.0)
              end, PWitnessTime).
 
 
@@ -203,7 +205,7 @@ rssi_probs(Witnesses, Vars) ->
                                 maps:put(WitnessPubkeyBin, prob_bad_rssi(Vars), Acc);
                             {S, B} ->
                                 %% Invert the "bad" probability
-                                maps:put(WitnessPubkeyBin, (1 - B/S), Acc)
+                                maps:put(WitnessPubkeyBin, normalize_float(1 - normalize_float(B/S)), Acc)
                         end
                 end, #{},
                 WitnessList).
@@ -229,7 +231,7 @@ time_probs(HeadBlockTime, Witnesses) ->
 
     %% NOTE: Use inverse of the probabilities to bias against staler witnesses, hence the one minus
     maps:map(fun(_WitnessPubkeyBin, Delta) ->
-                     case (1 - Delta/DeltaSum) of
+                     case normalize_float(1 - normalize_float(Delta/DeltaSum)) of
                          0.0 ->
                              %% There is only one
                              1.0;
@@ -256,7 +258,7 @@ witness_count_probs(Witnesses) ->
                              1.0;
                          S ->
                              %% Scale and invert this prob
-                             (1 - S/lists:sum(maps:values(TotalRSSIs)))
+                             normalize_float(1 - normalize_float(S/lists:sum(maps:values(TotalRSSIs))))
                      end
              end, Witnesses).
 
@@ -266,7 +268,7 @@ select_witness([], _Rnd) ->
 select_witness([{WitnessPubkeyBin, Prob}=_Head | _], Rnd) when Rnd - Prob < 0 ->
     {ok, WitnessPubkeyBin};
 select_witness([{_WitnessPubkeyBin, Prob} | Tail], Rnd) ->
-    select_witness(Tail, Rnd - Prob).
+    select_witness(Tail, normalize_float(Rnd - Prob)).
 
 -spec filter_witnesses(GatewayLoc :: h3:h3_index(),
                        Indices :: [h3:h3_index()],

@@ -22,6 +22,8 @@
 %% This is roughly 100KM.
 -define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
 
+-import(blockchain_utils, [normalize_float/1]).
+
 -export([
          target/3, filter/5
         ]).
@@ -91,7 +93,7 @@ score_prob(GatewayScoreMap, Vars) ->
     SumScores = lists:sum([S || {_A, S} <- maps:to_list(ProbScores)]),
     %% Scale probabilities so they add up to 1.0
     maps:map(fun(_, S) ->
-                     S / SumScores
+                     normalize_float(S / SumScores)
              end,
              ProbScores).
 
@@ -118,14 +120,14 @@ edge_prob(GatewayScoreMap, Vars) ->
                           Loc = blockchain_ledger_gateway_v2:location(Gateway),
                           GatewayParent = h3:parent(Loc, ParentRes),
                           PopCt = maps:get(GatewayParent, Locations),
-                          1 - (PopCt/LocSz)
+                          normalize_float(1 - normalize_float(PopCt/LocSz))
                   end,
                   GatewayScoreMap),
             %% Calculate sum of all probs
             SumEdgeProbs = lists:sum([S || {_A, S} <- maps:to_list(ProbEdges)]),
             %% Scale probabilities so they add up to 1.0
             maps:map(fun(_, E) ->
-                             E / SumEdgeProbs
+                             normalize_float(E / SumEdgeProbs)
                      end,
                      ProbEdges)
     end.
@@ -136,8 +138,8 @@ edge_prob(GatewayScoreMap, Vars) ->
 target_prob(ProbScores, ProbEdges, Vars) ->
     %% P(Target) = ScoreWeight*P(Score) + EdgeWeight*P(Edge)
     maps:map(fun(Addr, PScore) ->
-                     (prob_score_wt(Vars) * PScore) +
-                     (prob_edge_wt(Vars) * maps:get(Addr, ProbEdges))
+                     normalize_float(prob_score_wt(Vars) * PScore) +
+                     normalize_float(prob_edge_wt(Vars) * maps:get(Addr, ProbEdges))
              end,
              ProbScores).
 
@@ -145,7 +147,7 @@ target_prob(ProbScores, ProbEdges, Vars) ->
 scaled_prob(PTarget) ->
     SumProbs = lists:sum(maps:values(PTarget)),
     maps:map(fun(_Addr, P) ->
-                     P / SumProbs
+                     normalize_float(P / SumProbs)
              end, PTarget).
 
 -spec locations(GatewayScoreMap :: gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
@@ -165,7 +167,7 @@ select_target([], _) ->
 select_target([{GwAddr, Prob}=_Head | _], Rnd) when Rnd - Prob =< 0 ->
     {ok, GwAddr};
 select_target([{_GwAddr, Prob} | Tail], Rnd) ->
-    select_target(Tail, Rnd - Prob).
+    select_target(Tail, normalize_float(Rnd - Prob)).
 
 -spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->
