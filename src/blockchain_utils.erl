@@ -94,29 +94,39 @@ hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
 
 pmap(F, L) ->
-    Parent = self(),
     Width = application:get_env(blockchain, validation_width, 3),
+    pmap(F, L, Width).
+
+pmap(F, L, Width) ->
+    Parent = self(),
     Len = length(L),
-    case Len =< Width of
-        true ->
-            lists:map(F, L);
-        false ->
-            Ct = ceil(Len/Width),
-            OL = [lists:sublist(L, 1 + Ct * N, Ct) || N <- lists:seq(0, Width - 1)],
-            lists:foldl(
-              fun(IL, N) ->
-                      spawn(
-                        fun() ->
-                                Parent ! {pmap, N, lists:map(F, IL)}
-                        end),
-                      N+1
-              end, 0, OL),
-            L2 = [receive
-                      {pmap, N, R} -> {N,R}
-                  end || _ <- OL],
-            {_, L3} = lists:unzip(lists:keysort(1, L2)),
-            lists:flatten(L3)
-    end.
+    Min = floor(Len/Width),
+    Rem = Len rem Width,
+    Lengths = lists:duplicate(Rem, Min+1)++ lists:duplicate(Width - Rem, Min),
+    OL = partition_list(L, Lengths, []),
+    St = lists:foldl(
+           fun([], N) ->
+                   N;
+              (IL, N) ->
+                   spawn(
+                     fun() ->
+                             Parent ! {pmap, N, lists:map(F, IL)}
+                     end),
+                   N+1
+           end, 0, OL),
+    L2 = [receive
+              {pmap, N, R} -> {N,R}
+          end || _ <- lists:seq(1, St)],
+    {_, L3} = lists:unzip(lists:keysort(1, L2)),
+    lists:flatten(L3).
+
+partition_list([], [], Acc) ->
+    Acc;
+partition_list(L, [0 | T], Acc) ->
+    partition_list(L, T, Acc);
+partition_list(L, [H | T], Acc) ->
+    {Take, Rest} = lists:split(H, L),
+    partition_list(Rest, T, [Take | Acc]).
 
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
@@ -185,5 +195,15 @@ score_tagged_gateways(Height, Ledger) ->
 serialize_deserialize_test() ->
     Hash = <<"123abc">>,
     ?assertEqual(Hash, deserialize_hash(serialize_hash(Hash))).
+
+pmap_test() ->
+    Input = lists:seq(1, 21),
+    {Pids, Results} = lists:unzip(pmap(fun(E) -> {self(), E} end, Input, 6)),
+    Map = lists:foldl(fun(E, A) ->
+                        maps:update_with(E, fun(X) -> X + 1 end, 1, A)
+                end, #{}, Pids),
+    ?assertEqual(6, maps:size(Map)),
+    ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
+    ?assertEqual(Input, lists:sort(Results)).
 
 -endif.
