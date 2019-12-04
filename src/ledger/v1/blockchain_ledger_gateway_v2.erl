@@ -27,7 +27,8 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
-    witness_hist/1, witness_recent_time/1, witness_first_time/1
+    witness_hist/1, witness_recent_time/1, witness_first_time/1,
+    oui/1, oui/2
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -59,7 +60,8 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  witnesses()
+    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}},
+    oui = undefined :: undefined | pos_integer()
 }).
 
 -type gateway() :: #gateway_v2{}.
@@ -413,6 +415,13 @@ witness_recent_time(Witness) ->
 witness_first_time(Witness) ->
     Witness#witness.first_time.
 
+-spec oui(gateway()) -> pos_integer().
+oui(Gateway) ->
+    Gateway#gateway_v2.oui.
+
+-spec oui(pos_integer() | undefined, gateway()) -> gateway().
+oui(OUI, Gateway) ->
+    Gateway#gateway_v2{oui=OUI}.
 
 %%--------------------------------------------------------------------
 %% @doc
