@@ -204,6 +204,6 @@ pmap_test() ->
                 end, #{}, Pids),
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
-    ?assertEqual(Input, lists:sort(Results)).
+    ?assertEqual(Input, Results).
 
 -endif.
