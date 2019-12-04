@@ -188,24 +188,29 @@ rssi_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
 rssi_probs(Witnesses, Vars) ->
     WitnessList = maps:to_list(Witnesses),
     lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
-                        RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
-                        SumRSSI = lists:sum(maps:values(RSSIs)),
-                        BadRSSI = maps:get(28, RSSIs, 0),
+                        try
+                            RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
+                            SumRSSI = lists:sum(maps:values(RSSIs)),
+                            BadRSSI = maps:get(28, RSSIs, 0),
 
-                        case {SumRSSI, BadRSSI} of
-                            {0, _} ->
-                                %% No RSSI but we have it in the witness list,
-                                %% possibly because of next hop poc receipt.
-                                maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc);
-                            {_S, 0} ->
-                                %% No known bad rssi value
-                                maps:put(WitnessPubkeyBin, prob_good_rssi(Vars), Acc);
-                            {S, S} ->
-                                %% All bad RSSI values
-                                maps:put(WitnessPubkeyBin, prob_bad_rssi(Vars), Acc);
-                            {S, B} ->
-                                %% Invert the "bad" probability
-                                maps:put(WitnessPubkeyBin, normalize_float(1 - normalize_float(B/S)), Acc)
+                            case {SumRSSI, BadRSSI} of
+                                {0, _} ->
+                                    %% No RSSI but we have it in the witness list,
+                                    %% possibly because of next hop poc receipt.
+                                    maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc);
+                                {_S, 0} ->
+                                    %% No known bad rssi value
+                                    maps:put(WitnessPubkeyBin, prob_good_rssi(Vars), Acc);
+                                {S, S} ->
+                                    %% All bad RSSI values
+                                    maps:put(WitnessPubkeyBin, prob_bad_rssi(Vars), Acc);
+                                {S, B} ->
+                                    %% Invert the "bad" probability
+                                    maps:put(WitnessPubkeyBin, normalize_float(1 - normalize_float(B/S)), Acc)
+                            end
+                        catch
+                            error:no_histogram ->
+                                maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc)
                         end
                 end, #{},
                 WitnessList).
@@ -280,7 +285,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
     ExclusionCells = exclusion_cells(Vars),
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
-    maps:filter(fun(WitnessPubkeyBin, _Witness) ->
+    maps:filter(fun(WitnessPubkeyBin, Witness) ->
                         case maps:is_key(WitnessPubkeyBin, ActiveGateways) of
                             false ->
                                 %% Don't include if the witness is not in ActiveGateways
@@ -294,10 +299,49 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                                 %% Don't include any witness whose parent is the same as the gateway we're looking at
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells)
+                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) andalso
+                                check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
                 Witnesses).
+
+-spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
+                             Vars :: map()) -> boolean().
+check_witness_bad_rssi(Witness, Vars) ->
+    try
+        blockchain_ledger_gateway_v2:witness_hist(Witness)
+    of
+        Hist ->
+            case poc_version(Vars) of
+                V when V > 4 ->
+                    case maps:get(28, Hist, 0) of
+                        0 ->
+                            %% No bad RSSIs found, include
+                            true;
+                        _ ->
+                            %% Has impossible RSSIs, exclude
+                            false
+                    end;
+                _ ->
+                    true
+            end
+    catch
+        error:no_histogram ->
+            %% No histogram found, include
+            true
+    end.
+
+-spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                              Vars :: map()) -> boolean().
+check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
+    case poc_version(Vars) of
+        V when V > 4 ->
+            maps:is_key(WitnessPubkeyBin, ActiveGateways);
+        _ ->
+            true
+    end.
 
 -spec check_witness_distance(WitnessParent :: h3:h3_index(),
                              ParentIndices :: [h3:h3_index()],
@@ -346,3 +390,7 @@ nanosecond_time(Time) ->
 -spec randomness_wt(Vars :: map()) -> float().
 randomness_wt(Vars) ->
     maps:get(poc_v4_randomness_wt, Vars, ?POC_V4_RANDOMNESS_WT).
+
+-spec poc_version(Vars :: map()) -> pos_integer().
+poc_version(Vars) ->
+    maps:get(poc_version, Vars, undefined).
