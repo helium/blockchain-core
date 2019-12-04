@@ -196,25 +196,27 @@ rssi_probs(Witnesses, Vars) ->
     WitnessList = maps:to_list(Witnesses),
     lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
                         try
-                            RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
-                            SumRSSI = lists:sum(maps:values(RSSIs)),
-                            BadRSSI = maps:get(28, RSSIs, 0),
+                            blockchain_ledger_gateway_v2:witness_hist(Witness)
+                        of
+                            RSSIs ->
+                                SumRSSI = lists:sum(maps:values(RSSIs)),
+                                BadRSSI = maps:get(28, RSSIs, 0),
 
-                            case {SumRSSI, BadRSSI} of
-                                {0, _} ->
-                                    %% No RSSI but we have it in the witness list,
-                                    %% possibly because of next hop poc receipt.
-                                    maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc);
-                                {_S, 0} ->
-                                    %% No known bad rssi value
-                                    maps:put(WitnessPubkeyBin, prob_good_rssi(Vars), Acc);
-                                {S, S} ->
-                                    %% All bad RSSI values
-                                    maps:put(WitnessPubkeyBin, prob_bad_rssi(Vars), Acc);
-                                {S, B} ->
-                                    %% Invert the "bad" probability
-                                    maps:put(WitnessPubkeyBin, ?normalize_float((1 - ?normalize_float(B/S, Vars)), Vars), Acc)
-                            end
+                                case {SumRSSI, BadRSSI} of
+                                    {0, _} ->
+                                        %% No RSSI but we have it in the witness list,
+                                        %% possibly because of next hop poc receipt.
+                                        maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc);
+                                    {_S, 0} ->
+                                        %% No known bad rssi value
+                                        maps:put(WitnessPubkeyBin, prob_good_rssi(Vars), Acc);
+                                    {S, S} ->
+                                        %% All bad RSSI values
+                                        maps:put(WitnessPubkeyBin, prob_bad_rssi(Vars), Acc);
+                                    {S, B} ->
+                                        %% Invert the "bad" probability
+                                        maps:put(WitnessPubkeyBin, ?normalize_float((1 - ?normalize_float(B/S, Vars)), Vars), Acc)
+                                end
                         catch
                             error:no_histogram ->
                                 maps:put(WitnessPubkeyBin, prob_no_rssi(Vars), Acc)
