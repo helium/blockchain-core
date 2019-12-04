@@ -26,7 +26,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(CHALLENGE_INTERVAL, poc_challenge_interval).
+-include("blockchain_vars.hrl").
+
 -define(FREQUENCY, 915).
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
@@ -77,7 +78,7 @@ normalize_float(Float) ->
 %%--------------------------------------------------------------------
 -spec challenge_interval(blockchain_ledger_v1:ledger()) -> non_neg_integer().
 challenge_interval(Ledger) ->
-    {ok, Interval} = blockchain:config(?CHALLENGE_INTERVAL, Ledger),
+    {ok, Interval} = blockchain:config(?poc_challenge_interval, Ledger),
     Interval.
 
 -spec serialize_hash(binary()) -> string().

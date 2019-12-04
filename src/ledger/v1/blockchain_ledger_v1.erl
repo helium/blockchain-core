@@ -49,6 +49,7 @@
     find_poc/2,
     request_poc/5,
     delete_poc/3, delete_pocs/2,
+    maybe_gc_pocs/1,
 
     find_entry/2,
     credit_account/3, debit_account/4,
@@ -1243,6 +1244,74 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
 delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
+
+maybe_gc_pocs(Chain) ->
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height} = current_height(Ledger0),
+    Version = case ?MODULE:config(?poc_version, Ledger0) of
+                  {ok, V} -> V;
+                  _ -> 1
+              end,
+    case Version > 3 andalso Height rem 100 == 0 of
+        true ->
+            lager:debug("gcing old pocs"),
+            PoCInterval = blockchain_utils:challenge_interval(Ledger0),
+            Ledger = new_context(Ledger0),
+            PoCsCF = pocs_cf(Ledger),
+            Alters =
+                cache_fold(
+                  Ledger,
+                  PoCsCF,
+                  fun({KeyHash, BinPoCs}, Acc) ->
+                          %% this CF contains all the poc request state that needs to be retained
+                          %% between request and receipt validation.  however, it's possible that
+                          %% both requests stop and a receipt never comes, which leads to stale (and
+                          %% in some cases differing) data in the ledger.  here, we pull that data
+                          %% out and delete anything that's too old, as determined by being older
+                          %% than twice the request interval, which controls receipt validity.
+                          SPoCs = erlang:binary_to_term(BinPoCs),
+                          PoCs = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, SPoCs),
+                          FPoCs =
+                              lists:filter(
+                                fun(PoC) ->
+                                        H = blockchain_ledger_poc_v2:block_hash(PoC),
+                                        case H of
+                                            <<>> ->
+                                                %% pre-upgrade pocs are ancient
+                                                false;
+                                            _ ->
+                                                {ok, B} = blockchain:get_block(H, Chain),
+                                                BH = blockchain_block:height(B),
+                                                (Height - BH) < PoCInterval * 2
+                                        end
+                                end, PoCs),
+                          case FPoCs == PoCs of
+                              true ->
+                                  Acc;
+                              _ ->
+                                  [{KeyHash, FPoCs} | Acc]
+                          end
+                  end,
+                  []
+                 ),
+            lager:debug("Alterations ~p", [Alters]),
+            %% here we have two clauses, so we don't uselessly store a [] in the ledger, as that
+            %% might cause drift, depending on the timing of the GC and a few other factors.
+            lists:foreach(
+              fun({KeyHash, []}) ->
+                      cache_delete(Ledger, PoCsCF, KeyHash);
+                 ({KeyHash, NewPoCs}) ->
+                      BinPoCs = erlang:term_to_binary(
+                                  lists:map(fun blockchain_ledger_poc_v2:serialize/1,
+                                            NewPoCs)),
+                      cache_put(Ledger, PoCsCF, KeyHash, BinPoCs)
+              end,
+              Alters),
+            commit_context(Ledger),
+            ok;
+        _ ->
+            ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
