@@ -25,7 +25,7 @@
 -import(blockchain_utils, [normalize_float/1]).
 
 -export([
-         target/3, filter/5
+         target/3, filter/5, challenge_age/1
         ]).
 
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
