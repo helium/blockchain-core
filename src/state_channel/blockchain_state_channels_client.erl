@@ -100,7 +100,7 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     {noreply, State};
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    Amount = calculate_amount(),
+                    Amount = calculate_amount(PubKeyBin, OUI),
                     Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_request(Pid, Req),
@@ -139,8 +139,20 @@ terminate(_Reason,  #state{db=DB}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-calculate_amount() ->
-    1.
+-spec calculate_amount(libp2p_crypto:pubkey_to_bin(), non_neg_integer()) -> non_neg_integer().
+calculate_amount(PubKeyBin, OUI) ->
+    Chain = blockchain_worker:blockchain(),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_gateway_info(PubKeyBin, Ledger) of
+        {error, _Reason} ->
+            lager:error("failed to find gateway ~p: ~p", [PubKeyBin, _Reason]),
+            1;
+        {ok, GWInfo} ->
+            case blockchain_ledger_gateway_v2:oui(GWInfo) of
+                OUI -> 0;
+                _ -> 1
+            end
+    end.
 
 -spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined, blockchain_state_channel_v1:state_channel(), pending()) ->
     {ok, pending()} | {error, any()}.
@@ -189,6 +201,7 @@ find_routing(OUI) ->
         {error, _}=Error ->
             Error;
         {ok, Routing} ->
+            % TODO: Select an address
             [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
             {ok, erlang:binary_to_list(Address)}
     end.
