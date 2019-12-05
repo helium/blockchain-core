@@ -202,8 +202,9 @@ full_test(Config) ->
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
 
     % Step 2: Create state channel open txn
+    TotalDC = 100,
     ID = crypto:strong_rand_bytes(32),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 10),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Adding block
@@ -221,25 +222,26 @@ full_test(Config) ->
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
-    ?assertEqual(10, blockchain_ledger_state_channel_v1:amount(SC)),
+    ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC)),
     
-    ?assertEqual({ok, 10}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
+    ?assertEqual({ok, TotalDC}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     % Step 5: Sending packet
     Self = self(),
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12, payload= <<1,2,3>>},
+    Paylod = <<1,2,3>>,
+    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12, payload=Paylod},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 9} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
+        {ok, TotalDC-erlang:byte_size(Paylod)} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 9} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
+        {ok, TotalDC-erlang:byte_size(Paylod)} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
     end, 30, timer:seconds(1)),
 
     % Step 7: Making sure packet got transmitted
