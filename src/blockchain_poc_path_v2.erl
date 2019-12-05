@@ -323,12 +323,12 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
 -spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
                              Vars :: map()) -> boolean().
 check_witness_bad_rssi(Witness, Vars) ->
-    try
-        blockchain_ledger_gateway_v2:witness_hist(Witness)
-    of
-        Hist ->
-            case poc_version(Vars) of
-                V when V > 4 ->
+    case poc_version(Vars) of
+        V when V > 4 ->
+            try
+                blockchain_ledger_gateway_v2:witness_hist(Witness)
+            of
+                Hist ->
                     case maps:get(28, Hist, 0) of
                         0 ->
                             %% No bad RSSIs found, include
@@ -338,13 +338,13 @@ check_witness_bad_rssi(Witness, Vars) ->
                             %% the overall RSSIs this witness has, include,
                             %% otherwise exclude
                             BadCount < lists:sum(maps:values(Hist))
-                    end;
-                _ ->
+                    end
+            catch
+                error:no_histogram ->
+                    %% No histogram found, include
                     true
-            end
-    catch
-        error:no_histogram ->
-            %% No histogram found, include
+            end;
+        _ ->
             true
     end.
 
