@@ -128,18 +128,33 @@ zero_test(Config) ->
     [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
     ConsensusMembers = proplists:get_value(consensus_memebers, Config),
 
+    % Step 1: Create OUI txn
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
     RouterP2PAddress = ct_rpc:call(RouterNode, libp2p_swarm, p2p_address, [RouterSwarm]),
-    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], 1, 1, 0),
+    OUI = 1,
+    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], OUI, 1, 0),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
 
+    % Step 2: Create state channel open zero txn
     ID = blockchain_state_channel_v1:zero_id(),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 0),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
-    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
+    % Step 3: Create add gateway txn (making Gateqay node a gateway and router 1 its owner)
+    {ok, GatewayPubkey, GatewaySigFun, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
+    GatewayPubkeyBin = libp2p_crypto:pubkey_to_bin(GatewayPubkey),
+    AddGatewayTxn = blockchain_txn_add_gateway_v1:new(RouterPubkeyBin, GatewayPubkeyBin, 1, 1),
+    SignedAddGatewayTxn0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, RouterSigFun),
+    SignedAddGatewayTxn1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTxn0, GatewaySigFun),
+
+    UpdateGWOuiTxn = blockchain_txn_update_gateway_oui_v1:new(GatewayPubkeyBin, OUI, 1, 1),
+    SignedUpdateGWOuiTxn0 = blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGWOuiTxn, RouterSigFun),
+    SignedUpdateGWOuiTxn1 = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(SignedUpdateGWOuiTxn0, RouterSigFun),
+
+    % Step 4: Adding block
+    Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedAddGatewayTxn1, SignedUpdateGWOuiTxn1]]),
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
 
@@ -148,6 +163,7 @@ zero_test(Config) ->
         {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
     end, 30, timer:seconds(1)),
 
+    % Step 5: Checking that state channel got created properly
     RouterLedger = blockchain:ledger(RouterChain),
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
@@ -157,9 +173,11 @@ zero_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
+    % Step 6: Sending packet with same OUI
     Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
+    % Step 7: Checking state channel on server/client (balance did not update but nonce did)
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
@@ -175,6 +193,7 @@ full_test(Config) ->
     [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
     ConsensusMembers = proplists:get_value(consensus_memebers, Config),
 
+    % Step 1: Create OUI txn
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
     RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
@@ -182,10 +201,12 @@ full_test(Config) ->
     OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], 1, 1, 0),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun),
 
+    % Step 2: Create state channel open txn
     ID = crypto:strong_rand_bytes(32),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 10),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
+    % Step 3: Adding block
     Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
@@ -195,6 +216,7 @@ full_test(Config) ->
         {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
     end, 30, timer:seconds(1)),
 
+    % Step 4: Checking that state channel got created properly
     RouterLedger = blockchain:ledger(RouterChain),
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
@@ -204,9 +226,11 @@ full_test(Config) ->
     ?assertEqual({ok, 10}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
+    % Step 5: Sending packet
     Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
+    % Step 74 Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 9} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
