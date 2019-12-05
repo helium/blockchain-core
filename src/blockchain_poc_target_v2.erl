@@ -11,6 +11,8 @@
 %%%-----------------------------------------------------------------------------
 -module(blockchain_poc_target_v2).
 
+-include("blockchain_utils.hrl").
+
 -define(POC_V4_TARGET_SCORE_CURVE, 5).
 -define(POC_V4_TARGET_CHALLENGE_AGE, 300).
 -define(POC_V4_TARGET_PROB_SCORE_WT, 0.8).
@@ -23,7 +25,7 @@
 -define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
 
 -export([
-         target/3, filter/5
+         target/3, filter/5, challenge_age/1
         ]).
 
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
@@ -40,10 +42,10 @@ target(Hash, GatewayScoreMap, Vars) ->
     ProbEdges = edge_prob(GatewayScoreMap, Vars),
     ProbTarget = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
-    ScaledProbs = lists:sort(maps:to_list(scaled_prob(ProbTarget))),
+    ScaledProbs = lists:sort(maps:to_list(scaled_prob(ProbTarget, Vars))),
     Entropy = blockchain_utils:rand_state(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
-    select_target(ScaledProbs, RandVal).
+    select_target(ScaledProbs, RandVal, Vars).
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
@@ -91,7 +93,7 @@ score_prob(GatewayScoreMap, Vars) ->
     SumScores = lists:sum([S || {_A, S} <- maps:to_list(ProbScores)]),
     %% Scale probabilities so they add up to 1.0
     maps:map(fun(_, S) ->
-                     S / SumScores
+                     ?normalize_float((S / SumScores), Vars)
              end,
              ProbScores).
 
@@ -118,14 +120,14 @@ edge_prob(GatewayScoreMap, Vars) ->
                           Loc = blockchain_ledger_gateway_v2:location(Gateway),
                           GatewayParent = h3:parent(Loc, ParentRes),
                           PopCt = maps:get(GatewayParent, Locations),
-                          1 - (PopCt/LocSz)
+                          ?normalize_float((1 - ?normalize_float(PopCt/LocSz, Vars)), Vars)
                   end,
                   GatewayScoreMap),
             %% Calculate sum of all probs
             SumEdgeProbs = lists:sum([S || {_A, S} <- maps:to_list(ProbEdges)]),
             %% Scale probabilities so they add up to 1.0
             maps:map(fun(_, E) ->
-                             E / SumEdgeProbs
+                             ?normalize_float((E / SumEdgeProbs), Vars)
                      end,
                      ProbEdges)
     end.
@@ -136,16 +138,16 @@ edge_prob(GatewayScoreMap, Vars) ->
 target_prob(ProbScores, ProbEdges, Vars) ->
     %% P(Target) = ScoreWeight*P(Score) + EdgeWeight*P(Edge)
     maps:map(fun(Addr, PScore) ->
-                     (prob_score_wt(Vars) * PScore) +
-                     (prob_edge_wt(Vars) * maps:get(Addr, ProbEdges))
+                     ?normalize_float((prob_score_wt(Vars) * PScore), Vars) +
+                     ?normalize_float((prob_edge_wt(Vars) * maps:get(Addr, ProbEdges)), Vars)
              end,
              ProbScores).
 
--spec scaled_prob(PTarget :: prob_map()) -> prob_map().
-scaled_prob(PTarget) ->
+-spec scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
+scaled_prob(PTarget, Vars) ->
     SumProbs = lists:sum(maps:values(PTarget)),
     maps:map(fun(_Addr, P) ->
-                     P / SumProbs
+                     ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
 
 -spec locations(GatewayScoreMap :: gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
@@ -159,13 +161,15 @@ locations(GatewayScoreMap, Vars) ->
                 #{},
                 AllRes).
 
--spec select_target([{libp2p_crypto:pubkey_bin(), float()}], float()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
-select_target([], _) ->
+-spec select_target(TaggedProbs :: [{libp2p_crypto:pubkey_bin(), float()}],
+                    Rnd :: float(),
+                    Vars :: map()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
+select_target([], _, _) ->
     {error, no_target};
-select_target([{GwAddr, Prob}=_Head | _], Rnd) when Rnd - Prob =< 0 ->
+select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
     {ok, GwAddr};
-select_target([{_GwAddr, Prob} | Tail], Rnd) ->
-    select_target(Tail, Rnd - Prob).
+select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
+    select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).
 
 -spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->
