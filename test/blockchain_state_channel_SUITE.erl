@@ -227,10 +227,12 @@ full_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     % Step 5: Sending packet
-    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
+    Self = self(),
+    ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
+    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12, payload= <<1,2,3>>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
 
-    % Step 74 Checking state channel on server/client
+    % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 9} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
@@ -240,6 +242,13 @@ full_test(Config) ->
         {ok, 9} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
     end, 30, timer:seconds(1)),
 
+    % Step 7: Making sure packet got transmitted
+    receive
+        {packet, Bin} ->
+            ?assertEqual(helium_longfi_pb:encode_msg(Packet), Bin)
+    after 10000 ->
+        ct:fail("packet timeout")
+    end,
     ok.
 
 %% ------------------------------------------------------------------

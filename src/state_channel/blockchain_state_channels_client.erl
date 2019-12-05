@@ -45,7 +45,7 @@
     pending = queue:new() :: pending()
 }).
 
--type pending() :: queue:new({blockchain_state_channel_request_v1:request(), any()}).
+-type pending() :: queue:new({blockchain_state_channel_request_v1:request(), any(), pid()}).
 
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
@@ -104,7 +104,7 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_request(Pid, Req),
-                    {noreply, State#state{pending=queue:in({Req, Packet}, Pending)}}
+                    {noreply, State#state{pending=queue:in({Req, Packet, Pid}, Pending)}}
             end
     end;
 handle_cast({state_channel, UpdateSC}, #state{db=DB, state_channels=SCs, pending=Pending}=State) ->
@@ -117,6 +117,7 @@ handle_cast({state_channel, UpdateSC}, #state{db=DB, state_channels=SCs, pending
             {noreply, State};
         {ok, Found} ->
             % TODO: Send found packets
+            ok = send_packets(Found),
             ok = blockchain_state_channel_v1:save(DB, UpdateSC),
             {noreply, State#state{state_channels=maps:put(ID, UpdateSC, SCs),
                                   pending=queue:filter(fun(E) -> not queue:member(E, Found) end, Pending)}}
@@ -138,6 +139,16 @@ terminate(_Reason,  #state{db=DB}) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec send_packets(queue:new()) -> ok.
+send_packets(Queue) ->
+    lists:foreach(
+        fun({_Req, Packet, Pid}) ->
+            Bin = helium_longfi_pb:encode_msg(Packet),
+            blockchain_state_channel_handler:send_packet(Pid, blockchain_state_channel_packet_v1:new(Bin))
+        end,
+        queue:to_list(Queue)
+    ).
 
 -spec calculate_amount(libp2p_crypto:pubkey_to_bin(), non_neg_integer()) -> non_neg_integer().
 calculate_amount(PubKeyBin, OUI) ->
@@ -162,7 +173,7 @@ check_pending_requests(SC, UpdateSC, Pending0) ->
             Error;
         true ->
             Pending1 = queue:filter(
-                fun({Req, Packet}) ->
+                fun({Req, Packet, _Pid}) ->
                     check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
                 end,
                 Pending0
