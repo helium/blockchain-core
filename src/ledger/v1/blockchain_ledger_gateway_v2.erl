@@ -32,10 +32,6 @@
 
 -import(blockchain_utils, [normalize_float/1]).
 
--define(FREQUENCY, 915).
--define(TRANSMIT_POWER, 28).
--define(MAX_ANTENNA_GAIN, 6).
-
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
@@ -368,10 +364,8 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
 
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
                  #gateway_v2{location=GatewayLoc}=_Gateway) ->
-    %% First, calculate the ideal free space path loss between the 2 locations
-    Distance = blockchain_utils:distance(WitnessLoc, GatewayLoc),
-    %% TODO support regional parameters for non-US based hotspots
-    FreeSpacePathLoss = ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN),
+    %% Get the free space path loss
+    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
     %% Maximum number of bins in the histogram
     NumBins = 10,
     %% Spacing between histogram keys (x axis)
