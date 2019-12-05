@@ -14,7 +14,12 @@
     start_link/1,
     credits/1, nonce/1,
     request/1,
-    burn/2
+    packet/1
+]).
+
+-export([
+    burn/2,
+    packet_forward/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -45,7 +50,7 @@
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
-    owners = [] :: [libp2p_crypto:pubkey_bin()]
+    packet_forward = undefined :: undefined | pid()
 }).
 
 -type state() :: #state{}.
@@ -69,19 +74,28 @@ nonce(ID) ->
 request(Req) ->
     gen_server:cast(?SERVER, {request, Req}).
 
+-spec packet(blockchain_state_channel_packet_v1:packet()) -> ok.
+packet(Req) ->
+    gen_server:cast(?SERVER, {packet, Req}).
+
 %% Helper function for tests (remove)
 -spec burn(blockchain_state_channel_v1:id(), non_neg_integer()) -> ok.
 burn(ID, Amount) ->
     gen_server:cast(?SERVER, {burn, ID, Amount}).
 
+%% Helper function for tests (remove)
+-spec packet_forward(pid()) -> ok.
+packet_forward(Pid) ->
+    gen_server:cast(?SERVER, {packet_forward, Pid}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Swarm, Owners]=_Args) ->
+init([Swarm]=_Args) ->
     lager:info("~p init with ~p", [?SERVER, _Args]),
     ok = blockchain_event:add_handler(self()),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, State} = load_state(DB, Swarm, Owners),
+    {ok, State} = load_state(DB, Swarm),
     {ok, State}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
@@ -140,6 +154,11 @@ handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
                     end
             end
     end;
+handle_cast({packet_forward, Pid}, State) ->
+    {noreply, State#state{packet_forward=Pid}};
+handle_cast({packet, Packet}, #state{packet_forward=Pid}=State) when is_pid(Pid) ->
+    Pid ! {packet, blockchain_state_channel_packet_v1:packet(Packet)},
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -260,8 +279,8 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             end
     end.
 
--spec load_state(rocksdb:db_handle(), pid(), [libp2p_crypto:pubkey_bin()]) -> {ok, state()} | {error, any()}.
-load_state(DB, Swarm, Owners) ->
+-spec load_state(rocksdb:db_handle(), pid()) -> {ok, state()} | {error, any()}.
+load_state(DB, Swarm) ->
     % TODO: We should also check the ledger make sure we did not miss any new state channel
     case get_state_channels(DB) of
         {error, _}=Error ->
@@ -300,8 +319,7 @@ load_state(DB, Swarm, Owners) ->
                 maps:new(),
                 maps:values(SCs)
             ),
-            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs,
-                        clients=Clients, owners=Owners}}
+            {ok, #state{db=DB, swarm=Swarm, state_channels=SCs, clients=Clients}}
     end.
 
 -spec update_state(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_request_v1:request(), state()) -> state().
@@ -388,11 +406,10 @@ load_test() ->
         swarm=Swarm,
         state_channels=#{ID => SC},
         clients=#{ID => []},
-        payees_to_sc=#{},
-        owners=[]
+        payees_to_sc=#{}
     },
     ?assertEqual(ok, blockchain_state_channel_v1:save(DB, SC)),
-    ?assertEqual({ok, State}, load_state(DB, Swarm, [])),
+    ?assertEqual({ok, State}, load_state(DB, Swarm)),
     ok = rocksdb:close(DB),
     libp2p_swarm:stop(Swarm),
     ok.
