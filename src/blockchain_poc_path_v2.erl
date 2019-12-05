@@ -291,7 +291,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
     ExclusionCells = exclusion_cells(Vars),
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
-    maps:filter(fun(WitnessPubkeyBin, _Witness) ->
+    maps:filter(fun(WitnessPubkeyBin, Witness) ->
                         case maps:is_key(WitnessPubkeyBin, ActiveGateways) of
                             false ->
                                 %% Don't include if the witness is not in ActiveGateways
@@ -305,7 +305,9 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                                 %% Don't include any witness whose parent is the same as the gateway we're looking at
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells)
+                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) andalso
+                                check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
                 Witnesses).
@@ -317,6 +319,45 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
     not(lists:any(fun(ParentIndex) ->
                           h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
                   end, ParentIndices)).
+
+-spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
+                             Vars :: map()) -> boolean().
+check_witness_bad_rssi(Witness, Vars) ->
+    try
+        blockchain_ledger_gateway_v2:witness_hist(Witness)
+    of
+        Hist ->
+            case poc_version(Vars) of
+                V when V > 4 ->
+                    case maps:get(28, Hist, 0) of
+                        0 ->
+                            %% No bad RSSIs found, include
+                            true;
+                        BadCount ->
+                            %% If the bad RSSI count does not dominate
+                            %% the overall RSSIs this witness has, include,
+                            %% otherwise exclude
+                            BadCount < lists:sum(maps:values(Hist))
+                    end;
+                _ ->
+                    true
+            end
+    catch
+        error:no_histogram ->
+            %% No histogram found, include
+            true
+    end.
+
+-spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                              Vars :: map()) -> boolean().
+check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
+    case poc_version(Vars) of
+        V when V > 4 ->
+            maps:is_key(WitnessPubkeyBin, ActiveGateways);
+        _ ->
+            true
+    end.
 
 -spec rssi_weight(Vars :: map()) -> float().
 rssi_weight(Vars) ->
@@ -357,3 +398,7 @@ nanosecond_time(Time) ->
 -spec randomness_wt(Vars :: map()) -> float().
 randomness_wt(Vars) ->
     maps:get(poc_v4_randomness_wt, Vars, ?POC_V4_RANDOMNESS_WT).
+
+-spec poc_version(Vars :: map()) -> undefined | float().
+poc_version(Vars) ->
+    maps:get(poc_version, Vars, undefined).
