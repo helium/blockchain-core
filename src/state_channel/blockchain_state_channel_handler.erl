@@ -16,6 +16,7 @@
     client/2,
     dial/3,
     send_request/2,
+    send_packet/2,
     broadcast/2
 ]).
 
@@ -53,6 +54,11 @@ send_request(Pid, Req) ->
     Pid ! {send_request, Req},
     ok.
 
+-spec send_packet(pid(), blockchain_state_channel_packet_v1:packet()) -> ok.
+send_packet(Pid, Packet) ->
+    Pid ! {send_packet, Packet},
+    ok.
+
 -spec broadcast(pid(), blockchain_state_channel_v1:state_channel()) -> ok.
 broadcast(Pid, SC) ->
     Pid ! {broadcast, SC},
@@ -78,6 +84,8 @@ handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
         {request, Req} ->
             blockchain_state_channels_server:request(Req);
+        {packet, Packet} ->
+            blockchain_state_channels_server:packet(Packet);
         {state_channel, SC} ->
            blockchain_state_channels_client:state_channel(SC)
     end,
@@ -85,6 +93,9 @@ handle_data(server, Data, State) ->
 
 handle_info(client, {send_request, Req}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Req),
+    {noreply, State, Data};
+handle_info(client, {send_packet, Packet}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Packet),
     {noreply, State, Data};
 handle_info(client, {broadcast, SC}, State) ->
     Data = blockchain_state_channel_message_v1:encode(SC),
