@@ -13,17 +13,6 @@
 
 -include("blockchain_utils.hrl").
 
--define(POC_V4_TARGET_SCORE_CURVE, 5).
--define(POC_V4_TARGET_CHALLENGE_AGE, 300).
--define(POC_V4_TARGET_PROB_SCORE_WT, 0.8).
--define(POC_V4_TARGET_PROB_EDGE_WT, 0.2).
-%% Normalize to 11 res by default unless chain var specified.
--define(POC_V4_PARENT_RES, 11).
-%% Exclude 6000 grid cells when trying to find a potential by default
-%% target from a given challenger. Normalized to parent_res.
-%% This is roughly 100KM.
--define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
-
 -export([
          target/3, filter/5
         ]).
@@ -171,30 +160,31 @@ select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
 select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
     select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).
 
--spec challenge_age(Vars :: map()) -> pos_integer().
+-spec challenge_age(Vars :: map()) -> undefined | pos_integer().
 challenge_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars, ?POC_V4_TARGET_CHALLENGE_AGE).
+    maps:get(poc_v4_target_challenge_age, Vars, undefined).
 
--spec prob_score_wt(Vars :: map()) -> float().
+-spec prob_score_wt(Vars :: map()) -> undefined | float().
 prob_score_wt(Vars) ->
-    maps:get(poc_v4_target_prob_score_wt, Vars, ?POC_V4_TARGET_PROB_SCORE_WT).
+    maps:get(poc_v4_target_prob_score_wt, Vars, undefined).
 
--spec prob_edge_wt(Vars :: map()) -> float().
+-spec prob_edge_wt(Vars :: map()) -> undefined | float().
 prob_edge_wt(Vars) ->
-    maps:get(poc_v4_target_prob_edge_wt, Vars, ?POC_V4_TARGET_PROB_EDGE_WT).
+    maps:get(poc_v4_target_prob_edge_wt, Vars, undefined).
 
--spec score_curve(Score :: float(), Vars :: map()) -> float().
+-spec score_curve(Score :: float(), Vars :: map()) -> undefined | float().
 score_curve(Score, Vars) ->
-    Exp = maps:get(poc_v4_target_score_curve, Vars, ?POC_V4_TARGET_SCORE_CURVE),
+    Exp = maps:get(poc_v4_target_score_curve, Vars, undefined),
+    %% XXX: This will blow up if poc_v4_target_score_curve is undefined
     math:pow(Score, Exp).
 
--spec parent_res(Vars :: map()) -> pos_integer().
+-spec parent_res(Vars :: map()) -> undefined | pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
+    maps:get(poc_v4_parent_res, Vars, undefined).
 
--spec target_exclusion_cells(Vars :: map()) -> pos_integer().
+-spec target_exclusion_cells(Vars :: map()) -> undefined | pos_integer().
 target_exclusion_cells(Vars) ->
-    maps:get(poc_v4_target_exclusion_cells, Vars, ?POC_V4_TARGET_EXCLUSION_CELLS).
+    maps:get(poc_v4_target_exclusion_cells, Vars, undefined).
 
 -spec check_challenger_distance(ChallengerLoc :: h3:index(),
                                 GatewayLoc :: h3:index(),

@@ -46,22 +46,6 @@
 
 -include("blockchain_utils.hrl").
 
--define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
--define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
-%% weights associated with each witness probability type
-
-%% RSSI probabilities
--define(POC_V4_PROB_NO_RSSI, 0.5).
--define(POC_V4_PROB_GOOD_RSSI, 1.0).
--define(POC_V4_PROB_BAD_RSSI, 0.01).
-
-%% NOTE: These _must_ sum to 1.0
--define(POC_V4_PROB_RSSI_WT, 0.3).
--define(POC_V4_PROB_TIME_WT, 0.3).
--define(POC_V4_PROB_COUNT_WT, 0.3).
-%% Randomness weight
--define(POC_V4_RANDOMNESS_WT, 0.1).
-
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
@@ -359,46 +343,46 @@ check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
             true
     end.
 
--spec rssi_weight(Vars :: map()) -> float().
+-spec rssi_weight(Vars :: map()) -> undefined | float().
 rssi_weight(Vars) ->
-    maps:get(poc_v4_prob_rssi_wt, Vars, ?POC_V4_PROB_RSSI_WT).
+    maps:get(poc_v4_prob_rssi_wt, Vars, undefined).
 
--spec time_weight(Vars :: map()) -> float().
+-spec time_weight(Vars :: map()) -> undefined | float().
 time_weight(Vars) ->
-    maps:get(poc_v4_prob_time_wt, Vars, ?POC_V4_PROB_TIME_WT).
+    maps:get(poc_v4_prob_time_wt, Vars, undefined).
 
--spec count_weight(Vars :: map()) -> float().
+-spec count_weight(Vars :: map()) -> undefined | float().
 count_weight(Vars) ->
-    maps:get(poc_v4_prob_count_wt, Vars, ?POC_V4_PROB_COUNT_WT).
+    maps:get(poc_v4_prob_count_wt, Vars, undefined).
 
--spec prob_no_rssi(Vars :: map()) -> float().
+-spec prob_no_rssi(Vars :: map()) -> undefined | float().
 prob_no_rssi(Vars) ->
-    maps:get(poc_v4_prob_no_rssi, Vars, ?POC_V4_PROB_NO_RSSI).
+    maps:get(poc_v4_prob_no_rssi, Vars, undefined).
 
--spec prob_good_rssi(Vars :: map()) -> float().
+-spec prob_good_rssi(Vars :: map()) -> undefined | float().
 prob_good_rssi(Vars) ->
-    maps:get(poc_v4_prob_good_rssi, Vars, ?POC_V4_PROB_GOOD_RSSI).
+    maps:get(poc_v4_prob_good_rssi, Vars, undefined).
 
--spec prob_bad_rssi(Vars :: map()) -> float().
+-spec prob_bad_rssi(Vars :: map()) -> undefined | float().
 prob_bad_rssi(Vars) ->
-    maps:get(poc_v4_prob_bad_rssi, Vars, ?POC_V4_PROB_BAD_RSSI).
+    maps:get(poc_v4_prob_bad_rssi, Vars, undefined).
 
--spec parent_res(Vars :: map()) -> pos_integer().
+-spec parent_res(Vars :: map()) -> undefined | pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
+    maps:get(poc_v4_parent_res, Vars, undefined).
 
--spec exclusion_cells(Vars :: map()) -> pos_integer().
+-spec exclusion_cells(Vars :: map()) -> undefined | pos_integer().
 exclusion_cells(Vars) ->
-    maps:get(poc_v4_exclusion_cells, Vars, ?POC_V4_EXCLUSION_CELLS).
+    maps:get(poc_v4_exclusion_cells, Vars, undefined).
 
 -spec nanosecond_time(Time :: integer()) -> integer().
 nanosecond_time(Time) ->
     erlang:convert_time_unit(Time, millisecond, nanosecond).
 
--spec randomness_wt(Vars :: map()) -> float().
+-spec randomness_wt(Vars :: map()) -> undefined | float().
 randomness_wt(Vars) ->
-    maps:get(poc_v4_randomness_wt, Vars, ?POC_V4_RANDOMNESS_WT).
+    maps:get(poc_v4_randomness_wt, Vars, undefined).
 
--spec poc_version(Vars :: map()) -> undefined | float().
+-spec poc_version(Vars :: map()) -> undefined | pos_integer().
 poc_version(Vars) ->
     maps:get(poc_version, Vars, undefined).
