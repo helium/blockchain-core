@@ -23,7 +23,7 @@
     absorb/2,
     create_secret_hash/2,
     connections/1,
-    deltas/3,
+    deltas/1, deltas/3,
     check_path_continuation/1,
     print/1,
     hex_poc_id/1
@@ -311,10 +311,8 @@ connections(Txn) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec deltas(Txn :: txn_poc_receipts(),
-             POCVersion :: undefined | pos_integer(),
-             Ledger :: undefined | blockchain_ledger_v1:ledger()) -> deltas().
-deltas(Txn, undefined, undefined) ->
+-spec deltas(Txn :: txn_poc_receipts()) -> deltas().
+deltas(Txn) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
     lists:reverse(element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
@@ -323,13 +321,17 @@ deltas(Txn, undefined, undefined) ->
                                    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
                                    NextElements = lists:sublist(Path, N+1, Length),
                                    HasContinued = check_path_continuation(NextElements),
-                                   {Val, Continue} = assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, undefined, undefined),
+                                   {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
                                    {set_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
                            end,
                            {[], true},
-                           lists:zip(lists:seq(1, Length), Path))));
+                           lists:zip(lists:seq(1, Length), Path)))).
+
+-spec deltas(Txn :: txn_poc_receipts(),
+             POCVersion :: pos_integer(),
+             Ledger :: blockchain_ledger_v1:ledger()) -> deltas().
 deltas(Txn, V, Ledger) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
@@ -356,11 +358,46 @@ check_path_continuation(Elements) ->
               Elements).
 
 -spec assign_alpha_beta(HasContinued :: boolean(),
+                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()]) -> {{float(), 0 | 1}, boolean()}.
+assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
+    case {HasContinued, Receipt, Witnesses} of
+        {true, undefined, _} ->
+            %% path continued, no receipt, don't care about witnesses
+            {{0.8, 0}, true};
+        {true, Receipt, _} when Receipt /= undefined ->
+            %% path continued, receipt, don't care about witnesses
+            {{1, 0}, true};
+        {false, undefined, Wxs} when length(Wxs) > 0 ->
+            %% path broke, no receipt, witnesses
+            {{0.9, 0}, true};
+        {false, Receipt, []} when Receipt /= undefined ->
+            %% path broke, receipt, no witnesses
+            %% likely the next hop broke the path
+            case blockchain_poc_receipt_v1:origin(Receipt) of
+                p2p ->
+                    %% you really did nothing here other than be online
+                    {{0, 0}, false};
+                radio ->
+                    %% not enough information to decide who screwed up
+                    %% but you did receive a packet over the radio, so you
+                    %% get partial credit
+                    {{0.2, 0}, false}
+            end;
+        {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
+            %% path broke, receipt, witnesses
+            {{0.9, 0}, true};
+        {false, _, _} ->
+            %% path broke, you killed it
+            {{0, 1}, false}
+    end.
+
+-spec assign_alpha_beta(HasContinued :: boolean(),
                         Challengee :: libp2p_crypto:pubkey_bin(),
                         Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
                         Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
-                        POCVersion :: undefined | pos_integer(),
-                        Ledger :: undefined | blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
+                        POCVersion :: pos_integer(),
+                        Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
 assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledger) ->
     case {HasContinued, Receipt, Witnesses} of
         {true, undefined, _} ->
@@ -371,7 +408,7 @@ assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledg
             {{1, 0}, true};
         {false, undefined, Wxs} when length(Wxs) > 0 ->
             %% path broke, no receipt, witnesses
-            {update_alpha_beta_with_witness_quality(POCVersion, Receipt, Challengee, Wxs, Ledger), true};
+            {update_alpha_beta_with_witness_quality(undefined, POCVersion, Challengee, Wxs, Ledger), true};
         {false, Receipt, []} when Receipt /= undefined ->
             %% path broke, receipt, no witnesses
             case blockchain_poc_receipt_v1:origin(Receipt) of
@@ -386,19 +423,18 @@ assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledg
             end;
         {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
             %% path broke, receipt, witnesses
-            {update_alpha_beta_with_witness_quality(POCVersion, Receipt, Challengee, Wxs, Ledger), true};
+            {update_alpha_beta_with_witness_quality(Receipt, POCVersion, Challengee, Wxs, Ledger), true};
         {false, _, _} ->
             %% path broke, you killed it
             {{0, 1}, false}
     end.
 
--spec update_alpha_beta_with_witness_quality(POCVersion :: undefined | pos_integer(),
-                                             Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+-spec update_alpha_beta_with_witness_quality(Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
+                                             POCVersion :: pos_integer(),
                                              Challengee :: libp2p_crypto:pubkey_bin(),
                                              Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
                                              Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
-update_alpha_beta_with_witness_quality(POCVersion, undefined, Challengee, Witnesses, Ledger)
-  when POCVersion > 4 andalso Ledger /= undefined ->
+update_alpha_beta_with_witness_quality(undefined, _POCVersion, Challengee, Witnesses, Ledger) ->
     %% no poc receipt
     WitnessQualityChecks = witness_quality_checks(Challengee, Witnesses, Ledger),
     case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
@@ -411,8 +447,7 @@ update_alpha_beta_with_witness_quality(POCVersion, undefined, Challengee, Witnes
             %% high alpha bump, but not as high as when there is a receipt
             {0.7, 0}
     end;
-update_alpha_beta_with_witness_quality(POCVersion, _Receipt, Challengee, Witnesses, Ledger)
-  when POCVersion > 4 andalso Ledger /= undefined ->
+update_alpha_beta_with_witness_quality(_Receipt, _POCVersion, Challengee, Witnesses, Ledger) ->
     %% poc receipt
     WitnessQualityChecks = witness_quality_checks(Challengee, Witnesses, Ledger),
     case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
@@ -424,10 +459,7 @@ update_alpha_beta_with_witness_quality(POCVersion, _Receipt, Challengee, Witness
         true ->
             %% high alpha bump
             {0.9, 0}
-    end;
-update_alpha_beta_with_witness_quality(_, _, _, _, _) ->
-    %% old behavior when any other POCVersion
-    {0.9, 0}.
+    end.
 
 -spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
                  {A :: float(), B :: 0 | 1},
@@ -455,9 +487,9 @@ witness_quality_checks(Challengee, Witnesses, Ledger) ->
                         FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
                         Check = (
                           %% Check that the witness is far
-                          (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) > ExclusionCells) andalso
+                          (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
                           %% Check that the RSSI seems reasonable
-                          (WitnessRSSI < FreeSpacePathLoss)
+                          (WitnessRSSI >= FreeSpacePathLoss)
                          ),
                         [Check | Acc]
                 end,
@@ -520,7 +552,7 @@ absorb(Txn, Chain) ->
                                                     blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                             end,
                                             ok,
-                                            ?MODULE:deltas(Txn, undefined, Ledger))
+                                            ?MODULE:deltas(Txn))
                         end
                 end
         end
@@ -900,7 +932,7 @@ delta_test() ->
                                                                        undefined,[]}],
                                    0,
                                    <<"impala">>},
-    Deltas1 = deltas(Txn1, undefined, undefined),
+    Deltas1 = deltas(Txn1),
     ?assertEqual(2, length(Deltas1)),
     ?assertEqual({0.9, 0}, proplists:get_value(<<"first">>, Deltas1)),
     ?assertEqual({0, 1}, proplists:get_value(<<"second">>, Deltas1)),
@@ -925,7 +957,7 @@ delta_test() ->
                                                                        undefined,[]}],
                                    0,
                                    <<"g">>},
-    Deltas2 = deltas(Txn2, undefined, undefined),
+    Deltas2 = deltas(Txn2),
     ?assertEqual(1, length(Deltas2)),
     ?assertEqual({0, 0}, proplists:get_value(<<"first">>, Deltas2)),
     ok.
@@ -964,7 +996,7 @@ duplicate_delta_test() ->
                                    0,
                                    <<"gg">>},
 
-    Deltas = deltas(Txn, undefined),
+    Deltas = deltas(Txn),
     ?assertEqual(4, length(Deltas)),
     SecondDeltas = proplists:get_all_values(<<"second">>, Deltas),
     ?assertEqual(2, length(SecondDeltas)),
