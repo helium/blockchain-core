@@ -324,7 +324,7 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
                              Vars :: map()) -> boolean().
 check_witness_bad_rssi(Witness, Vars) ->
     case poc_version(Vars) of
-        V when V > 4 ->
+        V when is_integer(V), V > 4 ->
             try
                 blockchain_ledger_gateway_v2:witness_hist(Witness)
             of
