@@ -353,7 +353,7 @@ check_witness_bad_rssi(Witness, Vars) ->
                               Vars :: map()) -> boolean().
 check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
     case poc_version(Vars) of
-        V when V > 4 ->
+        V when is_integer(V), V > 4 ->
             maps:is_key(WitnessPubkeyBin, ActiveGateways);
         _ ->
             true
