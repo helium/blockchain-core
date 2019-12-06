@@ -25,7 +25,7 @@
 -define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
 
 -export([
-         target/3, filter/5, challenge_age/1
+         target/3, filter/5
         ]).
 
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
