@@ -225,9 +225,8 @@ is_valid(Txn, Chain) ->
                                                                                    {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                                                    StartS = erlang:monotonic_time(millisecond),
                                                                                    GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
+                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    maybe_log_duration(scored, StartS),
-                                                                                   {ok, Limit} = blockchain:config(?poc_path_limit, OldLedger),
-                                                                                   Vars = #{poc_path_limit => Limit},
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
                                                                                    %% If we make it to this point, we are bound to have a target.
@@ -489,7 +488,7 @@ witness_quality_checks(Challengee, Witnesses, Ledger) ->
                           %% Check that the witness is far
                           (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
                           %% Check that the RSSI seems reasonable
-                          (WitnessRSSI >= FreeSpacePathLoss)
+                          (WitnessRSSI =< FreeSpacePathLoss)
                          ),
                         [Check | Acc]
                 end,
@@ -507,6 +506,7 @@ absorb(Txn, Chain) ->
     Secret = ?MODULE:secret(Txn),
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    HexPOCID = ?MODULE:hex_poc_id(Txn),
 
     try
         %% get these to make sure we're not replaying.
@@ -556,8 +556,9 @@ absorb(Txn, Chain) ->
                         end
                 end
         end
-    catch _:_ ->
-            {error, state_missing}
+    catch What:Why:Stacktrace ->
+              lager:error([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
+              {error, state_missing}
     end.
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),

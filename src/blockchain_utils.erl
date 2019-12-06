@@ -17,7 +17,8 @@
     addr2name/1,
     distance/2,
     score_gateways/1,
-    free_space_path_loss/2
+    free_space_path_loss/2,
+    vars_binary_keys_to_atoms/1
 ]).
 
 -ifdef(TEST).
@@ -191,6 +192,11 @@ free_space_path_loss(Loc1, Loc2) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
     ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+
+-spec vars_binary_keys_to_atoms(map()) -> map().
+vars_binary_keys_to_atoms(Vars) ->
+    %% This makes good men sad
+    lists:foldl(fun({K, V}, Acc) -> maps:put(list_to_existing_atom(binary_to_list(K)), V, Acc)  end, #{}, maps:to_list(Vars)).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
