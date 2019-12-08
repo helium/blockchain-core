@@ -338,36 +338,35 @@ ledger(Ledger, Chain) ->
 -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Chain0) ->
     Ledger = ?MODULE:ledger(Chain0),
-    case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, CurrentHeight} when Height > CurrentHeight->
-            {error, invalid_height};
-        {ok, Height} ->
-            %% Current height is the height we want, just return a new context
-            {ok, blockchain_ledger_v1:new_context(Ledger)};
-        {ok, CurrentHeight} ->
-            DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            case blockchain_ledger_v1:current_height(DelayedLedger) of
+    case blockchain_ledger_v1:has_snapshot(Height, Ledger) of
+        {ok, SnapshotLedger} ->
+            {ok, SnapshotLedger};
+        _ ->
+            case blockchain_ledger_v1:current_height(Ledger) of
+                {ok, CurrentHeight} when Height > CurrentHeight->
+                    {error, invalid_height};
                 {ok, Height} ->
-                    %% Delayed height is the height we want, just return a new context
-                    {ok, blockchain_ledger_v1:new_context(DelayedLedger)};
-                {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
-                    case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
-                        {ok, SnapshotLedger} ->
-                            {ok, SnapshotLedger};
-                        _ ->
+                    %% Current height is the height we want, just return a new context
+                    {ok, blockchain_ledger_v1:new_context(Ledger)};
+                {ok, CurrentHeight} ->
+                    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+                    case blockchain_ledger_v1:current_height(DelayedLedger) of
+                        {ok, Height} ->
+                            %% Delayed height is the height we want, just return a new context
+                            {ok, blockchain_ledger_v1:new_context(DelayedLedger)};
+                        {ok, DelayedHeight} when Height >= DelayedHeight andalso Height < CurrentHeight ->
                             Chain1 = fold_chain(Chain0, DelayedHeight, DelayedLedger, Height),
                             Ledger1 = ?MODULE:ledger(Chain1),
                             Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                            blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
-                            {ok, Ledger1}
+                            blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1);
+                        {ok, DelayedHeight} when Height < DelayedHeight ->
+                            {error, height_too_old};
+                        {error, _}=Error ->
+                            Error
                     end;
-                {ok, DelayedHeight} when Height < DelayedHeight ->
-                    {error, height_too_old};
                 {error, _}=Error ->
                     Error
-            end;
-        {error, _}=Error ->
-            Error
+            end
     end.
 
 fold_chain(Chain0, DelayedHeight, DelayedLedger, Height) ->

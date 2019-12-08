@@ -163,16 +163,16 @@ hex_adjustment(Loc) ->
 
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case blockchain_ledger_v1:mode(Ledger) of
-        delayed ->
+    case blockchain_ledger_v1:snapshot(Ledger) of
+        {error, undefined}  ->
+            %% recalculate when we're not using an immutable snapshot
+            score_tagged_gateways(Height, Ledger);
+        _ ->
             %% Use the cache in delayed ledger mode
             e2qc:cache(gw_cache, {Height},
                        fun() ->
                                score_tagged_gateways(Height, Ledger)
-                       end);
-        active ->
-            %% recalculate in active ledger mode
-            score_tagged_gateways(Height, Ledger)
+                       end)
     end.
 
 score_tagged_gateways(Height, Ledger) ->

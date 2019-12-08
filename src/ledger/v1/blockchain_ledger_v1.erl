@@ -321,13 +321,14 @@ new_snapshot(#ledger_v1{db=DB,
 
 context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
     {ok, Height} = current_height(Ledger),
-    case ets:lookup(Cache, Height) of
-        [{_Height, _Snapshot}] ->
-            ok;
+    case has_snapshot(Height, Ledger) of
+        {ok, _} = Result ->
+            Result;
         _ ->
             case rocksdb:snapshot(DB) of
                 {ok, SnapshotHandle} ->
-                    ets:insert(Cache, {Height, {context, SnapshotHandle, Context}});
+                    ets:insert(Cache, {Height, {context, SnapshotHandle, Context}}),
+                    {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
                 {error, Reason} = Error ->
                     lager:error("Error creating new snapshot, reason: ~p", [Reason]),
                     Error
