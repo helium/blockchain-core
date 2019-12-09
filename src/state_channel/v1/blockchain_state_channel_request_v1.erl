@@ -13,34 +13,34 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
+-include_lib("pb/blockchain_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type request() :: #helium_state_channel_request_v1_pb{}.
+-type request() :: #blockchain_state_channel_request_v1_pb{}.
 
 -export_type([request/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), integer()) -> request().
 new(Payee, Amount, Fingerprint) -> 
-    #helium_state_channel_request_v1_pb{
+    #blockchain_state_channel_request_v1_pb{
         payee=Payee,
         amount=Amount,
         fingerprint=Fingerprint
     }.
 
 -spec payee(request()) -> libp2p_crypto:pubkey_bin().
-payee(#helium_state_channel_request_v1_pb{payee=Payee}) ->
+payee(#blockchain_state_channel_request_v1_pb{payee=Payee}) ->
     Payee.
 
 -spec amount(request()) -> non_neg_integer().
-amount(#helium_state_channel_request_v1_pb{amount=Amount}) ->
+amount(#blockchain_state_channel_request_v1_pb{amount=Amount}) ->
     Amount.
 
 -spec fingerprint(request()) -> integer().
-fingerprint(#helium_state_channel_request_v1_pb{fingerprint=Fingerprint}) ->
+fingerprint(#blockchain_state_channel_request_v1_pb{fingerprint=Fingerprint}) ->
     Fingerprint.
 
 -spec validate(request()) -> true.
@@ -48,12 +48,12 @@ validate(_Req) ->
     true.
 
 -spec encode(request()) -> binary().
-encode(#helium_state_channel_request_v1_pb{}=Payment) ->
-    helium_state_channel_v1_pb:encode_msg(Payment).
+encode(#blockchain_state_channel_request_v1_pb{}=Payment) ->
+    blockchain_state_channel_v1_pb:encode_msg(Payment).
 
 -spec decode(binary()) -> request().
 decode(BinaryPayment) ->
-    helium_state_channel_v1_pb:decode_msg(BinaryPayment, helium_state_channel_request_v1_pb).
+    blockchain_state_channel_v1_pb:decode_msg(BinaryPayment, blockchain_state_channel_request_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -65,7 +65,7 @@ decode(BinaryPayment) ->
 -ifdef(TEST).
 
 new_test() ->
-    Req = #helium_state_channel_request_v1_pb{
+    Req = #blockchain_state_channel_request_v1_pb{
         payee= <<"payee">>,
         amount=1,
         fingerprint= 12
