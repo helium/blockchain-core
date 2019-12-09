@@ -81,6 +81,7 @@
 
     find_state_channel/3,
     add_state_channel/4,
+    close_state_channel/3,
 
     delay_vars/3,
 
@@ -1661,6 +1662,12 @@ add_state_channel(ID, Owner, Amount, Ledger) ->
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
 
+-spec close_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok.
+close_state_channel(ID, Owner, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    Key = state_channel_key(ID, Owner),
+    cache_delete(Ledger, SCsCF, Key).
+
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
@@ -2455,6 +2462,11 @@ state_channels_test() ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(12, blockchain_ledger_state_channel_v1:amount(SC)),
+
+    Ledger3 = new_context(Ledger),
+    ok = close_state_channel(ID, Owner, Ledger3),
+    ok = commit_context(Ledger3),
+    ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
 
     ok.
 
