@@ -33,7 +33,8 @@
              | blockchain_txn_bundle_v1:txn_bundle()
              | blockchain_txn_payment_v2:txn_payment_v2()
              | blockchain_txn_state_channel_open_v1:txn_state_channel_open()
-             | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui().
+             | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui()
+             | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
@@ -96,7 +97,8 @@
     {blockchain_txn_poc_receipts_v1, 18},
     {blockchain_txn_payment_v2, 19},
     {blockchain_txn_state_channel_open_v1, 20},
-    {blockchain_txn_update_gateway_oui_v1, 21}
+    {blockchain_txn_update_gateway_oui_v1, 21},
+    {blockchain_txn_state_channel_close_v1, 22}
 ]).
 
 block_delay() ->
@@ -163,7 +165,9 @@ wrap_txn(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn) ->
 wrap_txn(#blockchain_txn_state_channel_open_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={state_channel_open, Txn}};
 wrap_txn(#blockchain_txn_update_gateway_oui_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={update_gateway_oui, Txn}}.
+    #blockchain_txn_pb{txn={update_gateway_oui, Txn}};
+wrap_txn(#blockchain_txn_state_channel_close_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={state_channel_close, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -489,7 +493,9 @@ type(#blockchain_txn_payment_v2_pb{}) ->
 type(#blockchain_txn_state_channel_open_v1_pb{}) ->
     blockchain_txn_state_channel_open_v1;
 type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
-    blockchain_txn_update_gateway_oui_v1.
+    blockchain_txn_update_gateway_oui_v1;
+type(#blockchain_txn_state_channel_close_v1_pb{}) ->
+    blockchain_txn_state_channel_close_v1.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -642,6 +648,8 @@ actor(Txn) ->
             blockchain_txn_payment_v2:payer(Txn);
         blockchain_txn_state_channel_open_v1 ->
             blockchain_txn_state_channel_open_v1:owner(Txn);
+        blockchain_txn_state_channel_close_v1 ->
+            blockchain_txn_state_channel_close_v1:closer(Txn);
         _ ->
             <<>>
     end.
