@@ -98,7 +98,8 @@ basic_test(Config) ->
 
     meck:new(blockchain_swarm, [passthrough]),
     meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
-    
+    meck:new(blockchain_event, [passthrough]),
+    meck:expect(blockchain_event, add_handler, fun(_) -> ok end),
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
     ID = <<"ID1">>,
 
@@ -121,7 +122,9 @@ basic_test(Config) ->
     true = erlang:exit(Sup, normal),
     ok = libp2p_swarm:stop(Swarm),
     ?assert(meck:validate(blockchain_swarm)),
+    ?assert(meck:validate(blockchain_event)),
     meck:unload(blockchain_swarm),
+    meck:unload(blockchain_event),
     ok.
 
 zero_test(Config) ->

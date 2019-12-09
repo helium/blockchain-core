@@ -13,38 +13,38 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
+-include_lib("pb/blockchain_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type packet() :: #helium_state_channel_packet_v1_pb{}.
+-type packet() :: #blockchain_state_channel_packet_v1_pb{}.
 -export_type([packet/0]).
 
 -spec new(binary()) -> packet().
 new(Packet) -> 
-    #helium_state_channel_packet_v1_pb{
+    #blockchain_state_channel_packet_v1_pb{
         packet=Packet
     }.
 
 -spec packet(packet()) -> binary().
-packet(#helium_state_channel_packet_v1_pb{packet=Packet}) ->
+packet(#blockchain_state_channel_packet_v1_pb{packet=Packet}) ->
     Packet.
 
 -spec signature(packet()) -> binary().
-signature(#helium_state_channel_packet_v1_pb{signature=Signature}) ->
+signature(#blockchain_state_channel_packet_v1_pb{signature=Signature}) ->
     Signature.
 
 -spec sign(packet(), function()) -> packet().
 sign(Packet, SigFun) ->
-    EncodedReq = ?MODULE:encode(Packet#helium_state_channel_packet_v1_pb{signature= <<>>}),
+    EncodedReq = ?MODULE:encode(Packet#blockchain_state_channel_packet_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedReq),
-    Packet#helium_state_channel_packet_v1_pb{signature=Signature}.
+    Packet#blockchain_state_channel_packet_v1_pb{signature=Signature}.
 
 -spec validate(packet(), libp2p_crypto:pubkey_bin()) -> true | {error, any()}.
 validate(Packet, PubKeyBin) ->
-    BasePacket = Packet#helium_state_channel_packet_v1_pb{signature = <<>>},
+    BasePacket = Packet#blockchain_state_channel_packet_v1_pb{signature = <<>>},
     EncodedPacket = ?MODULE:encode(BasePacket),
     Signature = ?MODULE:signature(Packet),
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
@@ -54,12 +54,12 @@ validate(Packet, PubKeyBin) ->
     end.
 
 -spec encode(packet()) -> binary().
-encode(#helium_state_channel_packet_v1_pb{}=Packet) ->
-    helium_state_channel_v1_pb:encode_msg(Packet).
+encode(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
+    blockchain_state_channel_v1_pb:encode_msg(Packet).
 
 -spec decode(binary()) -> packet().
 decode(BinaryPacket) ->
-    helium_state_channel_v1_pb:decode_msg(BinaryPacket, helium_state_channel_packet_v1_pb).
+    blockchain_state_channel_v1_pb:decode_msg(BinaryPacket, blockchain_state_channel_packet_v1_pb).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -71,7 +71,7 @@ decode(BinaryPacket) ->
 -ifdef(TEST).
 
 new_test() ->
-    Packet = #helium_state_channel_packet_v1_pb{
+    Packet = #blockchain_state_channel_packet_v1_pb{
         packet= <<"data">>
     },
     ?assertEqual(Packet, new(<<"data">>)).
