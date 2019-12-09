@@ -173,7 +173,7 @@ check_pending_requests(SC, UpdateSC, Pending0) ->
      case blockchain_state_channel_v1:validate(UpdateSC) of
         {error, _}=Error -> 
             Error;
-        true ->
+        ok ->
             Pending1 = queue:filter(
                 fun({Req, Packet, _Pid}) ->
                     check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
@@ -195,12 +195,18 @@ check_packet(_Packet, SC) ->
 check_balance(Req, SC, UpdateSC) ->
     ReqPayee = blockchain_state_channel_request_v1:payee(Req),
     case blockchain_state_channel_v1:balance(ReqPayee, UpdateSC) of
-        0 ->
+        {error, _} ->
             false;
-        NewBalance ->
+        {ok, 0} ->
+            false;
+        {ok, NewBalance} ->
             ReqAmount = blockchain_state_channel_request_v1:amount(Req),
             OldBalance = case SC == undefined of
-                false -> blockchain_state_channel_v1:balance(ReqPayee, SC);
+                false ->
+                    case blockchain_state_channel_v1:balance(ReqPayee, SC) of
+                        {ok, B} -> B;
+                        _ -> 0
+                    end;
                 true -> 0
             end,
             NewBalance-OldBalance >= ReqAmount
