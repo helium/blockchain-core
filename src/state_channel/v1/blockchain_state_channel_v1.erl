@@ -86,12 +86,12 @@ balances(#helium_state_channel_v1_pb{balances=Balances}) ->
 balances(Balances, SC) ->
     SC#helium_state_channel_v1_pb{balances=Balances}.
 
--spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> non_neg_integer().
+-spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
     Balances = blockchain_state_channel_v1:balances(SC),
     case lists:keyfind(Payee, 1, Balances) of
-        {Payee, Balance} -> Balance;
-        false -> 0
+        {Payee, Balance} -> {ok, Balance};
+        false -> {error, not_found}
     end.
 
 -spec balance(string(), non_neg_integer(), state_channel()) -> state_channel().
@@ -119,14 +119,17 @@ sign(SC, SigFun) ->
     Signature = SigFun(EncodedSC),
     SC#helium_state_channel_v1_pb{signature=Signature}.
 
--spec validate(state_channel()) -> true | {error, any()}.
+-spec validate(state_channel()) -> ok | {error, any()}.
 validate(SC) ->
     BaseSC = SC#helium_state_channel_v1_pb{signature = <<>>},
     EncodedSC = ?MODULE:encode(BaseSC),
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
-    libp2p_crypto:verify(EncodedSC, Signature, PubKey).
+    case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
+        false -> {error, bad_signature};
+        true -> ok
+    end.
 
 -spec encode(state_channel()) -> binary().
 encode(#helium_state_channel_v1_pb{}=SC) ->
@@ -164,7 +167,10 @@ add_request(Request, SigFun, SC0) ->
     Nonce = ?MODULE:nonce(SC0),
     Amount = blockchain_state_channel_request_v1:amount(Request),
     Payee = blockchain_state_channel_request_v1:payee(Request),
-    Balance = ?MODULE:balance(Payee, SC0),
+    Balance = case ?MODULE:balance(Payee, SC0) of
+        {error, not_found} -> 0;
+        {ok, B} -> B
+    end,
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
     SC3 = ?MODULE:balance(Payee, Balance+Amount, SC2),
@@ -219,8 +225,8 @@ balance_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual(0, balance(PubKeyBin, SC)),
-    ?assertEqual(2, balance(PubKeyBin, balance(PubKeyBin, 2, SC))).
+    ?assertEqual({error, not_found}, balance(PubKeyBin, SC)),
+    ?assertEqual({ok, 2}, balance(PubKeyBin, balance(PubKeyBin, 2, SC))).
 
 packets_test() ->
     SC = new(<<"1">>, <<"owner">>),
