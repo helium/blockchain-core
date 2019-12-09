@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include_lib("helium_proto/src/pb/helium_txn_state_channel_close_v1_pb.hrl").
+-include_lib("pb/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
     new/2,
@@ -25,29 +25,29 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type txn_state_channel_close() :: #helium_txn_state_channel_close_v1_pb{}.
+-type txn_state_channel_close() :: #blockchain_txn_state_channel_close_v1_pb{}.
 -export_type([txn_state_channel_close/0]).
 
 -spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin()) -> txn_state_channel_close().
 new(SC, Closer) ->
-    #helium_txn_state_channel_close_v1_pb{
+    #blockchain_txn_state_channel_close_v1_pb{
        state_channel=SC,
        closer=Closer
     }.
 
 -spec hash(txn_state_channel_close()) -> blockchain_txn:hash().
 hash(Txn) ->
-    BaseTxn = Txn#helium_txn_state_channel_close_v1_pb{signature = <<>>},
-    EncodedTxn = helium_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
+    BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
 -spec state_channel(txn_state_channel_close()) -> blockchain_state_channel_v1:state_channel().
 state_channel(Txn) ->
-    Txn#helium_txn_state_channel_close_v1_pb.state_channel.
+    Txn#blockchain_txn_state_channel_close_v1_pb.state_channel.
 
 -spec closer(txn_state_channel_close()) -> libp2p_crypto:pubkey_bin().
 closer(Txn) ->
-    Txn#helium_txn_state_channel_close_v1_pb.closer.
+    Txn#blockchain_txn_state_channel_close_v1_pb.closer.
 
 -spec fee(txn_state_channel_close()) -> 0.
 fee(_Txn) ->
@@ -55,12 +55,12 @@ fee(_Txn) ->
 
 -spec signature(txn_state_channel_close()) -> binary().
 signature(Txn) ->
-    Txn#helium_txn_state_channel_close_v1_pb.signature.
+    Txn#blockchain_txn_state_channel_close_v1_pb.signature.
 
 -spec sign(txn_state_channel_close(), libp2p_crypto:sig_fun()) -> txn_state_channel_close().
 sign(Txn, SigFun) ->
-    EncodedTxn = helium_txn_state_channel_close_v1_pb:encode_msg(Txn),
-    Txn#helium_txn_state_channel_close_v1_pb{signature=SigFun(EncodedTxn)}.
+    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(Txn),
+    Txn#blockchain_txn_state_channel_close_v1_pb{signature=SigFun(EncodedTxn)}.
 
 -spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
@@ -68,8 +68,8 @@ is_valid(Txn, Chain) ->
     Closer = ?MODULE:closer(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Closer),
-    BaseTxn = Txn#helium_txn_state_channel_close_v1_pb{signature = <<>>},
-    EncodedTxn = helium_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
+    BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
     case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
           blockchain_state_channel_v1:validate(SC)} of
@@ -111,7 +111,7 @@ absorb(Txn, Chain) ->
 
 new_test() ->
     SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
-    Tx = #helium_txn_state_channel_close_v1_pb{
+    Tx = #blockchain_txn_state_channel_close_v1_pb{
         state_channel=SC,
         closer= <<"closer">>
     },
@@ -140,7 +140,7 @@ sign_test() ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
-    EncodedTx1 = helium_txn_state_channel_close_v1_pb:encode_msg(Tx1#helium_txn_state_channel_close_v1_pb{signature = <<>>}),
+    EncodedTx1 = blockchain_txn_state_channel_close_v1_pb:encode_msg(Tx1#blockchain_txn_state_channel_close_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 -endif.

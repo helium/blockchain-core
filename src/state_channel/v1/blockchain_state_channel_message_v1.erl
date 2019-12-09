@@ -8,13 +8,13 @@
 -export([encode/1, decode/1]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
+-include_lib("pb/blockchain_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type message() :: #helium_state_channel_message_v1_pb{}.
+-type message() :: #blockchain_state_channel_message_v1_pb{}.
 -type oneof() :: blockchain_state_channel_request_v1:request() |
                  blockchain_state_channel_payment_v1:payment() |
                  blockchain_state_channel_packet_v1:packet().
@@ -23,26 +23,26 @@
 
 -spec encode(oneof()) -> binary().
 encode(Msg) ->
-     helium_state_channel_v1_pb:encode_msg(wrap_msg(Msg)).
+     blockchain_state_channel_v1_pb:encode_msg(wrap_msg(Msg)).
 
 -spec decode(binary()) -> {atom(), oneof()}.
 decode(Bin) ->
-    unwrap_msg(helium_state_channel_v1_pb:decode_msg(Bin, helium_state_channel_message_v1_pb)).
+    unwrap_msg(blockchain_state_channel_v1_pb:decode_msg(Bin, blockchain_state_channel_message_v1_pb)).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
 -spec wrap_msg(oneof()) -> message().
-wrap_msg(#helium_state_channel_v1_pb{}=SC) ->
-    #helium_state_channel_message_v1_pb{msg={state_channel, SC}};
-wrap_msg(#helium_state_channel_request_v1_pb{}=Req) ->
-    #helium_state_channel_message_v1_pb{msg={request, Req}};
-wrap_msg(#helium_state_channel_packet_v1_pb{}=Packet) ->
-    #helium_state_channel_message_v1_pb{msg={packet, Packet}}.
+wrap_msg(#blockchain_state_channel_v1_pb{}=SC) ->
+    #blockchain_state_channel_message_v1_pb{msg={state_channel, SC}};
+wrap_msg(#blockchain_state_channel_request_v1_pb{}=Req) ->
+    #blockchain_state_channel_message_v1_pb{msg={request, Req}};
+wrap_msg(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
+    #blockchain_state_channel_message_v1_pb{msg={packet, Packet}}.
 
 -spec unwrap_msg(message()) -> {atom(), oneof()}.
-unwrap_msg(#helium_state_channel_message_v1_pb{msg={Type, Msg}}) ->
+unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
     {Type, Msg}.
 
 %% ------------------------------------------------------------------

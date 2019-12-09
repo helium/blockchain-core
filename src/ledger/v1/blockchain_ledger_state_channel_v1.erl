@@ -17,13 +17,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(state_channel_v1, {
+-record(ledger_state_channel_v1, {
     id :: binary(),
     owner :: binary(),
     amount :: non_neg_integer()
 }).
 
--type state_channel() :: #state_channel_v1{}.
+-type state_channel() :: #ledger_state_channel_v1{}.
 
 -export_type([state_channel/0]).
 
@@ -31,7 +31,7 @@
 new(ID, Owner, Amount) when ID /= undefined andalso
                             Owner /= undefined andalso
                             Amount /= undefined ->
-    #state_channel_v1{
+    #ledger_state_channel_v1{
         id=ID,
         owner=Owner,
         amount=Amount
@@ -42,7 +42,7 @@ new(ID, Owner, Amount) when ID /= undefined andalso
 %% @end
 %%--------------------------------------------------------------------
 -spec id(state_channel()) -> binary().
-id(#state_channel_v1{id=ID}) ->
+id(#ledger_state_channel_v1{id=ID}) ->
     ID.
 
 %%--------------------------------------------------------------------
@@ -51,14 +51,14 @@ id(#state_channel_v1{id=ID}) ->
 %%--------------------------------------------------------------------
 -spec id(binary(), state_channel()) -> state_channel().
 id(ID, SC) ->
-    SC#state_channel_v1{id=ID}.
+    SC#ledger_state_channel_v1{id=ID}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec owner(state_channel()) -> binary().
-owner(#state_channel_v1{owner=Owner}) ->
+owner(#ledger_state_channel_v1{owner=Owner}) ->
     Owner.
 
 %%--------------------------------------------------------------------
@@ -67,14 +67,14 @@ owner(#state_channel_v1{owner=Owner}) ->
 %%--------------------------------------------------------------------
 -spec owner(binary(), state_channel()) -> state_channel().
 owner(Owner, SC) ->
-    SC#state_channel_v1{owner=Owner}.
+    SC#ledger_state_channel_v1{owner=Owner}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec amount(state_channel()) -> non_neg_integer().
-amount(#state_channel_v1{amount=Amount}) ->
+amount(#ledger_state_channel_v1{amount=Amount}) ->
     Amount.
 
 %%--------------------------------------------------------------------
@@ -83,7 +83,7 @@ amount(#state_channel_v1{amount=Amount}) ->
 %%--------------------------------------------------------------------
 -spec amount(non_neg_integer(), state_channel()) -> state_channel().
 amount(Amount, SC) ->
-    SC#state_channel_v1{amount=Amount}.
+    SC#ledger_state_channel_v1{amount=Amount}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -114,7 +114,7 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -ifdef(TEST).
 
 new_test() ->
-    SC = #state_channel_v1{
+    SC = #ledger_state_channel_v1{
         id = <<"id">>,
         owner = <<"owner">>,
         amount = 1
