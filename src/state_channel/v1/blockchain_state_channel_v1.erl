@@ -20,7 +20,7 @@
     add_request/3
 ]).
 
--include_lib("helium_proto/src/pb/helium_state_channel_v1_pb.hrl").
+-include_lib("pb/blockchain_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -28,7 +28,7 @@
 
 -define(ZERO_SC_ID, <<0>>).
 
--type state_channel() :: #helium_state_channel_v1_pb{}.
+-type state_channel() :: #blockchain_state_channel_v1_pb{}.
 -type balances() :: [{string(), non_neg_integer()}].
 -type id() :: binary().
 
@@ -36,7 +36,7 @@
 
 -spec new(binary(), libp2p_crypto:pubkey_bin()) -> state_channel().
 new(ID, Owner) ->
-    #helium_state_channel_v1_pb{
+    #blockchain_state_channel_v1_pb{
         id=ID,
         owner=Owner,
         credits=0,
@@ -50,31 +50,31 @@ zero_id() ->
     ?ZERO_SC_ID.
 
 -spec id(state_channel()) -> binary().
-id(#helium_state_channel_v1_pb{id=ID}) ->
+id(#blockchain_state_channel_v1_pb{id=ID}) ->
     ID.
 
 -spec owner(state_channel()) -> libp2p_crypto:pubkey_bin().
-owner(#helium_state_channel_v1_pb{owner=Owner}) ->
+owner(#blockchain_state_channel_v1_pb{owner=Owner}) ->
     Owner.
 
 -spec credits(state_channel()) -> non_neg_integer().
-credits(#helium_state_channel_v1_pb{credits=Credits}) ->
+credits(#blockchain_state_channel_v1_pb{credits=Credits}) ->
     Credits.
 
 -spec credits(non_neg_integer(), state_channel()) -> state_channel().
 credits(Credits, SC) ->
-    SC#helium_state_channel_v1_pb{credits=Credits}.
+    SC#blockchain_state_channel_v1_pb{credits=Credits}.
 
 -spec nonce(state_channel()) -> non_neg_integer().
-nonce(#helium_state_channel_v1_pb{nonce=Nonce}) ->
+nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
     Nonce.
 
 -spec nonce(non_neg_integer(), state_channel()) -> state_channel().
 nonce(Nonce, SC) ->
-    SC#helium_state_channel_v1_pb{nonce=Nonce}.
+    SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
 
 -spec balances(state_channel()) -> balances().
-balances(#helium_state_channel_v1_pb{balances=Balances}) ->
+balances(#blockchain_state_channel_v1_pb{balances=Balances}) ->
     lists:map(
         fun({PayeeB58, Balance}) ->
             {libp2p_crypto:b58_to_bin(PayeeB58), Balance}
@@ -84,7 +84,7 @@ balances(#helium_state_channel_v1_pb{balances=Balances}) ->
 
 -spec balances(balances(), state_channel()) -> state_channel().
 balances(Balances, SC) ->
-    SC#helium_state_channel_v1_pb{balances=Balances}.
+    SC#blockchain_state_channel_v1_pb{balances=Balances}.
 
 -spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
@@ -102,26 +102,26 @@ balance(Payee, Balance, SC) ->
     ?MODULE:balances(Balances1, SC).
 
 -spec packets(state_channel()) -> binary().
-packets(#helium_state_channel_v1_pb{packets=Packets}) ->
+packets(#blockchain_state_channel_v1_pb{packets=Packets}) ->
     Packets.
 
 -spec packets(binary(), state_channel()) -> state_channel().
 packets(Packets, SC) ->
-    SC#helium_state_channel_v1_pb{packets=Packets}.
+    SC#blockchain_state_channel_v1_pb{packets=Packets}.
 
 -spec signature(state_channel()) -> binary().
-signature(#helium_state_channel_v1_pb{signature=Signature}) ->
+signature(#blockchain_state_channel_v1_pb{signature=Signature}) ->
     Signature.
 
 -spec sign(state_channel(), function()) -> state_channel().
 sign(SC, SigFun) ->
-    EncodedSC = ?MODULE:encode(SC#helium_state_channel_v1_pb{signature= <<>>}),
+    EncodedSC = ?MODULE:encode(SC#blockchain_state_channel_v1_pb{signature= <<>>}),
     Signature = SigFun(EncodedSC),
-    SC#helium_state_channel_v1_pb{signature=Signature}.
+    SC#blockchain_state_channel_v1_pb{signature=Signature}.
 
 -spec validate(state_channel()) -> ok | {error, any()}.
 validate(SC) ->
-    BaseSC = SC#helium_state_channel_v1_pb{signature = <<>>},
+    BaseSC = SC#blockchain_state_channel_v1_pb{signature = <<>>},
     EncodedSC = ?MODULE:encode(BaseSC),
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
@@ -132,12 +132,12 @@ validate(SC) ->
     end.
 
 -spec encode(state_channel()) -> binary().
-encode(#helium_state_channel_v1_pb{}=SC) ->
-    helium_state_channel_v1_pb:encode_msg(SC).
+encode(#blockchain_state_channel_v1_pb{}=SC) ->
+    blockchain_state_channel_v1_pb:encode_msg(SC).
 
 -spec decode(binary()) -> state_channel().
 decode(Binary) ->
-    helium_state_channel_v1_pb:decode_msg(Binary, helium_state_channel_v1_pb).
+    blockchain_state_channel_v1_pb:decode_msg(Binary, blockchain_state_channel_v1_pb).
 
 -spec save(rocksdb:db_handle(), state_channel()) -> ok.
 save(DB, SC) ->
@@ -186,7 +186,7 @@ add_request(Request, SigFun, SC0) ->
 -ifdef(TEST).
 
 new_test() ->
-    SC = #helium_state_channel_v1_pb{
+    SC = #blockchain_state_channel_v1_pb{
         id= <<"1">>,
         owner= <<"owner">>,
         credits=0,

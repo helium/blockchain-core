@@ -96,7 +96,7 @@
     {blockchain_txn_poc_receipts_v1, 18},
     {blockchain_txn_state_channel_open_v1, 19},
     {blockchain_txn_update_gateway_oui_v1, 20},
-    {blockchain_txn_state_channel_close_v1, 21},
+    {blockchain_txn_state_channel_close_v1, 21}
 ]).
 
 block_delay() ->
