@@ -14,7 +14,7 @@ prop_path_check() ->
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
-                Vars = maps:merge(vars(), #{poc_path_limit => PathLimit}),
+                Vars = maps:put(poc_path_limit, PathLimit, default_vars()),
 
                 {Challenger, ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
@@ -106,7 +106,7 @@ block_time() ->
     %% block time at height 105719
     1573151628 * 1000000000.
 
-vars() ->
+default_vars() ->
     #{poc_v4_exclusion_cells => 10,
       poc_v4_parent_res => 11,
       poc_v4_prob_bad_rssi => 0.01,
@@ -121,7 +121,8 @@ vars() ->
       poc_v4_target_prob_edge_wt => 0.2,
       poc_v4_target_prob_score_wt => 0.8,
       poc_v4_target_score_curve => 5,
-      poc_version => 5}.
+      poc_version => 5,
+      poc_v5_target_prob_randomness_wt => 0.0}.
 
 check_next_hop([_H], _ActiveGateways) ->
     true;

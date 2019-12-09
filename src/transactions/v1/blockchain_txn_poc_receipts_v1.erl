@@ -439,7 +439,7 @@ update_alpha_beta_with_witness_quality(undefined, _POCVersion, Challengee, Witne
     case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
         false ->
             %% Either the witnesses are too close
-            %% or the RSSIs are too low
+            %% or the RSSIs are too high
             %% no alpha bump
             {0, 0};
         true ->
@@ -452,7 +452,7 @@ update_alpha_beta_with_witness_quality(_Receipt, _POCVersion, Challengee, Witnes
     case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
         false ->
             %% Either the witnesses are too close
-            %% or the RSSIs are too low
+            %% or the RSSIs are too high
             %% no alpha bump
             {0, 0};
         true ->
