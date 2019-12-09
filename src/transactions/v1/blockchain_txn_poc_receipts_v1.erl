@@ -138,6 +138,7 @@ is_valid(Txn, Chain) ->
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     HexPOCID = ?MODULE:hex_poc_id(Txn),
 
+    StartPre = erlang:monotonic_time(millisecond),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
@@ -210,20 +211,32 @@ is_valid(Txn, Chain) ->
                                                                     PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
                                                                     PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
                                                                     Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
+                                                                    maybe_log_duration(prelude, StartPre),
+                                                                    StartLA = erlang:monotonic_time(millisecond),
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
+                                                                    maybe_log_duration(ledger_at, StartLA),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V > 3 ->
+                                                                                   StartA = erlang:monotonic_time(millisecond),
                                                                                    ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
+                                                                                   maybe_log_duration(activegw, StartA),
                                                                                    Time = blockchain_block:time(Block1),
                                                                                    ChallengerLoc = blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)),
                                                                                    {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
+                                                                                   StartS = erlang:monotonic_time(millisecond),
                                                                                    GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
+                                                                                   maybe_log_duration(scored, StartS),
                                                                                    {ok, Limit} = blockchain:config(?poc_path_limit, OldLedger),
                                                                                    Vars = #{poc_path_limit => Limit},
+                                                                                   StartFT = erlang:monotonic_time(millisecond),
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
                                                                                    %% If we make it to this point, we are bound to have a target.
                                                                                    {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
-                                                                                   blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars);
+                                                                                   maybe_log_duration(filter_target, StartFT),
+                                                                                   StartB = erlang:monotonic_time(millisecond),
+                                                                                   RetB = blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars),
+                                                                                   maybe_log_duration(build, StartB),
+                                                                                   RetB;
                                                                                _ ->
                                                                                    {Target, Gateways} = blockchain_poc_path:target(Entropy, OldLedger, Challenger),
                                                                                    {ok, P} = blockchain_poc_path:build(Entropy, Target, Gateways, LastChallenge, OldLedger),
@@ -235,7 +248,10 @@ is_valid(Txn, Chain) ->
                                                                     {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
                                                                     %% no witness will exist with the first layer hash
                                                                     [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                                    StartV = erlang:monotonic_time(millisecond),
+                                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
+                                                                    maybe_log_duration(receipt_validation, StartV),
+                                                                    Ret
                                                             end
                                                     end
                                             end
@@ -243,6 +259,14 @@ is_valid(Txn, Chain) ->
                             end
                     end
             end
+    end.
+
+maybe_log_duration(Type, Start) ->
+    case application:get_env(blockchain, log_validation_times, false) of
+        true ->
+            End = erlang:monotonic_time(millisecond),
+            lager:info("~p took ~p ms", [Type, End - Start]);
+        _ -> ok
     end.
 
 -spec connections(Txn :: txn_poc_receipts()) -> [{Transmitter :: libp2p_crypto:pubkey_bin(), Receiver :: libp2p_crypto:pubkey_bin(),
