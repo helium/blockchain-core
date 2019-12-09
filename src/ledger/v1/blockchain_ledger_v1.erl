@@ -304,6 +304,7 @@ context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, c
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
                         snapshots=Cache,
+                        mode=active,
                         active=#sub_ledger_v1{context=undefined, cache=undefined},
                         delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
     case rocksdb:snapshot(DB) of
@@ -311,13 +312,15 @@ new_snapshot(#ledger_v1{db=DB,
             {ok, Height} = current_height(Ledger),
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             {ok, DelayedHeight} = current_height(DelayedLedger),
-            ets:delete(Cache, DelayedHeight),
+            ets:delete(Cache, DelayedHeight - 1),
             ets:insert(Cache, {Height, {snapshot, SnapshotHandle}}),
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
         {error, Reason}=Error ->
             lager:error("Error creating new snapshot, reason: ~p", [Reason]),
             Error
-    end.
+    end;
+new_snapshot(#ledger_v1{}) ->
+    erlang:error(cannot_snapshot_delayed_ledger).
 
 context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
     {ok, Height} = current_height(Ledger),
@@ -327,7 +330,7 @@ context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
         _ ->
             case rocksdb:snapshot(DB) of
                 {ok, SnapshotHandle} ->
-                    ets:insert(Cache, {Height, {context, SnapshotHandle, Context}});
+                    ets:insert_new(Cache, {Height, {context, SnapshotHandle, Context}});
                 {error, Reason} = Error ->
                     lager:error("Error creating new snapshot, reason: ~p", [Reason]),
                     Error
@@ -343,7 +346,7 @@ has_snapshot(Height, #ledger_v1{snapshots=Cache}=Ledger) ->
         [{Height, {context, SnapshotHandle, Context}}] ->
             %% context ledgers are always a lagging ledger snapshot with a set of overlay data in an ETS table
             %% and therefore must be in delayed ledger mode
-            {ok, blockchain_ledger_v1:mode(delayed, install_context(Context, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
+            {ok, install_context(Context, blockchain_ledger_v1:mode(delayed, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
         _ ->
             {error, snapshot_not_found}
     end.
