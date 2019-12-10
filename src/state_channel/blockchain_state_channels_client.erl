@@ -70,8 +70,9 @@ state_channel(SC) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Swarm]=_Args) ->
-    lager:info("~p init with ~p", [?SERVER, _Args]),
+init(Args) ->
+    lager:info("~p init with ~p", [?SERVER, Args]),
+    Swarm = maps:get(swarm, Args),
     {ok, DB} = blockchain_state_channel_db:get(),
     {ok, #state{db=DB, swarm=Swarm}}.
 
@@ -117,7 +118,6 @@ handle_cast({state_channel, UpdateSC}, #state{db=DB, state_channels=SCs, pending
             lager:warning("state channel ~p is invalid ~p", [UpdateSC, _Reason]),
             {noreply, State};
         {ok, Found} ->
-            % TODO: Send found packets
             ok = send_packets(Found),
             ok = blockchain_state_channel_v1:save(DB, UpdateSC),
             {noreply, State#state{state_channels=maps:put(ID, UpdateSC, SCs),
