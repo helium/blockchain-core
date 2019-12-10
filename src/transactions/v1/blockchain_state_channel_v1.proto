@@ -6,6 +6,12 @@ message state_channel_request_v1 {
     uint32 fingerprint = 3;
 }
 
+enum state_channel_state_v1 {
+    open = 0;
+    closing = 1;
+    closed = 2;
+}
+
 message state_channel_v1 {
     bytes id = 1;
     bytes owner = 2;
@@ -13,7 +19,8 @@ message state_channel_v1 {
     uint64 nonce = 4;
     map<string, uint64> balances = 5;
     bytes packets = 6;
-    bytes signature = 7;
+    state_channel_state_v1 state = 7;
+    bytes signature = 8;
 }
 
 message state_channel_packet_v1 {
