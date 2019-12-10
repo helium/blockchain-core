@@ -47,8 +47,8 @@ init([BaseDir]) ->
         {libp2p_framed_stream, server, [blockchain_state_channel_handler]}
     ),
     DBOpts = [BaseDir],
-    ServerOpts = [Swarm],
-    ClientOpts = [Swarm],
+    ServerOpts = #{swarm => Swarm},
+    ClientOpts = #{swarm => Swarm},
     ChildSpecs = [
         ?WORKER(blockchain_state_channel_db, [DBOpts]),
         ?WORKER(blockchain_state_channels_server, [ServerOpts]),
