@@ -46,22 +46,6 @@
 
 -include("blockchain_utils.hrl").
 
--define(POC_V4_EXCLUSION_CELLS, 10). %% exclude 10 grid cells for parent_res: 11
--define(POC_V4_PARENT_RES, 11). %% normalize to 11 res
-%% weights associated with each witness probability type
-
-%% RSSI probabilities
--define(POC_V4_PROB_NO_RSSI, 0.5).
--define(POC_V4_PROB_GOOD_RSSI, 1.0).
--define(POC_V4_PROB_BAD_RSSI, 0.01).
-
-%% NOTE: These _must_ sum to 1.0
--define(POC_V4_PROB_RSSI_WT, 0.3).
--define(POC_V4_PROB_TIME_WT, 0.3).
--define(POC_V4_PROB_COUNT_WT, 0.3).
-%% Randomness weight
--define(POC_V4_RANDOMNESS_WT, 0.1).
-
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
@@ -291,7 +275,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
     ExclusionCells = exclusion_cells(Vars),
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
-    maps:filter(fun(WitnessPubkeyBin, _Witness) ->
+    maps:filter(fun(WitnessPubkeyBin, Witness) ->
                         case maps:is_key(WitnessPubkeyBin, ActiveGateways) of
                             false ->
                                 %% Don't include if the witness is not in ActiveGateways
@@ -305,7 +289,9 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                                 %% Don't include any witness whose parent is the same as the gateway we're looking at
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
-                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells)
+                                check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) andalso
+                                check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
                 Witnesses).
@@ -318,37 +304,76 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
                           h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
                   end, ParentIndices)).
 
+-spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
+                             Vars :: map()) -> boolean().
+check_witness_bad_rssi(Witness, Vars) ->
+    case poc_version(Vars) of
+        V when is_integer(V), V > 4 ->
+            try
+                blockchain_ledger_gateway_v2:witness_hist(Witness)
+            of
+                Hist ->
+                    case maps:get(28, Hist, 0) of
+                        0 ->
+                            %% No bad RSSIs found, include
+                            true;
+                        BadCount ->
+                            %% If the bad RSSI count does not dominate
+                            %% the overall RSSIs this witness has, include,
+                            %% otherwise exclude
+                            BadCount < lists:sum(maps:values(Hist))
+                    end
+            catch
+                error:no_histogram ->
+                    %% No histogram found, include
+                    true
+            end;
+        _ ->
+            true
+    end.
+
+-spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                              Vars :: map()) -> boolean().
+check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
+    case poc_version(Vars) of
+        V when is_integer(V), V > 4 ->
+            maps:is_key(WitnessPubkeyBin, ActiveGateways);
+        _ ->
+            true
+    end.
+
 -spec rssi_weight(Vars :: map()) -> float().
 rssi_weight(Vars) ->
-    maps:get(poc_v4_prob_rssi_wt, Vars, ?POC_V4_PROB_RSSI_WT).
+    maps:get(poc_v4_prob_rssi_wt, Vars).
 
 -spec time_weight(Vars :: map()) -> float().
 time_weight(Vars) ->
-    maps:get(poc_v4_prob_time_wt, Vars, ?POC_V4_PROB_TIME_WT).
+    maps:get(poc_v4_prob_time_wt, Vars).
 
 -spec count_weight(Vars :: map()) -> float().
 count_weight(Vars) ->
-    maps:get(poc_v4_prob_count_wt, Vars, ?POC_V4_PROB_COUNT_WT).
+    maps:get(poc_v4_prob_count_wt, Vars).
 
 -spec prob_no_rssi(Vars :: map()) -> float().
 prob_no_rssi(Vars) ->
-    maps:get(poc_v4_prob_no_rssi, Vars, ?POC_V4_PROB_NO_RSSI).
+    maps:get(poc_v4_prob_no_rssi, Vars).
 
 -spec prob_good_rssi(Vars :: map()) -> float().
 prob_good_rssi(Vars) ->
-    maps:get(poc_v4_prob_good_rssi, Vars, ?POC_V4_PROB_GOOD_RSSI).
+    maps:get(poc_v4_prob_good_rssi, Vars).
 
 -spec prob_bad_rssi(Vars :: map()) -> float().
 prob_bad_rssi(Vars) ->
-    maps:get(poc_v4_prob_bad_rssi, Vars, ?POC_V4_PROB_BAD_RSSI).
+    maps:get(poc_v4_prob_bad_rssi, Vars).
 
 -spec parent_res(Vars :: map()) -> pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
+    maps:get(poc_v4_parent_res, Vars).
 
 -spec exclusion_cells(Vars :: map()) -> pos_integer().
 exclusion_cells(Vars) ->
-    maps:get(poc_v4_exclusion_cells, Vars, ?POC_V4_EXCLUSION_CELLS).
+    maps:get(poc_v4_exclusion_cells, Vars).
 
 -spec nanosecond_time(Time :: integer()) -> integer().
 nanosecond_time(Time) ->
@@ -356,4 +381,8 @@ nanosecond_time(Time) ->
 
 -spec randomness_wt(Vars :: map()) -> float().
 randomness_wt(Vars) ->
-    maps:get(poc_v4_randomness_wt, Vars, ?POC_V4_RANDOMNESS_WT).
+    maps:get(poc_v4_randomness_wt, Vars).
+
+-spec poc_version(Vars :: map()) -> pos_integer().
+poc_version(Vars) ->
+    maps:get(poc_version, Vars).

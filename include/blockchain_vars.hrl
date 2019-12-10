@@ -213,3 +213,9 @@
 %% Weight associated with target being loosely connected probability
 -define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt). %% default: 0.2
 %% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%%% POC V5 vars
+%% Dictates how much randomness we want in the target selection
+-define(poc_v5_target_prob_randomness_wt, poc_v5_target_prob_randomness_wt).
+%% ------------------------------------------------------------------

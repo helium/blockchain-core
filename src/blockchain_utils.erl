@@ -16,7 +16,9 @@
     pmap/2,
     addr2name/1,
     distance/2,
-    score_gateways/1
+    score_gateways/1,
+    free_space_path_loss/2,
+    vars_binary_keys_to_atoms/1
 ]).
 
 -ifdef(TEST).
@@ -24,6 +26,9 @@
 -endif.
 
 -define(CHALLENGE_INTERVAL, poc_challenge_interval).
+-define(FREQUENCY, 915).
+-define(TRANSMIT_POWER, 28).
+-define(MAX_ANTENNA_GAIN, 6).
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
@@ -182,6 +187,16 @@ score_tagged_gateways(Height, Ledger) ->
                      {G, S}
              end, Gateways).
 
+-spec free_space_path_loss(h3:index(), h3:index()) -> float().
+free_space_path_loss(Loc1, Loc2) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    %% TODO support regional parameters for non-US based hotspots
+    ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+
+-spec vars_binary_keys_to_atoms(map()) -> map().
+vars_binary_keys_to_atoms(Vars) ->
+    %% This makes good men sad
+    maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

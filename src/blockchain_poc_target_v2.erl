@@ -13,17 +13,6 @@
 
 -include("blockchain_utils.hrl").
 
--define(POC_V4_TARGET_SCORE_CURVE, 5).
--define(POC_V4_TARGET_CHALLENGE_AGE, 300).
--define(POC_V4_TARGET_PROB_SCORE_WT, 0.8).
--define(POC_V4_TARGET_PROB_EDGE_WT, 0.2).
-%% Normalize to 11 res by default unless chain var specified.
--define(POC_V4_PARENT_RES, 11).
-%% Exclude 6000 grid cells when trying to find a potential by default
-%% target from a given challenger. Normalized to parent_res.
-%% This is roughly 100KM.
--define(POC_V4_TARGET_EXCLUSION_CELLS, 6000).
-
 -export([
          target/3, filter/5
         ]).
@@ -136,12 +125,27 @@ edge_prob(GatewayScoreMap, Vars) ->
                   ProbEdges :: prob_map(),
                   Vars :: map()) -> prob_map().
 target_prob(ProbScores, ProbEdges, Vars) ->
-    %% P(Target) = ScoreWeight*P(Score) + EdgeWeight*P(Edge)
-    maps:map(fun(Addr, PScore) ->
-                     ?normalize_float((prob_score_wt(Vars) * PScore), Vars) +
-                     ?normalize_float((prob_edge_wt(Vars) * maps:get(Addr, ProbEdges)), Vars)
-             end,
-             ProbScores).
+    case maps:get(poc_version, Vars) of
+        V when is_integer(V), V > 4 ->
+            %% P(Target) = ScoreWeight*P(Score) + EdgeWeight*P(Edge) + RandomnessWeight*1.0
+            maps:map(fun(Addr, PScore) ->
+                             ?normalize_float((prob_score_wt(Vars) * PScore), Vars) +
+                             ?normalize_float((prob_edge_wt(Vars) * maps:get(Addr, ProbEdges)), Vars) +
+                             %% Similar to the poc path randomness
+                             %% This would determine how much randomness we want in the target selection
+                             %% The weights still must add to 1.0 however.
+                             %% Prior to poc_version 5, this is defaulted to 0.0, therefore has no effect
+                             ?normalize_float((prob_randomness_wt(Vars) * 1.0), Vars)
+                     end,
+                     ProbScores);
+        _ ->
+            %% P(Target) = ScoreWeight*P(Score) + EdgeWeight*P(Edge)
+            maps:map(fun(Addr, PScore) ->
+                             ?normalize_float((prob_score_wt(Vars) * PScore), Vars) +
+                             ?normalize_float((prob_edge_wt(Vars) * maps:get(Addr, ProbEdges)), Vars)
+                     end,
+                     ProbScores)
+    end.
 
 -spec scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
 scaled_prob(PTarget, Vars) ->
@@ -173,28 +177,33 @@ select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
 
 -spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars, ?POC_V4_TARGET_CHALLENGE_AGE).
+    maps:get(poc_v4_target_challenge_age, Vars).
 
 -spec prob_score_wt(Vars :: map()) -> float().
 prob_score_wt(Vars) ->
-    maps:get(poc_v4_target_prob_score_wt, Vars, ?POC_V4_TARGET_PROB_SCORE_WT).
+    maps:get(poc_v4_target_prob_score_wt, Vars).
 
 -spec prob_edge_wt(Vars :: map()) -> float().
 prob_edge_wt(Vars) ->
-    maps:get(poc_v4_target_prob_edge_wt, Vars, ?POC_V4_TARGET_PROB_EDGE_WT).
+    maps:get(poc_v4_target_prob_edge_wt, Vars).
+
+-spec prob_randomness_wt(Vars :: map()) -> float().
+prob_randomness_wt(Vars) ->
+    maps:get(poc_v5_target_prob_randomness_wt, Vars).
 
 -spec score_curve(Score :: float(), Vars :: map()) -> float().
 score_curve(Score, Vars) ->
-    Exp = maps:get(poc_v4_target_score_curve, Vars, ?POC_V4_TARGET_SCORE_CURVE),
+    Exp = maps:get(poc_v4_target_score_curve, Vars),
+    %% XXX: This will blow up if poc_v4_target_score_curve is undefined
     math:pow(Score, Exp).
 
 -spec parent_res(Vars :: map()) -> pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, ?POC_V4_PARENT_RES).
+    maps:get(poc_v4_parent_res, Vars).
 
 -spec target_exclusion_cells(Vars :: map()) -> pos_integer().
 target_exclusion_cells(Vars) ->
-    maps:get(poc_v4_target_exclusion_cells, Vars, ?POC_V4_TARGET_EXCLUSION_CELLS).
+    maps:get(poc_v4_target_exclusion_cells, Vars).
 
 -spec check_challenger_distance(ChallengerLoc :: h3:index(),
                                 GatewayLoc :: h3:index(),
