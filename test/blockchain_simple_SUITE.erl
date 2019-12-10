@@ -31,7 +31,7 @@
     token_burn_test/1,
     payer_test/1,
     poc_sync_interval_test/1,
-    state_channel_test/1
+    update_gateway_oui_test/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -68,7 +68,7 @@ all() ->
         token_burn_test,
         payer_test,
         poc_sync_interval_test,
-        state_channel_test
+        update_gateway_oui_test
     ].
 
 %%--------------------------------------------------------------------
@@ -1650,7 +1650,7 @@ poc_sync_interval_test(Config) ->
 
     ok.
 
-state_channel_test(Config) ->
+update_gateway_oui_test(Config) ->
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
