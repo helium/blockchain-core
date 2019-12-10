@@ -196,7 +196,7 @@ free_space_path_loss(Loc1, Loc2) ->
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
-    lists:foldl(fun({K, V}, Acc) -> maps:put(list_to_existing_atom(binary_to_list(K)), V, Acc)  end, #{}, maps:to_list(Vars)).
+    maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

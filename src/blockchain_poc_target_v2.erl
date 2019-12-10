@@ -175,35 +175,35 @@ select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
 select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
     select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).
 
--spec challenge_age(Vars :: map()) -> undefined | pos_integer().
+-spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->
-    maps:get(poc_v4_target_challenge_age, Vars, undefined).
+    maps:get(poc_v4_target_challenge_age, Vars).
 
--spec prob_score_wt(Vars :: map()) -> undefined | float().
+-spec prob_score_wt(Vars :: map()) -> float().
 prob_score_wt(Vars) ->
-    maps:get(poc_v4_target_prob_score_wt, Vars, undefined).
+    maps:get(poc_v4_target_prob_score_wt, Vars).
 
--spec prob_edge_wt(Vars :: map()) -> undefined | float().
+-spec prob_edge_wt(Vars :: map()) -> float().
 prob_edge_wt(Vars) ->
-    maps:get(poc_v4_target_prob_edge_wt, Vars, undefined).
+    maps:get(poc_v4_target_prob_edge_wt, Vars).
 
--spec prob_randomness_wt(Vars :: map()) -> undefined | float().
+-spec prob_randomness_wt(Vars :: map()) -> float().
 prob_randomness_wt(Vars) ->
-    maps:get(poc_v5_target_prob_randomness_wt, Vars, undefined).
+    maps:get(poc_v5_target_prob_randomness_wt, Vars).
 
--spec score_curve(Score :: float(), Vars :: map()) -> undefined | float().
+-spec score_curve(Score :: float(), Vars :: map()) -> float().
 score_curve(Score, Vars) ->
-    Exp = maps:get(poc_v4_target_score_curve, Vars, undefined),
+    Exp = maps:get(poc_v4_target_score_curve, Vars),
     %% XXX: This will blow up if poc_v4_target_score_curve is undefined
     math:pow(Score, Exp).
 
--spec parent_res(Vars :: map()) -> undefined | pos_integer().
+-spec parent_res(Vars :: map()) -> pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, undefined).
+    maps:get(poc_v4_parent_res, Vars).
 
--spec target_exclusion_cells(Vars :: map()) -> undefined | pos_integer().
+-spec target_exclusion_cells(Vars :: map()) -> pos_integer().
 target_exclusion_cells(Vars) ->
-    maps:get(poc_v4_target_exclusion_cells, Vars, undefined).
+    maps:get(poc_v4_target_exclusion_cells, Vars).
 
 -spec check_challenger_distance(ChallengerLoc :: h3:index(),
                                 GatewayLoc :: h3:index(),

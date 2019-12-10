@@ -343,46 +343,46 @@ check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
             true
     end.
 
--spec rssi_weight(Vars :: map()) -> undefined | float().
+-spec rssi_weight(Vars :: map()) -> float().
 rssi_weight(Vars) ->
-    maps:get(poc_v4_prob_rssi_wt, Vars, undefined).
+    maps:get(poc_v4_prob_rssi_wt, Vars).
 
--spec time_weight(Vars :: map()) -> undefined | float().
+-spec time_weight(Vars :: map()) -> float().
 time_weight(Vars) ->
-    maps:get(poc_v4_prob_time_wt, Vars, undefined).
+    maps:get(poc_v4_prob_time_wt, Vars).
 
--spec count_weight(Vars :: map()) -> undefined | float().
+-spec count_weight(Vars :: map()) -> float().
 count_weight(Vars) ->
-    maps:get(poc_v4_prob_count_wt, Vars, undefined).
+    maps:get(poc_v4_prob_count_wt, Vars).
 
--spec prob_no_rssi(Vars :: map()) -> undefined | float().
+-spec prob_no_rssi(Vars :: map()) -> float().
 prob_no_rssi(Vars) ->
-    maps:get(poc_v4_prob_no_rssi, Vars, undefined).
+    maps:get(poc_v4_prob_no_rssi, Vars).
 
--spec prob_good_rssi(Vars :: map()) -> undefined | float().
+-spec prob_good_rssi(Vars :: map()) -> float().
 prob_good_rssi(Vars) ->
-    maps:get(poc_v4_prob_good_rssi, Vars, undefined).
+    maps:get(poc_v4_prob_good_rssi, Vars).
 
--spec prob_bad_rssi(Vars :: map()) -> undefined | float().
+-spec prob_bad_rssi(Vars :: map()) -> float().
 prob_bad_rssi(Vars) ->
-    maps:get(poc_v4_prob_bad_rssi, Vars, undefined).
+    maps:get(poc_v4_prob_bad_rssi, Vars).
 
--spec parent_res(Vars :: map()) -> undefined | pos_integer().
+-spec parent_res(Vars :: map()) -> pos_integer().
 parent_res(Vars) ->
-    maps:get(poc_v4_parent_res, Vars, undefined).
+    maps:get(poc_v4_parent_res, Vars).
 
--spec exclusion_cells(Vars :: map()) -> undefined | pos_integer().
+-spec exclusion_cells(Vars :: map()) -> pos_integer().
 exclusion_cells(Vars) ->
-    maps:get(poc_v4_exclusion_cells, Vars, undefined).
+    maps:get(poc_v4_exclusion_cells, Vars).
 
 -spec nanosecond_time(Time :: integer()) -> integer().
 nanosecond_time(Time) ->
     erlang:convert_time_unit(Time, millisecond, nanosecond).
 
--spec randomness_wt(Vars :: map()) -> undefined | float().
+-spec randomness_wt(Vars :: map()) -> float().
 randomness_wt(Vars) ->
-    maps:get(poc_v4_randomness_wt, Vars, undefined).
+    maps:get(poc_v4_randomness_wt, Vars).
 
--spec poc_version(Vars :: map()) -> undefined | pos_integer().
+-spec poc_version(Vars :: map()) -> pos_integer().
 poc_version(Vars) ->
-    maps:get(poc_version, Vars, undefined).
+    maps:get(poc_version, Vars).
