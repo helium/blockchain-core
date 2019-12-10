@@ -13,6 +13,7 @@
     nonce/1, nonce/2,
     balances/1, balances/2, balance/2, balance/3,
     packets/1, packets/2,
+    state/1, state/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
@@ -29,8 +30,9 @@
 -define(ZERO_SC_ID, <<0>>).
 
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
--type balances() :: [{string(), non_neg_integer()}].
+-type balances() :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}].
 -type id() :: binary().
+-type state() :: open | closing | closed.
 
 -export_type([state_channel/0, id/0]).
 
@@ -42,7 +44,8 @@ new(ID, Owner) ->
         credits=0,
         nonce=0,
         balances=[],
-        packets= <<>>
+        packets= <<>>,
+        state=open
     }.
 
 -spec zero_id() -> binary().
@@ -94,7 +97,7 @@ balance(Payee, SC) ->
         false -> {error, not_found}
     end.
 
--spec balance(string(), non_neg_integer(), state_channel()) -> state_channel().
+-spec balance(libp2p_crypto:pubkey_bin(), non_neg_integer(), state_channel()) -> state_channel().
 balance(Payee, Balance, SC) ->
     PayeeB58 = libp2p_crypto:bin_to_b58(Payee),
     Balances0 = ?MODULE:balances(SC),
@@ -108,6 +111,14 @@ packets(#blockchain_state_channel_v1_pb{packets=Packets}) ->
 -spec packets(binary(), state_channel()) -> state_channel().
 packets(Packets, SC) ->
     SC#blockchain_state_channel_v1_pb{packets=Packets}.
+
+-spec state(state_channel()) -> state().
+state(#blockchain_state_channel_v1_pb{state=State}) ->
+    State.
+
+-spec state(state(), state_channel()) -> state_channel().
+state(State, SC) ->
+    SC#blockchain_state_channel_v1_pb{state=State}.
 
 -spec signature(state_channel()) -> binary().
 signature(#blockchain_state_channel_v1_pb{signature=Signature}) ->
@@ -156,9 +167,15 @@ get(DB, ID) ->
 validate_request(Request, SC) ->
     ReqAmount = blockchain_state_channel_request_v1:amount(Request),
     SCCredits = ?MODULE:credits(SC),
-    case SCCredits-ReqAmount >= 0 of
-        false -> {error, not_enough_credits};
-        true -> ok
+    State = ?MODULE:state(SC),
+    case State of
+        open ->
+            case SCCredits-ReqAmount >= 0 of
+                false -> {error, not_enough_credits};
+                true -> ok
+            end;
+        OtherState ->
+            {error, OtherState}
     end.
 
 -spec add_request(blockchain_state_channel_request_v1:request(), function(), state_channel()) -> state_channel().
@@ -174,7 +191,11 @@ add_request(Request, SigFun, SC0) ->
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
     SC3 = ?MODULE:balance(Payee, Balance+Amount, SC2),
-    ?MODULE:sign(SC3, SigFun).
+    SC4 = case Credits-Amount == 0 of
+        true -> ?MODULE:state(closing, SC3);
+        false -> SC3
+    end,
+    ?MODULE:sign(SC4, SigFun).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -192,7 +213,8 @@ new_test() ->
         credits=0,
         nonce=0,
         balances=[],
-        packets= <<>>
+        packets= <<>>,
+        state=open
     },
     ?assertEqual(SC, new(<<"1">>, <<"owner">>)).
 
@@ -232,6 +254,11 @@ packets_test() ->
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual(<<>>, packets(SC)),
     ?assertEqual(<<"packets">>, packets(packets(<<"packets">>, SC))).
+
+state_test() ->
+    SC = new(<<"1">>, <<"owner">>),
+    ?assertEqual(open, state(SC)),
+    ?assertEqual(closing, state(state(closing, SC))).
 
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>),
