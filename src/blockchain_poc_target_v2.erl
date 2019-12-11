@@ -17,8 +17,10 @@
          target/3, filter/5
         ]).
 
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {float(), blockchain_ledger_gateway_v2:gateway()}}.
+-type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
+
+-export_type([gateway_score_map/0]).
 
 %% @doc Finds a potential target to start the path from.
 %% This must always return a target.
