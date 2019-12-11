@@ -23,10 +23,11 @@
     absorb/2,
     create_secret_hash/2,
     connections/1,
-    deltas/1, deltas/3,
+    deltas/1, deltas/2,
     check_path_continuation/1,
     print/1,
-    hex_poc_id/1
+    hex_poc_id/1,
+    check_witness_quality/2
 ]).
 
 -ifdef(TEST).
@@ -328,19 +329,16 @@ deltas(Txn) ->
                            lists:zip(lists:seq(1, Length), Path)))).
 
 -spec deltas(Txn :: txn_poc_receipts(),
-             POCVersion :: pos_integer(),
              Ledger :: blockchain_ledger_v1:ledger()) -> deltas().
-deltas(Txn, V, Ledger) ->
+deltas(Txn, Ledger) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
-    lists:reverse(element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
-                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                   Receipt = blockchain_poc_path_element_v1:receipt(Element),
-                                   Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-                                   NextElements = lists:sublist(Path, N+1, Length),
-                                   HasContinued = check_path_continuation(NextElements),
-                                   {Val, Continue} = assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, V, Ledger),
-                                   {set_deltas(Challengee, Val, Acc), Continue};
+    lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
+                                                 Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                 NextElements = lists:sublist(Path, ElementPos+1, Length),
+                                                 HasContinued = check_path_continuation(NextElements),
+                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, Ledger),
+                                                 {set_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
                            end,
@@ -390,13 +388,12 @@ assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
             {{0, 1}, false}
     end.
 
--spec assign_alpha_beta(HasContinued :: boolean(),
-                        Challengee :: libp2p_crypto:pubkey_bin(),
-                        Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
-                        Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
-                        POCVersion :: pos_integer(),
-                        Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledger) ->
+-spec calculate_alpha_beta(HasContinued :: boolean(),
+                           Element :: blockchain_poc_path_element_v1:poc_element(),
+                           Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
+calculate_alpha_beta(HasContinued, Element, Ledger) ->
+    Receipt = blockchain_poc_path_element_v1:receipt(Element),
+    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
     case {HasContinued, Receipt, Witnesses} of
         {true, undefined, _} ->
             %% path continued, no receipt, don't care about witnesses
@@ -406,7 +403,7 @@ assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledg
             {{1, 0}, true};
         {false, undefined, Wxs} when length(Wxs) > 0 ->
             %% path broke, no receipt, witnesses
-            {update_alpha_beta_with_witness_quality(undefined, POCVersion, Challengee, Wxs, Ledger), true};
+            {calculate_witness_quality(Element, Ledger), true};
         {false, Receipt, []} when Receipt /= undefined ->
             %% path broke, receipt, no witnesses
             case blockchain_poc_receipt_v1:origin(Receipt) of
@@ -421,42 +418,38 @@ assign_alpha_beta(HasContinued, Challengee, Receipt, Witnesses, POCVersion, Ledg
             end;
         {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
             %% path broke, receipt, witnesses
-            {update_alpha_beta_with_witness_quality(Receipt, POCVersion, Challengee, Wxs, Ledger), true};
+            {calculate_witness_quality(Element, Ledger), true};
         {false, _, _} ->
             %% path broke, you killed it
             {{0, 1}, false}
     end.
 
--spec update_alpha_beta_with_witness_quality(Receipt :: undefined | blockchain_poc_receipt_v1:poc_receipt(),
-                                             POCVersion :: pos_integer(),
-                                             Challengee :: libp2p_crypto:pubkey_bin(),
-                                             Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
-                                             Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
-update_alpha_beta_with_witness_quality(undefined, _POCVersion, Challengee, Witnesses, Ledger) ->
-    %% no poc receipt
-    WitnessQualityChecks = witness_quality_checks(Challengee, Witnesses, Ledger),
-    case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
-        false ->
-            %% Either the witnesses are too close
-            %% or the RSSIs are too high
-            %% no alpha bump
-            {0, 0};
-        true ->
-            %% high alpha bump, but not as high as when there is a receipt
-            {0.7, 0}
-    end;
-update_alpha_beta_with_witness_quality(_Receipt, _POCVersion, Challengee, Witnesses, Ledger) ->
-    %% poc receipt
-    WitnessQualityChecks = witness_quality_checks(Challengee, Witnesses, Ledger),
-    case lists:all(fun(C) -> C == true end, WitnessQualityChecks) of
-        false ->
-            %% Either the witnesses are too close
-            %% or the RSSIs are too high
-            %% no alpha bump
-            {0, 0};
-        true ->
-            %% high alpha bump
-            {0.9, 0}
+-spec calculate_witness_quality(Element :: blockchain_poc_path_element_v1:poc_element(),
+                                Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
+calculate_witness_quality(Element, Ledger) ->
+    case blockchain_poc_path_element_v1:receipt(Element) of
+        undefined ->
+            %% no poc receipt
+            case check_witness_quality(Element, Ledger) of
+                false ->
+                    %% Either the witnesses are too close or the RSSIs are too high
+                    %% no alpha bump
+                    {0, 0};
+                true ->
+                    %% high alpha bump, but not as high as when there is a receipt
+                    {0.7, 0}
+            end;
+        _Receipt ->
+            %% element has a receipt
+            case check_witness_quality(Element, Ledger) of
+                false ->
+                    %% Either the witnesses are too close or the RSSIs are too high
+                    %% no alpha bump
+                    {0, 0};
+                true ->
+                    %% high alpha bump
+                    {0.9, 0}
+            end
     end.
 
 -spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
@@ -465,10 +458,11 @@ update_alpha_beta_with_witness_quality(_Receipt, _POCVersion, Challengee, Witnes
 set_deltas(Challengee, {A, B}, Deltas) ->
     [{Challengee, {A, B}} | Deltas].
 
--spec witness_quality_checks(Challengee :: libp2p_crypto:pubkey_bin(),
-                             Witnesses :: [blockchain_poc_witness_v1:poc_witness()],
-                             Ledger :: blockchain_ledger_v1:ledger()) -> [boolean()].
-witness_quality_checks(Challengee, Witnesses, Ledger) ->
+-spec check_witness_quality(Element :: blockchain_poc_path_element_v1:poc_element(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+check_witness_quality(Element, Ledger) ->
+    Challengee = blockchain_poc_path_element_v1:challengee(Element),
+    Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
     {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
 
@@ -476,23 +470,26 @@ witness_quality_checks(Challengee, Witnesses, Ledger) ->
     ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
-    lists:foldl(fun(Witness, Acc) ->
-                        WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
-                        {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
-                        WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                        WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
-                        WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
-                        FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                        Check = (
-                          %% Check that the witness is far
-                          (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
-                          %% Check that the RSSI seems reasonable
-                          (WitnessRSSI =< FreeSpacePathLoss)
-                         ),
-                        [Check | Acc]
-                end,
-                [],
-                Witnesses).
+    Checks = lists:foldl(fun(Witness, Acc) ->
+                                 WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
+                                 {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
+                                 WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                 WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
+                                 WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
+                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
+                                 Check = (
+                                   %% Check that the witness is far
+                                   (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
+                                   %% Check that the RSSI seems reasonable
+                                   (WitnessRSSI =< FreeSpacePathLoss)
+                                  ),
+                                 [Check | Acc]
+                         end,
+                         [],
+                         Witnesses),
+
+    %% All the checks must be true
+    lists:all(fun(C) -> C == true end, Checks).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -545,7 +542,7 @@ absorb(Txn, Chain) ->
                                                     blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                             end,
                                             ok,
-                                            ?MODULE:deltas(Txn, V, Ledger));
+                                            ?MODULE:deltas(Txn, Ledger));
                             _ ->
                                 lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                                     blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
