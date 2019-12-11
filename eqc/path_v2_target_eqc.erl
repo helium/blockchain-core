@@ -61,11 +61,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 1088 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 1801 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 105719
-    %% ActiveGateway Count: 1087
+    %% Ledger at height: 131551
+    %% ActiveGateway Count: 1800
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),

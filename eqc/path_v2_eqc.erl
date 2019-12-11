@@ -29,10 +29,10 @@ prop_path_check() ->
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores, Vars),
                 {Time, Path} = timer:tc(fun() ->
                                                 blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                                                ActiveGateways,
-                                                                                block_time(),
-                                                                                Hash,
-                                                                                Vars)
+                                                                             GatewayScores,
+                                                                             block_time(),
+                                                                             Hash,
+                                                                             Vars)
                                         end),
 
                 blockchain_ledger_v1:close(Ledger),
@@ -63,7 +63,7 @@ prop_path_check() ->
                             %% - atleast one element in path
                             %% - target is always in path
                             %% - we never go back to the same h3 index in path
-                            %% - check next hop is an witness of previous gateway
+                            %% - check next hop is a witness of previous gateway
                             conjunction([{verify_path_length, PathLength =< PathLimit andalso PathLength >= 1},
                                         {verify_path_uniqueness, length(Path) == length(lists:usort(Path))},
                                         {verify_target_membership, lists:member(TargetPubkeyBin, Path)},
@@ -78,11 +78,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 1088 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 1801 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 105719
-    %% ActiveGateway Count: 1087
+    %% Ledger at height: 131551
+    %% ActiveGateway Count: 1800
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -103,8 +103,8 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 block_time() ->
-    %% block time at height 105719
-    1573151628 * 1000000000.
+    %% block time at height 131551
+    1576022415 * 1000000000.
 
 default_vars() ->
     #{poc_v4_exclusion_cells => 10,
