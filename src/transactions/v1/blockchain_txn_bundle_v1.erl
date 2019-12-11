@@ -19,7 +19,8 @@
     sign/2,
     fee/1,
     txns/1,
-    is_valid/2
+    is_valid/2,
+    print/1
 ]).
 
 -type txn_bundle() :: #blockchain_txn_bundle_v1_pb{}.
@@ -84,6 +85,12 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
                     end
             end
     end.
+
+-spec print(txn_bundle()) -> iodata().
+print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
+    io_lib:format("type=bundle, txns=~p", [
+                                           [blockchain_txn:print(T) || T <- Txns]
+                                          ]).
 
 
 -spec max_bundle_size(blockchain:blockchain()) -> pos_integer().

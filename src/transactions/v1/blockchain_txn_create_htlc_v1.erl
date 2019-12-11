@@ -25,7 +25,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -52,6 +53,7 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
         fee=Fee,
         signature = <<>>
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -211,6 +213,18 @@ absorb(Txn, Chain) ->
                     end
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_create_htlc()) -> iodata().
+print(#blockchain_txn_create_htlc_v1_pb{
+        payer=Payer, payee=Payee, address=Address,
+        hashlock=Hashlock, timelock=Timelock, amount=Amount,
+        fee=Fee, signature = Sig}) ->
+    io_lib:format("type=create_htlc payer=~p payee=~p, address=~p, hashlock=~p, timelock=~p, amount=~p, fee=~p, signature=~p",
+                  [Payer, Payee, Address, Hashlock, Timelock, Amount, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

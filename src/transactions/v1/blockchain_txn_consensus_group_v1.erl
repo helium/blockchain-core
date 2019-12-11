@@ -204,6 +204,12 @@ absorb(Txn, Chain) ->
             Err
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_consensus_group()) -> iodata().
+print(undefined) -> <<"type=group, undefined">>;
 print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                                             delay = Delay,
                                             members = Members,

@@ -20,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -177,6 +178,18 @@ absorb(Txn, Chain) ->
             Nonce = ?MODULE:nonce(Txn),
             blockchain_ledger_v1:add_routing(Owner, OUI, Addresses, Nonce, Ledger)
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_routing()) -> iodata().
+print(undefined) -> <<"type=routing undefined">>;
+print(#blockchain_txn_routing_v1_pb{oui=OUI, owner=Owner,
+                                    addresses=Addresses, fee=Fee,
+                                    nonce=Nonce, signature=Sig}) ->
+    io_lib:format("type=routing oui=~p owner=~p addresses=~p fee=~p nonce=~p signature=~p",
+                  [OUI, Owner, Addresses, Fee, Nonce, Sig]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -19,7 +19,8 @@
     nonce/1,
     fee/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -46,6 +47,7 @@ new(Gateway, Owner, Location, Nonce) ->
                                       owner=Owner,
                                       location=L,
                                       nonce=Nonce}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -138,6 +140,18 @@ absorb(Txn, Chain) ->
                                      Location,
                                      Nonce,
                                      Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_genesis_gateway()) -> iodata().
+print(undefined) -> <<"type=genesis_gateway, undefined">>;
+print(#blockchain_txn_gen_gateway_v1_pb{
+         gateway=Gateway, owner=Owner,
+         location=L, nonce=Nonce}) ->
+    io_lib:format("type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
+                  [Gateway, Owner, L, Nonce]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

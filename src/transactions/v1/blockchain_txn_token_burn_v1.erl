@@ -22,7 +22,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -57,6 +58,18 @@ new(Payer, Amount, Nonce, Key) ->
         nonce=Nonce,
         signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_token_burn()) -> iodata().
+print(undefined) -> <<"type=token_burn undefined">>;
+print(#blockchain_txn_token_burn_v1_pb{type=Type, payer=Payer, key=Key,
+                                       amount=Amount, nonce=Nonce,
+                                       signature=Sig}) ->
+  io_lib:format("type=token_burn type=~p payer=~p key=~p amount=~p nonce=~p signature=~p",
+                [Type, Payer, Key, Amount, Nonce, Sig]).
 
 %%--------------------------------------------------------------------
 %% @doc

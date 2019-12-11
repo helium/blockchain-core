@@ -20,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -45,6 +46,19 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
         nonce=Nonce,
         signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_security_exchange()) -> iodata().
+print(undefined) -> <<"type=security_exchange undefined">>;
+print(#blockchain_txn_security_exchange_v1_pb{payer=Payer, payee=Recipient,
+                                              amount=Amount, fee=Fee,
+                                              nonce=Nonce, signature = Sig}) ->
+    io_lib:format("type=security_exchange payer=~p payee=~p amount=~p fee=~p nonce=~p signature=~p",
+                  [Payer, Recipient, Amount, Fee, Nonce, Sig]).
+
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -20,7 +20,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    calculate_rewards/3
+    calculate_rewards/3,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -199,6 +200,17 @@ calculate_rewards(Start, End, Chain) ->
                     {error, already_existing_rewards}
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_rewards()) -> iodata().
+print(undefined) -> <<"type=rewards undefined">>;
+print(#blockchain_txn_rewards_v1_pb{start_epoch=Start, end_epoch=End,
+                                    rewards=Rewards}) ->
+    io_lib:format("type=rewards start_epoch=~p end_epoch=~p rewards=~p",
+                  [Start, End, Rewards]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -17,7 +17,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    sign/2
+    sign/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -93,6 +94,15 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Rate = ?MODULE:rate(Txn),
     blockchain_ledger_v1:token_burn_exchange_rate(Rate, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_token_burn_exchange_rate()) -> iodata().
+print(undefined) -> <<"type=burn_exchange_rate undefined">>;
+print(#blockchain_txn_token_burn_exchange_rate_v1_pb{rate=Amount}) ->
+    io_lib:format("type=burn_exchange_rate rate=~p", [Amount]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

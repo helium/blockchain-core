@@ -17,7 +17,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    sign/2
+    sign/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -34,6 +35,8 @@
 -spec new(libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_dc_coinbase().
 new(Payee, Amount) ->
     #blockchain_txn_dc_coinbase_v1_pb{payee=Payee, amount=Amount}.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -107,6 +110,17 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_dc(Payee, Amount, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_dc_coinbase()) -> iodata().
+print(undefined) -> <<"type=dc_coinbase, undefined">>;
+print(#blockchain_txn_dc_coinbase_v1_pb{
+         payee=Payee, amount=Amount}) ->
+    io_lib:format("type=dc_coinbase payee=~p, amount=~p",
+                  [Payee, Amount]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

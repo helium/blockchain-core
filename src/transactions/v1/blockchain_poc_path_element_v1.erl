@@ -61,6 +61,8 @@ receipt(Element) ->
 witnesses(Element) ->
     Element#blockchain_poc_path_element_v1_pb.witnesses.
 
+print(undefined) ->
+    <<"type=element undefined">>;
 print(#blockchain_poc_path_element_v1_pb{
          challengee=Challengee,
          receipt=Receipt,

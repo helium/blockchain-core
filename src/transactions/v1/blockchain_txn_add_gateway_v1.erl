@@ -28,7 +28,8 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1
+    calculate_staking_fee/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -62,6 +63,7 @@ new(OwnerAddress, GatewayAddress, Payer, StakingFee, Fee) ->
         staking_fee=StakingFee,
         fee=Fee
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -297,6 +299,22 @@ absorb(Txn, Chain) ->
 -spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(_Chain) ->
     1.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_add_gateway()) -> iodata().
+print(undefined) -> <<"type=add_gateway, undefined">>;
+print(#blockchain_txn_add_gateway_v1_pb{
+         owner = O,
+         gateway = GW,
+         payer = P,
+         staking_fee = SF,
+         fee = F}) ->
+    io_lib:format("type=add_gateway, owner=~p, gateway=~p, payer=~p, staking_fee=~p, fee=~p",
+                  [O, GW, P, SF, F]).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

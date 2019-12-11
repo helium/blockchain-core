@@ -118,7 +118,7 @@ is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signat
     libp2p_crypto:verify(EncodedReceipt, Signature, PubKey).
 
 print(undefined) ->
-    undefined;
+    <<"type=receipt undefined">>;
 print(#blockchain_poc_receipt_v1_pb{
          gateway=Gateway,
          timestamp=TS,

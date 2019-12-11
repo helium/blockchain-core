@@ -19,7 +19,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -198,6 +199,18 @@ absorb(Txn, Chain) ->
                     blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_redeem_htlc()) -> iodata().
+print(undefined) -> <<"type=redeem_htlc, undefined">>;
+print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
+                                        preimage=PreImage, fee=Fee,
+                                        signature=Sig}) ->
+    io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
+                  [Payee, Address, PreImage, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -17,7 +17,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    sign/2
+    sign/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -107,6 +108,19 @@ absorb(Txn, Chain) ->
     Payee = ?MODULE:payee(Txn),
     Amount = ?MODULE:amount(Txn),
     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(undefined|txn_coinbase()) -> [iodata()].
+print(undefined) ->
+    <<"type=coinbase, undefined">>;
+print(#blockchain_txn_coinbase_v1_pb{} = Txn) ->
+    io_lib:format("txn_coinbase: payee: ~p, amount: ~p",
+                  [?MODULE:payee(Txn), ?MODULE:amount(Txn)]);
+print(Other) ->
+    io_lib:format("type=coinbase, unexpected data: ~p", [Other]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

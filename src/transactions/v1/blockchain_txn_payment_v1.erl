@@ -20,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -45,6 +46,7 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
         nonce=Nonce,
         signature = <<>>
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -179,7 +181,18 @@ absorb(Txn, Chain) ->
                     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
             end
     end.
-    
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_payment()) -> iodata().
+print(undefined) -> <<"type=payment, undefined">>;
+print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
+                                    fee=Fee, nonce=Nonce, signature = S }) ->
+    io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~p",
+                  [Payer, Recipient, Amount, Fee, Nonce, S]).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

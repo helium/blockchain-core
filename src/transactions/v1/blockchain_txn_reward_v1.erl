@@ -13,7 +13,8 @@
     gateway/1,
     amount/1,
     type/1,
-    is_valid/1
+    is_valid/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -98,6 +99,17 @@ is_valid(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
     (erlang:is_binary(Gateway) orelse Gateway == undefined) andalso
     Amount > 0 andalso
     lists:member(Type, ?TYPES).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(reward()) -> iodata().
+print(undefined) -> <<"type=reward undefined">>;
+print(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
+                                   amount=Amount, type=Type}) ->
+    io_lib:format("type=reward account=~p, gateway=~p, amount=~p, type=~p",
+                  [Account, Gateway, Amount, Type]).
 
 
 

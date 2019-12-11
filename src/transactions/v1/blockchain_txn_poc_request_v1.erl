@@ -23,7 +23,8 @@
     fee/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -200,6 +201,19 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_poc_request()) -> iodata().
+print(undefined) -> <<"type=poc_request, undefined">>;
+print(#blockchain_txn_poc_request_v1_pb{challenger=Challenger, secret_hash=SecretHash,
+                                        onion_key_hash=OnionKeyHash, block_hash=BlockHash,
+                                        fee=Fee, signature = Sig, version = Version }) ->
+    %% XXX: Should we really print the secret hash in a log???
+    io_lib:format("type=poc_request challenger=~p, secret_hash=~p, onion_key_hash=~p, block_hash=~p, fee=~p, signature=~p, version=~p",
+                  [Challenger, SecretHash, OnionKeyHash, BlockHash, Fee, Sig, Version]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

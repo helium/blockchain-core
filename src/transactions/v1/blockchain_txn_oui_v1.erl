@@ -26,7 +26,8 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1
+    calculate_staking_fee/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -65,6 +66,8 @@ new(Owner, Addresses, OUI, Payer, StakingFee, Fee) ->
         owner_signature= <<>>,
         payer_signature= <<>>
     }.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -269,6 +272,20 @@ absorb(Txn, Chain) ->
 -spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(_Chain) ->
     1.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_oui()) -> iodata().
+print(undefined) -> <<"type=oui, undefined">>;
+print(#blockchain_txn_oui_v1_pb{owner=Owner, addresses=Addresses,
+                                oui=OUI, payer=Payer, staking_fee=StakingFee,
+                                fee=Fee, owner_signature= OS,
+                                payer_signature= PS}) ->
+    io_lib:format("type=oui, owner=~p, addresses=~p, oui=~p, payer=~p, staking_fee=~p, fee=~p, owner_signature=~p, payer_signature=~p",
+                  [Owner, Addresses, OUI, Payer, StakingFee, Fee, OS, PS]).
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
