@@ -118,22 +118,22 @@ handle_info(resubmit, State=#state{txn_map=TxnMap, chain=Chain}) ->
 
     {noreply, State#state{txn_map=NewTxnMap}};
 handle_info({accepted, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, accepted_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:info("txn: ~s, accepted_by: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     {noreply, State};
 handle_info({no_group, {Dialer, Txn, Member}}, State) ->
-    lager:info("txn: ~p, no group: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:info("txn: ~s, no group: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
-    lager:debug("txn: ~p, dial_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~s, dial_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
-    lager:debug("txn: ~p, send_failed: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~s, send_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     NewState = retry(Txn, State),
     {noreply, NewState};
 handle_info({rejected, {Dialer, Txn, Member}}, State) ->
-    lager:debug("txn: ~p, rejected_by: ~p, Dialer: ~p", [Txn, Member, Dialer]),
+    lager:debug("txn: ~s, rejected_by: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     NewState = rejected(Txn, Member, State),
     {noreply, NewState};
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
