@@ -91,16 +91,15 @@ balances(Balances, SC) ->
 
 -spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
-    Balances = blockchain_state_channel_v1:balances(SC),
+    Balances = ?MODULE:balances(SC),
     case lists:keyfind(Payee, 1, Balances) of
         {Payee, Balance} -> {ok, Balance};
         false -> {error, not_found}
     end.
 
 -spec balance(libp2p_crypto:pubkey_bin(), non_neg_integer(), state_channel()) -> state_channel().
-balance(Payee, Balance, SC) ->
+balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances0}=SC) ->
     PayeeB58 = libp2p_crypto:bin_to_b58(Payee),
-    Balances0 = ?MODULE:balances(SC),
     Balances1 = lists:keystore(PayeeB58, 1, Balances0, {PayeeB58, Balance}),
     ?MODULE:balances(Balances1, SC).
 

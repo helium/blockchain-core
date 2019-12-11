@@ -84,7 +84,7 @@ burn(ID, Amount) ->
     gen_server:cast(?SERVER, {burn, ID, Amount}).
 
 %% Helper function for tests (remove)
--spec packet_forward(pid()) -> ok.
+-spec packet_forward(pid() | undefined) -> ok.
 packet_forward(Pid) ->
     gen_server:cast(?SERVER, {packet_forward, Pid}).
 
@@ -167,23 +167,38 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{swarm=Swarm, state_channels=SCs0}=State) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, state_channels=SCs}=State0) ->
     {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    Txns = get_state_channels_from_block(BlockHash, Owner, SCs0, Ledger),
-    SCs1 = lists:foldl(
-        fun(Txn, Acc) ->
-                ID = blockchain_txn_state_channel_open_v1:id(Txn),
-                Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
-                Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
-                SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                maps:put(ID, SC1, Acc)
+    Txns = get_state_channels_txns_from_block(BlockHash, Owner, SCs),
+    State1 = lists:foldl(
+        fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
+                case blockchain_txn:type(Txn) of
+                    blockchain_txn_state_channel_open_v1 ->
+                        ID = blockchain_txn_state_channel_open_v1:id(Txn),
+                        Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
+                        Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
+                        SC0 = blockchain_state_channel_v1:new(ID, Owner),
+                        SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
+                        State#state{state_channels=maps:put(ID, SC1, SCs0)};
+                    blockchain_txn_state_channel_close_v1 ->
+                        SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+                        ID = blockchain_state_channel_v1:id(SC),
+                        Payees1 = maps:filter(fun(_, V) -> V =/= ID end, Payees0),
+                        State#state{state_channels=maps:remove(ID, SCs0),
+                                    clients=maps:remove(ID, Clients0),
+                                    payees_to_sc=Payees1}
+                end
         end,
-        SCs0,
+        State0,
         Txns
     ),
-    {noreply, State#state{state_channels=SCs1}};
-handle_info({close_state_channel, _SC}, State) ->
+    {noreply, State1};
+handle_info({close_state_channel, SC}, #state{swarm=Swarm}=State) ->
+    {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    Txn = blockchain_txn_state_channel_close_v1:new(SC, Owner),
+    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
+    ok = blockchain_worker:submit_txn(SignedTxn),
+    lager:info("closing state channel ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]),
     {noreply, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
@@ -199,8 +214,9 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec get_state_channels_from_block(binary(), binary(), map(), blockchain_ledger_v1:ledger()) -> [blockchain_txn_state_channel_open_v1:txn_state_channel_open()].
-get_state_channels_from_block(BlockHash, Owner, SCs, Ledger) ->
+-spec get_state_channels_txns_from_block(binary(), binary(), map()) -> [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
+                                                                        | blockchain_txn_state_channel_close_v1:txn_state_channel_close()].
+get_state_channels_txns_from_block(BlockHash, Owner, SCs) ->
     Chain = blockchain_worker:blockchain(),
     case blockchain:get_block(BlockHash, Chain) of
         {error, _Reason} ->
@@ -209,24 +225,21 @@ get_state_channels_from_block(BlockHash, Owner, SCs, Ledger) ->
         {ok, Block} ->
             lists:filter(
                 fun(Txn) ->
-                    blockchain_txn:type(Txn) == blockchain_txn_state_channel_open_v1 andalso
-                    not maps:is_key(blockchain_txn_state_channel_open_v1:id(Txn), SCs) andalso
-                    blockchain_txn_state_channel_open_v1:owner(Txn) == Owner andalso
-                    not found_state_channel(Txn, Ledger)
+                    case blockchain_txn:type(Txn) of
+                        blockchain_txn_state_channel_open_v1 ->
+                            not maps:is_key(blockchain_txn_state_channel_open_v1:id(Txn), SCs) andalso
+                            blockchain_txn_state_channel_open_v1:owner(Txn) == Owner;
+                        blockchain_txn_state_channel_close_v1 ->
+                            SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+                            maps:is_key(blockchain_state_channel_v1:id(SC), SCs) andalso
+                            blockchain_state_channel_v1:owner(SC) == Owner;
+                        _ -> false
+                    end
                 end,
                 blockchain_block:transactions(Block)
             )
     end.
 
--spec found_state_channel(blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
-                          blockchain_ledger_v1:ledger()) -> boolean().
-found_state_channel(Txn, Ledger) ->
-    ID = blockchain_txn_state_channel_open_v1:id(Txn),
-    Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
-    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-        {error, _} -> false;
-        {ok, _} -> true
-    end.
 
 -spec update_clients(blockchain_state_channel_v1:state_channel(), state()) -> ok.
 update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
