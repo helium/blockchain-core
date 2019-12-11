@@ -50,20 +50,20 @@
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
 %% @doc Build a path starting at `TargetPubkeyBin`.
-%% It is expected that the "ActiveGateways" being passed to build/6 fun
+%% It is expected that the "GatewayScoreMap" being passed to build/6 fun
 %% has already been pre-filtered to remove "inactive" gateways.
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
-            ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+            GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
             HeadBlockTime :: pos_integer(),
             Hash :: binary(),
             Vars :: map()) -> path().
-build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Vars) ->
-    true =  maps:is_key(TargetPubkeyBin, ActiveGateways),
-    {TargetGw, _} = maps:get(TargetPubkeyBin, ActiveGateways),
+build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars) ->
+    true =  maps:is_key(TargetPubkeyBin, GatewayScoreMap),
+    {TargetGw, _} = maps:get(TargetPubkeyBin, GatewayScoreMap),
     TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
     RandState = blockchain_utils:rand_state(Hash),
     build_(TargetPubkeyBin,
-           ActiveGateways,
+           GatewayScoreMap,
            HeadBlockTime,
            Vars,
            RandState,
@@ -74,14 +74,14 @@ build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Vars) ->
 %% Helpers
 %%%-------------------------------------------------------------------
 -spec build_(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
-             ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+             GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
              HeadBlockTime :: pos_integer(),
              Vars :: map(),
              RandState :: rand:state(),
              Indices :: [h3:h3_index()],
              Path :: path()) -> path().
 build_(TargetPubkeyBin,
-       ActiveGateways,
+       GatewayScoreMap,
        HeadBlockTime,
        #{poc_path_limit := Limit} = Vars,
        RandState,
@@ -89,34 +89,34 @@ build_(TargetPubkeyBin,
        Path) when length(Path) < Limit ->
     %% Try to find a next hop
     {NewRandVal, NewRandState} = rand:uniform_s(RandState),
-    case next_hop(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Vars, NewRandVal, Indices) of
+    case next_hop(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Vars, NewRandVal, Indices) of
         {error, no_witness} ->
             lists:reverse(Path);
         {ok, WitnessPubkeyBin} ->
             %% Try the next hop in the new path, continue building forward
-            {NextHopGw, _} = maps:get(WitnessPubkeyBin, ActiveGateways),
+            {NextHopGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessPubkeyBin | Path],
             build_(WitnessPubkeyBin,
-                   ActiveGateways,
+                   GatewayScoreMap,
                    HeadBlockTime,
                    Vars,
                    NewRandState,
                    [Index | Indices],
                    NewPath)
     end;
-build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
+build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
     lists:reverse(Path).
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
-               ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+               GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
                RandVal :: float(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
-next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
+next_hop(GatewayBin, GatewayScoreMap, HeadBlockTime, Vars, RandVal, Indices) ->
     %% Get gateway
-    {Gateway, _} = maps:get(GatewayBin, ActiveGateways),
+    {Gateway, _} = maps:get(GatewayBin, GatewayScoreMap),
     case blockchain_ledger_gateway_v2:witnesses(Gateway) of
         W when map_size(W) == 0 ->
             {error, no_witness};
@@ -124,7 +124,7 @@ next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
             %% If this gateway has witnesses, it is implied that it's location cannot be undefined
             GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
             %% Filter witnesses
-            FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars),
+            FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars),
             %% Assign probabilities to filtered witnesses
             %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
             PWitnessRSSI = rssi_probs(FilteredWitnesses, Vars),
@@ -269,20 +269,20 @@ select_witness([{_WitnessPubkeyBin, Prob} | Tail], Rnd, Vars) ->
 -spec filter_witnesses(GatewayLoc :: h3:h3_index(),
                        Indices :: [h3:h3_index()],
                        Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
-                       ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                       GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
                        Vars :: map()) -> blockchain_ledger_gateway_v2:witnesses().
-filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
+filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars) ->
     ParentRes = parent_res(Vars),
     ExclusionCells = exclusion_cells(Vars),
     GatewayParent = h3:parent(GatewayLoc, ParentRes),
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
     maps:filter(fun(WitnessPubkeyBin, Witness) ->
-                        case maps:is_key(WitnessPubkeyBin, ActiveGateways) of
+                        case maps:is_key(WitnessPubkeyBin, GatewayScoreMap) of
                             false ->
-                                %% Don't include if the witness is not in ActiveGateways
+                                %% Don't include if the witness is not in GatewayScoreMap
                                 false;
                             true ->
-                                {WitnessGw, _} = maps:get(WitnessPubkeyBin, ActiveGateways),
+                                {WitnessGw, _} = maps:get(WitnessPubkeyBin, GatewayScoreMap),
                                 WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
                                 %% Dont include any witnesses in any parent cell we've already visited
@@ -291,7 +291,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
                                 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) andalso
+                                check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) andalso
                                 check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
@@ -334,12 +334,12 @@ check_witness_bad_rssi(Witness, Vars) ->
     end.
 
 -spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                              ActiveGateways :: blockchain_ledger_v1:active_gateways(),
+                              GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
                               Vars :: map()) -> boolean().
-check_witness_inclusion(WitnessPubkeyBin, ActiveGateways, Vars) ->
+check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) ->
     case poc_version(Vars) of
         V when is_integer(V), V > 4 ->
-            maps:is_key(WitnessPubkeyBin, ActiveGateways);
+            maps:is_key(WitnessPubkeyBin, GatewayScoreMap);
         _ ->
             true
     end.
