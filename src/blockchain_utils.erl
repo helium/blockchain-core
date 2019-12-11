@@ -30,6 +30,9 @@
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
 
+-type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+-export_type([gateway_score_map/0]).
+
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
 %% @end
@@ -166,6 +169,7 @@ hex_adjustment(Loc) ->
     EdgeLength = h3:edge_length_kilometers(Res),
     EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
 
+-spec score_gateways(blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case blockchain_ledger_v1:mode(Ledger) of
@@ -180,6 +184,8 @@ score_gateways(Ledger) ->
             score_tagged_gateways(Height, Ledger)
     end.
 
+-spec score_tagged_gateways(Height :: pos_integer(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_tagged_gateways(Height, Ledger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
     maps:map(fun(A, G) ->

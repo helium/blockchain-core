@@ -53,7 +53,7 @@
 %% It is expected that the "GatewayScoreMap" being passed to build/6 fun
 %% has already been pre-filtered to remove "inactive" gateways.
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
-            GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
+            GatewayScoreMap :: blockchain_utils:gateway_score_map(),
             HeadBlockTime :: pos_integer(),
             Hash :: binary(),
             Vars :: map()) -> path().
@@ -74,7 +74,7 @@ build(TargetPubkeyBin, GatewayScoreMap, HeadBlockTime, Hash, Vars) ->
 %% Helpers
 %%%-------------------------------------------------------------------
 -spec build_(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
-             GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
+             GatewayScoreMap :: blockchain_utils:gateway_score_map(),
              HeadBlockTime :: pos_integer(),
              Vars :: map(),
              RandState :: rand:state(),
@@ -109,7 +109,7 @@ build_(_TargetPubkeyBin, _GatewayScoreMap, _HeadBlockTime, _Vars, _RandState, _I
     lists:reverse(Path).
 
 -spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
-               GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
+               GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
                RandVal :: float(),
@@ -269,7 +269,7 @@ select_witness([{_WitnessPubkeyBin, Prob} | Tail], Rnd, Vars) ->
 -spec filter_witnesses(GatewayLoc :: h3:h3_index(),
                        Indices :: [h3:h3_index()],
                        Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
-                       GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
+                       GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                        Vars :: map()) -> blockchain_ledger_gateway_v2:witnesses().
 filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars) ->
     ParentRes = parent_res(Vars),
@@ -334,7 +334,7 @@ check_witness_bad_rssi(Witness, Vars) ->
     end.
 
 -spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                              GatewayScoreMap :: blockchain_poc_target_v2:gateway_score_map(),
+                              GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                               Vars :: map()) -> boolean().
 check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) ->
     case poc_version(Vars) of
