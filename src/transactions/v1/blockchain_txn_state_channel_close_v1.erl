@@ -84,9 +84,14 @@ is_valid(Txn, Chain) ->
                 {error, _Reason} ->
                     {error, state_channel_not_open};
                 {ok, _} ->
-                    case blockchain_state_channel_v1:balance(Closer, SC) of
-                        {error, not_found} -> {error, closer_not_included};
-                        {ok, _} -> ok
+                    case Owner == Closer of
+                        true ->
+                            ok;
+                        false ->
+                            case blockchain_state_channel_v1:balance(Closer, SC) of
+                                false -> {error, closer_not_included};
+                                {ok, _} -> ok
+                            end
                     end
             end
     end.
