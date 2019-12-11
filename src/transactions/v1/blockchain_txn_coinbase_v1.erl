@@ -113,14 +113,12 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec print(undefined|txn_coinbase()) -> [iodata()].
+-spec print(txn_coinbase()) -> [iodata()].
 print(undefined) ->
     <<"type=coinbase, undefined">>;
-print(#blockchain_txn_coinbase_v1_pb{} = Txn) ->
+print(#blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}) ->
     io_lib:format("txn_coinbase: payee: ~p, amount: ~p",
-                  [?MODULE:payee(Txn), ?MODULE:amount(Txn)]);
-print(Other) ->
-    io_lib:format("type=coinbase, unexpected data: ~p", [Other]).
+                  [Payee, Amount]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
