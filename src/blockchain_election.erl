@@ -241,7 +241,7 @@ election_info(Ledger, Chain) ->
     %% get the election txn
     {ok, StartBlock} = blockchain:get_block(StartHeight, Chain),
     {ok, Txn} = get_election_txn(StartBlock),
-    lager:debug("txn ~p", [Txn]),
+    lager:debug("txn ~s", [blockchain_txn:print(Txn)]),
     ElectionHeight = blockchain_txn_consensus_group_v1:height(Txn),
     ElectionDelay = blockchain_txn_consensus_group_v1:delay(Txn),
 
