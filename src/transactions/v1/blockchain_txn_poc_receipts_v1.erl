@@ -217,23 +217,22 @@ is_valid(Txn, Chain) ->
                                                                     maybe_log_duration(ledger_at, StartLA),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V > 3 ->
-                                                                                   StartA = erlang:monotonic_time(millisecond),
-                                                                                   ActiveGateways = blockchain_ledger_v1:active_gateways(OldLedger),
-                                                                                   maybe_log_duration(activegw, StartA),
-                                                                                   Time = blockchain_block:time(Block1),
-                                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)),
-                                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                                                    StartS = erlang:monotonic_time(millisecond),
                                                                                    GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
                                                                                    Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    maybe_log_duration(scored, StartS),
+
+                                                                                   Time = blockchain_block:time(Block1),
+                                                                                   {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
+                                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
+                                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
                                                                                    %% If we make it to this point, we are bound to have a target.
                                                                                    {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                                                    maybe_log_duration(filter_target, StartFT),
                                                                                    StartB = erlang:monotonic_time(millisecond),
-                                                                                   RetB = blockchain_poc_path_v2:build(Target, ActiveGateways, Time, Entropy, Vars),
+                                                                                   RetB = blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars),
                                                                                    maybe_log_duration(build, StartB),
                                                                                    RetB;
                                                                                _ ->

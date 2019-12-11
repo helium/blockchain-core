@@ -59,7 +59,8 @@
             Vars :: map()) -> path().
 build(TargetPubkeyBin, ActiveGateways, HeadBlockTime, Hash, Vars) ->
     true =  maps:is_key(TargetPubkeyBin, ActiveGateways),
-    TargetGwLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+    {TargetGw, _} = maps:get(TargetPubkeyBin, ActiveGateways),
+    TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
     RandState = blockchain_utils:rand_state(Hash),
     build_(TargetPubkeyBin,
            ActiveGateways,
@@ -93,7 +94,7 @@ build_(TargetPubkeyBin,
             lists:reverse(Path);
         {ok, WitnessPubkeyBin} ->
             %% Try the next hop in the new path, continue building forward
-            NextHopGw = maps:get(WitnessPubkeyBin, ActiveGateways),
+            {NextHopGw, _} = maps:get(WitnessPubkeyBin, ActiveGateways),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessPubkeyBin | Path],
             build_(WitnessPubkeyBin,
@@ -115,7 +116,7 @@ build_(_TargetPubkeyBin, _ActiveGateways, _HeadBlockTime, _Vars, _RandState, _In
                Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
 next_hop(GatewayBin, ActiveGateways, HeadBlockTime, Vars, RandVal, Indices) ->
     %% Get gateway
-    Gateway = maps:get(GatewayBin, ActiveGateways),
+    {Gateway, _} = maps:get(GatewayBin, ActiveGateways),
     case blockchain_ledger_gateway_v2:witnesses(Gateway) of
         W when map_size(W) == 0 ->
             {error, no_witness};
@@ -281,7 +282,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, ActiveGateways, Vars) ->
                                 %% Don't include if the witness is not in ActiveGateways
                                 false;
                             true ->
-                                WitnessGw = maps:get(WitnessPubkeyBin, ActiveGateways),
+                                {WitnessGw, _} = maps:get(WitnessPubkeyBin, ActiveGateways),
                                 WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
                                 %% Dont include any witnesses in any parent cell we've already visited
