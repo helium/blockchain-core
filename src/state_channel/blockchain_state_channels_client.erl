@@ -183,7 +183,6 @@ check_pending_requests(SC, UpdateSC, Pending0) ->
             {ok, Pending1}
     end.
 
-% TODO: Verify merkle tree here
 -spec check_packet(any(), blockchain_state_channel_v1:state_channel()) -> true.
 check_packet(_Packet, SC) ->
     _RootHash = blockchain_state_channel_v1:packets(SC),
