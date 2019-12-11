@@ -147,7 +147,7 @@ absorb(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_rewards(non_neg_integer(), non_neg_integer(),blockchain:blockchain()) ->
+-spec calculate_rewards(non_neg_integer(), non_neg_integer(), blockchain:blockchain()) ->
     {ok, blockchain_txn_reward_v1:rewards()} | {error, any()}.
 calculate_rewards(Start, End, Chain) ->
     case get_txns_for_epoch(Start, End, Chain) of
@@ -165,7 +165,7 @@ calculate_rewards(Start, End, Chain) ->
                     SecuritiesRewards = securities_rewards(Ledger, Vars),
                     POCChallengersRewards = poc_challengers_rewards(Transactions, Vars),
                     POCChallengeesRewards = poc_challengees_rewards(Transactions, Vars),
-                    POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars),
+                    POCWitnessesRewards = poc_witnesses_rewards(Transactions, Vars, Ledger),
                     % Forcing calculation of EpochReward to always be around ElectionInterval (30 blocks) so that there is less incentive to stay in the consensus group
                     ConsensusEpochReward = calculate_epoch_reward(1, Start, End, Ledger),
                     ConsensusRewards = consensus_members_rewards(Ledger, maps:put(epoch_reward, ConsensusEpochReward, Vars)),
@@ -241,9 +241,9 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
     POCVersion = case blockchain:config(?poc_version, Ledger) of
-        {ok, V} -> V;
-        _ -> 1
-    end,
+                     {ok, V} -> V;
+                     _ -> 1
+                 end,
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -430,7 +430,7 @@ poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) when Version >
                     Acc1 = {maps:put(Challengee, I+1, Map), Total+1},
                     poc_challengees_rewards_(Version, Path, Acc1);
                 p2p ->
-                    case 
+                    case
                         blockchain_poc_path_element_v1:witnesses(Elem) /= [] orelse
                         blockchain_txn_poc_receipts_v1:check_path_continuation(Path)
                     of
@@ -457,31 +457,59 @@ poc_challengees_rewards_(Version, [Elem|Path], {Map, Total}=Acc0) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec poc_witnesses_rewards(blockchain_txn:txns(),
-                            map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
-poc_witnesses_rewards(Transactions, #{epoch_reward := EpochReward,
-                                      poc_witnesses_percent := PocWitnessesPercent}) ->
+-spec poc_witnesses_rewards(Transactions :: blockchain_txn:txns(),
+                            Vars :: map(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
+poc_witnesses_rewards(Transactions,
+                      #{epoch_reward := EpochReward,
+                        poc_witnesses_percent := PocWitnessesPercent,
+                        poc_version := POCVersion},
+                      Ledger) ->
     {Witnesses, TotalWitnesses} = lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
                 false ->
                     Acc0;
                 true ->
-                    lists:foldl(
-                        fun(Elem, Acc1) ->
+                    case POCVersion of
+                        V when is_integer(V), V > 4 ->
                             lists:foldl(
-                                fun(WitnessRecord, {Map, Total}) ->
-                                    Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
-                                    I = maps:get(Witness, Map, 0),
-                                    {maps:put(Witness, I+1, Map), Total+1}
-                                end,
-                                Acc1,
-                                blockchain_poc_path_element_v1:witnesses(Elem)
-                            )
-                        end,
-                        Acc0,
-                        blockchain_txn_poc_receipts_v1:path(Txn)
-                    )
+                              fun(Elem, Acc1) ->
+                                      case blockchain_txn_poc_receipts_v1:check_witness_quality(Elem, Ledger) of
+                                          false ->
+                                              Acc1;
+                                          true ->
+                                              lists:foldl(
+                                                fun(WitnessRecord, {Map, Total}) ->
+                                                        Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                        I = maps:get(Witness, Map, 0),
+                                                        {maps:put(Witness, I+1, Map), Total+1}
+                                                end,
+                                                Acc1,
+                                                blockchain_poc_path_element_v1:witnesses(Elem)
+                                               )
+                                      end
+                              end,
+                              Acc0,
+                              blockchain_txn_poc_receipts_v1:path(Txn)
+                             );
+                        _ ->
+                            lists:foldl(
+                              fun(Elem, Acc1) ->
+                                      lists:foldl(
+                                        fun(WitnessRecord, {Map, Total}) ->
+                                                Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                I = maps:get(Witness, Map, 0),
+                                                {maps:put(Witness, I+1, Map), Total+1}
+                                        end,
+                                        Acc1,
+                                        blockchain_poc_path_element_v1:witnesses(Elem)
+                                       )
+                              end,
+                              Acc0,
+                              blockchain_txn_poc_receipts_v1:path(Txn)
+                             )
+                    end
             end
         end,
         {#{}, 0},
@@ -623,7 +651,7 @@ poc_challengees_rewards_version_2_test() ->
     WitnessFor1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
     ReceiptFor2 = blockchain_poc_receipt_v1:new(<<"2">>, 1, 1, <<"data">>, radio),
     WitnessFor2 = blockchain_poc_witness_v1:new(<<"2">>, 1, 1, <<>>),
-    
+
     ElemFor1 = blockchain_poc_path_element_v1:new(<<"1">>, ReceiptFor1, []),
     ElemFor1WithWitness = blockchain_poc_path_element_v1:new(<<"1">>, ReceiptFor1, [WitnessFor1]),
     ElemFor2 = blockchain_poc_path_element_v1:new(<<"2">>, ReceiptFor2, []),
