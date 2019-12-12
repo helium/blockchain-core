@@ -51,7 +51,7 @@ unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    Req = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    Req = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, 12),
     ?assertEqual({request, Req}, decode(encode(Req))).
 
 -endif.
