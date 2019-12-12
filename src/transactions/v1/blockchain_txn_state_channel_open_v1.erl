@@ -91,7 +91,6 @@ is_valid(Txn, Chain) ->
                         A when A > 0 ->
                             blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
                         0 ->
-                            ID = ?MODULE:id(Txn),
                             case blockchain_state_channel_v1:zero_id() == ID of
                                 false -> {error, mistmaching_id};
                                 true -> ok
@@ -110,8 +109,10 @@ absorb(Txn, Chain) ->
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
-    case blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, Ledger) of
-        ok -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger)
+    ok = blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, Ledger),
+    case blockchain_state_channel_v1:zero_id() == ID of
+        false -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger);
+        true -> ok
     end.
 
  %% ------------------------------------------------------------------
