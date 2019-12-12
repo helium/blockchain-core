@@ -475,10 +475,10 @@ poc_witnesses_rewards(Transactions,
                         V when is_integer(V), V > 4 ->
                             lists:foldl(
                               fun(Elem, Acc1) ->
-                                      case blockchain_txn_poc_receipts_v1:check_witness_quality(Elem, Ledger) of
-                                          false ->
+                                      case blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger) of
+                                          [] ->
                                               Acc1;
-                                          true ->
+                                          GoodQualityWitnesses ->
                                               lists:foldl(
                                                 fun(WitnessRecord, {Map, Total}) ->
                                                         Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
@@ -486,7 +486,7 @@ poc_witnesses_rewards(Transactions,
                                                         {maps:put(Witness, I+1, Map), Total+1}
                                                 end,
                                                 Acc1,
-                                                blockchain_poc_path_element_v1:witnesses(Elem)
+                                                GoodQualityWitnesses
                                                )
                                       end
                               end,

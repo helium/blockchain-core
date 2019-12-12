@@ -27,7 +27,7 @@
     check_path_continuation/1,
     print/1,
     hex_poc_id/1,
-    check_witness_quality/2
+    good_quality_witnesses/2
 ]).
 
 -ifdef(TEST).
@@ -430,23 +430,23 @@ calculate_witness_quality(Element, Ledger) ->
     case blockchain_poc_path_element_v1:receipt(Element) of
         undefined ->
             %% no poc receipt
-            case check_witness_quality(Element, Ledger) of
-                false ->
+            case good_quality_witnesses(Element, Ledger) of
+                [] ->
                     %% Either the witnesses are too close or the RSSIs are too high
                     %% no alpha bump
                     {0, 0};
-                true ->
+                _ ->
                     %% high alpha bump, but not as high as when there is a receipt
                     {0.7, 0}
             end;
         _Receipt ->
             %% element has a receipt
-            case check_witness_quality(Element, Ledger) of
-                false ->
+            case good_quality_witnesses(Element, Ledger) of
+                [] ->
                     %% Either the witnesses are too close or the RSSIs are too high
                     %% no alpha bump
                     {0, 0};
-                true ->
+                _ ->
                     %% high alpha bump
                     {0.9, 0}
             end
@@ -458,9 +458,9 @@ calculate_witness_quality(Element, Ledger) ->
 set_deltas(Challengee, {A, B}, Deltas) ->
     [{Challengee, {A, B}} | Deltas].
 
--spec check_witness_quality(Element :: blockchain_poc_path_element_v1:poc_element(),
-                            Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
-check_witness_quality(Element, Ledger) ->
+-spec good_quality_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
+                             Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v1:poc_witness()].
+good_quality_witnesses(Element, Ledger) ->
     Challengee = blockchain_poc_path_element_v1:challengee(Element),
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
@@ -470,26 +470,22 @@ check_witness_quality(Element, Ledger) ->
     ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
-    Checks = lists:foldl(fun(Witness, Acc) ->
+    %% Good quality witnesses
+    lists:filter(fun(Witness) ->
                                  WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                                  {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
                                  WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
                                  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                                 Check = (
+                                 (
                                    %% Check that the witness is far
                                    (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
                                    %% Check that the RSSI seems reasonable
                                    (WitnessRSSI =< FreeSpacePathLoss)
-                                  ),
-                                 [Check | Acc]
+                                  )
                          end,
-                         [],
-                         Witnesses),
-
-    %% All the checks must be true
-    lists:all(fun(C) -> C == true end, Checks).
+                         Witnesses).
 
 %%--------------------------------------------------------------------
 %% @doc
