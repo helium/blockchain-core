@@ -3,13 +3,13 @@ syntax = "proto3";
 message state_channel_request_v1 {
     bytes payee = 1;
     uint64 amount = 2;
-    uint32 fingerprint = 3;
+    uint64 payload_size = 4;
+    uint32 fingerprint = 5;
 }
 
 enum state_channel_state_v1 {
     open = 0;
-    closing = 1;
-    closed = 2;
+    closed = 1;
 }
 
 message state_channel_v1 {
