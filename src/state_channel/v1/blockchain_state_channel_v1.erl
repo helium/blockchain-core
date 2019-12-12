@@ -198,7 +198,7 @@ add_request(Request, SigFun, SC0) ->
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
     SC3 = ?MODULE:balance(Payee, Balance+PayloadSize, SC2),
-    SC4 = case Credits-Amount == 0 of
+    SC4 = case Credits-Amount == 0 andalso ?MODULE:id(SC0) =/= ?MODULE:zero_id() of
         true -> ?MODULE:state(closed, SC3);
         false -> SC3
     end,
