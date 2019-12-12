@@ -113,7 +113,7 @@ basic_test(Config) ->
 
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 12),
+    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, 12),
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
@@ -247,18 +247,19 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Paylod0 = crypto:strong_rand_bytes(3),
-    Packet0 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=1, payload=Paylod0},
+    Payload0 = crypto:strong_rand_bytes(120),
+    Packet0 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=1, payload=Payload0},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, TotalDC-erlang:byte_size(Paylod0)} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
+        ct:pal("MARKER ~p", [ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])]),
+        {ok, 5} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, TotalDC-erlang:byte_size(Paylod0)} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
+        {ok, 5} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
     end, 30, timer:seconds(1)),
 
     % Step 7: Making sure packet got transmitted
@@ -271,8 +272,8 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
-    Paylod1 = crypto:strong_rand_bytes(7),
-    Packet1 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=2, payload=Paylod1},
+    Payload1 = crypto:strong_rand_bytes(120),
+    Packet1 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=2, payload=Payload1},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 6: Checking state channel on server/client

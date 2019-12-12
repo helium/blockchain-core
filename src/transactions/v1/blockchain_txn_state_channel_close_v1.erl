@@ -89,7 +89,7 @@ is_valid(Txn, Chain) ->
                             ok;
                         false ->
                             case blockchain_state_channel_v1:balance(Closer, SC) of
-                                false -> {error, closer_not_included};
+                                {error, _} -> {error, closer_not_included};
                                 {ok, _} -> ok
                             end
                     end
@@ -109,7 +109,7 @@ absorb(Txn, Chain) ->
         _ -> ok
     end.
 
- %% ------------------------------------------------------------------
+%% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
