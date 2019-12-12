@@ -678,23 +678,73 @@ poc_challengees_rewards_version_2_test() ->
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars)).
 
-
 poc_witnesses_rewards_test() ->
-    Witness1 = blockchain_poc_witness_v1:new(<<"1">>, 1, 1, <<>>),
-    Witness2 = blockchain_poc_witness_v1:new(<<"2">>, 1, 1, <<>>),
-    Elem = blockchain_poc_path_element_v1:new(<<"Y">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
+    BaseDir = test_utils:tmp_dir("poc_witnesses_rewards_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    EpochVars = #{
+      epoch_reward => 1000,
+      poc_witnesses_percent => 0.02 + 0.03,
+      poc_version => 5
+     },
+    LedgerVars = #{
+        ?poc_v4_exclusion_cells => 10,
+        ?poc_v4_parent_res => 11,
+        ?poc_v4_prob_bad_rssi => 0.01,
+        ?poc_v4_prob_count_wt => 0.3,
+        ?poc_v4_prob_good_rssi => 1.0,
+        ?poc_v4_prob_no_rssi => 0.5,
+        ?poc_v4_prob_rssi_wt => 0.3,
+        ?poc_v4_prob_time_wt => 0.3,
+        ?poc_v4_randomness_wt => 0.1,
+        ?poc_v4_target_challenge_age => 300,
+        ?poc_v4_target_exclusion_cells => 6000,
+        ?poc_v4_target_prob_edge_wt => 0.2,
+        ?poc_v4_target_prob_score_wt => 0.8,
+        ?poc_v4_target_score_curve => 5,
+        ?poc_version => 5,
+        ?poc_v5_target_prob_randomness_wt => 0.0
+    },
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    [One, Two, Three, Four, Five] = lists:foldl(
+                                      fun(I, Acc) ->
+                                              [h3:from_geo({37.780586, -122.469470 + I/500}, 12) | Acc]
+                                      end,
+                                      [],
+                                      lists:seq(1, 5)),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_witnesses(<<"c">>, [{-120, 1, <<"a">>}, {-110, 2, <<"b">>}], Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"d">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"d">>, Four, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"e">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"e">>, Five, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    AG = blockchain_ledger_v1:active_gateways(Ledger),
+    io:format("AG: ~p~n", [AG]),
+    Vars = blockchain_ledger_v1:all_vars(Ledger),
+    io:format("Vars: ~p~n", [Vars]),
+
+    Witness1 = blockchain_poc_witness_v1:new(<<"a">>, 1, 1, <<>>),
+    Witness2 = blockchain_poc_witness_v1:new(<<"b">>, 1, 1, <<>>),
+    Elem = blockchain_poc_path_element_v1:new(<<"c">>, <<"Receipt not undefined">>, [Witness1, Witness2]),
     Txns = [
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
+        blockchain_txn_poc_receipts_v1:new(<<"d">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem]),
+        blockchain_txn_poc_receipts_v1:new(<<"e">>, <<"Secret">>, <<"OnionKeyHash">>, [Elem, Elem])
     ],
-    Vars = #{
-        epoch_reward => 1000,
-        poc_witnesses_percent => 0.02 + 0.03
-    },
-    Rewards = #{
-        {gateway, poc_witnesses, <<"1">>} => 25,
-        {gateway, poc_witnesses, <<"2">>} => 25
-    },
-    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, Vars)).
+    Rewards = #{foo => a},
+    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)).
 
 -endif.
