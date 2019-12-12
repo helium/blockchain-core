@@ -102,8 +102,8 @@ handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
                     {noreply, State};
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    Amount = calculate_amount(PubKeyBin, OUI, Payload),
-                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, Fingerprint),
+                    Amount = calculate_dc_amount(PubKeyBin, OUI, Payload),
+                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, erlang:byte_size(Payload), Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_request(Pid, Req),
                     {noreply, State#state{pending=queue:in({Req, Packet, Pid}, Pending)}}
@@ -151,11 +151,12 @@ send_packets(Queue) ->
         queue:to_list(Queue)
     ).
 
--spec calculate_amount(libp2p_crypto:pubkey_to_bin(), non_neg_integer(), binary()) -> non_neg_integer().
-calculate_amount(PubKeyBin, OUI, Payload) ->
+-spec calculate_dc_amount(libp2p_crypto:pubkey_to_bin(), non_neg_integer(), binary()) -> non_neg_integer().
+calculate_dc_amount(PubKeyBin, OUI, Payload) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
-    Price = erlang:byte_size(Payload),
+    Size = erlang:byte_size(Payload),
+    Price = blockchain_state_channel_utils:calculate_dc_amount(Size),
     case blockchain_ledger_v1:find_gateway_info(PubKeyBin, Ledger) of
         {error, _Reason} ->
             lager:error("failed to find gateway ~p: ~p", [PubKeyBin, _Reason]),
@@ -199,7 +200,7 @@ check_balance(Req, SC, UpdateSC) ->
         {ok, 0} ->
             false;
         {ok, NewBalance} ->
-            ReqAmount = blockchain_state_channel_request_v1:amount(Req),
+            ReqPayloadSize = blockchain_state_channel_request_v1:payload_size(Req),
             OldBalance = case SC == undefined of
                 false ->
                     case blockchain_state_channel_v1:balance(ReqPayee, SC) of
@@ -208,7 +209,7 @@ check_balance(Req, SC, UpdateSC) ->
                     end;
                 true -> 0
             end,
-            NewBalance-OldBalance >= ReqAmount
+            NewBalance-OldBalance >= ReqPayloadSize
     end.
 
 -spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.

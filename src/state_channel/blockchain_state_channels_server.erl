@@ -146,7 +146,7 @@ handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
                             % TODO: Update packet stuff
                             {_, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                             SC1 = blockchain_state_channel_v1:add_request(Req, PayerSigFun, SC0),
-                            case blockchain_state_channel_v1:state(SC1) == closing of
+                            case blockchain_state_channel_v1:state(SC1) =/= open of
                                 true -> self() ! {close_state_channel, SC1};
                                 false -> ok
                             end,
@@ -395,23 +395,23 @@ get_state_channels(DB) ->
 -ifdef(TEST).
 
 select_state_channel_test() ->
-    Req0 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    Req0 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, 12),
     State0 = #state{state_channels= #{}, payees_to_sc= #{}},
     ?assertEqual({error, no_state_channel}, select_state_channel(Req0, State0)),
 
-    Req1 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    Req1 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, 12),
     ID1 = <<"1">>,
     SC1 =blockchain_state_channel_v1:new(ID1, <<"owner">>),
     State1 = #state{state_channels= #{ID1 => SC1}, payees_to_sc= #{<<"payee">> => ID1}},
     ?assertEqual({error, not_enough_credits}, select_state_channel(Req1, State1)),
 
-    Req2 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    Req2 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, 12),
     ID2 = <<"2">>,
     SC2 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID2, <<"owner">>)),
     State2 = #state{state_channels= #{ID2 => SC2}, payees_to_sc= #{<<"payee">> => ID2}},
     ?assertEqual({ok, SC2}, select_state_channel(Req2, State2)),
 
-    Req4 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 12),
+    Req4 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, 12),
     ID3 = <<"3">>,
     SC3 = blockchain_state_channel_v1:new(ID3, <<"owner">>),
     ID4 = <<"4">>,
@@ -419,14 +419,14 @@ select_state_channel_test() ->
     State4 = #state{state_channels= #{ID3 => SC3, ID4 => SC4}, payees_to_sc= #{<<"payee">> => ID3}},
     ?assertEqual({ok, SC4}, select_state_channel(Req4, State4)),
 
-    Req5 = blockchain_state_channel_request_v1:new(<<"payee">>, 0, 12),
+    Req5 = blockchain_state_channel_request_v1:new(<<"payee">>, 0, 24, 12),
     ?assertEqual({ok, SC3}, select_state_channel(Req5, State4)),
 
     ID5 = <<"5">>,
     SC5 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID5, <<"owner">>)),
-    State5 = #state{state_channels= #{ID5 => blockchain_state_channel_v1:state(closing, SC5)}, payees_to_sc= #{<<"payee">> => ID5}},
+    State5 = #state{state_channels= #{ID5 => blockchain_state_channel_v1:state(closed, SC5)}, payees_to_sc= #{<<"payee">> => ID5}},
     ?assertEqual({error, no_opened_state_channel}, select_state_channel(Req4, State5)),
-    State6 = #state{state_channels= #{ID5 => blockchain_state_channel_v1:state(closing, SC5)}, payees_to_sc= #{}},
+    State6 = #state{state_channels= #{ID5 => blockchain_state_channel_v1:state(closed, SC5)}, payees_to_sc= #{}},
     ?assertEqual({error, no_opened_state_channel}, select_state_channel(Req4, State6)),
 
     ok.
@@ -462,7 +462,7 @@ update_state_test() ->
     ID = <<"1">>,
     SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
     Payee = <<"payee">>,
-    Req = blockchain_state_channel_request_v1:new(Payee, 1, 12),
+    Req = blockchain_state_channel_request_v1:new(Payee, 1, 24, 12),
     State0 = #state{db=DB, swarm=Swarm, state_channels=#{}, payees_to_sc=#{}},
     State1 = State0#state{state_channels=#{ID => SC}, payees_to_sc=#{Payee => ID}, clients=#{ID => [Payee]}},
 
