@@ -721,7 +721,6 @@ poc_witnesses_rewards_test() ->
 
     ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
     ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
-    ok = blockchain_ledger_v1:add_gateway_witnesses(<<"c">>, [{-80, 1, <<"a">>}, {-80, 2, <<"b">>}], Ledger1),
 
     ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"d">>, Ledger1),
     ok = blockchain_ledger_v1:add_gateway_location(<<"d">>, Four, 1, Ledger1),
