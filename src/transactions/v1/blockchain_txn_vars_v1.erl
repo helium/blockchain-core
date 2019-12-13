@@ -641,7 +641,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 4 ->
+        N when is_integer(N), N >= 1,  N =< 5 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -680,6 +680,8 @@ validate_var(?poc_v4_target_prob_edge_wt, Value) ->
     validate_float(Value, "poc_v4_target_prob_edge_wt", 0.0, 1.0);
 validate_var(?poc_v4_randomness_wt, Value) ->
     validate_float(Value, "poc_v4_randomness_wt", 0.0, 1.0);
+validate_var(?poc_v5_target_prob_randomness_wt, Value) ->
+    validate_float(Value, "poc_v5_target_prob_randomness_wt", 0.0, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

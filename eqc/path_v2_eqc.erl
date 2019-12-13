@@ -14,7 +14,7 @@ prop_path_check() ->
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
-                Vars = #{poc_path_limit => PathLimit},
+                Vars = maps:put(poc_path_limit, PathLimit, default_vars()),
 
                 {Challenger, ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
@@ -29,10 +29,10 @@ prop_path_check() ->
                 {ok, TargetPubkeyBin} = blockchain_poc_target_v2:target(Hash, GatewayScores, Vars),
                 {Time, Path} = timer:tc(fun() ->
                                                 blockchain_poc_path_v2:build(TargetPubkeyBin,
-                                                                                ActiveGateways,
-                                                                                block_time(),
-                                                                                Hash,
-                                                                                Vars)
+                                                                             GatewayScores,
+                                                                             block_time(),
+                                                                             Hash,
+                                                                             Vars)
                                         end),
 
                 blockchain_ledger_v1:close(Ledger),
@@ -63,7 +63,7 @@ prop_path_check() ->
                             %% - atleast one element in path
                             %% - target is always in path
                             %% - we never go back to the same h3 index in path
-                            %% - check next hop is an witness of previous gateway
+                            %% - check next hop is a witness of previous gateway
                             conjunction([{verify_path_length, PathLength =< PathLimit andalso PathLength >= 1},
                                         {verify_path_uniqueness, length(Path) == length(lists:usort(Path))},
                                         {verify_target_membership, lists:member(TargetPubkeyBin, Path)},
@@ -78,11 +78,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 1088 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 1801 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 105719
-    %% ActiveGateway Count: 1087
+    %% Ledger at height: 131551
+    %% ActiveGateway Count: 1800
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -103,8 +103,26 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 block_time() ->
-    %% block time at height 105719
-    1573151628 * 1000000000.
+    %% block time at height 131551
+    1576022415 * 1000000000.
+
+default_vars() ->
+    #{poc_v4_exclusion_cells => 10,
+      poc_v4_parent_res => 11,
+      poc_v4_prob_bad_rssi => 0.01,
+      poc_v4_prob_count_wt => 0.3,
+      poc_v4_prob_good_rssi => 1.0,
+      poc_v4_prob_no_rssi => 0.5,
+      poc_v4_prob_rssi_wt => 0.3,
+      poc_v4_prob_time_wt => 0.3,
+      poc_v4_randomness_wt => 0.1,
+      poc_v4_target_challenge_age => 300,
+      poc_v4_target_exclusion_cells => 6000,
+      poc_v4_target_prob_edge_wt => 0.2,
+      poc_v4_target_prob_score_wt => 0.8,
+      poc_v4_target_score_curve => 5,
+      poc_version => 5,
+      poc_v5_target_prob_randomness_wt => 0.0}.
 
 check_next_hop([_H], _ActiveGateways) ->
     true;

@@ -12,8 +12,10 @@
 
     check_key/2, mark_key/2,
 
-    new_context/1, delete_context/1, reset_context/1, commit_context/1, context_cache/1,
-    new_snapshot/1, has_snapshot/2, release_snapshot/1, snapshot/1,
+    new_context/1, delete_context/1, reset_context/1, commit_context/1,
+    get_context/1, context_cache/1,
+
+    new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     current_height/1, increment_height/2,
     transaction_fee/1, update_transaction_fee/1,
@@ -219,6 +221,22 @@ new_context(Ledger) ->
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     context_cache({Context, Cache}, Ledger).
 
+get_context(Ledger) ->
+    case ?MODULE:context_cache(Ledger) of
+        {undefined, undefined} = C ->
+            C;
+        {Context, Cache} ->
+            {Context, flatten_cache(Cache)}
+    end.
+
+flatten_cache(Cache) ->
+    ets:tab2list(Cache).
+
+install_context({Ctxt, FlatCache}, Ledger) ->
+    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
+    ets:insert(Cache, FlatCache),
+    context_cache({Ctxt, Cache}, Ledger).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -286,6 +304,7 @@ context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, c
 new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
                         snapshots=Cache,
+                        mode=active,
                         active=#sub_ledger_v1{context=undefined, cache=undefined},
                         delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
     case rocksdb:snapshot(DB) of
@@ -293,18 +312,41 @@ new_snapshot(#ledger_v1{db=DB,
             {ok, Height} = current_height(Ledger),
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             {ok, DelayedHeight} = current_height(DelayedLedger),
-            ets:delete(Cache, DelayedHeight),
-            ets:insert(Cache, {Height, SnapshotHandle}  ),
+            ets:delete(Cache, DelayedHeight - 1),
+            ets:insert(Cache, {Height, {snapshot, SnapshotHandle}}),
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
         {error, Reason}=Error ->
             lager:error("Error creating new snapshot, reason: ~p", [Reason]),
             Error
+    end;
+new_snapshot(#ledger_v1{}) ->
+    erlang:error(cannot_snapshot_delayed_ledger).
+
+context_snapshot(Context, #ledger_v1{db=DB, snapshots=Cache} = Ledger) ->
+    {ok, Height} = current_height(Ledger),
+    case ets:lookup(Cache, Height) of
+        [{_Height, _Snapshot}] ->
+            ok;
+        _ ->
+            case rocksdb:snapshot(DB) of
+                {ok, SnapshotHandle} ->
+                    ets:insert_new(Cache, {Height, {context, SnapshotHandle, Context}});
+                {error, Reason} = Error ->
+                    lager:error("Error creating new snapshot, reason: ~p", [Reason]),
+                    Error
+            end
     end.
 
 has_snapshot(Height, #ledger_v1{snapshots=Cache}=Ledger) ->
     case ets:lookup(Cache, Height) of
-        [{Height, SnapshotHandle}] ->
-            {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
+        [{Height, {snapshot, SnapshotHandle}}] ->
+            %% because the snapshot was taken as we ingested a block to the leading ledger we need to query it
+            %% as an active ledger to get the right information at this desired height
+            {ok, blockchain_ledger_v1:new_context(blockchain_ledger_v1:mode(active, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
+        [{Height, {context, SnapshotHandle, Context}}] ->
+            %% context ledgers are always a lagging ledger snapshot with a set of overlay data in an ETS table
+            %% and therefore must be in delayed ledger mode
+            {ok, install_context(Context, blockchain_ledger_v1:mode(delayed, Ledger#ledger_v1{snapshot=SnapshotHandle}))};
         _ ->
             {error, snapshot_not_found}
     end.

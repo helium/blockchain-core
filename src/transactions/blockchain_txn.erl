@@ -181,8 +181,11 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
             _ ->
                 Res = blockchain_utils:pmap(
                         fun(T) ->
+                                Start = erlang:monotonic_time(millisecond),
                                 Type = ?MODULE:type(T),
-                                {T, catch Type:is_valid(T, Chain)}
+                                Ret = (catch Type:is_valid(T, Chain)),
+                                maybe_log_duration(Type, Start),
+                                {T, Ret}
                         end, lists:reverse(PBuf)),
                 separate_res(Res, Chain, Valid, Invalid)
         end,
@@ -198,10 +201,12 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
         blockchain_txn_poc_receipts_v1 when PType == undefined orelse PType == Type ->
             validate(Tail, Valid, Invalid, Type, [Txn | PBuf], Chain);
         _Else when PType == undefined ->
+            Start = erlang:monotonic_time(millisecond),
             case catch Type:is_valid(Txn, Chain) of
                 ok ->
                     case ?MODULE:absorb(Txn, Chain) of
                         ok ->
+                            maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
                         {error, _Reason} ->
                             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason,
@@ -220,8 +225,11 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
         _Else ->
             Res = blockchain_utils:pmap(
                     fun(T) ->
+                            Start = erlang:monotonic_time(millisecond),
                             Ty = ?MODULE:type(T),
-                            {T, catch Ty:is_valid(T, Chain)}
+                            Ret = (catch Ty:is_valid(T, Chain)),
+                            maybe_log_duration(Ty, Start),
+                            {T, Ret}
                     end, lists:reverse(PBuf)),
             {Valid1, Invalid1} = separate_res(Res, Chain, Valid, Invalid),
             validate(Txns, Valid1, Invalid1, undefined, [], Chain)
@@ -247,6 +255,13 @@ separate_res([{T, Err} | Rest], Chain, V, I) ->
             separate_res(Rest, Chain, V, [T | I])
     end.
 
+maybe_log_duration(Type, Start) ->
+    case application:get_env(blockchain, log_validation_times, false) of
+        true ->
+            End = erlang:monotonic_time(millisecond),
+            lager:info("~p took ~p ms", [Type, End - Start]);
+        _ -> ok
+    end.
 
 types(L) ->
     lists:map(fun type/1, L).

@@ -14,7 +14,7 @@ prop_target_check() ->
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
-                Vars = #{},
+                Vars = maps:merge(targeting_vars(), default_vars()),
                 Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
                             undefined ->
                                 true;
@@ -61,11 +61,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 1088 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 1801 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 105719
-    %% ActiveGateway Count: 1087
+    %% Ledger at height: 131551
+    %% ActiveGateway Count: 1800
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -84,3 +84,24 @@ ledger() ->
             ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end,
     blockchain_ledger_v1:new(PrivDir).
+
+targeting_vars() ->
+    #{poc_v4_target_prob_score_wt => 0.1,
+      poc_v4_target_prob_edge_wt => 0.2,
+      poc_v5_target_prob_randomness_wt => 0.7,
+      poc_v4_target_challenge_age => 300,
+      poc_v4_target_exclusion_cells => 6000,
+      poc_v4_target_score_curve => 5
+     }.
+
+default_vars() ->
+    #{poc_v4_exclusion_cells => 10,
+      poc_v4_parent_res => 11,
+      poc_v4_prob_bad_rssi => 0.01,
+      poc_v4_prob_count_wt => 0.3,
+      poc_v4_prob_good_rssi => 1.0,
+      poc_v4_prob_no_rssi => 0.5,
+      poc_v4_prob_rssi_wt => 0.3,
+      poc_v4_prob_time_wt => 0.3,
+      poc_v4_randomness_wt => 0.1,
+      poc_version => 5}.
