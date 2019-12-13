@@ -417,6 +417,7 @@ poc_challengees_rewards(Transactions,
         {#{}, 0},
         Transactions
     ),
+
     maps:fold(
         fun(Challengee, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
@@ -668,24 +669,46 @@ securities_rewards_test() ->
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
-poc_challengers_rewards_test() ->
+poc_challengers_rewards_1_test() ->
     Txns = [
-        blockchain_txn_poc_receipts_v1:new(<<"1">>, <<"Secret">>, <<"OnionKeyHash">>, []),
-        blockchain_txn_poc_receipts_v1:new(<<"2">>, <<"Secret">>, <<"OnionKeyHash">>, []),
-        blockchain_txn_poc_receipts_v1:new(<<"1">>, <<"Secret">>, <<"OnionKeyHash">>, [])
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, [])
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengers_percent => 0.09 + 0.06
+        poc_challengers_percent => 0.09 + 0.06,
+        poc_version => 5
     },
     Rewards = #{
-        {gateway, poc_challengers, <<"1">>} => 100,
-        {gateway, poc_challengers, <<"2">>} => 50
+        {gateway, poc_challengers, <<"a">>} => 100,
+        {gateway, poc_challengers, <<"b">>} => 50
     },
     ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
 
-poc_challengees_rewards_version_5_p2p_bad_witness_test() ->
-    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_version_5_p2p_bad_witness_test"),
+poc_challengers_rewards_2_test() ->
+    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, 1, <<"data">>, radio),
+    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
+
+    Txns = [
+        blockchain_txn_poc_receipts_v1:new(<<"a">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"b">>, <<"Secret">>, <<"OnionKeyHash">>, []),
+        blockchain_txn_poc_receipts_v1:new(<<"c">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA])
+    ],
+    Vars = #{
+        epoch_reward => 1000,
+        poc_challengers_percent => 0.09 + 0.06,
+        poc_version => 5
+    },
+    Rewards = #{
+        {gateway, poc_challengers, <<"a">>} => 38,
+        {gateway, poc_challengers, <<"b">>} => 38,
+        {gateway, poc_challengers, <<"c">>} => 75
+    },
+    ?assertEqual(Rewards, poc_challengers_rewards(Txns, Vars)).
+
+poc_challengees_rewards_1_test() ->
+    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_1_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
@@ -753,8 +776,8 @@ poc_challengees_rewards_version_5_p2p_bad_witness_test() ->
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
 
-poc_challengees_rewards_version_5_p2p_good_witness_test() ->
-    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_version_5_p2p_good_witness_test"),
+poc_challengees_rewards_2_test() ->
+    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_2_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
@@ -795,19 +818,19 @@ poc_challengees_rewards_version_5_p2p_good_witness_test() ->
 
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
-    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, -80, <<"data">>, p2p),
+    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, -80, <<"data">>, radio),
     WitnessForA = blockchain_poc_witness_v1:new(<<"a">>, 1, -80, <<>>),
-    ReceiptForB = blockchain_poc_receipt_v1:new(<<"b">>, 1, 1, <<"data">>, radio),
-    WitnessForB = blockchain_poc_witness_v1:new(<<"b">>, 1, 1, <<>>),
+    ReceiptForB = blockchain_poc_receipt_v1:new(<<"b">>, 1, -70, <<"data">>, radio),
+    WitnessForB = blockchain_poc_witness_v1:new(<<"b">>, 1, -70, <<>>),
 
-    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
+    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, undefined, []),
     ElemForAWithWitness = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, [WitnessForA]),
     ElemForB = blockchain_poc_path_element_v1:new(<<"b">>, ReceiptForB, []),
     ElemForBWithWitness = blockchain_poc_path_element_v1:new(<<"b">>, ReceiptForB, [WitnessForB]),
 
     Txns = [
         %% No rewards here, Only receipt with no witness or subsequent receipt
-        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA]),
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),
         %% Reward because of witness
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]),
         %% Reward because of next elem has receipt
@@ -815,10 +838,88 @@ poc_challengees_rewards_version_5_p2p_good_witness_test() ->
         %% Reward because of witness (adding to make reward 50/50)
         blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness])
     ],
-    %% NOTE: Rewards are equally split
+    %% NOTE: Rewards are split 33-66%
     Rewards = #{
+        {gateway, poc_challengees, <<"a">>} => 117,
+        {gateway, poc_challengees, <<"b">>} => 233
+    },
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
+
+poc_challengees_rewards_3_test() ->
+    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_3_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 1000,
+        poc_challengees_percent => 0.19 + 0.16,
+        poc_version => 5
+    },
+
+    LedgerVars = #{
+        ?poc_v4_exclusion_cells => 10,
+        ?poc_v4_parent_res => 11,
+        ?poc_v4_prob_bad_rssi => 0.01,
+        ?poc_v4_prob_count_wt => 0.3,
+        ?poc_v4_prob_good_rssi => 1.0,
+        ?poc_v4_prob_no_rssi => 0.5,
+        ?poc_v4_prob_rssi_wt => 0.3,
+        ?poc_v4_prob_time_wt => 0.3,
+        ?poc_v4_randomness_wt => 0.1,
+        ?poc_v4_target_challenge_age => 300,
+        ?poc_v4_target_exclusion_cells => 6000,
+        ?poc_v4_target_prob_edge_wt => 0.2,
+        ?poc_v4_target_prob_score_wt => 0.8,
+        ?poc_v4_target_score_curve => 5,
+        ?poc_version => 5,
+        ?poc_v5_target_prob_randomness_wt => 0.0
+    },
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    One = 631179381270930431,
+    Two = 631196173757531135,
+    Three = 631196173214364159,
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"a">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"a">>, One, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"b">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"b">>, Two, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:add_gateway(<<"o">>, <<"c">>, Ledger1),
+    ok = blockchain_ledger_v1:add_gateway_location(<<"c">>, Three, 1, Ledger1),
+
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    ReceiptForA = blockchain_poc_receipt_v1:new(<<"a">>, 1, -120, <<"data">>, radio),
+    WitnessForA = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
+    ReceiptForB = blockchain_poc_receipt_v1:new(<<"b">>, 1, -70, <<"data">>, radio),
+    WitnessForB = blockchain_poc_witness_v1:new(<<"c">>, 1, -120, <<>>),
+    ReceiptForC = blockchain_poc_receipt_v1:new(<<"c">>, 1, -120, <<"data">>, radio),
+
+    ElemForA = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, []),
+    ElemForAWithWitness = blockchain_poc_path_element_v1:new(<<"a">>, ReceiptForA, [WitnessForA]),
+    ElemForB = blockchain_poc_path_element_v1:new(<<"b">>, undefined, []),
+    ElemForBWithWitness = blockchain_poc_path_element_v1:new(<<"b">>, ReceiptForB, [WitnessForB]),
+    ElemForC = blockchain_poc_path_element_v1:new(<<"c">>, ReceiptForC, []),
+
+    Txns = [
+        %% No rewards here, Only receipt with no witness or subsequent receipt
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForB, ElemForA]),  %% 1, 2
+        %% Reward because of witness
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForAWithWitness]), %% 3
+        %% Reward because of next elem has receipt
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForA, ElemForB, ElemForC]), %% 3, 2, 2
+        %% Reward because of witness (adding to make reward 50/50)
+        blockchain_txn_poc_receipts_v1:new(<<"X">>, <<"Secret">>, <<"OnionKeyHash">>, [ElemForBWithWitness]) %% 3
+    ],
+    Rewards = #{
+        %% a gets 8 shares
         {gateway, poc_challengees, <<"a">>} => 175,
-        {gateway, poc_challengees, <<"b">>} => 175
+        %% b gets 6 shares
+        {gateway, poc_challengees, <<"b">>} => 131,
+        %% c gets 2 shares
+        {gateway, poc_challengees, <<"c">>} => 44
     },
     ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
 
