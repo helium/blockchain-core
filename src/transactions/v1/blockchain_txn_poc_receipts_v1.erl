@@ -478,12 +478,10 @@ good_quality_witnesses(Element, Ledger) ->
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
                                  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                                 (
-                                   %% Check that the witness is far
-                                   (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
-                                   %% Check that the RSSI seems reasonable
-                                   (WitnessRSSI =< FreeSpacePathLoss)
-                                  )
+                                 %% Check that the witness is far
+                                 (h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells) andalso
+                                 %% Check that the RSSI seems reasonable
+                                 (WitnessRSSI =< FreeSpacePathLoss)
                          end,
                          Witnesses).
 
