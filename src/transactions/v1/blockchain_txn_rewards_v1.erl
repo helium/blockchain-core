@@ -718,24 +718,8 @@ poc_challengees_rewards_1_test() ->
         poc_version => 5
     },
 
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_version => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+    LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
 
     One = 631179381270930431,
@@ -787,24 +771,8 @@ poc_challengees_rewards_2_test() ->
         poc_version => 5
     },
 
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_version => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+    LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
 
     One = 631179381270930431,
@@ -856,24 +824,8 @@ poc_challengees_rewards_3_test() ->
         poc_version => 5
     },
 
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_version => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+    LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
 
     One = 631179381270930431,
@@ -932,24 +884,9 @@ poc_witnesses_rewards_test() ->
       poc_witnesses_percent => 0.02 + 0.03,
       poc_version => 5
      },
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_version => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+
+    LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
 
     One = 631179381270930431,
@@ -1009,22 +946,8 @@ old_poc_challengees_rewards_version_1_test() ->
     BaseDir = test_utils:tmp_dir("old_poc_challengees_rewards_version_1_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+    LedgerVars = common_poc_vars(),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
@@ -1052,23 +975,9 @@ old_poc_challengees_rewards_version_2_test() ->
     BaseDir = test_utils:tmp_dir("old_poc_challengees_rewards_version_2_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+
+    LedgerVars = common_poc_vars(),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
@@ -1106,23 +1015,9 @@ old_poc_witnesses_rewards_test() ->
     BaseDir = test_utils:tmp_dir("old_poc_witnesses_rewards_test"),
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    LedgerVars = #{
-        ?poc_v4_exclusion_cells => 10,
-        ?poc_v4_parent_res => 11,
-        ?poc_v4_prob_bad_rssi => 0.01,
-        ?poc_v4_prob_count_wt => 0.3,
-        ?poc_v4_prob_good_rssi => 1.0,
-        ?poc_v4_prob_no_rssi => 0.5,
-        ?poc_v4_prob_rssi_wt => 0.3,
-        ?poc_v4_prob_time_wt => 0.3,
-        ?poc_v4_randomness_wt => 0.1,
-        ?poc_v4_target_challenge_age => 300,
-        ?poc_v4_target_exclusion_cells => 6000,
-        ?poc_v4_target_prob_edge_wt => 0.2,
-        ?poc_v4_target_prob_score_wt => 0.8,
-        ?poc_v4_target_score_curve => 5,
-        ?poc_v5_target_prob_randomness_wt => 0.0
-    },
+
+    LedgerVars = common_poc_vars(),
+
     ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
 
@@ -1143,5 +1038,24 @@ old_poc_witnesses_rewards_test() ->
         {gateway, poc_witnesses, <<"2">>} => 25
     },
     ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)).
+
+common_poc_vars() ->
+    #{
+        ?poc_v4_exclusion_cells => 10,
+        ?poc_v4_parent_res => 11,
+        ?poc_v4_prob_bad_rssi => 0.01,
+        ?poc_v4_prob_count_wt => 0.3,
+        ?poc_v4_prob_good_rssi => 1.0,
+        ?poc_v4_prob_no_rssi => 0.5,
+        ?poc_v4_prob_rssi_wt => 0.3,
+        ?poc_v4_prob_time_wt => 0.3,
+        ?poc_v4_randomness_wt => 0.1,
+        ?poc_v4_target_challenge_age => 300,
+        ?poc_v4_target_exclusion_cells => 6000,
+        ?poc_v4_target_prob_edge_wt => 0.2,
+        ?poc_v4_target_prob_score_wt => 0.8,
+        ?poc_v4_target_score_curve => 5,
+        ?poc_v5_target_prob_randomness_wt => 0.0
+    }.
 
 -endif.
