@@ -48,6 +48,7 @@
 -optional_callbacks([rescue_absorb/2, print/1, print/2]).
 
 -export([
+    block_delay/0,
     hash/1,
     validate/2, validate/3,
     absorb/2,
@@ -57,6 +58,7 @@
     unvalidated_absorb_and_commit/4,
     absorb_block/2, absorb_block/3,
     absorb_txns/3,
+    absorb_delayed/2,
     sort/2,
     type/1,
     serialize/1,
@@ -91,6 +93,9 @@
     {blockchain_txn_poc_request_v1, 17},
     {blockchain_txn_poc_receipts_v1, 18}
 ]).
+
+block_delay() ->
+    ?BLOCK_DELAY.
 
 hash(Txn) ->
     (type(Txn)):hash(Txn).
@@ -521,7 +526,8 @@ absorb_delayed(Block0, Chain0) ->
     case blockchain_ledger_v1:current_height(Ledger0) of
         % This is so it absorbs genesis
         {ok, H} when H < 2 ->
-            absorb_delayed_(Block0, Chain1);
+            absorb_delayed_(Block0, Chain1),
+            ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
         {ok, CurrentHeight} ->
             {ok, DelayedHeight} = blockchain_ledger_v1:current_height(DelayedLedger1),
             % Then we absorb if minimum limit is there
@@ -529,8 +535,22 @@ absorb_delayed(Block0, Chain0) ->
                 false ->
                     ok;
                 true ->
-                    {ok, Block1} = blockchain:get_block(DelayedHeight+1, Chain0),
-                    absorb_delayed_(Block1, Chain1)
+                    %% bound the number of blocks we do at a time
+                    Lag = min(?BLOCK_DELAY, CurrentHeight - DelayedHeight - ?BLOCK_DELAY),
+                    Res = lists:foldl(fun(H, ok) ->
+                                              {ok, Block1} = blockchain:get_block(H, Chain0),
+                                              absorb_delayed_(Block1, Chain1);
+                                         (_, Acc) ->
+                                              Acc
+                                      end,
+                                      ok,
+                                      lists:seq(DelayedHeight+1, DelayedHeight + Lag)),
+                    case Res of
+                        ok ->
+                            ok = blockchain_ledger_v1:commit_context(DelayedLedger1);
+                        Error ->
+                            Error
+                    end
             end;
         _Any ->
             _Any
@@ -538,9 +558,8 @@ absorb_delayed(Block0, Chain0) ->
 
 absorb_delayed_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
-        {ok, Chain1} ->
-            Ledger = blockchain:ledger(Chain1),
-            ok = blockchain_ledger_v1:commit_context(Ledger);
+        {ok, _} ->
+            ok;
         Error ->
             Ledger = blockchain:ledger(Chain0),
             blockchain_ledger_v1:delete_context(Ledger),
