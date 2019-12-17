@@ -969,6 +969,8 @@ crosscheck(Blockchain) ->
     %% check the delayed ledger is the right number of blocks behind
     case LedgerHeight - DelayedLedgerHeight  of
         Lag when Lag > BlockDelay ->
+            %% since this is likely caused by a missing block, we should
+            %% look for any missing blocks between the lagging and the leading ledger
             {error, {ledger_delayed_ledger_lag_too_large, Lag}};
         Lag when Lag < BlockDelay ->
             {error, {ledger_delayed_ledger_lag_too_small, Lag}};
