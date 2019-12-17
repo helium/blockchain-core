@@ -958,62 +958,145 @@ last_block_add_time(#blockchain{default=DefaultCF, db=DB}) ->
 last_block_add_time(_) ->
     0.
 
+check_common_keys(Blockchain) ->
+    case genesis_block(Blockchain) of
+        {ok, _} ->
+            case head_block(Blockchain) of
+                {ok, _} ->
+                    ok;
+                _ ->
+                    case head_hash(Blockchain) of
+                        {ok, _} ->
+                            {error, missing_head_block};
+                        _ ->
+                            {error, missing_head_hash}
+                    end
+            end;
+        _ ->
+            case genesis_hash(Blockchain) of
+                {ok, _} ->
+                    {error, missing_genesis_block};
+                _ ->
+                    {error, missing_genesis_hash}
+            end
+    end.
+
+check_recent_blocks(Blockchain) ->
+    Ledger = ledger(Blockchain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
+    case get_block(DelayedLedgerHeight, Blockchain) of
+        {ok, DelayedHeadBlock} ->
+            DelayedHeadHash = blockchain_block_v1:hash_block(DelayedHeadBlock),
+            case get_block(LedgerHeight, Blockchain) of
+                {ok, HeadBlock} ->
+                    Hashes = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
+                    case get_block(hd(Hashes), Blockchain) of
+                        {ok, FirstBlock} ->
+                            case blockchain_block:prev_hash(FirstBlock) == DelayedHeadHash of
+                                true ->
+                                    ok;
+                                false ->
+                                    case length(Hashes) == (LedgerHeight - DelayedLedgerHeight) of
+                                        true ->
+                                            %% this is real bad
+                                            {error, {noncontiguous_recent_blocks, length(Hashes), LedgerHeight, DelayedLedgerHeight}};
+                                        false ->
+                                            %% get the head of the hash chain we managed to make
+                                            case get_block(hd(Hashes), Blockchain) of
+                                                {ok, Block} ->
+                                                    {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                                _ ->
+                                                    case get_block(hd(tl(Hashes)), Blockchain) of
+                                                        {ok, Block} ->
+                                                            {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                                        _ ->
+                                                            %% what the hell is happening
+                                                            {error, space_wolves}
+                                                    end
+                                            end
+                                    end
+                            end;
+                        _ ->
+                            case get_block(hd(tl(Hashes)), Blockchain) of
+                                {ok, Block} ->
+                                    {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                _ ->
+                                    %% what the hell is happening
+                                    {error, space_wolves}
+                            end
+                    end;
+                _ ->
+                    {error, {missing_block, LedgerHeight}}
+            end;
+        _ ->
+            {error, {missing_block, DelayedLedgerHeight}}
+    end.
+
 crosscheck(Blockchain) ->
     {ok, Height} = height(Blockchain),
     Ledger = ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
     {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
     BlockDelay = blockchain_txn:block_delay(),
-    %% TODO we should also check for the important keys like ?HEAD, ?GENESIS, etc
-    %%
-    %% check the delayed ledger is the right number of blocks behind
-    case LedgerHeight - DelayedLedgerHeight  of
-        Lag when Lag > BlockDelay ->
-            %% since this is likely caused by a missing block, we should
-            %% look for any missing blocks between the lagging and the leading ledger
-            {error, {ledger_delayed_ledger_lag_too_large, Lag}};
-        Lag when Lag < BlockDelay ->
-            {error, {ledger_delayed_ledger_lag_too_small, Lag}};
-        _ ->
-            %% check if the ledger is the same height as the chain
-            case Height == LedgerHeight of
-                false ->
-                    {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
-                true ->
-                    %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
-                    case ledger_at(Height, Blockchain, true) of
-                        {ok, RecalcLedger} ->
-                            {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
-                            {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
-                            case FP == RecalcFP of
+    %% check for the important keys like ?HEAD, ?GENESIS, etc
+    case check_common_keys(Blockchain) of
+        ok ->
+            %% check we have all the blocks between the leading and lagging ledger
+            case check_recent_blocks(Blockchain) of
+                ok ->
+                    %% check the delayed ledger is the right number of blocks behind
+                    case LedgerHeight - DelayedLedgerHeight  of
+                        Lag when Lag > BlockDelay ->
+                            {error, {ledger_delayed_ledger_lag_too_large, Lag}};
+                        Lag when Lag < BlockDelay ->
+                            {error, {ledger_delayed_ledger_lag_too_small, Lag}};
+                        _ ->
+                            %% check if the ledger is the same height as the chain
+                            case Height == LedgerHeight of
                                 false ->
-                                    Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
-                                    MismatchesWithChanges = lists:map(fun(M) ->
-                                                                              X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
-                                                                              {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
-                                                                                                                                                      Acc1 = case maps:find(K, X) of
-                                                                                                                                                                 {ok, V} ->
-                                                                                                                                                                     Acc;
-                                                                                                                                                                 {ok, Other} ->
-                                                                                                                                                                     [{changed, K, Other, V}|Acc];
-                                                                                                                                                                 error ->
-                                                                                                                                                                     [{added, K, V}|Acc]
-                                                                                                                                                             end,
-                                                                                                                                                      {[K|Keys], Acc1}
-                                                                                                                                              end, {[], []}, RecalcLedger),
-                                                                              Changes = maps:fold(fun(K, V, A) ->
-                                                                                                          [{deleted, K, V}|A]
-                                                                                                  end, Changes0, maps:without(AllKeys, X)),
-                                                                              {fp_to_cf(M), Changes}
-                                                                      end, Mismatches),
-                                    {error, {fingerprint_mismatch, MismatchesWithChanges}};
+                                    {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
                                 true ->
-                                    ok
-                            end;
-                        Error ->
-                            Error
-                    end
-            end
+                                    %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
+                                    case ledger_at(Height, Blockchain, true) of
+                                        {ok, RecalcLedger} ->
+                                            {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
+                                            {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
+                                            case FP == RecalcFP of
+                                                false ->
+                                                    Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
+                                                    MismatchesWithChanges = lists:map(fun(M) ->
+                                                                                              X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
+                                                                                              {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
+                                                                                                                                                                      Acc1 = case maps:find(K, X) of
+                                                                                                                                                                                 {ok, V} ->
+                                                                                                                                                                                     Acc;
+                                                                                                                                                                                 {ok, Other} ->
+                                                                                                                                                                                     [{changed, K, Other, V}|Acc];
+                                                                                                                                                                                 error ->
+                                                                                                                                                                                     [{added, K, V}|Acc]
+                                                                                                                                                                             end,
+                                                                                                                                                                      {[K|Keys], Acc1}
+                                                                                                                                                              end, {[], []}, RecalcLedger),
+                                                                                              Changes = maps:fold(fun(K, V, A) ->
+                                                                                                                          [{deleted, K, V}|A]
+                                                                                                                  end, Changes0, maps:without(AllKeys, X)),
+                                                                                              {fp_to_cf(M), Changes}
+                                                                                      end, Mismatches),
+                                                    {error, {fingerprint_mismatch, MismatchesWithChanges}};
+                                                true ->
+                                                    ok
+                                            end;
+                                        Error ->
+                                            Error
+                                    end
+                            end
+                    end;
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
     end.
 
 analyze(Blockchain) ->
