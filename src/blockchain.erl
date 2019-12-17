@@ -24,6 +24,8 @@
 
     last_block_add_time/1,
 
+    analyze/1, repair/1,
+
     reset_ledger/1, reset_ledger/2, reset_ledger/3
 ]).
 
@@ -52,6 +54,7 @@
 -define(DB_FILE, "blockchain.db").
 -define(HEAD, <<"head">>).
 -define(TEMP_HEADS, <<"temp_heads">>).
+-define(MISSING_BLOCK, <<"missing_block">>).
 -define(GENESIS, <<"genesis">>).
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
@@ -233,17 +236,23 @@ head_hash(#blockchain{db=DB, default=DefaultCF}) ->
 
 -spec sync_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
 sync_hash(Blockchain=#blockchain{db=DB, default=DefaultCF}) ->
-    case persistent_term:get(?ASSUMED_VALID, undefined) of
-        undefined ->
-            ?MODULE:head_hash(Blockchain);
+    case rocksdb:get(DB, DefaultCF, ?MISSING_BLOCK, []) of
+        {ok, Hash} ->
+            %% this is the hash of the last block before the gap
+            {ok, Hash};
         _ ->
-            case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
-                {ok, BinHashes} ->
-                    Hashes = binary_to_term(BinHashes),
-                    RandomHash = lists:nth(rand:uniform(length(Hashes)), Hashes),
-                    {ok, RandomHash};
+            case persistent_term:get(?ASSUMED_VALID, undefined) of
+                undefined ->
+                    ?MODULE:head_hash(Blockchain);
                 _ ->
-                    ?MODULE:head_hash(Blockchain)
+                    case rocksdb:get(DB, DefaultCF, ?TEMP_HEADS, []) of
+                        {ok, BinHashes} ->
+                            Hashes = binary_to_term(BinHashes),
+                            RandomHash = lists:nth(rand:uniform(length(Hashes)), Hashes),
+                            {ok, RandomHash};
+                        _ ->
+                            ?MODULE:head_hash(Blockchain)
+                    end
             end
     end.
 
@@ -337,11 +346,15 @@ ledger(Ledger, Chain) ->
 %%--------------------------------------------------------------------
 -spec ledger_at(pos_integer(), blockchain()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
 ledger_at(Height, Chain0) ->
+    ledger_at(Height, Chain0, false).
+
+-spec ledger_at(pos_integer(), blockchain(), boolean()) -> {ok, blockchain_ledger_v1:ledger()} | {error, any()}.
+ledger_at(Height, Chain0, ForceRecalc) ->
     Ledger = ?MODULE:ledger(Chain0),
     case blockchain_ledger_v1:current_height(Ledger) of
-        {ok, CurrentHeight} when Height > CurrentHeight->
+        {ok, CurrentHeight} when Height > CurrentHeight andalso not ForceRecalc ->
             {error, invalid_height};
-        {ok, Height} ->
+        {ok, Height} when not ForceRecalc ->
             %% Current height is the height we want, just return a new context
             {ok, blockchain_ledger_v1:new_context(Ledger)};
         {ok, CurrentHeight} ->
@@ -350,16 +363,20 @@ ledger_at(Height, Chain0) ->
                 {ok, Height} ->
                     %% Delayed height is the height we want, just return a new context
                     {ok, blockchain_ledger_v1:new_context(DelayedLedger)};
-                {ok, DelayedHeight} when Height > DelayedHeight andalso Height < CurrentHeight ->
+                {ok, DelayedHeight} when Height > DelayedHeight andalso Height =< CurrentHeight ->
                     case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
-                        {ok, SnapshotLedger} ->
+                        {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
                         _ ->
-                            Chain1 = fold_chain(Chain0, DelayedHeight, DelayedLedger, Height),
-                            Ledger1 = ?MODULE:ledger(Chain1),
-                            Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                            blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
-                            {ok, Ledger1}
+                            case fold_chain(Chain0, DelayedHeight, DelayedLedger, Height) of
+                                {ok, Chain1} ->
+                                    Ledger1 = ?MODULE:ledger(Chain1),
+                                    Ctxt = blockchain_ledger_v1:get_context(Ledger1),
+                                    blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
+                                    {ok, Ledger1};
+                                Error ->
+                                    Error
+                            end
                     end;
                 {ok, DelayedHeight} when Height < DelayedHeight ->
                     {error, height_too_old};
@@ -372,12 +389,23 @@ ledger_at(Height, Chain0) ->
 
 fold_chain(Chain0, DelayedHeight, DelayedLedger, Height) ->
     lists:foldl(
-      fun(H, ChainAcc) ->
-              {ok, Block} = ?MODULE:get_block(H, Chain0),
-              {ok, Chain1} = blockchain_txn:absorb_block(Block, ChainAcc),
-              Chain1
+      fun(H, {ok, ChainAcc}) ->
+              case ?MODULE:get_block(H, Chain0) of
+                  {ok, Block} ->
+                      case blockchain_txn:absorb_block(Block, ChainAcc) of
+                          {ok, Chain1} ->
+                              {ok, Chain1};
+                          {error, Reason} ->
+                              {error, {block_absorb_failed, H, Reason}}
+                      end;
+                  {error, not_found} ->
+                      {error, {missing_block, H}}
+              end;
+         (_H, Error) ->
+            %% keep returning the error
+            Error
       end,
-      ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0),
+      {ok, ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0)},
       lists:seq(DelayedHeight+1, Height)
      ).
 
@@ -465,14 +493,40 @@ add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
 
 -spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
-add_block(Block, Blockchain, Syncing) ->
+add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing) ->
     blockchain_lock:acquire(),
     try
-        case persistent_term:get(?ASSUMED_VALID, undefined) of
-            undefined ->
-                add_block_(Block, Blockchain, Syncing);
-            AssumedValidHashAndHeight ->
-                add_assumed_valid_block(AssumedValidHashAndHeight, Block, Blockchain, Syncing)
+        PrevHash = blockchain_block:prev_hash(Block),
+        case rocksdb:get(DB, DefaultCF, ?MISSING_BLOCK, []) of
+            {ok, PrevHash} ->
+                {ok, Batch} = rocksdb:batch(),
+                %% this is the block we've been missing
+                Height = blockchain_block:height(Block),
+                Hash = blockchain_block:hash_block(Block),
+                %% check if it fits between the 2 known good blocks
+                case get_block(Height + 1, Blockchain) of
+                    {ok, NextBlock} ->
+                        case blockchain_block:prev_hash(NextBlock) of
+                            Hash ->
+                                %% everything lines up
+                                ok = rocksdb:batch_put(Batch, BlocksCF, Hash, blockchain_block:serialize(Block)),
+                                %% lexiographic ordering works better with big endian
+                                ok = rocksdb:batch_put(Batch, HeightsCF, <<Height:64/integer-unsigned-big>>, Hash),
+                                ok = rocksdb:batch_delete(Batch, DefaultCF, ?MISSING_BLOCK),
+                                ok = rocksdb:write_batch(DB, Batch, [{sync, true}]);
+                            _ ->
+                                {error, bad_resynced_block}
+                        end;
+                    _ ->
+                        {error, resynced_block_child_missing}
+                end;
+            _ ->
+                case persistent_term:get(?ASSUMED_VALID, undefined) of
+                    undefined ->
+                        add_block_(Block, Blockchain, Syncing);
+                    AssumedValidHashAndHeight ->
+                        add_assumed_valid_block(AssumedValidHashAndHeight, Block, Blockchain, Syncing)
+                end
         end
     catch What:Why:Stack ->
             lager:warning("error adding block: ~p:~p, ~p", [What, Why, Stack]),
@@ -904,6 +958,218 @@ last_block_add_time(#blockchain{default=DefaultCF, db=DB}) ->
 last_block_add_time(_) ->
     0.
 
+check_common_keys(Blockchain) ->
+    case genesis_block(Blockchain) of
+        {ok, _} ->
+            case head_block(Blockchain) of
+                {ok, _} ->
+                    ok;
+                _ ->
+                    case head_hash(Blockchain) of
+                        {ok, _} ->
+                            {error, missing_head_block};
+                        _ ->
+                            {error, missing_head_hash}
+                    end
+            end;
+        _ ->
+            case genesis_hash(Blockchain) of
+                {ok, _} ->
+                    {error, missing_genesis_block};
+                _ ->
+                    {error, missing_genesis_hash}
+            end
+    end.
+
+check_recent_blocks(Blockchain) ->
+    Ledger = ledger(Blockchain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
+    case get_block(DelayedLedgerHeight, Blockchain) of
+        {ok, DelayedHeadBlock} ->
+            DelayedHeadHash = blockchain_block_v1:hash_block(DelayedHeadBlock),
+            case get_block(LedgerHeight, Blockchain) of
+                {ok, HeadBlock} ->
+                    Hashes = build_hash_chain(DelayedHeadHash, HeadBlock, Blockchain, Blockchain#blockchain.blocks),
+                    case get_block(hd(Hashes), Blockchain) of
+                        {ok, FirstBlock} ->
+                            case blockchain_block:prev_hash(FirstBlock) == DelayedHeadHash of
+                                true ->
+                                    ok;
+                                false ->
+                                    case length(Hashes) == (LedgerHeight - DelayedLedgerHeight) of
+                                        true ->
+                                            %% this is real bad
+                                            {error, {noncontiguous_recent_blocks, length(Hashes), LedgerHeight, DelayedLedgerHeight}};
+                                        false ->
+                                            %% get the head of the hash chain we managed to make
+                                            case get_block(hd(Hashes), Blockchain) of
+                                                {ok, Block} ->
+                                                    {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                                _ ->
+                                                    case get_block(hd(tl(Hashes)), Blockchain) of
+                                                        {ok, Block} ->
+                                                            {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                                        _ ->
+                                                            %% what the hell is happening
+                                                            {error, space_wolves}
+                                                    end
+                                            end
+                                    end
+                            end;
+                        _ ->
+                            case get_block(hd(tl(Hashes)), Blockchain) of
+                                {ok, Block} ->
+                                    {error, {missing_block, blockchain_block:height(Block) - 1}};
+                                _ ->
+                                    %% what the hell is happening
+                                    {error, space_wolves}
+                            end
+                    end;
+                _ ->
+                    {error, {missing_block, LedgerHeight}}
+            end;
+        _ ->
+            {error, {missing_block, DelayedLedgerHeight}}
+    end.
+
+crosscheck(Blockchain) ->
+    {ok, Height} = height(Blockchain),
+    Ledger = ledger(Blockchain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, DelayedLedgerHeight} = blockchain_ledger_v1:current_height(blockchain_ledger_v1:mode(delayed, Ledger)),
+    BlockDelay = blockchain_txn:block_delay(),
+    %% check for the important keys like ?HEAD, ?GENESIS, etc
+    case check_common_keys(Blockchain) of
+        ok ->
+            %% check we have all the blocks between the leading and lagging ledger
+            case check_recent_blocks(Blockchain) of
+                ok ->
+                    %% check the delayed ledger is the right number of blocks behind
+                    case LedgerHeight - DelayedLedgerHeight  of
+                        Lag when Lag > BlockDelay ->
+                            {error, {ledger_delayed_ledger_lag_too_large, Lag}};
+                        Lag when Lag < BlockDelay ->
+                            {error, {ledger_delayed_ledger_lag_too_small, Lag}};
+                        _ ->
+                            %% check if the ledger is the same height as the chain
+                            case Height == LedgerHeight of
+                                false ->
+                                    {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
+                                true ->
+                                    %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
+                                    case ledger_at(Height, Blockchain, true) of
+                                        {ok, RecalcLedger} ->
+                                            {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
+                                            {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
+                                            case FP == RecalcFP of
+                                                false ->
+                                                    Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
+                                                    MismatchesWithChanges = lists:map(fun(M) ->
+                                                                                              X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
+                                                                                              {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
+                                                                                                                                                                      Acc1 = case maps:find(K, X) of
+                                                                                                                                                                                 {ok, V} ->
+                                                                                                                                                                                     Acc;
+                                                                                                                                                                                 {ok, Other} ->
+                                                                                                                                                                                     [{changed, K, Other, V}|Acc];
+                                                                                                                                                                                 error ->
+                                                                                                                                                                                     [{added, K, V}|Acc]
+                                                                                                                                                                             end,
+                                                                                                                                                                      {[K|Keys], Acc1}
+                                                                                                                                                              end, {[], []}, RecalcLedger),
+                                                                                              Changes = maps:fold(fun(K, V, A) ->
+                                                                                                                          [{deleted, K, V}|A]
+                                                                                                                  end, Changes0, maps:without(AllKeys, X)),
+                                                                                              {fp_to_cf(M), Changes}
+                                                                                      end, Mismatches),
+                                                    {error, {fingerprint_mismatch, MismatchesWithChanges}};
+                                                true ->
+                                                    ok
+                                            end;
+                                        Error ->
+                                            Error
+                                    end
+                            end
+                    end;
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+analyze(Blockchain) ->
+  case crosscheck(Blockchain) of
+      {error, {fingerprint_mismatch, Mismatches}} ->
+          {error, {fingerprint_mismatch, lists:map(fun({M, Changes}) ->
+                                                           Sum = lists:foldl(fun({changed, _, _, _}, Acc) ->
+                                                                                     maps:update_with(changed, fun(V) -> V+1 end, 1, Acc);
+                                                                                ({added, _, _}, Acc) ->
+                                                                                     maps:update_with(added, fun(V) -> V+1 end, 1, Acc);
+                                                                                ({deleted, _, _}, Acc) ->
+                                                                                     maps:update_with(deleted, fun(V) -> V+1 end, 1, Acc)
+                                                                             end, #{}, Changes),
+                                                           {M, maps:to_list(Sum)}
+                                                   end, Mismatches)}};
+      E ->
+          E
+  end.
+
+%% TODO it'd be nice if the fingerprint function was consistent with the column family names
+fp_to_cf(<<"core_fingerprint">>) -> default;
+fp_to_cf(<<"gateways_fingerprint">>) -> active_gateways;
+fp_to_cf(<<"poc_fingerprint">>) -> pocs;
+fp_to_cf(<<"entries_fingerprint">>) -> entries;
+fp_to_cf(<<"dc_entries_fingerprint">>) -> dc_entries;
+fp_to_cf(<<"securities_fingerprint">>) -> securities;
+fp_to_cf(<<"htlc_fingerprint">>) -> htlcs;
+fp_to_cf(<<"routings_fingerprint">>) -> routing.
+
+repair(#blockchain{db=DB, default=DefaultCF} = Blockchain) ->
+    case crosscheck(Blockchain) of
+        {error, {fingerprint_mismatch, Mismatches}} ->
+            Ledger = ledger(Blockchain),
+            blockchain_ledger_v1:apply_raw_changes(Mismatches, Ledger);
+        {error, {missing_block, Height}} ->
+            %% we need to sync this block from someone
+            %% first, we need to find the hash of the parent
+            {ok, MaxHeight} = height(Blockchain),
+            case {get_block(Height - 1, Blockchain), find_upper_height(Height+1, Blockchain, MaxHeight)} of
+                {{ok, Block}, TopHeight} when TopHeight == Height + 1 ->
+                    %% TODO it's possible we only lost the lookup by height, we might be able to find it by
+                    %% the next block's parent hash
+                    %%
+                    %% flag this block as the block we must sync next
+                    ok = rocksdb:put(DB, DefaultCF, ?MISSING_BLOCK, blockchain_block:hash_block(Block), [{sync, true}]),
+                    {ok, {resyncing_block, Height}};
+                {{ok, _Block}, TopHeight} ->
+                    %% we can probably fix this but it's a bit complicated and hopefully rare
+                    {error, {missing_too_many_blocks, Height, TopHeight}};
+                Error ->
+                    {error, {resyncing_block, Height, Error}}
+            end;
+        {error, {ledger_delayed_ledger_lag_too_large, Lag}} ->
+            {ok, Block} = head_block(Blockchain),
+            %% because of memory constraints, this can take a few applications to complete
+            lists:foldl(fun(_, ok) ->
+                                  blockchain_txn:absorb_delayed(Block, Blockchain);
+                           (_, Err) ->
+                                Err
+                          end, ok, lists:seq(1, ceil(Lag / blockchain_txn:block_delay())));
+        Other -> Other
+    end.
+
+find_upper_height(Height, Blockchain, Max) when Height =< Max ->
+    case get_block(Height, Blockchain) of
+        {ok, _} ->
+            Height;
+        _ ->
+            find_upper_height(Height + 1, Blockchain, Max)
+    end;
+find_upper_height(Height, _, _) ->
+    Height.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -1057,6 +1323,8 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
             %% TODO make sure we delete the column family, in case it has stale crap in it!
             maybe_continue_resync(Blockchain);
         _ ->
+            %% set this up here, it will get cleared if we're able to add all the assume valid blocks
+            ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
             #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
             case rocksdb:get(DB, TempBlocksCF, Hash, []) of
                 {ok, BinBlock} ->
@@ -1076,10 +1344,10 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                                                        %% something went wrong!
                                                        lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
                                                        %% TODO we should probably drop the column family here?
-                                                       ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight)
+                                                       ok
                                                catch C:E:S ->
                                                        lager:warning("assume valid processing failed on init with assumed_valid hash present ~p:~p ~p", [C, E, S]),
-                                                       ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight)
+                                                       ok
                                                after
                                                    blockchain_lock:force_release()
                                                end

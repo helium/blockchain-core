@@ -79,7 +79,10 @@
     delay_vars/3,
 
     fingerprint/1, fingerprint/2,
+    raw_fingerprint/2, %% does not use cache
     cf_fold/4,
+
+    apply_raw_changes/2,
 
     clean/1, close/1
 ]).
@@ -374,89 +377,111 @@ snapshot(Ledger) ->
             {ok, S}
     end.
 
-cf_fold(CF, F, Acc, #ledger_v1{mode = Mode} = Ledger) ->
-    try
+atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
         SL = case Mode of
                  active -> Ledger#ledger_v1.active;
                  delayed -> Ledger#ledger_v1.delayed
              end,
+        case Atom of
+            default -> SL#sub_ledger_v1.default;
+            active_gateways -> SL#sub_ledger_v1.active_gateways;
+            entries -> SL#sub_ledger_v1.entries;
+            dc_entries -> SL#sub_ledger_v1.dc_entries;
+            htlcs -> SL#sub_ledger_v1.htlcs;
+            pocs -> SL#sub_ledger_v1.pocs;
+            securities -> SL#sub_ledger_v1.securities;
+            routing -> SL#sub_ledger_v1.routing
+        end.
 
-        CFRef =
-            case CF of
-                default -> SL#sub_ledger_v1.default;
-                active_gateways -> SL#sub_ledger_v1.active_gateways;
-                entries -> SL#sub_ledger_v1.entries;
-                dc_entries -> SL#sub_ledger_v1.dc_entries;
-                htlcs -> SL#sub_ledger_v1.htlcs;
-                pocs -> SL#sub_ledger_v1.pocs;
-                securities -> SL#sub_ledger_v1.securities;
-                routing -> SL#sub_ledger_v1.routing
-            end,
+apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
+    {ok, Batch} = rocksdb:batch(),
+    apply_raw_changes(Changes, Ledger, Batch),
+    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+apply_raw_changes([], _, _) ->
+    ok;
+apply_raw_changes([{Atom, Changes}|Tail], Ledger, Batch) ->
+    CF = atom_to_cf(Atom, Ledger),
+    lists:foreach(fun({changed, Key, _OldValue, Value}) ->
+                          rocksdb:batch_put(Batch, CF, Key, Value);
+                     ({added, Key, Value}) ->
+                          rocksdb:batch_put(Batch, CF, Key, Value);
+                     ({deleted, Key, _OldValue}) ->
+                          rocksdb:batch_delete(Batch, CF, Key)
+                  end, Changes),
+    apply_raw_changes(Tail, Ledger, Batch).
+
+cf_fold(CF, F, Acc, Ledger) ->
+    try
+        CFRef = atom_to_cf(CF, Ledger),
         cache_fold(Ledger, CFRef, F, Acc)
     catch C:E:S ->
             {error, {could_not_fold, C, E, S}}
     end.
 
-fingerprint(#ledger_v1{mode = Mode} = Ledger) ->
-    fingerprint(#ledger_v1{mode = Mode} = Ledger, false).
+fingerprint(Ledger) ->
+    fingerprint(Ledger, false).
 
-fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
+fingerprint(Ledger, Extended) ->
     {ok, Height} = current_height(Ledger),
     e2qc:cache(fp_cache, {Height, Extended},
                fun() ->
-                       try
-                           SubLedger =
-                               case Mode of
-                                   active ->
-                                       Ledger#ledger_v1.active;
-                                   delayed ->
-                                       Ledger#ledger_v1.delayed
-                               end,
-                           #sub_ledger_v1{
-                              default = DefaultCF,
-                              active_gateways = AGwsCF,
-                              entries = EntriesCF,
-                              dc_entries = DCEntriesCF,
-                              htlcs = HTLCsCF,
-                              pocs = PoCsCF,
-                              securities = SecuritiesCF,
-                              routing = RoutingCF
-                             } = SubLedger,
-                           %% NB: keep in sync with upgrades macro in blockchain.erl
-                           Filter = [<<"gateway_v2">>],
-                           DefaultVals = cache_fold(
-                                           Ledger, DefaultCF,
-                                           fun({K, _} = X, Acc) ->
-                                                   case lists:member(K, Filter) of
-                                                       true -> Acc;
-                                                       _ -> [X | Acc]
-                                                   end
-                                           end, []),
-                           L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
-                                 PoCs, Securities, Routings]
-                               = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
-                                  || CF <- [AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                                            PoCsCF, SecuritiesCF, RoutingCF]],
-                           L = lists:append(L0, DefaultVals),
-                           case Extended of
-                               false ->
-                                   {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L))}};
-                               true ->
-                                   {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L)),
-                                          <<"gateways_fingerprint">> => fp(GWsVals),
-                                          <<"core_fingerprint">> => fp(DefaultVals),
-                                          <<"entries_fingerprint">> => fp(EntriesVals),
-                                          <<"dc_entries_fingerprint">> => fp(DCEntriesVals),
-                                          <<"htlc_fingerprint">> => fp(HTLCs),
-                                          <<"securities_fingerprint">> => fp(Securities),
-                                          <<"routings_fingerprint">> => fp(Routings),
-                                          <<"poc_fingerprint">> => fp(PoCs)
-                                         }}
-                           end
-                       catch _:_ ->
-                               {error, could_not_fingerprint}
-                       end
+                       raw_fingerprint(Ledger, Extended)
                end).
+
+raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
+    try
+        SubLedger =
+        case Mode of
+            active ->
+                Ledger#ledger_v1.active;
+            delayed ->
+                Ledger#ledger_v1.delayed
+        end,
+        #sub_ledger_v1{
+           default = DefaultCF,
+           active_gateways = AGwsCF,
+           entries = EntriesCF,
+           dc_entries = DCEntriesCF,
+           htlcs = HTLCsCF,
+           pocs = PoCsCF,
+           securities = SecuritiesCF,
+           routing = RoutingCF
+          } = SubLedger,
+        %% NB: keep in sync with upgrades macro in blockchain.erl
+        Filter = [<<"gateway_v2">>],
+        DefaultVals = cache_fold(
+                        Ledger, DefaultCF,
+                        fun({K, _} = X, Acc) ->
+                                case lists:member(K, Filter) of
+                                    true -> Acc;
+                                    _ -> [X | Acc]
+                                end
+                        end, []),
+        L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
+              PoCs, Securities, Routings]
+        = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
+           || CF <- [AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
+                     PoCsCF, SecuritiesCF, RoutingCF]],
+        L = lists:append(L0, DefaultVals),
+        case Extended of
+            false ->
+                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L))}};
+            true ->
+                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L)),
+                       <<"gateways_fingerprint">> => fp(GWsVals),
+                       <<"core_fingerprint">> => fp(DefaultVals),
+                       <<"entries_fingerprint">> => fp(EntriesVals),
+                       <<"dc_entries_fingerprint">> => fp(DCEntriesVals),
+                       <<"htlc_fingerprint">> => fp(HTLCs),
+                       <<"securities_fingerprint">> => fp(Securities),
+                       <<"routings_fingerprint">> => fp(Routings),
+                       <<"poc_fingerprint">> => fp(PoCs)
+                      }}
+        end
+    catch _:_ ->
+              {error, could_not_fingerprint}
+    end.
 
 fp(L) ->
     erlang:phash2(lists:sort(L)).
