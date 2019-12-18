@@ -302,7 +302,15 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, GatewayScoreMap, Vars) ->
                              ExclusionCells :: pos_integer()) -> boolean().
 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
     not(lists:any(fun(ParentIndex) ->
-                          h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
+                          try h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells of
+                              Res -> Res
+                          catch
+                              %% Grid distance may badarg because of pentagonal distortion or
+                              %% non matching resolutions or just being too far.
+                              %% In either of those cases, we assume that the gateway
+                              %% is potentially legitimate to be a target.
+                              _:_ -> true
+                          end
                   end, ParentIndices)).
 
 -spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
