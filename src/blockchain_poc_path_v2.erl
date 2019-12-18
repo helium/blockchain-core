@@ -330,7 +330,7 @@ check_witness_bad_rssi(Witness, Vars) ->
                             %% Activate with PoC v6
                             %% Check that the bad rssi count is less than
                             %% the sum of other known good rssi
-                            BadCount < lists:sum(maps:values(maps:without(28, Hist)));
+                            BadCount < lists:sum(maps:values(maps:without([28], Hist)));
                         BadCount ->
                             %% If the bad RSSI count does not dominate
                             %% the overall RSSIs this witness has, include,
