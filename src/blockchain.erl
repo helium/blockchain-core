@@ -236,7 +236,7 @@ head_hash(#blockchain{db=DB, default=DefaultCF}) ->
 
 -spec sync_hash(blockchain()) -> {ok, blockchain_block:hash()} | {error, any()}.
 sync_hash(Blockchain=#blockchain{db=DB, default=DefaultCF}) ->
-    case rocksdb:get(DB, DefaultCF, ?MISSING_BLOCK, []) of
+    case missing_block(Blockchain) of
         {ok, Hash} ->
             %% this is the hash of the last block before the gap
             {ok, Hash};
@@ -497,7 +497,7 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
     blockchain_lock:acquire(),
     try
         PrevHash = blockchain_block:prev_hash(Block),
-        case rocksdb:get(DB, DefaultCF, ?MISSING_BLOCK, []) of
+        case missing_block(Blockchain) of
             {ok, PrevHash} ->
                 {ok, Batch} = rocksdb:batch(),
                 %% this is the block we've been missing
@@ -1137,12 +1137,18 @@ repair(#blockchain{db=DB, default=DefaultCF} = Blockchain) ->
             {ok, MaxHeight} = height(Blockchain),
             case {get_block(Height - 1, Blockchain), find_upper_height(Height+1, Blockchain, MaxHeight)} of
                 {{ok, Block}, TopHeight} when TopHeight == Height + 1 ->
-                    %% TODO it's possible we only lost the lookup by height, we might be able to find it by
-                    %% the next block's parent hash
-                    %%
-                    %% flag this block as the block we must sync next
-                    ok = rocksdb:put(DB, DefaultCF, ?MISSING_BLOCK, blockchain_block:hash_block(Block), [{sync, true}]),
-                    {ok, {resyncing_block, Height}};
+                    %% this is a bit experimental and thus we guard it behind a var
+                    case application:get_env(blockchain, enable_missing_block_refetch, false) of
+                        true ->
+                            %% TODO it's possible we only lost the lookup by height, we might be able to find it by
+                            %% the next block's parent hash
+                            %%
+                            %% flag this block as the block we must sync next
+                            ok = rocksdb:put(DB, DefaultCF, ?MISSING_BLOCK, blockchain_block:hash_block(Block), [{sync, true}]),
+                            {ok, {resyncing_block, Height}};
+                        _ ->
+                            {error, {missing_block, Height}}
+                    end;
                 {{ok, _Block}, TopHeight} ->
                     %% we can probably fix this but it's a bit complicated and hopefully rare
                     {error, {missing_too_many_blocks, Height, TopHeight}};
@@ -1169,6 +1175,14 @@ find_upper_height(Height, Blockchain, Max) when Height =< Max ->
     end;
 find_upper_height(Height, _, _) ->
     Height.
+
+missing_block(#blockchain{db=DB, default=DefaultCF}) ->
+    case application:get_env(blockchain, enable_missing_block_refetch, false) of
+        true ->
+            rocksdb:get(DB, DefaultCF, ?MISSING_BLOCK, []);
+        false ->
+            not_found
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
