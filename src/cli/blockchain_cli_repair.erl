@@ -132,7 +132,7 @@ repair_sync_resume(["repair", "sync_resume"], [], []) ->
         ok ->
             [clique_status:text("ok")];
         _Other ->
-            [clique_error:text("error")]
+            [clique_status:text("error")]
     end;
 repair_sync_resume([], [], []) ->
     usage.
@@ -184,7 +184,7 @@ repair_analyze(["repair", "analyze"], [], []) ->
             [clique_status:text("no errors detected")];
         {error, Error} ->
             Fmt = io_lib:format("error: ~p~n", [Error]),
-            [clique_error:status(Fmt)]
+            [clique_status:alert([clique_status:text(Fmt)])]
     end;
 repair_analyze([], [], []) ->
     usage.
@@ -211,7 +211,7 @@ repair_repair(["repair", "repair"], [], []) ->
             [clique_status:text("ok")];
         Other ->
             Fmt = io_lib:format("error: ~p~n", [Other]),
-            [clique_error:status(Fmt)]
+            [clique_status:alert([clique_status:text(Fmt)])]
     end;
 repair_repair([], [], []) ->
     usage.
