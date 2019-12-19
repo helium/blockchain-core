@@ -479,7 +479,7 @@ good_quality_witnesses(Element, Ledger) ->
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
                                  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
                                  %% Check that the witness is far
-                                 try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) > ExclusionCells of
+                                 try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
                                      Res -> Res
                                  catch
                                      %% Grid distance may badarg because of pentagonal distortion or
