@@ -326,10 +326,16 @@ check_witness_bad_rssi(Witness, Vars) ->
                         0 ->
                             %% No bad RSSIs found, include
                             true;
+                        BadCount when is_integer(V), V > 5 ->
+                            %% Activate with PoC v6
+                            %% Check that the bad rssi count is less than
+                            %% the sum of other known good rssi
+                            BadCount < lists:sum(maps:values(maps:without([28], Hist)));
                         BadCount ->
                             %% If the bad RSSI count does not dominate
                             %% the overall RSSIs this witness has, include,
                             %% otherwise exclude
+                            %% XXX: This is an incorrect check
                             BadCount < lists:sum(maps:values(Hist))
                     end
             catch
