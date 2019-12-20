@@ -244,8 +244,7 @@ blockchain_crash_while_absorbing(_Config) ->
     {ok, Chain2} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
     %% the sync is done in a background process, so wait for it to complete
     ok = blockchain_ct_utils:wait_until(fun() -> {ok, 101} =:= blockchain:sync_height(Chain2) end),
-    %% the actual height should be the same
-    ?assertEqual({ok, 101}, blockchain:height(Chain2)),
+    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 101} =:= blockchain:height(Chain2) end),
     ?assertEqual(blockchain:sync_hash(Chain2), {ok, blockchain_block:hash_block(LastBlock)}),
     ?assertEqual(blockchain:head_hash(Chain2), {ok, blockchain_block:hash_block(LastBlock)}),
     ok.
