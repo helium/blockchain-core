@@ -33,6 +33,9 @@
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -69,7 +72,7 @@ print(#blockchain_txn_token_burn_v1_pb{type=Type, payer=Payer, key=Key,
                                        amount=Amount, nonce=Nonce,
                                        signature=Sig}) ->
   io_lib:format("type=token_burn type=~p payer=~p key=~p amount=~p nonce=~p signature=~p",
-                [Type, Payer, Key, Amount, Nonce, Sig]).
+                [Type, ?TO_B58(Payer), Key, Amount, Nonce, Sig]).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -28,6 +28,8 @@
 -export_type([reward/0, rewards/0, type/0]).
 
 -define(TYPES, [securities, data_credits, poc_challengees, poc_challengers, poc_witnesses, consensus]).
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -109,7 +111,7 @@ print(undefined) -> <<"type=reward undefined">>;
 print(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
                                    amount=Amount, type=Type}) ->
     io_lib:format("type=reward account=~p, gateway=~p, amount=~p, type=~p",
-                  [Account, Gateway, Amount, Type]).
+                  [?TO_B58(Account), ?TO_ANIMAL_NAME(Gateway), Amount, Type]).
 
 
 

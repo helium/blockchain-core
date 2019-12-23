@@ -31,6 +31,9 @@
 -type txn_payment() :: #blockchain_txn_payment_v1_pb{}.
 -export_type([txn_payment/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -191,7 +194,7 @@ print(undefined) -> <<"type=payment, undefined">>;
 print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,
                                     fee=Fee, nonce=Nonce, signature = S }) ->
     io_lib:format("type=payment, payer=~p, payee=~p, amount=~p, fee=~p, nonce=~p, signature=~p",
-                  [Payer, Recipient, Amount, Fee, Nonce, S]).
+                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, S]).
 
 
 %% ------------------------------------------------------------------

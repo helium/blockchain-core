@@ -37,6 +37,9 @@
 -type txn_oui() :: #blockchain_txn_oui_v1_pb{}.
 -export_type([txn_oui/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -284,7 +287,7 @@ print(#blockchain_txn_oui_v1_pb{owner=Owner, addresses=Addresses,
                                 fee=Fee, owner_signature= OS,
                                 payer_signature= PS}) ->
     io_lib:format("type=oui, owner=~p, addresses=~p, oui=~p, payer=~p, staking_fee=~p, fee=~p, owner_signature=~p, payer_signature=~p",
-                  [Owner, Addresses, OUI, Payer, StakingFee, Fee, OS, PS]).
+                  [?TO_B58(Owner), Addresses, OUI, ?TO_B58(Payer), StakingFee, Fee, OS, PS]).
 
 
 %% ------------------------------------------------------------------

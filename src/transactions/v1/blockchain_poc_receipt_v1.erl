@@ -29,6 +29,9 @@
 
 -export_type([poc_receipt/0, poc_receipts/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -127,7 +130,7 @@ print(#blockchain_poc_receipt_v1_pb{
         }) ->
     io_lib:format("type=receipt gateway: ~s timestamp: ~b signal: ~b origin: ~p",
                   [
-                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Gateway))),
+                   ?TO_ANIMAL_NAME(Gateway),
                    TS,
                    Signal,
                    Origin

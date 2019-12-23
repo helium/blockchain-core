@@ -28,6 +28,9 @@
 -type txn_dc_coinbase() :: #blockchain_txn_dc_coinbase_v1_pb{}.
 -export_type([txn_dc_coinbase/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -120,7 +123,7 @@ print(undefined) -> <<"type=dc_coinbase, undefined">>;
 print(#blockchain_txn_dc_coinbase_v1_pb{
          payee=Payee, amount=Amount}) ->
     io_lib:format("type=dc_coinbase payee=~p, amount=~p",
-                  [Payee, Amount]).
+                  [?TO_B58(Payee), Amount]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

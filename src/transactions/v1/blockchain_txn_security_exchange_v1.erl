@@ -31,6 +31,9 @@
 -type txn_security_exchange() :: #blockchain_txn_security_exchange_v1_pb{}.
 -export_type([txn_security_exchange/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -57,7 +60,7 @@ print(#blockchain_txn_security_exchange_v1_pb{payer=Payer, payee=Recipient,
                                               amount=Amount, fee=Fee,
                                               nonce=Nonce, signature = Sig}) ->
     io_lib:format("type=security_exchange payer=~p payee=~p amount=~p fee=~p nonce=~p signature=~p",
-                  [Payer, Recipient, Amount, Fee, Nonce, Sig]).
+                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, Sig]).
 
 
 %%--------------------------------------------------------------------

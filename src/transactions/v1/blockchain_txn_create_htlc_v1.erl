@@ -36,6 +36,9 @@
 -type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
 -export_type([txn_create_htlc/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -224,7 +227,7 @@ print(#blockchain_txn_create_htlc_v1_pb{
         hashlock=Hashlock, timelock=Timelock, amount=Amount,
         fee=Fee, signature = Sig}) ->
     io_lib:format("type=create_htlc payer=~p payee=~p, address=~p, hashlock=~p, timelock=~p, amount=~p, fee=~p, signature=~p",
-                  [Payer, Payee, Address, Hashlock, Timelock, Amount, Fee, Sig]).
+                  [?TO_B58(Payer), ?TO_B58(Payee), Address, Hashlock, Timelock, Amount, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

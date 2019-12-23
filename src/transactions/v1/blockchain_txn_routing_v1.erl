@@ -31,6 +31,9 @@
 -type txn_routing() :: #blockchain_txn_routing_v1_pb{}.
 -export_type([txn_routing/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -189,7 +192,7 @@ print(#blockchain_txn_routing_v1_pb{oui=OUI, owner=Owner,
                                     addresses=Addresses, fee=Fee,
                                     nonce=Nonce, signature=Sig}) ->
     io_lib:format("type=routing oui=~p owner=~p addresses=~p fee=~p nonce=~p signature=~p",
-                  [OUI, Owner, Addresses, Fee, Nonce, Sig]).
+                  [OUI, ?TO_B58(Owner), Addresses, Fee, Nonce, Sig]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

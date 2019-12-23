@@ -44,6 +44,9 @@
 -type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
 -export_type([txn_assert_location/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -396,8 +399,8 @@ print(#blockchain_txn_assert_location_v1_pb{
         owner_signature = OS, payer_signature = PS, nonce = Nonce,
         staking_fee = StakingFee, fee = Fee}) ->
     io_lib:format("type=assert_location, gateway=~p, owner=~p, payer=~p, location=~p, gateway_signature=~p, owner_signature=~p, payer_signature=~p, nonce=~p, staking_fee=~p, fee=~p",
-                  [Gateway, Owner, Payer, Loc, GS, OS, PS, Nonce,
-                   StakingFee, Fee]).
+                  [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), ?TO_B58(Payer),
+		   Loc, GS, OS, PS, Nonce, StakingFee, Fee]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

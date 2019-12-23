@@ -30,6 +30,9 @@
 -type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -210,7 +213,7 @@ print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
                                         preimage=PreImage, fee=Fee,
                                         signature=Sig}) ->
     io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
-                  [Payee, Address, PreImage, Fee, Sig]).
+                  [?TO_B58(Payee), Address, PreImage, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
