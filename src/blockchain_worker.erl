@@ -29,6 +29,8 @@
     mismatch/0,
     signed_metadata_fun/0,
 
+    new_ledger/1,
+
     sync/0,
     cancel_sync/0,
     pause_sync/0,
@@ -111,6 +113,9 @@ sync_paused() ->
     catch _:_ ->
             true  % it's fine to occasionally get this wrong
     end.
+
+new_ledger(Dir) ->
+    gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -322,6 +327,12 @@ handle_call({blockchain, NewChain}, _From, #state{swarm = Swarm} = State) ->
     remove_handlers(Swarm),
     ok = add_handlers(Swarm, NewChain),
     {reply, ok, State#state{blockchain = NewChain}};
+handle_call({new_ledger, Dir}, _From, State) ->
+    %% We do this here so the same process that normally owns the ledger
+    %% will own it when we do a reset ledger or whatever. Otherwise the
+    %% snapshot cache ETS table can be owned by an ephemeral process.
+    Ledger1 = blockchain_ledger_v1:new(Dir),
+    {reply, {ok, Ledger1}, State};
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
     {reply, ok, maybe_sync(State#state{sync_paused = false})};

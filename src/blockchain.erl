@@ -905,7 +905,7 @@ reset_ledger(Height,
 
             %% recreate the ledgers and notify the application of the
             %% new chain
-            Ledger1 = blockchain_ledger_v1:new(Dir),
+            {ok, Ledger1} = blockchain_worker:new_ledger(Dir),
             Chain1 = ledger(Ledger1, Chain),
             blockchain_worker:blockchain(Chain1),
 
