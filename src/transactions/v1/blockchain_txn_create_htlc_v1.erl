@@ -10,7 +10,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_create_htlc_v1_pb.hrl").
+-include("../../pb/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
     new/7,

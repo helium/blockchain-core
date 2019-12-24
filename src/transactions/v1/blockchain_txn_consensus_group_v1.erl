@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_consensus_group_v1_pb.hrl").
+-include("../../pb/blockchain_txn_consensus_group_v1_pb.hrl").
 
 -export([
     new/4,

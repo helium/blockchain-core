@@ -8,7 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_vars.hrl").
--include("pb/blockchain_txn_rewards_v1_pb.hrl").
+-include("../../pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
     new/3,

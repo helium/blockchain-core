@@ -6,7 +6,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("../../pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -793,7 +793,7 @@ print(#blockchain_txn_poc_receipts_v1_pb{
          path=Path
         }=Txn) ->
     io_lib:format("type=poc_receipts_v1 hash=~p challenger=~p onion=~p path:\n\t~s",
-                  [?TO_B58(?MODULE:hash(Txn),
+                  [?TO_B58(?MODULE:hash(Txn)),
                    ?TO_ANIMAL_NAME(Challenger),
                    ?TO_B58(OnionKeyHash),
                    print_path(Path)]).
