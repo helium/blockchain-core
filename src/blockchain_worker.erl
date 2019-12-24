@@ -302,16 +302,9 @@ init(Args) ->
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
                 R;
-            {ok, Chain0} ->
-                Chain =
-                    case blockchain:config(?num_consensus_members, blockchain:ledger(Chain0)) of
-                        {ok, _N} ->
-                            Chain0;
-                        {error, not_found} ->
-                            lager:warning("attempting to reset ledger and apply existing blocks"),
-                            C = blockchain:reset_ledger(Chain0),
-                            C
-                    end,
+            {ok, Chain} ->
+                %% blockchain:new will take care of any repairs needed, possibly asynchronously
+                %%
                 %% do ledger upgrade
                 ok = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
