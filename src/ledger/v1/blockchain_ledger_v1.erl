@@ -80,7 +80,7 @@
     find_routing/2,  add_routing/5,
 
     find_state_channel/3,
-    add_state_channel/4,
+    add_state_channel/5,
     close_state_channel/3,
 
     delay_vars/3,
@@ -1654,10 +1654,11 @@ find_state_channel(ID, Owner, Ledger) ->
             Error
     end.
 
--spec add_state_channel(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_state_channel(ID, Owner, Amount, Ledger) ->
+-spec add_state_channel(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), pos_integer(), ledger()) -> ok | {error, any()}.
+add_state_channel(ID, Owner, Amount, Timer, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
-    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount),
+    {ok, CurrHeight} = ?MODULE:current_height(Ledger),
+    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount, CurrHeight+Timer),
     Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
@@ -2456,7 +2457,7 @@ state_channels_test() ->
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 12, Ledger2),
+    ok = add_state_channel(ID, Owner, 12, 10, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
