@@ -10,7 +10,7 @@
     id/1, id/2,
     owner/1, owner/2,
     amount/1, amount/2,
-    close_timer/1, close_timer/2,
+    expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1
 ]).
 
@@ -22,7 +22,7 @@
     id :: binary(),
     owner :: binary(),
     amount :: non_neg_integer(),
-    close_timer :: pos_integer()
+    expire_at_block :: pos_integer()
 }).
 
 -type state_channel() :: #ledger_state_channel_v1{}.
@@ -38,7 +38,7 @@ new(ID, Owner, Amount, Timer) when ID /= undefined andalso
         id=ID,
         owner=Owner,
         amount=Amount,
-        close_timer=Timer
+        expire_at_block=Timer
     }.
 
 -spec id(state_channel()) -> binary().
@@ -65,13 +65,13 @@ amount(#ledger_state_channel_v1{amount=Amount}) ->
 amount(Amount, SC) ->
     SC#ledger_state_channel_v1{amount=Amount}.
 
--spec close_timer(state_channel()) -> pos_integer().
-close_timer(#ledger_state_channel_v1{close_timer=Timer}) ->
+-spec expire_at_block(state_channel()) -> pos_integer().
+expire_at_block(#ledger_state_channel_v1{expire_at_block=Timer}) ->
     Timer.
 
--spec close_timer(pos_integer(), state_channel()) -> state_channel().
-close_timer(Timer, SC) ->
-    SC#ledger_state_channel_v1{close_timer=Timer}.
+-spec expire_at_block(pos_integer(), state_channel()) -> state_channel().
+expire_at_block(Timer, SC) ->
+    SC#ledger_state_channel_v1{expire_at_block=Timer}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -106,7 +106,7 @@ new_test() ->
         id = <<"id">>,
         owner = <<"owner">>,
         amount = 1,
-        close_timer = 10
+        expire_at_block = 10
     },
     ?assertEqual(SC, new(<<"id">>, <<"owner">>, 1, 10)).
 
@@ -125,9 +125,9 @@ amount_test() ->
     ?assertEqual(1, amount(SC)),
     ?assertEqual(2, amount(amount(2, SC))).
 
-close_timer_test() ->
+expire_at_block_test() ->
     SC = new(<<"id">>, <<"owner">>, 1, 10),
-    ?assertEqual(10, close_timer(SC)),
-    ?assertEqual(20, close_timer(close_timer(20, SC))).
+    ?assertEqual(10, expire_at_block(SC)),
+    ?assertEqual(20, expire_at_block(expire_at_block(20, SC))).
 
 -endif.

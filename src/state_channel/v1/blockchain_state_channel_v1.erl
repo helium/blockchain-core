@@ -14,6 +14,7 @@
     balances/1, balances/2, balance/2, balance/3,
     packets/1, packets/2,
     state/1, state/2,
+    expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
@@ -45,7 +46,8 @@ new(ID, Owner) ->
         nonce=0,
         balances=[],
         packets= <<>>,
-        state=open
+        state=open,
+        expire_at_block=0
     }.
 
 -spec zero_id() -> binary().
@@ -118,6 +120,14 @@ state(#blockchain_state_channel_v1_pb{state=State}) ->
 -spec state(state(), state_channel()) -> state_channel().
 state(State, SC) ->
     SC#blockchain_state_channel_v1_pb{state=State}.
+
+-spec expire_at_block(state_channel()) -> pos_integer().
+expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block=Timer}) ->
+    Timer.
+
+-spec expire_at_block(pos_integer(), state_channel()) -> state_channel().
+expire_at_block(Timer, SC) ->
+    SC#blockchain_state_channel_v1_pb{expire_at_block=Timer}.
 
 -spec signature(state_channel()) -> binary().
 signature(#blockchain_state_channel_v1_pb{signature=Signature}) ->
@@ -221,7 +231,8 @@ new_test() ->
         nonce=0,
         balances=[],
         packets= <<>>,
-        state=open
+        state=open,
+        expire_at_block=0
     },
     ?assertEqual(SC, new(<<"1">>, <<"owner">>)).
 
@@ -266,6 +277,11 @@ state_test() ->
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual(open, state(SC)),
     ?assertEqual(closed, state(state(closed, SC))).
+
+expire_at_block_test() ->
+    SC = new(<<"1">>, <<"owner">>),
+    ?assertEqual(0, expire_at_block(SC)),
+    ?assertEqual(1234567, expire_at_block(expire_at_block(1234567, SC))).
 
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>),

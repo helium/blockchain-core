@@ -15,7 +15,7 @@
     id/1,
     owner/1,
     amount/1,
-    close_timer/1,
+    expire_at_block/1,
     fee/1,
     signature/1,
     sign/2,
@@ -31,12 +31,12 @@
 -export_type([txn_state_channel_open/0]).
 
 -spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), pos_integer()) -> txn_state_channel_open().
-new(ID, Owner, Amount, Timer) ->
+new(ID, Owner, Amount, ExpireAt) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         amount=Amount,
-        close_timer=Timer,
+        expire_at_block=ExpireAt,
         signature = <<>>
     }.
 
@@ -58,9 +58,9 @@ owner(Txn) ->
 amount(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.amount.
 
--spec close_timer(txn_state_channel_open()) -> pos_integer().
-close_timer(Txn) ->
-    Txn#blockchain_txn_state_channel_open_v1_pb.close_timer.
+-spec expire_at_block(txn_state_channel_open()) -> pos_integer().
+expire_at_block(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.expire_at_block.
 
 -spec fee(txn_state_channel_open()) -> 0.
 fee(_Txn) ->
@@ -88,12 +88,13 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            Timer = ?MODULE:close_timer(Txn),
-            % 10080: approximate number of blocks a week (1/min)
-            case Timer < 10 orelse Timer > 10080 of
-                true ->
-                    {error, invalid_close_timer};
+            ExpireAt = ?MODULE:expire_at_block(Txn),
+            {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+            % 10080: approximate number of blocks in a week (1/min)
+            case ExpireAt > CurrHeight+10 andalso ExpireAt < CurrHeight+10080 of
                 false ->
+                    {error, invalid_expire_at_block};
+                true ->
                     ID = ?MODULE:id(Txn),
                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                         {error, not_found} ->
@@ -123,8 +124,8 @@ absorb(Txn, Chain) ->
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
-    Timer = ?MODULE:close_timer(Txn),
-    ok = blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, Timer, Ledger),
+    ExpireAt = ?MODULE:expire_at_block(Txn),
+    ok = blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger),
     case blockchain_state_channel_v1:zero_id() == ID of
         false -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger);
         true -> ok
@@ -140,7 +141,7 @@ new_test() ->
         id = <<"id">>,
         owner= <<"owner">>,
         amount=666,
-        close_timer=10,
+        expire_at_block=10,
         signature = <<>>
     },
     ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 666, 10)).

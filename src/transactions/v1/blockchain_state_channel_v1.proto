@@ -20,7 +20,8 @@ message state_channel_v1 {
     map<string, uint64> balances = 5;
     bytes packets = 6;
     state_channel_state_v1 state = 7;
-    bytes signature = 8;
+    uint64 expire_at_block = 8;
+    bytes signature = 9;
 }
 
 message state_channel_packet_v1 {
