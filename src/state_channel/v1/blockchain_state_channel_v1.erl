@@ -122,12 +122,12 @@ state(State, SC) ->
     SC#blockchain_state_channel_v1_pb{state=State}.
 
 -spec expire_at_block(state_channel()) -> pos_integer().
-expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block=Timer}) ->
-    Timer.
+expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block=ExpireAt}) ->
+    ExpireAt.
 
 -spec expire_at_block(pos_integer(), state_channel()) -> state_channel().
-expire_at_block(Timer, SC) ->
-    SC#blockchain_state_channel_v1_pb{expire_at_block=Timer}.
+expire_at_block(ExpireAt, SC) ->
+    SC#blockchain_state_channel_v1_pb{expire_at_block=ExpireAt}.
 
 -spec signature(state_channel()) -> binary().
 signature(#blockchain_state_channel_v1_pb{signature=Signature}) ->
