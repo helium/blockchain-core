@@ -169,7 +169,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, state_channels=SCs}=State0) ->
     {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    Txns = get_state_channels_txns_from_block(BlockHash, Owner, SCs),
+    {Block, Txns} = get_state_channels_txns_from_block(BlockHash, Owner, SCs),
     State1 = lists:foldl(
         fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
                 case blockchain_txn:type(Txn) of
@@ -177,9 +177,11 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                         ID = blockchain_txn_state_channel_open_v1:id(Txn),
                         Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
                         Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
+                        ExpireAt = blockchain_txn_state_channel_open_v1:expire_at_block(Txn),
                         SC0 = blockchain_state_channel_v1:new(ID, Owner),
                         SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                        State#state{state_channels=maps:put(ID, SC1, SCs0)};
+                        SC2 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1),
+                        State#state{state_channels=maps:put(ID, SC2, SCs0)};
                     blockchain_txn_state_channel_close_v1 ->
                         SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
                         ID = blockchain_state_channel_v1:id(SC),
@@ -192,6 +194,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
         State0,
         Txns
     ),
+    BlockHeight = blockchain_block:height(Block),
+    ok = close_expired_state_channels(BlockHeight, maps:values(State1#state.state_channels)),
     {noreply, State1};
 handle_info({close_state_channel, SC}, #state{swarm=Swarm}=State) ->
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
@@ -214,8 +218,22 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec get_state_channels_txns_from_block(binary(), binary(), map()) -> [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
-                                                                        | blockchain_txn_state_channel_close_v1:txn_state_channel_close()].
+-spec close_expired_state_channels(pos_integer(), [blockchain_state_channel_v1:state_channel()]) -> ok.
+close_expired_state_channels(_BlockHeight, []) ->
+    ok;
+close_expired_state_channels(BlockHeight, [SC|SCs]) ->
+    ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+    case ExpireAt =< BlockHeight of
+        false ->
+            close_expired_state_channels(BlockHeight, SCs);
+        true ->
+            self() ! {close_state_channel, SC},
+            close_expired_state_channels(BlockHeight, SCs)
+    end.
+
+-spec get_state_channels_txns_from_block(binary(), binary(), map()) -> {blockchain_block:block(),
+                                                                        [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
+                                                                         | blockchain_txn_state_channel_close_v1:txn_state_channel_close()]}.
 get_state_channels_txns_from_block(BlockHash, Owner, SCs) ->
     Chain = blockchain_worker:blockchain(),
     case blockchain:get_block(BlockHash, Chain) of
@@ -223,7 +241,7 @@ get_state_channels_txns_from_block(BlockHash, Owner, SCs) ->
             lager:error("failed to get block:~p ~p", [BlockHash, _Reason]),
             [];
         {ok, Block} ->
-            lists:filter(
+            {Block, lists:filter(
                 fun(Txn) ->
                     case blockchain_txn:type(Txn) of
                         blockchain_txn_state_channel_open_v1 ->
@@ -237,7 +255,7 @@ get_state_channels_txns_from_block(BlockHash, Owner, SCs) ->
                     end
                 end,
                 blockchain_block:transactions(Block)
-            )
+            )}
     end.
 
 
