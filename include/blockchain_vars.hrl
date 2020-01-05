@@ -128,6 +128,9 @@
 %% Number of hotspots allowed in a poc path
 -define(poc_path_limit, poc_path_limit).
 
+%% whether to fix some typos in the PoC generation/validation code
+-define(poc_typo_fixes, poc_typo_fixes).
+
 %%%
 %%% score vars
 %%%
