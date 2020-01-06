@@ -233,7 +233,13 @@ is_valid(Txn, Chain) ->
                                                                                    {ok, Target} = blockchain_poc_target_v2:target(Entropy, GatewayScores, Vars),
                                                                                    maybe_log_duration(filter_target, StartFT),
                                                                                    StartB = erlang:monotonic_time(millisecond),
-                                                                                   RetB = blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars),
+
+                                                                                   RetB = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                                                              {ok, true} ->
+                                                                                                  blockchain_poc_path_v2:build(Target, GatewayScores, Time, Entropy, Vars);
+                                                                                              _ ->
+                                                                                                  blockchain_poc_path_v2:build(Target, GatewayScoreMap, Time, Entropy, Vars)
+                                                                                          end,
                                                                                    maybe_log_duration(build, StartB),
                                                                                    RetB;
                                                                                _ ->
@@ -244,7 +250,12 @@ is_valid(Txn, Chain) ->
                                                                     N = erlang:length(Path),
                                                                     [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
                                                                     OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger),
+                                                                    {_Onion, Layers} = case blockchain:config(?poc_typo_fixes, Ledger) of
+                                                                                           {ok, true} ->
+                                                                                               blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger);
+                                                                                           _ ->
+                                                                                               blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, Ledger)
+                                                                                       end,
                                                                     %% no witness will exist with the first layer hash
                                                                     [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
                                                                     StartV = erlang:monotonic_time(millisecond),
