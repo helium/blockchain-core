@@ -46,7 +46,7 @@ handle_gossip_data(Data, [Swarm, Blockchain]) ->
         _What:Why ->
             lager:notice("gossip handler got bad data: ~p", [Why])
     end,
-    ok.
+    noreply.
 
 add_block(Swarm, Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
