@@ -47,6 +47,7 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm = undefined :: pid() | undefined,
+    chain = undefined :: undefined | blockchain:blockchain(),
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
@@ -167,9 +168,13 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, state_channels=SCs}=State0) ->
+handle_info({blockchain_event, Msg}, #state{chain=undefined}=State) ->
+    Chain = blockchain_worker:blockchain(),
+    self() ! {blockchain_event, Msg},
+    {noreply, State#state{chain=Chain}};
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, chain=Chain, state_channels=SCs}=State0) ->
     {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    {Block, Txns} = get_state_channels_txns_from_block(BlockHash, Owner, SCs),
+    {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
     State1 = lists:foldl(
         fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
                 case blockchain_txn:type(Txn) of
@@ -231,11 +236,10 @@ close_expired_state_channels(BlockHeight, [SC|SCs]) ->
             close_expired_state_channels(BlockHeight, SCs)
     end.
 
--spec get_state_channels_txns_from_block(binary(), binary(), map()) -> {blockchain_block:block(),
-                                                                        [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
-                                                                         | blockchain_txn_state_channel_close_v1:txn_state_channel_close()]}.
-get_state_channels_txns_from_block(BlockHash, Owner, SCs) ->
-    Chain = blockchain_worker:blockchain(),
+-spec get_state_channels_txns_from_block(blockchain:blockchain(), binary(), binary(), map()) ->
+    {blockchain_block:block(), [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
+                                | blockchain_txn_state_channel_close_v1:txn_state_channel_close()]}.
+get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
     case blockchain:get_block(BlockHash, Chain) of
         {error, _Reason} ->
             lager:error("failed to get block:~p ~p", [BlockHash, _Reason]),
@@ -461,6 +465,7 @@ load_test() ->
     State = #state{
         db=DB,
         swarm=undefined,
+        chain=undefined,
         state_channels=#{ID => SC},
         clients=#{ID => []},
         payees_to_sc=#{}
