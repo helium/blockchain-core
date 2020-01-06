@@ -79,7 +79,8 @@ init(Args) ->
           [{limit, application:get_env(blockchain, relay_limit, 25)}]},
          {libp2p_peerbook,
           [{signed_metadata_fun, fun blockchain_worker:signed_metadata_fun/0},
-           {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))}
+           {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))},
+           {allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, false)}
           ]},
          {libp2p_group_gossip,
           [
