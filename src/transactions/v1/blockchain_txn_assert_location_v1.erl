@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("../../pb/blockchain_txn_assert_location_v1_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 

@@ -8,7 +8,7 @@
 %% The union type of all transactions is defined in
 %% blockchain_txn.proto. The txn() type below should reflec that
 %% union.
--include("pb/blockchain_txn_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_pb.hrl").
 
 -type hash() :: <<_:256>>. %% SHA256 digest
 -type txn() :: blockchain_txn_add_gateway_v1:txn_add_gateway()
