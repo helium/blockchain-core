@@ -27,6 +27,7 @@ register_all_usage() ->
                   peer_book_usage(),
                   peer_gossip_peers_usage(),
                   peer_gossip_peers_usage(),
+                  peer_refresh_usage(),
                   peer_usage()
                  ]).
 
@@ -44,6 +45,7 @@ register_all_cmds() ->
                   peer_book_cmd(),
                   peer_gossip_peers_cmd(),
                   peer_gossip_peers_cmd(),
+                  peer_refresh_cmd(),
                   peer_cmd()
                  ]).
 %%
@@ -61,6 +63,7 @@ peer_usage() ->
       "  peer addr              - Display the p2p address of this node.\n"
       "  peer book              - Display informatiom from the peerbook of this node.\n"
       "  peer gossip_peers      - Display gossip peers of this node.\n"
+      "  peer refresh           - Request an updated peerbook for this peer from our gossip peers.\n"
      ]
     ].
 
@@ -318,6 +321,28 @@ peer_gossip_peers(["peer", "gossip_peers"], [], []) ->
 peer_gossip_peers([], [], []) ->
     usage.
 
+%%
+%% peer gossip_peers
+%%
+
+peer_refresh_cmd() ->
+    [
+     [["peer", "refresh", '*'], [], [], fun peer_refresh/3]
+    ].
+
+peer_refresh_usage() ->
+    [["peer", "refresh"],
+     ["peer refresh <Addr> \n\n",
+      "  Request an updated peerbook entry for <p2p> addr from our gossip peers.\n\n"
+     ]
+    ].
+
+peer_refresh(["peer", "refresh", Addr], [], []) ->
+    Swarm = blockchain_swarm:swarm(),
+    Peerbook = libp2p_swarm:peerbook(Swarm),
+    TrimmedAddr = string:trim(Addr),
+    libp2p_peerbook:refresh(Peerbook, libp2p_crypto:p2p_to_pubkey_bin(TrimmedAddr)),
+    [clique_status:text("ok")].
 
 %%
 %% internal functions

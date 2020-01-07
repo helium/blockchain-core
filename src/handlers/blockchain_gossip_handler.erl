@@ -16,7 +16,7 @@
 
 -export([
          init_gossip_data/1,
-         handle_gossip_data/2,
+         handle_gossip_data/3,
          add_block/4,
          gossip_data/2
         ]).
@@ -30,7 +30,7 @@ init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
 
-handle_gossip_data(Data, [Swarm, Blockchain]) ->
+handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
     try
         #blockchain_gossip_block_pb{from=From, block=BinBlock} =
             blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
