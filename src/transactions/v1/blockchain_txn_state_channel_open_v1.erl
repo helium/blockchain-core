@@ -125,10 +125,16 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
     ExpireAt = ?MODULE:expire_at_block(Txn),
-    ok = blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger),
     case blockchain_state_channel_v1:zero_id() == ID of
-        false -> blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger);
-        true -> ok
+        true ->
+            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger);
+        false ->
+            case blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger)
+            end
     end.
 
  %% ------------------------------------------------------------------
