@@ -47,7 +47,6 @@
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     swarm = undefined :: pid() | undefined,
-    chain = undefined :: undefined | blockchain:blockchain(),
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
@@ -98,7 +97,8 @@ init(Args) ->
     Pid = maps:get(packet_forward, Args, undefined),
     ok = blockchain_event:add_handler(self()),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, State} = load_state(DB),
+    {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    {ok, State} = load_state(DB, Owner),
     {ok, State#state{swarm=Swarm, packet_forward=Pid}}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
@@ -168,11 +168,8 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({blockchain_event, Msg}, #state{chain=undefined}=State) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, state_channels=SCs}=State0) ->
     Chain = blockchain_worker:blockchain(),
-    self() ! {blockchain_event, Msg},
-    {noreply, State#state{chain=Chain}};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, chain=Chain, state_channels=SCs}=State0) ->
     {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
     State1 = lists:foldl(
@@ -332,8 +329,8 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             end
     end.
 
--spec load_state(rocksdb:db_handle()) -> {ok, state()} | {error, any()}.
-load_state(DB) ->
+-spec load_state(rocksdb:db_handle(), libp2p_crypto:pubkey_bin()) -> {ok, state()} | {error, any()}.
+load_state(DB, Owner) ->
     % TODO: We should also check the ledger make sure we did not miss any new state channel
     case get_state_channels(DB) of
         {error, _}=Error ->
@@ -372,7 +369,28 @@ load_state(DB) ->
                 maps:new(),
                 maps:values(SCs)
             ),
-            {ok, #state{db=DB, state_channels=SCs, clients=Clients}}
+            LedgerSCs = get_ledger_state_channels(Owner),
+            {ok, #state{db=DB, state_channels=maps:merge(LedgerSCs, SCs), clients=Clients}}
+    end.
+
+-spec get_ledger_state_channels(libp2p_crypto:pubkey_bin()) -> #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
+get_ledger_state_channels(Owner) ->
+    Chain = blockchain_worker:blockchain(),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_state_channels_by_owner(Owner, Ledger) of
+        {error, _Reason} ->
+            maps:new();
+        {ok, LedgerSCIDs} ->
+            lists:foldl(
+                fun(ID, Acc) ->
+                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+                        {error, _} -> Acc;
+                        {ok, SC} -> maps:put(ID, SC, Acc)
+                    end
+                end,
+                maps:new(),
+                LedgerSCIDs
+            )
     end.
 
 -spec update_state(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_request_v1:request(), state()) -> state().
@@ -454,6 +472,16 @@ select_state_channel_test() ->
     ok.
 
 load_test() ->
+    meck:unload(blockchain_worker),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, blockchain, fun() -> ok end),
+
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, ledger, fun(_) -> ok end),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, find_state_channels_by_owner, fun(_, _) -> {error, error} end),
+
     BaseDir = test_utils:tmp_dir("load_test"),
     {ok, DB} = open_db(BaseDir),
     {ok, Swarm} = start_swarm(load_test, BaseDir),
@@ -465,15 +493,22 @@ load_test() ->
     State = #state{
         db=DB,
         swarm=undefined,
-        chain=undefined,
         state_channels=#{ID => SC},
         clients=#{ID => []},
         payees_to_sc=#{}
     },
     ?assertEqual(ok, blockchain_state_channel_v1:save(DB, SC)),
-    ?assertEqual({ok, State}, load_state(DB)),
+    ?assertEqual({ok, State}, load_state(DB, <<>>)),
+
     ok = rocksdb:close(DB),
     libp2p_swarm:stop(Swarm),
+
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker),
+    ?assert(meck:validate(blockchain)),
+    meck:unload(blockchain),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 update_state_test() ->
