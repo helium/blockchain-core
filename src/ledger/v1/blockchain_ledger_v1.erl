@@ -79,7 +79,7 @@
     find_ouis/2, add_oui/4,
     find_routing/2,  add_routing/5,
 
-    find_state_channel/3,
+    find_state_channel/3, find_state_channels_by_owner/2,
     add_state_channel/5,
     close_state_channel/3,
 
@@ -1655,6 +1655,18 @@ find_state_channel(ID, Owner, Ledger) ->
             Error
     end.
 
+-spec find_state_channels_by_owner(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, [binary()]} | {error, any()}.
+find_state_channels_by_owner(Owner, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    case cache_get(Ledger, SCsCF, Owner, []) of
+        {ok, BinEntry} ->
+            {ok, erlang:binary_to_term(BinEntry)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
 -spec add_state_channel(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), pos_integer(), ledger()) -> ok | {error, any()}.
 add_state_channel(ID, Owner, Amount, Timer, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
@@ -1662,13 +1674,29 @@ add_state_channel(ID, Owner, Amount, Timer, Ledger) ->
     Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount, CurrHeight+Timer),
     Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
     Key = state_channel_key(ID, Owner),
-    cache_put(Ledger, SCsCF, Key, Bin).
+    ok = cache_put(Ledger, SCsCF, Key, Bin),
+    case ?MODULE:find_state_channels_by_owner(Owner, Ledger) of
+        {error, not_found} ->
+            cache_put(Ledger, SCsCF, Owner, erlang:term_to_binary([ID]));
+        {error, _}=Error ->
+            Error;
+        {ok, SCIDs} ->
+            cache_put(Ledger, SCsCF, Owner, erlang:term_to_binary([ID|SCIDs]))
+    end.
 
 -spec close_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok.
 close_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
-    cache_delete(Ledger, SCsCF, Key).
+    ok = cache_delete(Ledger, SCsCF, Key),
+    case ?MODULE:find_state_channels_by_owner(Owner, Ledger) of
+        {error, not_found} ->
+            ok;
+        {error, _}=Error ->
+            Error;
+        {ok, SCIDs} ->
+            cache_put(Ledger, SCsCF, Owner, erlang:term_to_binary(SCIDs -- [ID]))
+    end.
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
@@ -2456,6 +2484,7 @@ state_channels_test() ->
     Owner = <<"owner">>,
 
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
+    ?assertEqual({error, not_found}, find_state_channels_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
     ok = add_state_channel(ID, Owner, 12, 10, Ledger2),
@@ -2464,11 +2493,13 @@ state_channels_test() ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(12, blockchain_ledger_state_channel_v1:amount(SC)),
+    ?assertEqual({ok, [ID]}, find_state_channels_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
     ok = close_state_channel(ID, Owner, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
+    ?assertEqual({ok, []}, find_state_channels_by_owner(Owner, Ledger)),
 
     ok.
 
