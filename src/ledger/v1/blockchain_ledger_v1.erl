@@ -1935,7 +1935,7 @@ open_db(Dir) ->
 
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
 
-    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
+    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
 
     CFOpts = GlobalOpts,
 
