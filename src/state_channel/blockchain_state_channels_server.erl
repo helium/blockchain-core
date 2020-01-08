@@ -46,7 +46,7 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
-    swarm = undefined :: pid() | undefined,
+     swarm = undefined :: pid() | undefined,
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
@@ -220,6 +220,11 @@ terminate(_Reason, _state) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Send a message to itself to close expired state channels
+%% @end
+%%--------------------------------------------------------------------
 -spec close_expired_state_channels(pos_integer(), [blockchain_state_channel_v1:state_channel()]) -> ok.
 close_expired_state_channels(_BlockHeight, []) ->
     ok;
@@ -233,6 +238,11 @@ close_expired_state_channels(BlockHeight, [SC|SCs]) ->
             close_expired_state_channels(BlockHeight, SCs)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get Block and open/close transactions
+%% @end
+%%--------------------------------------------------------------------
 -spec get_state_channels_txns_from_block(blockchain:blockchain(), binary(), binary(), map()) ->
     {blockchain_block:block(), [blockchain_txn_state_channel_open_v1:txn_state_channel_open()
                                 | blockchain_txn_state_channel_close_v1:txn_state_channel_close()]}.
@@ -259,7 +269,11 @@ get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
             )}
     end.
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Send updated state channel to clients
+%% @end
+%%--------------------------------------------------------------------
 -spec update_clients(blockchain_state_channel_v1:state_channel(), state()) -> ok.
 update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
     ID = blockchain_state_channel_v1:id(SC),
@@ -277,6 +291,11 @@ update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
         PubKeyBins
     ).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Select an appropriate state channel to satisfy payment request
+%% @end
+%%--------------------------------------------------------------------
 -spec select_state_channel(blockchain_state_channel_request_v1:request(), state()) ->
     {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
 select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=State) ->
