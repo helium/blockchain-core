@@ -125,7 +125,7 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
     ExpireAt = ?MODULE:expire_at_block(Txn),
-    case blockchain_state_channel_v1:zero_id() == ID of
+    case blockchain_state_channel_v1:zero_id() == ID andalso Amount == 0 of
         true ->
             blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger);
         false ->
