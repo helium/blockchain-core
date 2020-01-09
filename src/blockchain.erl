@@ -1059,44 +1059,44 @@ crosscheck(Blockchain) ->
                         Lag when Lag < BlockDelay ->
                             {error, {ledger_delayed_ledger_lag_too_small, Lag}};
                         _ ->
-                            %% check if the ledger is the same height as the chain
-                            case Height == LedgerHeight of
-                                false ->
-                                    {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
-                                true ->
-                                    %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
-                                    case ledger_at(Height, Blockchain, true) of
-                                        {ok, RecalcLedger} ->
-                                            {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
-                                            {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
-                                            case FP == RecalcFP of
+                            %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
+                            case ledger_at(LedgerHeight, Blockchain, true) of
+                                {ok, RecalcLedger} ->
+                                    {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
+                                    {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
+                                    case FP == RecalcFP of
+                                        false ->
+                                            Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
+                                            MismatchesWithChanges = lists:map(fun(M) ->
+                                                                                      X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
+                                                                                      {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
+                                                                                                                                                              Acc1 = case maps:find(K, X) of
+                                                                                                                                                                         {ok, V} ->
+                                                                                                                                                                             Acc;
+                                                                                                                                                                         {ok, Other} ->
+                                                                                                                                                                             [{changed, K, Other, V}|Acc];
+                                                                                                                                                                         error ->
+                                                                                                                                                                             [{added, K, V}|Acc]
+                                                                                                                                                                     end,
+                                                                                                                                                              {[K|Keys], Acc1}
+                                                                                                                                                      end, {[], []}, RecalcLedger),
+                                                                                      Changes = maps:fold(fun(K, V, A) ->
+                                                                                                                  [{deleted, K, V}|A]
+                                                                                                          end, Changes0, maps:without(AllKeys, X)),
+                                                                                      {fp_to_cf(M), Changes}
+                                                                              end, Mismatches),
+                                            {error, {fingerprint_mismatch, MismatchesWithChanges}};
+                                        true ->
+                                            %% check if the ledger is the same height as the chain
+                                            case Height == LedgerHeight of
                                                 false ->
-                                                    Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
-                                                    MismatchesWithChanges = lists:map(fun(M) ->
-                                                                                              X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
-                                                                                              {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
-                                                                                                                                                                      Acc1 = case maps:find(K, X) of
-                                                                                                                                                                                 {ok, V} ->
-                                                                                                                                                                                     Acc;
-                                                                                                                                                                                 {ok, Other} ->
-                                                                                                                                                                                     [{changed, K, Other, V}|Acc];
-                                                                                                                                                                                 error ->
-                                                                                                                                                                                     [{added, K, V}|Acc]
-                                                                                                                                                                             end,
-                                                                                                                                                                      {[K|Keys], Acc1}
-                                                                                                                                                              end, {[], []}, RecalcLedger),
-                                                                                              Changes = maps:fold(fun(K, V, A) ->
-                                                                                                                          [{deleted, K, V}|A]
-                                                                                                                  end, Changes0, maps:without(AllKeys, X)),
-                                                                                              {fp_to_cf(M), Changes}
-                                                                                      end, Mismatches),
-                                                    {error, {fingerprint_mismatch, MismatchesWithChanges}};
+                                                    {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
                                                 true ->
                                                     ok
-                                            end;
-                                        Error ->
-                                            Error
-                                    end
+                                            end
+                                    end;
+                                Error ->
+                                    Error
                             end
                     end;
                 Error ->
@@ -1170,6 +1170,9 @@ repair(#blockchain{db=DB, default=DefaultCF} = Blockchain) ->
                            (_, Err) ->
                                 Err
                           end, ok, lists:seq(1, ceil(Lag / blockchain_txn:block_delay())));
+        {error, {chain_ledger_height_mismatch,ChainHeight,LedgerHeight}} when ChainHeight > LedgerHeight ->
+            maybe_continue_resync(Blockchain, true),
+            ok;
         Other -> Other
     end.
 
@@ -1387,6 +1390,9 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
     end.
 
 maybe_continue_resync(Blockchain) ->
+    maybe_continue_resync(Blockchain, false).
+
+maybe_continue_resync(Blockchain, Blocking) ->
     case {blockchain:height(Blockchain), blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain))} of
         {X, X} ->
             %% they're the same, everything is great
@@ -1394,48 +1400,13 @@ maybe_continue_resync(Blockchain) ->
         {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight > LedgerHeight ->
             lager:warning("blockchain height ~p is ahead of ledger height ~p~n", [ChainHeight, LedgerHeight]),
             %% likely an interrupted resync
-            spawn_link(fun() ->
-                               blockchain_lock:acquire(),
-                               case get_block(LedgerHeight, Blockchain) of
-                                   {error, _} ->
-                                       %% chain is missing the block the ledger is stuck at
-                                       %% it is unclear what we should do here.
-                                       lager:warning("cannot resume ledger resync, missing block ~p", [LedgerHeight]),
-                                       blockchain_lock:release();
-                                   {ok, LedgerLastBlock} ->
-                                       {ok, StartBlock} = blockchain:head_block(Blockchain),
-                                       EndHash = blockchain_block:hash_block(LedgerLastBlock),
-                                       HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
-                                       LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
-                                                            {ok, LKB} ->
-                                                                LKB;
-                                                            {error, not_found} ->
-                                                                {ok, LKB} = get_block(hd(tl(HashChain)), Blockchain),
-                                                                LKB
-                                                        end,
-                                       %% check we have a contiguous chain back to the current ledger head from the blockchain head
-                                       case length(HashChain) == (ChainHeight - LedgerHeight) andalso
-                                            EndHash == blockchain_block:prev_hash(LastKnownBlock)  of
-                                           false ->
-                                               %% we are missing one of the blocks between the ledger height and the chain height
-                                               %% we can probably find the highest contiguous chain and resync to there and repair the chain by rewinding
-                                               %% the head and deleting the orphaned blocks
-                                               lager:warning("cannot resume ledger resync, missing block ~p", [blockchain_block:height(LastKnownBlock)]),
-                                               blockchain_lock:release();
-                                           true ->
-                                               %% ok, we can keep replying blocks
-                                               try
-                                                   lists:foreach(fun(Hash) ->
-                                                                         {ok, Block} = get_block(Hash, Blockchain),
-                                                                         lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
-                                                                         ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
-                                                                 end, HashChain)
-                                               after
-                                                         blockchain_lock:release()
-                                               end
-                                       end
-                               end
-                       end),
+            case Blocking of
+                true ->
+                    %% block the caller
+                    resync_fun(ChainHeight, LedgerHeight, Blockchain);
+                false ->
+                    spawn_link(fun() -> resync_fun(ChainHeight, LedgerHeight, Blockchain) end)
+            end,
             Blockchain;
         {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight < LedgerHeight ->
             %% we're likely in a real pickle here unless we're just a handful of blocks behind
@@ -1447,6 +1418,48 @@ maybe_continue_resync(Blockchain) ->
             Blockchain
     end.
 
+
+resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
+    blockchain_lock:acquire(),
+    case get_block(LedgerHeight, Blockchain) of
+        {error, _} ->
+            %% chain is missing the block the ledger is stuck at
+            %% it is unclear what we should do here.
+            lager:warning("cannot resume ledger resync, missing block ~p", [LedgerHeight]),
+            blockchain_lock:release();
+        {ok, LedgerLastBlock} ->
+            {ok, StartBlock} = blockchain:head_block(Blockchain),
+            EndHash = blockchain_block:hash_block(LedgerLastBlock),
+            HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
+            LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
+                                 {ok, LKB} ->
+                                     LKB;
+                                 {error, not_found} ->
+                                     {ok, LKB} = get_block(hd(tl(HashChain)), Blockchain),
+                                     LKB
+                             end,
+            %% check we have a contiguous chain back to the current ledger head from the blockchain head
+            case length(HashChain) == (ChainHeight - LedgerHeight) andalso
+                 EndHash == blockchain_block:prev_hash(LastKnownBlock)  of
+                false ->
+                    %% we are missing one of the blocks between the ledger height and the chain height
+                    %% we can probably find the highest contiguous chain and resync to there and repair the chain by rewinding
+                    %% the head and deleting the orphaned blocks
+                    lager:warning("cannot resume ledger resync, missing block ~p", [blockchain_block:height(LastKnownBlock)]),
+                    blockchain_lock:release();
+                true ->
+                    %% ok, we can keep replying blocks
+                    try
+                        lists:foreach(fun(Hash) ->
+                                              {ok, Block} = get_block(Hash, Blockchain),
+                                              lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
+                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
+                                      end, HashChain)
+                    after
+                        blockchain_lock:release()
+                    end
+            end
+    end.
 
 
 %% ------------------------------------------------------------------
