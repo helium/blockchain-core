@@ -1350,8 +1350,10 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
             %% set this up here, it will get cleared if we're able to add all the assume valid blocks
             ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
             #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
+            %% the chain and the ledger need to be in sync for this to have any chance of working
+            IsInSync = blockchain:height(Blockchain) == blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
             case rocksdb:get(DB, TempBlocksCF, Hash, []) of
-                {ok, BinBlock} ->
+                {ok, BinBlock} when IsInSync == true ->
                     %% we already have it, try to process it
                     Block = blockchain_block:deserialize(BinBlock),
                     case blockchain_block:height(Block) == Height of
@@ -1380,12 +1382,12 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                         false ->
                             %% block must be bad somehow
                             rocksdb:delete(DB, TempBlocksCF, Hash, []),
-                            Blockchain
+                            maybe_continue_resync(Blockchain)
                     end;
                 _ ->
                     %% need to wait for it
                     ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
-                    Blockchain
+                    maybe_continue_resync(Blockchain)
             end
     end.
 
