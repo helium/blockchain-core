@@ -30,9 +30,10 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([save_block/2]).
+-export([save_block/2, bootstrap_hexes/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -65,7 +66,8 @@
 %% we start a clean chain, we mark all existing keys are true and do
 %% not run their code later.
 -define(upgrades,
-        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1}]).
+        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
+         {<<"hex_targets">>, fun bootstrap_hexes/1}]).
 %% NB: we need to keep this in sync with the filter in the fingerprints
 
 
@@ -174,6 +176,34 @@ upgrade_gateways_v2_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
     ok.
+
+bootstrap_hexes(Ledger) ->
+    %% NB:  This requires extreme care.  the following var must be
+    %% issued before we upgrade to this code (or this release must be
+    %% followed by one other) and only then is it safe to change
+    %% poc_version to 7
+    case blockchain:config(?poc_v5_target_zone_parent_res, Ledger) of
+        {ok, Res} ->
+            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+            Hexes =
+                maps:fold(
+                  fun(Addr, Gw, A) ->
+                          case blockchain_ledger_gateway_v2:location(Gw) of
+                              undefined -> A;
+                              Loc ->
+                                  Hex = h3:parent(Loc, Res),
+                                  maps:update_with(Hex, fun(X) -> [Addr | X] end, [Addr], A)
+                          end
+                  end,
+                  #{}, Gateways),
+            HexList = maps:map(fun(_K, V) -> length(V) end, Hexes),
+            ok = blockchain_ledger_v1:set_hexes(HexList, Ledger),
+            _ = maps:map(
+                  fun(Hex, Addresses) ->
+                          blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
+                  end, Hexes);
+        _ -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc

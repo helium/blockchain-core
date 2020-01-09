@@ -27,11 +27,11 @@ prop_target_check() ->
 
                                 GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
 
-                                {_Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
+                                {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
                                                                                  blockchain_poc_target_v2:target(Hash, GatewayScores, Vars)
                                                                          end),
-                                %% io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))),
-                                %%                                      erlang:convert_time_unit(Time, microsecond, millisecond)]),
+                                io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))),
+                                                                     erlang:convert_time_unit(Time, microsecond, millisecond)]),
 
                                 {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                                 {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),

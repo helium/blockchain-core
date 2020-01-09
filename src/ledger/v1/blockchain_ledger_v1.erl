@@ -84,6 +84,9 @@
 
     apply_raw_changes/2,
 
+    set_hexes/2, get_hexes/1,
+    set_hex/3, get_hex/2,
+
     clean/1, close/1
 ]).
 
@@ -127,6 +130,8 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
+-define(hex_list, <<"$hex_list">>).
+-define(hex_prefix, "$hex_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
@@ -1977,6 +1982,42 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
         S ->
             [{snapshot, S} | Options]
     end.
+
+set_hexes(HexMap, Ledger) ->
+    HexList = maps:to_list(HexMap),
+    L = lists:sort(HexList),
+    CF = default_cf(Ledger),
+    cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
+
+get_hexes(Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, ?hex_list, []) of
+        {ok, BinList} ->
+            {ok, maps:from_list(binary_to_term(BinList))};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+set_hex(Hex, List, Ledger) ->
+    L = lists:sort(List),
+    CF = default_cf(Ledger),
+    cache_put(Ledger, CF, hex_name(Hex), term_to_binary(L, [compressed])).
+
+get_hex(Hex, Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, hex_name(Hex), []) of
+        {ok, BinList} ->
+            {ok, binary_to_term(BinList)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+hex_name(Hex) ->
+    <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -13,43 +13,36 @@ prop_target_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                %% {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 Vars = maps:merge(default_vars(), targeting_vars()),
                 Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
                             undefined ->
                                 true;
                             ChallengerLoc ->
-                                {PickedZoneIndex, GatewayScoreMap} = blockchain_poc_target_v2:pick_zone(Hash, Ledger, Vars),
+                                {Time, {ok, TargetPubkeyBin}} =
+                                    timer:tc(fun() ->
+                                                     blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars)
+                                             end),
+                                io:format("Time: ~p\t Target: ~p~n",
+                                          [erlang:convert_time_unit(Time, microsecond, millisecond),
+                                           element(2,
+                                                   erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)))
+                                          ]),
 
-                                case blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars) of
-                                    M when map_size(M) == 0 ->
-                                        %% XXX: Not a single gateway in the zone satisfies target filter criteria,
-                                        %% just say it's okay for now. But when doing poc_requests, we should
-                                        %% check and re-pick a new zone probably.
-                                        true;
-                                    GatewayScores ->
-                                        {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
-                                                                                         blockchain_poc_target_v2:target(Hash, GatewayScores, Vars)
-                                                                                 end),
-                                        io:format("Time: ~p\t Target: ~p~n",
-                                                  [Time, element(2,
-                                                                 erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)))
-                                                  ]),
-
-                                        {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
-                                        {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
-                                        {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
-                                        TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-                                        {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
-                                        ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
-                                        ok = file:write_file("/tmp/zones", io_lib:fwrite("PickedZoneIndex: ~p.\n", [PickedZoneIndex]), [append]),
-                                        ok = file:write_file("/tmp/target_details",
-                                                             io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p, ~p.\n",
-                                                                           [ChallengerName, ChallengerLoc, TargetName, TargetLoc, TargetScore, Dist, PickedZoneIndex]),
-                                                             [append]),
-                                        maps:is_key(TargetPubkeyBin, ActiveGateways)
-                                end
+                                {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
+                                {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
+                                {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
+                                TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+                                {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
+                                ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
+                                %% synthesize this from the location
+                                %% ok = file:write_file("/tmp/zones", io_lib:fwrite("PickedZoneIndex: ~p.\n", [PickedZoneIndex]), [append]),
+                                ok = file:write_file("/tmp/target_details",
+                                                     io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p\n",
+                                                                   [ChallengerName, ChallengerLoc, TargetName, TargetLoc, TargetScore, Dist]),
+                                                     [append]),
+                                maps:is_key(TargetPubkeyBin, ActiveGateways)
                         end,
 
                 blockchain_ledger_v1:close(Ledger),
@@ -89,11 +82,16 @@ ledger() ->
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end,
-    blockchain_ledger_v1:new(PrivDir).
+    Ledger = blockchain_ledger_v1:new(PrivDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    blockchain_ledger_v1:vars(default_vars(), [], Ledger1),
+    blockchain:bootstrap_hexes(Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
 
 targeting_vars() ->
-    #{poc_v4_target_prob_score_wt => 0.2,
-      poc_v4_target_prob_edge_wt => 0.2,
+    #{poc_v4_target_prob_score_wt => 0.0,
+      poc_v4_target_prob_edge_wt => 0.4,
       poc_v5_target_prob_randomness_wt => 0.6,
       poc_v4_target_challenge_age => 300,
       poc_v4_target_exclusion_cells => 6000,
@@ -111,4 +109,5 @@ default_vars() ->
       poc_v4_prob_rssi_wt => 0.3,
       poc_v4_prob_time_wt => 0.3,
       poc_v4_randomness_wt => 0.1,
-      poc_version => 5}.
+      poc_v5_target_zone_parent_res => 5,
+      poc_version => 7}.

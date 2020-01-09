@@ -363,17 +363,28 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end,
 
-    case blockchain_ledger_v1:config(?poc_version, Ledger) of
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V >= 7 ->
+            {ok, Res} = blockchain:config(?poc_v5_target_zone_parent_res, Ledger),
+            Hex = h3:parent(Location, Res),
+
+            {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
+            Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
+            ok = blockchain_ledger_v1:set_hexes(Hexes1, Ledger),
+
+            {ok, OldAddrs} = blockchain_ledger_v1:get_hex(Hex, Ledger),
+            ok = blockchain_ledger_v1:set_hex(Hex, [Gateway | OldAddrs], Ledger);
         {ok, V} when V > 3 ->
             %% don't update neighbours anymore
             ok;
         _ ->
-            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+            %% TODO gc this nonsense in some deterministic way
             Gateways = blockchain_ledger_v1:active_gateways(Ledger),
             Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
+            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
             ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
-            NewGw = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
-            ok = blockchain_ledger_v1:update_gateway(NewGw, Gateway, Ledger)
+            Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
+            ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
     end.
 
 %%--------------------------------------------------------------------
