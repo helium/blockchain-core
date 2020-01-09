@@ -580,6 +580,7 @@ add_block_(Block, Blockchain, Syncing) ->
                             end;
                         {true, true} ->
                             lager:info("prev hash matches the gossiped block"),
+                            MyAddress = blockchain_swarm:pubkey_bin(),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
                                     lager:error("could not get consensus_members ~p", [_Reason]),
@@ -589,9 +590,10 @@ add_block_(Block, Blockchain, Syncing) ->
                                     F = (N-1) div 3,
                                     {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
                                     Txns = blockchain_block:transactions(Block),
+                                    Sigs = blockchain_block:signatures(Block),
                                     case blockchain_block:verify_signatures(Block,
                                                                             ConsensusAddrs,
-                                                                            blockchain_block:signatures(Block),
+                                                                            Sigs,
                                                                             N - F,
                                                                             MasterKey)
                                     of
@@ -607,7 +609,12 @@ add_block_(Block, Blockchain, Syncing) ->
                                                         lager:info("adding block ~p", [Height]),
                                                         ok = ?save_block(Block, Blockchain)
                                                     end,
-                                                    case blockchain_txn:absorb_and_commit(Block, Blockchain, BeforeCommit, Rescue) of
+                                                    {Signers, _Signatures} = lists:unzip(Sigs),
+                                                    Fun = case lists:member(MyAddress, Signers) of
+                                                              true -> unvalidated_absorb_and_commit;
+                                                              _ -> absorb_and_commit
+                                                          end,
+                                                    case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, Rescue) of
                                                         {error, Reason}=Error ->
                                                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                                                             Error;
@@ -1484,6 +1491,11 @@ blocks_test() ->
     meck:expect(blockchain_election, has_new_group, fun(_) ->
         false
     end),
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+        crypto:strong_rand_bytes(33)
+    end),
+
     {ok, Pid} = blockchain_lock:start_link(),
 
     #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
@@ -1523,7 +1535,10 @@ blocks_test() ->
     ?assert(meck:validate(blockchain_worker)),
     meck:unload(blockchain_worker),
     ?assert(meck:validate(blockchain_election)),
-    meck:unload(blockchain_election).
+    meck:unload(blockchain_election),
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm).
+
 
 
 get_block_test() ->
@@ -1546,7 +1561,10 @@ get_block_test() ->
     meck:expect(blockchain_election, has_new_group, fun(_) ->
         false
     end),
-
+    meck:new(blockchain_swarm, [passthrough]),
+    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+        crypto:strong_rand_bytes(33)
+    end),
 
     {ok, Pid} = blockchain_lock:start_link(),
 
@@ -1583,7 +1601,9 @@ get_block_test() ->
     ?assert(meck:validate(blockchain_worker)),
     meck:unload(blockchain_worker),
     ?assert(meck:validate(blockchain_election)),
-    meck:unload(blockchain_election).
+    meck:unload(blockchain_election),
+    ?assert(meck:validate(blockchain_swarm)),
+    meck:unload(blockchain_swarm).
 
 
 -endif.

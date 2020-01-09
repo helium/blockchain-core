@@ -77,7 +77,8 @@ init_per_testcase(TestCase, Config) ->
     BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
-    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    %% two tests rely on the swarm not being in the consensus group, so exclude them here
+    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test])),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
