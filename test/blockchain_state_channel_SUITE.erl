@@ -102,6 +102,13 @@ basic_test(Config) ->
     meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
     meck:new(blockchain_event, [passthrough]),
     meck:expect(blockchain_event, add_handler, fun(_) -> ok end),
+    meck:new(blockchain_worker, [passthrough]),
+    meck:expect(blockchain_worker, blockchain, fun() -> blockchain end),
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, ledger, fun(_) -> ledger end),
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, find_state_channels_by_owner, fun(_, _) -> {error, meck} end),
+
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
     ID = <<"ID1">>,
 
@@ -124,9 +131,15 @@ basic_test(Config) ->
     true = erlang:exit(Sup, normal),
     ok = libp2p_swarm:stop(Swarm),
     ?assert(meck:validate(blockchain_swarm)),
-    ?assert(meck:validate(blockchain_event)),
     meck:unload(blockchain_swarm),
+    ?assert(meck:validate(blockchain_event)),
     meck:unload(blockchain_event),
+    ?assert(meck:validate(blockchain_worker)),
+    meck:unload(blockchain_worker),
+    ?assert(meck:validate(blockchain)),
+    meck:unload(blockchain),
+    ?assert(meck:validate(blockchain_ledger_v1)),
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 zero_test(Config) ->
