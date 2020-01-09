@@ -46,7 +46,9 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
-     swarm = undefined :: pid() | undefined,
+    chain = undefined :: blockchain:blockchain() | undefined,
+    swarm = undefined :: pid() | undefined,
+    owner = undefined :: {libp2p_crypto:pubkey_bin(), function()} | undefined,
     state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
@@ -97,9 +99,10 @@ init(Args) ->
     Pid = maps:get(packet_forward, Args, undefined),
     ok = blockchain_event:add_handler(self()),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    {ok, State} = load_state(DB, Owner),
-    {ok, State#state{swarm=Swarm, packet_forward=Pid}}.
+    {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    {ok, State} = load_state(DB),
+    self() ! post_init,
+    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, packet_forward=Pid}}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -118,17 +121,16 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 %% Helper function for tests (remove)
-handle_cast({burn, ID, Amount}, #state{swarm=Swarm, state_channels=SCs}=State) ->
+handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=State) ->
     case maps:is_key(ID, SCs) of
         true ->
             {noreply, State};
         false ->
-            {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
             SC0 = blockchain_state_channel_v1:new(ID, Owner),
             SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
             {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
     end;
-handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
+handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
     case blockchain_state_channel_request_v1:validate(Req) of
         % {error, _Reason} ->
         %     lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
@@ -145,8 +147,7 @@ handle_cast({request, Req}, #state{db=DB, swarm=Swarm}=State0) ->
                             {noreply, State0};
                         ok ->
                             % TODO: Update packet stuff
-                            {_, PayerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                            SC1 = blockchain_state_channel_v1:add_request(Req, PayerSigFun, SC0),
+                            SC1 = blockchain_state_channel_v1:add_request(Req, OwnerSigFun, SC0),
                             case blockchain_state_channel_v1:state(SC1) =/= open of
                                 true -> self() ! {close_state_channel, SC1};
                                 false -> ok
@@ -168,9 +169,16 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{swarm=Swarm, state_channels=SCs}=State0) ->
-    Chain = blockchain_worker:blockchain(),
-    {Owner, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=SCs}=State) ->
+    case blockchain_worker:blockchain() of
+        undefined ->
+            self() ! post_init,
+            {noreply, State};
+        Chain ->
+            LedgerSCs = get_ledger_state_channels(Chain, Owner),
+            {noreply, State#state{chain=Chain, state_channels=maps:merge(LedgerSCs, SCs)}}
+    end;
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain, owner={Owner, _}, state_channels=SCs}=State0) ->
     {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
     State1 = lists:foldl(
         fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
@@ -199,8 +207,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
     BlockHeight = blockchain_block:height(Block),
     ok = close_expired_state_channels(BlockHeight, maps:values(State1#state.state_channels)),
     {noreply, State1};
-handle_info({close_state_channel, SC}, #state{swarm=Swarm}=State) ->
-    {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+handle_info({close_state_channel, SC}, #state{owner={Owner, OwnerSigFun}}=State) ->
     Txn = blockchain_txn_state_channel_close_v1:new(SC, Owner),
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
     ok = blockchain_worker:submit_txn(SignedTxn),
@@ -348,8 +355,8 @@ select_state_channel(Req, #state{state_channels=SCs, payees_to_sc=PayeesToSC}=St
             end
     end.
 
--spec load_state(rocksdb:db_handle(), libp2p_crypto:pubkey_bin()) -> {ok, state()} | {error, any()}.
-load_state(DB, Owner) ->
+-spec load_state(rocksdb:db_handle()) -> {ok, state()} | {error, any()}.
+load_state(DB) ->
     % TODO: We should also check the ledger make sure we did not miss any new state channel
     case get_state_channels(DB) of
         {error, _}=Error ->
@@ -388,13 +395,11 @@ load_state(DB, Owner) ->
                 maps:new(),
                 maps:values(SCs)
             ),
-            LedgerSCs = get_ledger_state_channels(Owner),
-            {ok, #state{db=DB, state_channels=maps:merge(LedgerSCs, SCs), clients=Clients}}
+            {ok, #state{db=DB, state_channels=SCs, clients=Clients}}
     end.
 
--spec get_ledger_state_channels(libp2p_crypto:pubkey_bin()) -> #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
-get_ledger_state_channels(Owner) ->
-    Chain = blockchain_worker:blockchain(),
+-spec get_ledger_state_channels(blockchain:blockchain(), libp2p_crypto:pubkey_bin()) -> #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
+get_ledger_state_channels(Chain, Owner) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_state_channels_by_owner(Owner, Ledger) of
         {error, _Reason} ->
@@ -491,16 +496,6 @@ select_state_channel_test() ->
     ok.
 
 load_test() ->
-    meck:unload(blockchain_worker),
-    meck:new(blockchain_worker, [passthrough]),
-    meck:expect(blockchain_worker, blockchain, fun() -> ok end),
-
-    meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, ledger, fun(_) -> ok end),
-
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, find_state_channels_by_owner, fun(_, _) -> {error, error} end),
-
     BaseDir = test_utils:tmp_dir("load_test"),
     {ok, DB} = open_db(BaseDir),
     {ok, Swarm} = start_swarm(load_test, BaseDir),
@@ -517,17 +512,9 @@ load_test() ->
         payees_to_sc=#{}
     },
     ?assertEqual(ok, blockchain_state_channel_v1:save(DB, SC)),
-    ?assertEqual({ok, State}, load_state(DB, <<>>)),
-
+    ?assertEqual({ok, State}, load_state(DB)),
     ok = rocksdb:close(DB),
     libp2p_swarm:stop(Swarm),
-
-    ?assert(meck:validate(blockchain_worker)),
-    meck:unload(blockchain_worker),
-    ?assert(meck:validate(blockchain)),
-    meck:unload(blockchain),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
     ok.
 
 update_state_test() ->
