@@ -5,7 +5,7 @@
 -include("blockchain_vars.hrl").
 
 -export([
-    init/1, init_chain/2,
+    init/1, init_chain/2, init_chain/3,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
     create_block/2,
@@ -30,13 +30,21 @@ init(BaseDir) ->
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
     {ok, Sup, {PrivKey, PubKey}, Opts}.
 
-init_chain(Balance, {PrivKey, PubKey}) ->
+init_chain(Balance, Keys) ->
+    init_chain(Balance, Keys, true).
+
+init_chain(Balance, {PrivKey, PubKey}, InConsensus) ->
     % Generate fake blockchains (just the keys)
-    RandomKeys = test_utils:generate_keys(10),
-    Address = blockchain_swarm:pubkey_bin(),
-    GenesisMembers = [
-        {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
-    ] ++ RandomKeys,
+    GenesisMembers = case InConsensus of
+                         true ->
+                             RandomKeys = test_utils:generate_keys(10),
+                             Address = blockchain_swarm:pubkey_bin(),
+                             [
+                              {Address, {PubKey, PrivKey, libp2p_crypto:mk_sig_fun(PrivKey)}}
+                             ] ++ RandomKeys;
+                         false ->
+                             test_utils:generate_keys(11)
+                     end,
 
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(#{}),
