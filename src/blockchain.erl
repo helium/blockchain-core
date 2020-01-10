@@ -30,6 +30,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -ifdef(TEST).
 -export([save_block/2]).
@@ -65,7 +66,8 @@
 %% we start a clean chain, we mark all existing keys are true and do
 %% not run their code later.
 -define(upgrades,
-        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1}]).
+        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
+         {<<"neighbor_sweep">>, fun neighbor_sweep/1}]).
 %% NB: we need to keep this in sync with the filter in the fingerprints
 
 
@@ -138,8 +140,13 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
         true ->
             process_upgrades(Tail, Ledger1);
         false ->
-            Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            case Fun(Ledger1) of
+                ok ->
+                    blockchain_ledger_v1:mark_key(Key, Ledger1);
+                _ ->
+                    %% retry again next reboot
+                    ok
+            end
     end,
     blockchain_ledger_v1:commit_context(Ledger1),
     ok.
@@ -174,6 +181,26 @@ upgrade_gateways_v2_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G1, A, Ledger)
       end, Gateways),
     ok.
+
+neighbor_sweep(Ledger) ->
+    neighbor_sweep_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    neighbor_sweep_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+neighbor_sweep_(Ledger) ->
+    case ?MODULE:config(?poc_version, Ledger) of
+        {ok, V} when V > 3 ->
+            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+            %% find all neighbors for everyone
+            maps:map(
+              fun(A, G) ->
+                      G1 = blockchain_ledger_gateway_v2:neighbors([], G),
+                      blockchain_ledger_v1:update_gateway(G1, A, Ledger)
+              end, Gateways);
+        _ -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
