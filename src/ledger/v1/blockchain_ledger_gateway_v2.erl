@@ -27,7 +27,8 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
-    witness_hist/1, witness_recent_time/1, witness_first_time/1
+    witnesses/2,
+    witness_hist/1, witness_recent_time/1, witness_first_time/1, witness_nonce/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -396,9 +397,13 @@ remove_witness(Gateway, WitnessAddr) ->
 has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
     maps:is_key(WitnessAddr, Witnesses).
 
--spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-spec witnesses(gateway()) -> witnesses().
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
+
+-spec witnesses(gateway(), witnesses()) -> gateway().
+witnesses(Gateway, NewWitnesses) ->
+    Gateway#gateway_v2{witnesses=NewWitnesses}.
 
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | #{integer() => integer()}.
 witness_hist(Witness) ->
@@ -412,6 +417,9 @@ witness_recent_time(Witness) ->
 witness_first_time(Witness) ->
     Witness#witness.first_time.
 
+-spec witness_nonce(gateway_witness()) -> pos_integer().
+witness_nonce(Witness) ->
+    Witness#witness.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc

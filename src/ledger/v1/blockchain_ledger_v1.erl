@@ -718,7 +718,7 @@ active_gateways(Ledger) ->
       Ledger,
       AGwsCF,
       fun({Address, Binary}, Acc) ->
-              Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
+              Gw = gc_witnesses(blockchain_ledger_gateway_v2:deserialize(Binary), Ledger, Acc),
               maps:put(Address, Gw, Acc)
       end,
       #{}
@@ -860,12 +860,30 @@ find_gateway_info(Address, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     case cache_get(Ledger, AGwsCF, Address, []) of
         {ok, BinGw} ->
-            {ok, blockchain_ledger_gateway_v2:deserialize(BinGw)};
+            {ok, gc_witnesses(blockchain_ledger_gateway_v2:deserialize(BinGw), Ledger, #{})};
         not_found ->
             {error, not_found};
         Error ->
             Error
     end.
+
+gc_witnesses(GW, Ledger, Cache) ->
+    FilteredWitnesses = maps:filter(fun(Address, Witness) ->
+                                            case maps:find(Address, Cache) of
+                                                {ok, WGW} ->
+                                                    blockchain_ledger_gateway_v2:nonce(WGW) == blockchain_ledger_gateway_v2:witness_nonce(Witness);
+                                                error ->
+                                                    AGwsCF = active_gateways_cf(Ledger),
+                                                    case cache_get(Ledger, AGwsCF, Address, []) of
+                                                        {ok, BinGw} ->
+                                                            WGW = blockchain_ledger_gateway_v2:deserialize(BinGw),
+                                                            blockchain_ledger_gateway_v2:nonce(WGW) == blockchain_ledger_gateway_v2:witness_nonce(Witness);
+                                                        _ ->
+                                                            false
+                                                    end
+                                            end
+                                    end, blockchain_ledger_gateway_v2:witnesses(GW)),
+    blockchain_ledger_gateway_v2:witnesses(GW, FilteredWitnesses).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -980,23 +998,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             %% we need to clear all our old witnesses out
             Bin = blockchain_ledger_gateway_v2:serialize(blockchain_ledger_gateway_v2:clear_witnesses(NewGw)),
             AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin),
-            %% this is only needed if the gateway previously had a location
-            case Nonce > 1 of
-                true ->
-                    %% we need to also remove any old witness links for this device's previous location on other gateways
-                    lists:foreach(fun({Addr, GW}) ->
-                                          case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                              true ->
-                                                  GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                                  cache_put(Ledger, AGwsCF, Addr, blockchain_ledger_gateway_v2:serialize(GW1));
-                                              false ->
-                                                  ok
-                                          end
-                                  end, maps:to_list(active_gateways(Ledger)));
-                false ->
-                    ok
-            end
+            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
 
 gateway_versions(Ledger) ->
