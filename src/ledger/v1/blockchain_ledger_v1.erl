@@ -981,16 +981,22 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             Bin = blockchain_ledger_gateway_v2:serialize(blockchain_ledger_gateway_v2:clear_witnesses(NewGw)),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, GatewayAddress, Bin),
-            %% we need to also remove any old witness links for this device's previous location on other gateways
-            lists:foreach(fun({Addr, GW}) ->
-                                  case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                      true ->
-                                          GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                          cache_put(Ledger, AGwsCF, Addr, blockchain_ledger_gateway_v2:serialize(GW1));
-                                      false ->
-                                          ok
-                                  end
-                          end, maps:to_list(active_gateways(Ledger)))
+            %% this is only needed if the gateway previously had a location
+            case Nonce > 1 of
+                true ->
+                    %% we need to also remove any old witness links for this device's previous location on other gateways
+                    lists:foreach(fun({Addr, GW}) ->
+                                          case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
+                                              true ->
+                                                  GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
+                                                  cache_put(Ledger, AGwsCF, Addr, blockchain_ledger_gateway_v2:serialize(GW1));
+                                              false ->
+                                                  ok
+                                          end
+                                  end, maps:to_list(active_gateways(Ledger)));
+                false ->
+                    ok
+            end
     end.
 
 gateway_versions(Ledger) ->
