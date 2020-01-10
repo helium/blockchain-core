@@ -363,12 +363,18 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end,
 
-    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-    Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
     {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
-    Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
-    ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger).
+    NewGw = case blockchain_ledger_v1:config(?poc_version, Ledger) of
+                {ok, V} when V > 3 ->
+                    %% don't update neighbours anymore
+                    Gw;
+                _ ->
+                    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+                    Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
+                    ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
+                    blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw)
+            end,
+    ok = blockchain_ledger_v1:update_gateway(NewGw, Gateway, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
