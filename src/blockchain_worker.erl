@@ -236,15 +236,26 @@ signed_metadata_fun() ->
                         {error, _} ->
                             #{}
                     end,
-                Ht0 = maps:get(<<"height">>, HeightMD, 1),
-                Ht = max(1, Ht0 - (Ht0 rem 40)),
-                {ok, Ledger} = blockchain:ledger_at(Ht, Chain),
-                FPMD = case blockchain_ledger_v1:fingerprint(Ledger) of
-                    {ok, Fingerprint} ->
-                        maps:merge(HeightMD, Fingerprint);
-                    _ ->
-                        HeightMD
-                end,
+                Ledger = blockchain:ledger(Chain),
+                FPMD = case blockchain:sync_height(Chain) == blockchain_ledger_v1:current_height(Ledger) of
+                           true ->
+                               Ht0 = maps:get(<<"height">>, HeightMD, 1),
+                               Ht = max(1, Ht0 - (Ht0 rem 40)),
+                               {ok, LedgerAt} = blockchain:ledger_at(Ht, Chain),
+                               case blockchain_ledger_v1:fingerprint(LedgerAt) of
+                                   {ok, Fingerprint} ->
+                                       maps:merge(HeightMD, Fingerprint);
+                                   _ ->
+                                       HeightMD
+                               end;
+                           false ->
+                               %% if the chain height and the ledger height diverge we can't meaningfully
+                               %% report fingerprint hashes, so skip it here
+                               %% TODO once we figure out the peer metadata gossip limit bug, we should
+                               %% put both heights in the signed metadata which would allow us to report
+                               %% fingerprints all the time
+                               HeightMD
+                       end,
                 FPMD#{<<"last_block_add_time">> => blockchain:last_block_add_time(Chain)}
             catch
                 _:_ ->
