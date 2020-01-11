@@ -365,7 +365,7 @@ absorb(Txn, Chain) ->
 
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 7 ->
-            {ok, Res} = blockchain:config(?poc_v5_target_zone_parent_res, Ledger),
+            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
             Hex = h3:parent(Location, Res),
 
             {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),

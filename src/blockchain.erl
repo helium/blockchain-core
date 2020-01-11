@@ -182,7 +182,7 @@ bootstrap_hexes(Ledger) ->
     %% issued before we upgrade to this code (or this release must be
     %% followed by one other) and only then is it safe to change
     %% poc_version to 7
-    case blockchain:config(?poc_v5_target_zone_parent_res, Ledger) of
+    case blockchain:config(?poc_target_hex_parent_res, Ledger) of
         {ok, Res} ->
             Gateways = blockchain_ledger_v1:active_gateways(Ledger),
             Hexes =
