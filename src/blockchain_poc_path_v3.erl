@@ -290,7 +290,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
                                 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                %% check_witness_inclusion(WitnessPubkeyBin, GatewaySco reMap, Vars) andalso
+                                check_witness_inclusion(WitnessPubkeyBin, Height, Ledger, Vars) andalso
                                 check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
@@ -301,7 +301,15 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                              ExclusionCells :: pos_integer()) -> boolean().
 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
     not(lists:any(fun(ParentIndex) ->
-                          h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells
+                          try h3:grid_distance(WitnessParent, ParentIndex) < ExclusionCells of
+                              Res -> Res
+                          catch
+                              %% Grid distance may badarg because of pentagonal distortion or
+                              %% non matching resolutions or just being too far.
+                              %% In either of those cases, we assume that the gateway
+                              %% is potentially legitimate to be a target.
+                              _:_ -> true
+                          end
                   end, ParentIndices)).
 
 -spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
@@ -317,10 +325,16 @@ check_witness_bad_rssi(Witness, Vars) ->
                         0 ->
                             %% No bad RSSIs found, include
                             true;
+                        BadCount when is_integer(V), V > 5 ->
+                            %% Activate with PoC v6
+                            %% Check that the bad rssi count is less than
+                            %% the sum of other known good rssi
+                            BadCount < lists:sum(maps:values(maps:without([28], Hist)));
                         BadCount ->
                             %% If the bad RSSI count does not dominate
                             %% the overall RSSIs this witness has, include,
                             %% otherwise exclude
+                            %% XXX: This is an incorrect check
                             BadCount < lists:sum(maps:values(Hist))
                     end
             catch
@@ -332,16 +346,17 @@ check_witness_bad_rssi(Witness, Vars) ->
             true
     end.
 
-%% -spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-%%                               GatewayScoreMap :: blockchain_utils:gateway_score_map(),
-%%                               Vars :: map()) -> boolean().
-%% check_witness_inclusion(WitnessPubkeyBin, GatewayScoreMap, Vars) ->
-%%     case poc_version(Vars) of
-%%         V when is_integer(V), V > 4 ->
-%%             maps:is_key(WitnessPubkeyBin, GatewayScoreMap);
-%%         _ ->
-%%             true
-%%     end.
+-spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                              Ledger :: blockchain:ledger(),
+                              Height :: pos_integer(),
+                              Vars :: map()) -> boolean().
+check_witness_inclusion(WitnessPubkeyBin, Height, Ledger, Vars) ->
+    case poc_version(Vars) of
+        V when is_integer(V), V > 4 ->
+            blockchain_poc_target_v2:valid(find(WitnessPubkeyBin, Ledger), Height, Vars);
+        _ ->
+            true
+    end.
 
 -spec rssi_weight(Vars :: map()) -> float().
 rssi_weight(Vars) ->

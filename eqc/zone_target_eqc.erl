@@ -96,7 +96,7 @@ targeting_vars() ->
       poc_v4_target_challenge_age => 300,
       poc_v4_target_exclusion_cells => 6000,
       poc_v4_target_score_curve => 2,
-      poc_v5_target_zone_parent_res => 5
+      poc_target_hex_parent_res => 5
      }.
 
 default_vars() ->
@@ -109,5 +109,5 @@ default_vars() ->
       poc_v4_prob_rssi_wt => 0.3,
       poc_v4_prob_time_wt => 0.3,
       poc_v4_randomness_wt => 0.1,
-      poc_v5_target_zone_parent_res => 5,
+      poc_target_hex_parent_res => 5,
       poc_version => 7}.
