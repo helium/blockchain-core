@@ -1056,9 +1056,7 @@ crosscheck(Blockchain) ->
                     case LedgerHeight - DelayedLedgerHeight  of
                         Lag when Lag > BlockDelay ->
                             {error, {ledger_delayed_ledger_lag_too_large, Lag}};
-                        Lag when Lag < BlockDelay ->
-                            {error, {ledger_delayed_ledger_lag_too_small, Lag}};
-                        _ ->
+                        Lag ->
                             %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
                             case ledger_at(LedgerHeight, Blockchain, true) of
                                 {ok, RecalcLedger} ->
@@ -1092,7 +1090,12 @@ crosscheck(Blockchain) ->
                                                 false ->
                                                     {error, {chain_ledger_height_mismatch, Height, LedgerHeight}};
                                                 true ->
-                                                    ok
+                                                    case Lag < BlockDelay of
+                                                        true ->
+                                                            {error, {ledger_delayed_ledger_lag_too_small, Lag}};
+                                                        false ->
+                                                            ok
+                                                    end
                                             end
                                     end;
                                 Error ->
