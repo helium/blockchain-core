@@ -113,8 +113,8 @@ new(Dir, GenBlock, AssumedValidBlockHash) ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
             new(Dir, GenBlock, AssumedValidBlockHash);
-        {Blockchain, {error, _Reason}} ->
-            lager:warning("failed to load genesis, integrating new one: ~p", [_Reason]),
+        {Blockchain, {error, Reason}} ->
+            lager:warning("failed to load genesis block ~p, integrating new one", [Reason]),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
             Ledger = blockchain:ledger(Blockchain),
             mark_upgrades(?upgrades, Ledger),
@@ -125,7 +125,7 @@ new(Dir, GenBlock, AssumedValidBlockHash) ->
             process_upgrades(?upgrades, Ledger),
             {ok, init_assumed_valid(Blockchain, AssumedValidBlockHash)};
         {Blockchain, {ok, _OldGenBlock}} ->
-            lager:info("replacing old genesis block"),
+            lager:info("replacing old genesis block with new one"),
             ok = clean(Blockchain),
             new(Dir, GenBlock, AssumedValidBlockHash)
     end.
