@@ -142,6 +142,7 @@
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
+-type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
 
 -export_type([ledger/0]).
 
@@ -1983,12 +1984,14 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
             [{snapshot, S} | Options]
     end.
 
+-spec set_hexes(HexMap :: hexmap(), Ledger :: ledger()) -> ok | {error, any()}.
 set_hexes(HexMap, Ledger) ->
     HexList = maps:to_list(HexMap),
     L = lists:sort(HexList),
     CF = default_cf(Ledger),
     cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
 
+-spec get_hexes(Ledger :: ledger()) -> {ok, hexmap()} | {error, any()}.
 get_hexes(Ledger) ->
     CF = default_cf(Ledger),
     case cache_get(Ledger, CF, ?hex_list, []) of
@@ -2000,11 +2003,15 @@ get_hexes(Ledger) ->
             Error
     end.
 
-set_hex(Hex, List, Ledger) ->
-    L = lists:sort(List),
+-spec set_hex(Hex :: h3:h3_index(),
+              GwPubkeyBins :: [libp2p_crypto:pubkey_bin()],
+              Ledger :: ledger()) -> ok | {error, any()}.
+set_hex(Hex, GwPubkeyBins, Ledger) ->
+    L = lists:sort(GwPubkeyBins),
     CF = default_cf(Ledger),
     cache_put(Ledger, CF, hex_name(Hex), term_to_binary(L, [compressed])).
 
+-spec get_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> {ok, term()} | {error, any()}.
 get_hex(Hex, Ledger) ->
     CF = default_cf(Ledger),
     case cache_get(Ledger, CF, hex_name(Hex), []) of
@@ -2016,6 +2023,7 @@ get_hex(Hex, Ledger) ->
             Error
     end.
 
+-spec delete_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> ok | {error, any()}.
 delete_hex(Hex, Ledger) ->
     CF = default_cf(Ledger),
     cache_delete(Ledger, CF, hex_name(Hex)).

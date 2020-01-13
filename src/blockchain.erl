@@ -196,8 +196,8 @@ bootstrap_hexes(Ledger) ->
                           end
                   end,
                   #{}, Gateways),
-            HexList = maps:map(fun(_K, V) -> length(V) end, Hexes),
-            ok = blockchain_ledger_v1:set_hexes(HexList, Ledger),
+            HexMap = maps:map(fun(_K, V) -> length(V) end, Hexes),
+            ok = blockchain_ledger_v1:set_hexes(HexMap, Ledger),
             _ = maps:map(
                   fun(Hex, Addresses) ->
                           blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
