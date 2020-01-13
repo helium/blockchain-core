@@ -356,6 +356,8 @@ absorb(Txn, Chain) ->
         false -> Payer
     end,
 
+    {ok, OldGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _Reason}=Error ->
             Error;
@@ -366,14 +368,25 @@ absorb(Txn, Chain) ->
     case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 7 ->
             {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
+            OldHex =
+                case OldLoc of
+                    undefined ->
+                        undefined;
+                    _ ->
+                        h3:parent(OldLoc, Res)
+                end,
             Hex = h3:parent(Location, Res),
-
-            {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-            Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
-            ok = blockchain_ledger_v1:set_hexes(Hexes1, Ledger),
-
-            {ok, OldAddrs} = blockchain_ledger_v1:get_hex(Hex, Ledger),
-            ok = blockchain_ledger_v1:set_hex(Hex, [Gateway | OldAddrs], Ledger);
+            case Hex of
+                OldHex ->
+                    %% moved within the hex, no need to update
+                    ok;
+                _ when OldHex == undefined ->
+                    add_to_hex(Hex, Gateway, Ledger);
+                _ ->
+                    remove_from_hex(OldHex, Gateway, Ledger),
+                    add_to_hex(Hex, Gateway, Ledger)
+            end;
         {ok, V} when V > 3 ->
             %% don't update neighbours anymore
             ok;
@@ -386,6 +399,31 @@ absorb(Txn, Chain) ->
             Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
             ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
     end.
+
+add_to_hex(Hex, Gateway, Ledger) ->
+    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
+    Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
+    ok = blockchain_ledger_v1:set_hexes(Hexes1, Ledger),
+
+    case blockchain_ledger_v1:get_hex(Hex, Ledger) of
+        {ok, OldAddrs} ->
+            ok = blockchain_ledger_v1:set_hex(Hex, [Gateway | OldAddrs], Ledger);
+        {error, not_found} ->
+            ok = blockchain_ledger_v1:set_hex(Hex, [Gateway], Ledger)
+    end.
+remove_from_hex(Hex, Gateway, Ledger) ->
+    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
+    Hexes1 =
+        case maps:get(Hex, Hexes) of
+            1 ->
+                ok = blockchain_ledger_v1:delete_hex(Hex, Ledger),
+                maps:remove(Hex, Hexes);
+            N ->
+                {ok, OldAddrs} = blockchain_ledger_v1:get_hex(Hex, Ledger),
+                ok = blockchain_ledger_v1:set_hex(Hex, lists:delete(Gateway, OldAddrs), Ledger),
+                Hexes#{Hex => N - 1}
+        end,
+    ok = blockchain_ledger_v1:set_hexes(Hexes1, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

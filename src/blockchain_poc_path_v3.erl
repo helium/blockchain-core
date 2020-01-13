@@ -347,8 +347,8 @@ check_witness_bad_rssi(Witness, Vars) ->
     end.
 
 -spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                              Ledger :: blockchain:ledger(),
                               Height :: pos_integer(),
+                              Ledger :: blockchain:ledger(),
                               Vars :: map()) -> boolean().
 check_witness_inclusion(WitnessPubkeyBin, Height, Ledger, Vars) ->
     case poc_version(Vars) of

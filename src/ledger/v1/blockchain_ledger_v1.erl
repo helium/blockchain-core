@@ -85,7 +85,7 @@
     apply_raw_changes/2,
 
     set_hexes/2, get_hexes/1,
-    set_hex/3, get_hex/2,
+    set_hex/3, get_hex/2, delete_hex/2,
 
     clean/1, close/1
 ]).
@@ -2015,6 +2015,10 @@ get_hex(Hex, Ledger) ->
         Error ->
             Error
     end.
+
+delete_hex(Hex, Ledger) ->
+    CF = default_cf(Ledger),
+    cache_delete(Ledger, CF, hex_name(Hex)).
 
 hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
