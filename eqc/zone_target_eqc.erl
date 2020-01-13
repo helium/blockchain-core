@@ -6,6 +6,7 @@
 -export([prop_target_check/0]).
 
 prop_target_check() ->
+    noshrink(
     ?FORALL({Hash, ChallengerIndex},
             {gen_hash(), gen_challenger_index()},
             begin
@@ -54,7 +55,7 @@ prop_target_check() ->
                           conjunction([{verify_target_found, Check}])
                          )
 
-            end).
+            end)).
 
 gen_hash() ->
     binary(32).

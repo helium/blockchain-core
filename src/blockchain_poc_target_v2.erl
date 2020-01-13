@@ -219,7 +219,7 @@ target_prob(ProbScores, ProbEdges, Vars) ->
 
 -spec scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
 scaled_prob(PTarget, Vars) ->
-    SumProbs = lists:sum(maps:values(PTarget)),
+    SumProbs = 1.0,
     maps:map(fun(_Addr, P) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
