@@ -87,7 +87,7 @@ target_v2(Hash, Ledger, Vars) ->
     ProbEdges = edge_prob(GatewayMap, Vars),
     ProbTarget = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
-    ScaledProbs = lists:sort(maps:to_list(scaled_prob(ProbTarget, Vars))),
+    ScaledProbs = lists:sort(maps:to_list(clamped_scaled_prob(ProbTarget, Vars))),
 
     %% make sure that we carry the entropy through for determinism
     {RandVal, _} = rand:uniform_s(Entropy1),
@@ -219,10 +219,18 @@ target_prob(ProbScores, ProbEdges, Vars) ->
 
 -spec scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
 scaled_prob(PTarget, Vars) ->
+    SumProbs = lists:sum(maps:values(PTarget)),
+    maps:map(fun(_Addr, P) ->
+                     ?normalize_float((P / SumProbs), Vars)
+             end, PTarget).
+
+-spec clamped_scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
+clamped_scaled_prob(PTarget, Vars) ->
     SumProbs = 1.0,
     maps:map(fun(_Addr, P) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
+
 
 -spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                 Vars :: #{}) -> #{h3:index() => integer()}.
