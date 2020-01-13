@@ -73,8 +73,15 @@ ledger() ->
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
     case filelib:is_file(LedgerTar) of
         true ->
-            %% ledger tar file present, extract
-            ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}]);
+            %% if we have already unpacked it, no need to do it again
+            LedgerDB = filename:join([PrivDir, "ledger.db"]),
+            case filelib:is_dir(LedgerDB) of
+                true ->
+                    ok;
+                false ->
+                    %% ledger tar file present, extract
+                    ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+            end;
         false ->
             %% ledger tar file not found, download & extract
             ok = ssl:start(),
@@ -83,11 +90,17 @@ ledger() ->
             ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end,
     Ledger = blockchain_ledger_v1:new(PrivDir),
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    blockchain_ledger_v1:vars(default_vars(), [], Ledger1),
-    blockchain:bootstrap_hexes(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger.
+    %% if we haven't upgraded the ledger, upgrade it
+    case blockchain_ledger_v1:get_hexes(Ledger) of
+        {ok, _Hexes} ->
+            Ledger;
+        _ ->
+            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+            blockchain_ledger_v1:vars(default_vars(), [], Ledger1),
+            blockchain:bootstrap_hexes(Ledger1),
+            blockchain_ledger_v1:commit_context(Ledger1),
+            Ledger
+    end.
 
 targeting_vars() ->
     #{poc_v4_target_prob_score_wt => 0.0,
