@@ -224,6 +224,7 @@ scaled_prob(PTarget, Vars) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
 
+%% this should only be used behind a 7+ poc_version var gate.
 -spec clamped_scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
 clamped_scaled_prob(PTarget, Vars) ->
     SumProbs = 1.0,
