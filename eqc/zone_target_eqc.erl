@@ -14,7 +14,6 @@ prop_target_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                %% {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
                 Vars = maps:merge(default_vars(), targeting_vars()),
                 Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
@@ -105,8 +104,8 @@ ledger() ->
 
 targeting_vars() ->
     #{poc_v4_target_prob_score_wt => 0.0,
-      poc_v4_target_prob_edge_wt => 0.4,
-      poc_v5_target_prob_randomness_wt => 0.6,
+      poc_v4_target_prob_edge_wt => 0.0,
+      poc_v5_target_prob_randomness_wt => 1.0,
       poc_v4_target_challenge_age => 300,
       poc_v4_target_exclusion_cells => 6000,
       poc_v4_target_score_curve => 2,
