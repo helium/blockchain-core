@@ -10,6 +10,15 @@ prop_target_check() ->
     ?FORALL({Hash, ChallengerIndex},
             {gen_hash(), gen_challenger_index()},
             begin
+                %% known problematic hash/index pairs
+
+                %% {Hash, ChallengerIndex} = {<<22,124,87,208,60,78,35,193,164,190,247,197,34,166,21,38,83,70,94,235,8,22,
+                %%                              58,186,38,30,3,212,103,154,81,25>>,
+                %%                            3},
+
+                %% {Hash, ChallengerIndex} = {<<224,115,99,63,69,61,174,41,225,213,245,77,89,99,183,134,181,200,150,33,137,
+                %%                              253,23,155,206,81,170,130,148,135,21,51>>,
+                %%                            7},
                 Ledger = ledger(),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
@@ -22,7 +31,7 @@ prop_target_check() ->
                             ChallengerLoc ->
                                 {Time, {ok, TargetPubkeyBin}} =
                                     timer:tc(fun() ->
-                                                     blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars)
+                                                      blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars)
                                              end),
                                 io:format("Time: ~p\t Target: ~p~n",
                                           [erlang:convert_time_unit(Time, microsecond, millisecond),

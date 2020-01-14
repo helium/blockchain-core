@@ -227,7 +227,7 @@ scaled_prob(PTarget, Vars) ->
 %% this should only be used behind a 7+ poc_version var gate.
 -spec clamped_scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
 clamped_scaled_prob(PTarget, Vars) ->
-    SumProbs = 1.0,
+    SumProbs = lists:sum(maps:values(PTarget)),
     maps:map(fun(_Addr, P) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
@@ -247,10 +247,10 @@ locations(GatewayScoreMap, Vars) ->
 
 -spec select_target(TaggedProbs :: [{libp2p_crypto:pubkey_bin(), float()}],
                     Rnd :: float(),
-                    Vars :: map()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
-select_target([], _, _) ->
-    {error, no_target};
+                    Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()}.
 select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
+    {ok, GwAddr};
+select_target([{GwAddr, _Prob} | Tail], _Rnd, _Vars) when Tail == [] ->
     {ok, GwAddr};
 select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
     select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).

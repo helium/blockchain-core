@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @doc blockchain_poc_path_v2 implementation.
+%%% @doc blockchain_poc_path_v3 implementation.
 %%%
 %%% The way paths are built depends solely on witnessing data we have accumulated
 %%% in the blockchain ledger.
@@ -12,7 +12,7 @@
 %%% vicinity is not enough to build potentially interesting paths.
 %%%
 %%% In order to build a path, we first find a target gateway using
-%%% blockchain_poc_target_v2:target/3 and build a path outward from it.
+%%% blockchain_poc_target_v3:target/3 and build a path outward from it.
 %%%
 %%% Once we have a target we recursively find a potential next hop from the target
 %%% gateway by looking into its witness list.
