@@ -247,7 +247,10 @@ locations(GatewayScoreMap, Vars) ->
 
 -spec select_target(TaggedProbs :: [{libp2p_crypto:pubkey_bin(), float()}],
                     Rnd :: float(),
-                    Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()}.
+                    Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} |
+                                      {error, no_target}.
+select_target([], _, _) ->
+    {error, no_target};
 select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
     {ok, GwAddr};
 select_target([{GwAddr, _Prob} | Tail], _Rnd, _Vars) when Tail == [] ->
