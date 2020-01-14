@@ -13,7 +13,9 @@ prop_path_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                Vars = maps:put(poc_path_limit, PathLimit, blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger))),
+                LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
+                %% Overwrite poc_path_limit for checking generated path limits
+                Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
                 Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
                             {error, not_found} ->
@@ -108,6 +110,7 @@ ledger() ->
             Ledger;
         _ ->
             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+            %% Ensure the ledger has the vars we're testing against
             blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
             blockchain:bootstrap_hexes(Ledger1),
             blockchain_ledger_v1:commit_context(Ledger1),
@@ -142,27 +145,6 @@ name(PubkeyBin) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
     Name.
 
-%% find_challenger(ChallengerIndex, ActiveGateways) ->
-%%     find_challenger(ChallengerIndex, ActiveGateways, 0).
-%% 
-%% find_challenger(ChallengerIndex, ActiveGateways, Iteration) ->
-%%     Idx = case abs(ChallengerIndex + Iteration) rem maps:size(ActiveGateways) of
-%%               0 -> maps:size(ActiveGateways);
-%%               N -> N
-%%           end,
-%%     Challenger = lists:nth(Idx, maps:keys(ActiveGateways)),
-%%     case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
-%%         undefined ->
-%%             find_challenger(ChallengerIndex, ActiveGateways, next_iteration(Iteration));
-%%         ChallengerLoc ->
-%%             {Challenger, ChallengerLoc}
-%%     end.
-
-%% next_iteration(0) -> 1;
-%% next_iteration(N) when N > 0 ->
-%%     N * -1;
-%% next_iteration(N) ->
-%%     (N * -1) + 1.
 targeting_vars() ->
     #{poc_v4_target_prob_score_wt => 0.0,
       poc_v4_target_prob_edge_wt => 0.0,

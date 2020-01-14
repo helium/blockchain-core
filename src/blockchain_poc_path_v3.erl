@@ -50,8 +50,6 @@
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
 
 %% @doc Build a path starting at `TargetPubkeyBin`.
-%% It is expected that the "GatewayScoreMap" being passed to build/6 fun
-%% has already been pre-filtered to remove "inactive" gateways.
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
             Ledger :: blockchain:ledger(),
             HeadBlockTime :: pos_integer(),
