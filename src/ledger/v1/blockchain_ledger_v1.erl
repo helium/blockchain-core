@@ -2041,7 +2041,12 @@ hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
 
 add_to_hex(Hex, Gateway, Ledger) ->
-    {ok, Hexes} = get_hexes(Ledger),
+    Hexes = case get_hexes(Ledger) of
+                {ok, Hs} ->
+                    Hs;
+                {error, not_found} ->
+                    #{}
+            end,
     Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
     ok = set_hexes(Hexes1, Ledger),
 
