@@ -87,6 +87,9 @@
     set_hexes/2, get_hexes/1,
     set_hex/3, get_hex/2, delete_hex/2,
 
+    add_to_hex/3,
+    remove_from_hex/3,
+
     clean/1, close/1
 ]).
 
@@ -915,19 +918,25 @@ add_gateway(OwnerAddr,
 
             NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
-            NewGw = case ?MODULE:config(?poc_version, Ledger) of
-                        {ok, V} when V > 3 ->
-                            blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
-                        _ ->
-                            NewGw0
-                    end,
+            NewGw =
+                case ?MODULE:config(?poc_version, Ledger) of
+                    {ok, V} when V > 6 ->
+                        {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+                        Hex = h3:parent(Location, Res),
+                        add_to_hex(Hex, GatewayAddress, Ledger),
 
-            Gateways = active_gateways(Ledger),
-            Neighbors = blockchain_poc_path:neighbors(NewGw, Gateways, Ledger),
-            NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw),
-            fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
+                    {ok, V} when V > 3 ->
+                        Gateways = active_gateways(Ledger),
+                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
+                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
+                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw1);
+                    _ ->
+                        NewGw0
+                end,
 
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw1),
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
@@ -2030,6 +2039,32 @@ delete_hex(Hex, Ledger) ->
 
 hex_name(Hex) ->
     <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
+
+add_to_hex(Hex, Gateway, Ledger) ->
+    {ok, Hexes} = get_hexes(Ledger),
+    Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
+    ok = set_hexes(Hexes1, Ledger),
+
+    case get_hex(Hex, Ledger) of
+        {ok, OldAddrs} ->
+            ok = set_hex(Hex, [Gateway | OldAddrs], Ledger);
+        {error, not_found} ->
+            ok = set_hex(Hex, [Gateway], Ledger)
+    end.
+
+remove_from_hex(Hex, Gateway, Ledger) ->
+    {ok, Hexes} = get_hexes(Ledger),
+    Hexes1 =
+        case maps:get(Hex, Hexes) of
+            1 ->
+                ok = delete_hex(Hex, Ledger),
+                maps:remove(Hex, Hexes);
+            N ->
+                {ok, OldAddrs} = get_hex(Hex, Ledger),
+                ok = set_hex(Hex, lists:delete(Gateway, OldAddrs), Ledger),
+                Hexes#{Hex => N - 1}
+        end,
+    ok = set_hexes(Hexes1, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
