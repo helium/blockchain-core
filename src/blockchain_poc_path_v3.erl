@@ -276,10 +276,10 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
     ParentIndices = [h3:parent(Index, ParentRes) || Index <- Indices],
     maps:filter(fun(WitnessPubkeyBin, Witness) ->
                         WitnessGw = find(WitnessPubkeyBin, Ledger),
-                        case blockchain_poc_target_v2:valid(WitnessGw, Height, Vars) of
-                            false ->
-                                false;
+                        case is_witness_stale(WitnessGw, Height, Vars) of
                             true ->
+                                false;
+                            false ->
                                 WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
                                 %% Dont include any witnesses in any parent cell we've already visited
@@ -288,7 +288,6 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
                                 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
-                                check_witness_inclusion(WitnessPubkeyBin, Height, Ledger, Vars) andalso
                                 check_witness_bad_rssi(Witness, Vars)
                         end
                 end,
@@ -344,16 +343,17 @@ check_witness_bad_rssi(Witness, Vars) ->
             true
     end.
 
--spec check_witness_inclusion(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                              Height :: pos_integer(),
-                              Ledger :: blockchain:ledger(),
-                              Vars :: map()) -> boolean().
-check_witness_inclusion(WitnessPubkeyBin, Height, Ledger, Vars) ->
-    case poc_version(Vars) of
-        V when is_integer(V), V > 4 ->
-            blockchain_poc_target_v2:valid(find(WitnessPubkeyBin, Ledger), Height, Vars);
-        _ ->
-            true
+-spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+                       Height :: pos_integer(),
+                       Vars :: map()) -> boolean().
+is_witness_stale(Gateway, Height, Vars) ->
+    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+        undefined ->
+            %% No POC challenge, don't include
+            true;
+        C ->
+            %% Check challenge age is recent depending on the set chain var
+            (Height - C) >= challenge_age(Vars)
     end.
 
 -spec rssi_weight(Vars :: map()) -> float().
@@ -399,6 +399,10 @@ randomness_wt(Vars) ->
 -spec poc_version(Vars :: map()) -> pos_integer().
 poc_version(Vars) ->
     maps:get(poc_version, Vars).
+
+-spec challenge_age(Vars :: map()) -> pos_integer().
+challenge_age(Vars) ->
+    maps:get(poc_v4_target_challenge_age, Vars).
 
 %% we assume that everything that has made it into build has already
 %% been asserted, and thus the lookup will never fail. This function

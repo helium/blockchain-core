@@ -11,14 +11,6 @@ prop_target_check() ->
             {gen_hash(), gen_challenger_index()},
             begin
                 %% known problematic hash/index pairs
-
-                %% {Hash, ChallengerIndex} = {<<22,124,87,208,60,78,35,193,164,190,247,197,34,166,21,38,83,70,94,235,8,22,
-                %%                              58,186,38,30,3,212,103,154,81,25>>,
-                %%                            3},
-
-                %% {Hash, ChallengerIndex} = {<<224,115,99,63,69,61,174,41,225,213,245,77,89,99,183,134,181,200,150,33,137,
-                %%                              253,23,155,206,81,170,130,148,135,21,51>>,
-                %%                            7},
                 Ledger = ledger(),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
@@ -105,7 +97,7 @@ ledger() ->
             Ledger;
         _ ->
             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-            blockchain_ledger_v1:vars(default_vars(), [], Ledger1),
+            blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
             blockchain:bootstrap_hexes(Ledger1),
             blockchain_ledger_v1:commit_context(Ledger1),
             Ledger
