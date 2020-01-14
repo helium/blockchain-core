@@ -17,8 +17,7 @@
 -export([
          target/3,
          target_v2/3,
-         filter/5,
-         valid/3
+         filter/5
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -53,13 +52,12 @@ target_v2(Hash, Ledger, Vars) ->
 
     %% assemble the probabilities per hex for the CDF (each spot is
     %% equally likely to get targeted at this stage)
-    GwCt = lists:sum([Ct || {_Hex, Ct} <- HexList]),
-    HexProbs = [{Hex, Ct/GwCt} || {Hex, Ct} <- HexList],
+    HexProbs = blockchain_utils:cdf(HexList),
 
     %% choose hex via CDF
     Entropy = blockchain_utils:rand_state(Hash),
     {HexVal, Entropy1} = rand:uniform_s(Entropy),
-    {ok, Hex} = select_hex(HexProbs, HexVal, Vars),
+    {ok, Hex} = blockchain_utils:icdf_select(HexProbs, HexVal),
 
     %% fetch from the disk the list of gateways, then the actual
     %% gateways on that list, then score them, if the weight is not 0.
@@ -85,13 +83,12 @@ target_v2(Hash, Ledger, Vars) ->
     %% generate scores weights for the final CDF that does the actual selection
     ProbScores = score_prob(GatewayMap, Vars),
     ProbEdges = edge_prob(GatewayMap, Vars),
-    ProbTarget = target_prob(ProbScores, ProbEdges, Vars),
+    ProbTargetMap = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
-    ScaledProbs = lists:sort(maps:to_list(clamped_scaled_prob(ProbTarget, Vars))),
-
+    TargetProbCDF = blockchain_utils:cdf(lists:keysort(1, maps:to_list(ProbTargetMap))),
     %% make sure that we carry the entropy through for determinism
     {RandVal, _} = rand:uniform_s(Entropy1),
-    select_target(ScaledProbs, RandVal, Vars).
+    blockchain_utils:icdf_select(TargetProbCDF, RandVal).
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
@@ -108,16 +105,10 @@ filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
                 end,
                 maps:without([ChallengerAddr], GatewayScoreMap)).
 
-valid(Gateway, Height, Vars) ->
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-        undefined ->
-            %% No POC challenge, don't include
-            false;
-        C ->
-            %% Check challenge age is recent depending on the set chain var
-            (Height - C) < challenge_age(Vars)
-    end.
-
+-spec valid(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+            ChallengerLoc :: h3:h3_index(),
+            Height :: pos_integer(),
+            Vars :: map()) -> boolean().
 valid(Gateway, ChallengerLoc, Height, Vars) ->
     case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
         undefined ->
@@ -229,15 +220,6 @@ scaled_prob(PTarget, Vars) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
 
-%% this should only be used behind a 7+ poc_version var gate.
--spec clamped_scaled_prob(PTarget :: prob_map(), Vars :: map()) -> prob_map().
-clamped_scaled_prob(PTarget, Vars) ->
-    SumProbs = lists:sum(maps:values(PTarget)),
-    maps:map(fun(_Addr, P) ->
-                     ?normalize_float((P / SumProbs), Vars)
-             end, PTarget).
-
-
 -spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
                 Vars :: #{}) -> #{h3:index() => integer()}.
 locations(GatewayScoreMap, Vars) ->
@@ -262,17 +244,6 @@ select_target([{GwAddr, _Prob} | Tail], _Rnd, _Vars) when Tail == [] ->
     {ok, GwAddr};
 select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
     select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).
-
--spec select_hex(TaggedProbs :: [{h3:index(), float()}],
-                 Rnd :: float(),
-                 Vars :: map()) ->
-                        {error, no_hex} | {ok, h3:index()}.
-select_hex([], _, _)  ->
-    {error, no_hex};
-select_hex([{Idx, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
-    {ok, Idx};
-select_hex([{_Idx, Prob} | Tail], Rnd, Vars) ->
-    select_hex(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).
 
 -spec challenge_age(Vars :: map()) -> pos_integer().
 challenge_age(Vars) ->

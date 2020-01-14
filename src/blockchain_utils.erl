@@ -18,7 +18,9 @@
     distance/2,
     score_gateways/1,
     free_space_path_loss/2,
-    vars_binary_keys_to_atoms/1
+    vars_binary_keys_to_atoms/1,
+    cdf/1,
+    icdf_select/2
 ]).
 
 -ifdef(TEST).
@@ -205,6 +207,23 @@ free_space_path_loss(Loc1, Loc2) ->
 vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
+
+-spec cdf(PopulationList :: [{any(), float()}, ...]) -> [{any(), float()}, ...].
+cdf(PopulationList) ->
+    %% This takes the population and coverts it to a cumulative distribution.
+    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
+    [{Node, normalize_float(Weight/Sum)} || {Node, Weight} <- PopulationList].
+
+-spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()}.
+icdf_select(PopulationList, Rnd) ->
+    icdf_select(PopulationList, Rnd, Rnd).
+
+icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->
+    {ok, Node};
+icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
+    {ok, Node};
+icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
+    icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
