@@ -129,7 +129,12 @@ valid(Gateway, ChallengerLoc, Height, Vars) ->
             %% Check that the potential target is far enough from the challenger
             %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
             %% so this should be safe.
-                check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars)
+                case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
+                    false ->
+                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
+                    true ->
+                        true
+                end
     end.
 
 %%%-------------------------------------------------------------------
