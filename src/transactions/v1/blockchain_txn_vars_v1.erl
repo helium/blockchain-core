@@ -677,6 +677,8 @@ validate_var(?poc_typo_fixes, Value) ->
         false -> ok;
         _ -> throw({error, {invalid_poc_typo_fixes, Value}})
     end;
+validate_var(?poc_target_hex_parent_res, Value) ->
+    validate_int(Value, "poc_v4_parent_res", 3, 7, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
