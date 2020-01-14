@@ -42,6 +42,7 @@ prop_path_check() ->
 
                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
                 HumanPath = [name(P) || P <- Path],
+                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
                 case length(Path) > 1 of
                     true ->

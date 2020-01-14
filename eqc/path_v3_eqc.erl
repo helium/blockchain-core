@@ -13,8 +13,7 @@ prop_path_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                Vars = maps:merge(default_vars(), targeting_vars()),
-                %% {Challenger, ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
+                Vars = maps:put(poc_path_limit, PathLimit, blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger))),
 
                 Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
                             {error, not_found} ->
@@ -34,7 +33,7 @@ prop_path_check() ->
 
                                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
                                 HumanPath = [name(P) || P <- Path],
-                                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
+                                io:format("Vars: ~p\nTime: ~p\t Path: ~p~n", [Vars, erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
                                 case length(Path) > 1 of
                                     true ->
@@ -50,12 +49,17 @@ prop_path_check() ->
                                 %% - target is always in path
                                 %% - we never go back to the same h3 index in path
                                 %% - check next hop is a witness of previous gateway
-                                Checks =  (PathLength =< PathLimit andalso PathLength >= 1 andalso
-                                           length(Path) == length(lists:usort(Path)) andalso
-                                           lists:member(TargetPubkeyBin, Path) andalso
-                                           check_path_h3_indices(Path, ActiveGateways) andalso
-                                           check_next_hop(Path, ActiveGateways)),
-                                Checks
+                                C1 = PathLength =< PathLimit andalso PathLength >= 1,
+                                io:format("C1: ~p, PathLength: ~p, PathLimit: ~p~n", [C1, PathLength, PathLimit]),
+                                C2 = length(Path) == length(lists:usort(Path)),
+                                io:format("C2: ~p~n", [C2]),
+                                C3 =  lists:member(TargetPubkeyBin, Path),
+                                io:format("C3: ~p~n", [C3]),
+                                C4 = check_path_h3_indices(Path, ActiveGateways),
+                                io:format("C4: ~p~n", [C4]),
+                                C5 = check_next_hop(Path, ActiveGateways),
+                                io:format("C5: ~p~n", [C5]),
+                                C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5
 
                         end,
 
@@ -108,7 +112,7 @@ ledger() ->
             Ledger;
         _ ->
             Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-            blockchain_ledger_v1:vars(default_vars(), [], Ledger1),
+            blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
             blockchain:bootstrap_hexes(Ledger1),
             blockchain_ledger_v1:commit_context(Ledger1),
             Ledger
