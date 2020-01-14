@@ -33,7 +33,7 @@ prop_path_check() ->
 
                                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
                                 HumanPath = [name(P) || P <- Path],
-                                io:format("Vars: ~p\nTime: ~p\t Path: ~p~n", [Vars, erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
+                                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
                                 case length(Path) > 1 of
                                     true ->
@@ -50,15 +50,10 @@ prop_path_check() ->
                                 %% - we never go back to the same h3 index in path
                                 %% - check next hop is a witness of previous gateway
                                 C1 = PathLength =< PathLimit andalso PathLength >= 1,
-                                io:format("C1: ~p, PathLength: ~p, PathLimit: ~p~n", [C1, PathLength, PathLimit]),
                                 C2 = length(Path) == length(lists:usort(Path)),
-                                io:format("C2: ~p~n", [C2]),
-                                C3 =  lists:member(TargetPubkeyBin, Path),
-                                io:format("C3: ~p~n", [C3]),
+                                C3 = lists:member(TargetPubkeyBin, Path),
                                 C4 = check_path_h3_indices(Path, ActiveGateways),
-                                io:format("C4: ~p~n", [C4]),
                                 C5 = check_next_hop(Path, ActiveGateways),
-                                io:format("C5: ~p~n", [C5]),
                                 C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5
 
                         end,
@@ -67,9 +62,10 @@ prop_path_check() ->
                 blockchain_score_cache:stop(),
 
                 ?WHENFAIL(begin
-                                blockchain_ledger_v1:close(Ledger)
-                            end,
-                            conjunction([{verify_path_construction, Check}]))
+                              blockchain_ledger_v1:close(Ledger)
+                          end,
+                          %% TODO: split into multiple verifiers instead of a single consolidated one
+                          conjunction([{verify_path_construction, Check}]))
             end).
 
 gen_path_limit() ->
