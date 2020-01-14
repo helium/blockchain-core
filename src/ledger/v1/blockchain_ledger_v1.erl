@@ -933,7 +933,11 @@ add_gateway(OwnerAddr,
                         fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
                         blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw1);
                     _ ->
-                        NewGw0
+                        Gateways = active_gateways(Ledger),
+                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
+                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
+                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        NewGw1
                 end,
 
             Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
