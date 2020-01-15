@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_vars_v1_pb.hrl").
+-include("../../pb/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -26,7 +26,8 @@
          nonce/1,
          absorb/2,
          rescue_absorb/2,
-         sign/2
+         sign/2,
+         print/1
         ]).
 
 %% helper API
@@ -53,6 +54,9 @@
 
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
 -export_type([txn_vars/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %% message var_v1 {
 %%     string type = 1;
@@ -92,6 +96,7 @@ new(Vars, Nonce, Optional) ->
                                unsets = encode_unsets(Unsets),
                                cancels = Cancels,
                                nonce = Nonce}.
+
 
 encode_vars(Vars) ->
     V = maps:to_list(Vars),
@@ -467,6 +472,15 @@ sum_higher(Target, [{Vers, Pct}| T], Sum) ->
 
 decode_unsets(Unsets) ->
     lists:map(fun(U) -> binary_to_atom(U, utf8) end, Unsets).
+
+-spec print(txn_vars()) -> iodata().
+print(undefined) -> <<"type=vars undefined">>;
+print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
+                                 master_key = MasterKey, key_proof = KeyProof,
+                                 unsets = Unsets, cancels = Cancels,
+                                 nonce = Nonce}) ->
+    io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p unsets=~p cancels=~p nonce=~p",
+                  [Vars, VersionP, MasterKey, KeyProof, Unsets, Cancels, Nonce]).
 
 %%%
 %%% Helper API

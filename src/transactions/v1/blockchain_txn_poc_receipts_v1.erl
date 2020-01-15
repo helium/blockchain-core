@@ -6,7 +6,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("../../pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -38,6 +38,9 @@
 -type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
 
 -export_type([txn_poc_receipts/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -812,9 +815,9 @@ print(#blockchain_txn_poc_receipts_v1_pb{
          path=Path
         }=Txn) ->
     io_lib:format("type=poc_receipts_v1 hash=~p challenger=~p onion=~p path:\n\t~s",
-                  [libp2p_crypto:bin_to_b58(?MODULE:hash(Txn)),
-                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger))),
-                   libp2p_crypto:bin_to_b58(OnionKeyHash),
+                  [?TO_B58(?MODULE:hash(Txn)),
+                   ?TO_ANIMAL_NAME(Challenger),
+                   ?TO_B58(OnionKeyHash),
                    print_path(Path)]).
 
 print_path(Path) ->

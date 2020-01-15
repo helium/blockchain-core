@@ -44,8 +44,7 @@
 -callback print(txn(), boolean()) -> iodata().
 -callback rescue_absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 
-%% ideally print/1 would eventually be required
--optional_callbacks([rescue_absorb/2, print/1, print/2]).
+-optional_callbacks([rescue_absorb/2, print/2]).
 
 -export([
     block_delay/0,

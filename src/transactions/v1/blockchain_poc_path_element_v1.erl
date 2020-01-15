@@ -3,7 +3,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_path_element_v1).
 
--include("pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("../../pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
     new/3,
@@ -22,6 +22,8 @@
 
 -export_type([poc_element/0, poc_path/0]).
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -61,6 +63,8 @@ receipt(Element) ->
 witnesses(Element) ->
     Element#blockchain_poc_path_element_v1_pb.witnesses.
 
+print(undefined) ->
+    <<"type=element undefined">>;
 print(#blockchain_poc_path_element_v1_pb{
          challengee=Challengee,
          receipt=Receipt,
@@ -68,7 +72,7 @@ print(#blockchain_poc_path_element_v1_pb{
         }) ->
     io_lib:format("type=element challengee: ~s, receipt: ~s\n\t\twitnesses: ~s",
                   [
-                   element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challengee))),
+                   ?TO_ANIMAL_NAME(Challengee),
                    blockchain_poc_receipt_v1:print(Receipt),
                    string:join(lists:map(fun(Witness) ->
                                                  blockchain_poc_witness_v1:print(Witness)

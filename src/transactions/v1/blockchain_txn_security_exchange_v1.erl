@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_security_exchange_v1_pb.hrl").
+-include("../../pb/blockchain_txn_security_exchange_v1_pb.hrl").
 
 -export([
     new/5,
@@ -20,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -29,6 +30,9 @@
 
 -type txn_security_exchange() :: #blockchain_txn_security_exchange_v1_pb{}.
 -export_type([txn_security_exchange/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -45,6 +49,19 @@ new(Payer, Recipient, Amount, Fee, Nonce) ->
         nonce=Nonce,
         signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_security_exchange()) -> iodata().
+print(undefined) -> <<"type=security_exchange undefined">>;
+print(#blockchain_txn_security_exchange_v1_pb{payer=Payer, payee=Recipient,
+                                              amount=Amount, fee=Fee,
+                                              nonce=Nonce, signature = Sig}) ->
+    io_lib:format("type=security_exchange payer=~p payee=~p amount=~p fee=~p nonce=~p signature=~p",
+                  [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, Sig]).
+
 
 %%--------------------------------------------------------------------
 %% @doc

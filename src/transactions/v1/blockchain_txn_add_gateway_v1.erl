@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_add_gateway_v1_pb.hrl").
+-include("../../pb/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
     new/4, new/5,
@@ -28,7 +28,8 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1
+    calculate_staking_fee/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -37,6 +38,9 @@
 
 -type txn_add_gateway() :: #blockchain_txn_add_gateway_v1_pb{}.
 -export_type([txn_add_gateway/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -62,6 +66,7 @@ new(OwnerAddress, GatewayAddress, Payer, StakingFee, Fee) ->
         staking_fee=StakingFee,
         fee=Fee
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -297,6 +302,22 @@ absorb(Txn, Chain) ->
 -spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(_Chain) ->
     1.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_add_gateway()) -> iodata().
+print(undefined) -> <<"type=add_gateway, undefined">>;
+print(#blockchain_txn_add_gateway_v1_pb{
+         owner = O,
+         gateway = GW,
+         payer = P,
+         staking_fee = SF,
+         fee = F}) ->
+    io_lib:format("type=add_gateway, owner=~p, gateway=~p, payer=~p, staking_fee=~p, fee=~p",
+                  [?TO_B58(O), ?TO_ANIMAL_NAME(GW), ?TO_B58(P), SF, F]).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_poc_request_v1_pb.hrl").
+-include("../../pb/blockchain_txn_poc_request_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -23,7 +23,8 @@
     fee/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -32,6 +33,9 @@
 
 -type txn_poc_request() :: #blockchain_txn_poc_request_v1_pb{}.
 -export_type([txn_poc_request/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -200,6 +204,19 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_poc_request()) -> iodata().
+print(undefined) -> <<"type=poc_request, undefined">>;
+print(#blockchain_txn_poc_request_v1_pb{challenger=Challenger, secret_hash=SecretHash,
+                                        onion_key_hash=OnionKeyHash, block_hash=BlockHash,
+                                        fee=Fee, signature = Sig, version = Version }) ->
+    %% XXX: Should we really print the secret hash in a log???
+    io_lib:format("type=poc_request challenger=~p, secret_hash=~p, onion_key_hash=~p, block_hash=~p, fee=~p, signature=~p, version=~p",
+                  [?TO_ANIMAL_NAME(Challenger), SecretHash, ?TO_B58(OnionKeyHash), BlockHash, Fee, Sig, Version]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

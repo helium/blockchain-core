@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_assert_location_v1_pb.hrl").
+-include("../../pb/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
 -export([
@@ -32,7 +32,8 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1
+    calculate_staking_fee/1,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -42,6 +43,9 @@
 -type location() :: h3:h3index().
 -type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
 -export_type([txn_assert_location/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -87,6 +91,8 @@ new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
         staking_fee=StakingFee,
         fee=Fee
     }.
+
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -409,6 +415,22 @@ absorb(Txn, Chain) ->
 -spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(_Chain) ->
     1.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_assert_location()) -> iodata().
+print(undefined) -> <<"type=assert_location, undefined">>;
+print(#blockchain_txn_assert_location_v1_pb{
+        gateway = Gateway, owner = Owner, payer = Payer,
+        location = Loc, gateway_signature = GS,
+        owner_signature = OS, payer_signature = PS, nonce = Nonce,
+        staking_fee = StakingFee, fee = Fee}) ->
+    io_lib:format("type=assert_location, gateway=~p, owner=~p, payer=~p, location=~p, gateway_signature=~p, owner_signature=~p, payer_signature=~p, nonce=~p, staking_fee=~p, fee=~p",
+                  [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), ?TO_B58(Payer),
+		   Loc, GS, OS, PS, Nonce, StakingFee, Fee]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

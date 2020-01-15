@@ -8,7 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_vars.hrl").
--include("pb/blockchain_txn_rewards_v1_pb.hrl").
+-include("../../pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
     new/3,
@@ -20,7 +20,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    calculate_rewards/3
+    calculate_rewards/3,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -37,6 +38,9 @@
 
 -type txn_rewards() :: #blockchain_txn_rewards_v1_pb{}.
 -export_type([txn_rewards/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -199,6 +203,17 @@ calculate_rewards(Start, End, Chain) ->
                     {error, already_existing_rewards}
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_rewards()) -> iodata().
+print(undefined) -> <<"type=rewards undefined">>;
+print(#blockchain_txn_rewards_v1_pb{start_epoch=Start, end_epoch=End,
+                                    rewards=Rewards}) ->
+    io_lib:format("type=rewards start_epoch=~p end_epoch=~p rewards=~p",
+                  [Start, End, Rewards]).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

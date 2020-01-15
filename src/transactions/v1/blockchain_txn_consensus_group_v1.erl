@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_consensus_group_v1_pb.hrl").
+-include("../../pb/blockchain_txn_consensus_group_v1_pb.hrl").
 
 -export([
     new/4,
@@ -31,6 +31,9 @@
 
 -type txn_consensus_group() :: #blockchain_txn_consensus_group_v1_pb{}.
 -export_type([txn_consensus_group/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -204,6 +207,12 @@ absorb(Txn, Chain) ->
             Err
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_consensus_group()) -> iodata().
+print(undefined) -> <<"type=group, undefined">>;
 print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                                             delay = Delay,
                                             members = Members,

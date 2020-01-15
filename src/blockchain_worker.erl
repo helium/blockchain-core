@@ -668,9 +668,9 @@ send_txn(Txn) ->
                                    (fun(Res) ->
                                             case Res of
                                                 ok ->
-                                                    lager:info("successfully submit txn: ~p", [Txn]);
+                                                    lager:info("successfully submit txn: ~s", [blockchain_txn:print(Txn)]);
                                                 {error, Reason} ->
-                                                    lager:error("failed to submit txn: ~p error: ~p", [Txn, Reason])
+                                                    lager:error("failed to submit txn: ~s error: ~p", [blockchain_txn:print(Txn), Reason])
                                             end
                                     end)).
 

@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_redeem_htlc_v1_pb.hrl").
+-include("../../pb/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
 -export([
     new/4,
@@ -19,7 +19,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -28,6 +29,9 @@
 
 -type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -198,6 +202,18 @@ absorb(Txn, Chain) ->
                     blockchain_ledger_v1:redeem_htlc(Address, Payee, Ledger)
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_redeem_htlc()) -> iodata().
+print(undefined) -> <<"type=redeem_htlc, undefined">>;
+print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
+                                        preimage=PreImage, fee=Fee,
+                                        signature=Sig}) ->
+    io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
+                  [?TO_B58(Payee), Address, PreImage, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -8,7 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_vars.hrl").
--include("pb/blockchain_txn_pb.hrl").
+-include("../../pb/blockchain_txn_pb.hrl").
 
 -define(MAX_BUNDLE_SIZE, 5).
 
@@ -19,11 +19,15 @@
     sign/2,
     fee/1,
     txns/1,
-    is_valid/2
+    is_valid/2,
+    print/1
 ]).
 
 -type txn_bundle() :: #blockchain_txn_bundle_v1_pb{}.
 -export_type([txn_bundle/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 -spec new(Txns :: blockchain_txn:txns()) -> txn_bundle().
 new(Txns) ->
@@ -84,6 +88,12 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
                     end
             end
     end.
+
+-spec print(txn_bundle()) -> iodata().
+print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
+    io_lib:format("type=bundle, txns=~p", [
+                                           [blockchain_txn:print(T) || T <- Txns]
+                                          ]).
 
 
 -spec max_bundle_size(blockchain:blockchain()) -> pos_integer().

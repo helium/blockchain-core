@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_token_burn_v1_pb.hrl").
+-include("../../pb/blockchain_txn_token_burn_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
   -export([
@@ -22,7 +22,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -31,6 +32,9 @@
 
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -57,6 +61,18 @@ new(Payer, Amount, Nonce, Key) ->
         nonce=Nonce,
         signature = <<>>
     }.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_token_burn()) -> iodata().
+print(undefined) -> <<"type=token_burn undefined">>;
+print(#blockchain_txn_token_burn_v1_pb{type=Type, payer=Payer, key=Key,
+                                       amount=Amount, nonce=Nonce,
+                                       signature=Sig}) ->
+  io_lib:format("type=token_burn type=~p payer=~p key=~p amount=~p nonce=~p signature=~p",
+                [Type, ?TO_B58(Payer), Key, Amount, Nonce, Sig]).
 
 %%--------------------------------------------------------------------
 %% @doc

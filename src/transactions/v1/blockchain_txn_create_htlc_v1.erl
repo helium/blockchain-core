@@ -10,7 +10,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_create_htlc_v1_pb.hrl").
+-include("../../pb/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
     new/7,
@@ -25,7 +25,8 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -34,6 +35,9 @@
 
 -type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
 -export_type([txn_create_htlc/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -52,6 +56,7 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
         fee=Fee,
         signature = <<>>
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -211,6 +216,18 @@ absorb(Txn, Chain) ->
                     end
             end
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_create_htlc()) -> iodata().
+print(#blockchain_txn_create_htlc_v1_pb{
+        payer=Payer, payee=Payee, address=Address,
+        hashlock=Hashlock, timelock=Timelock, amount=Amount,
+        fee=Fee, signature = Sig}) ->
+    io_lib:format("type=create_htlc payer=~p payee=~p, address=~p, hashlock=~p, timelock=~p, amount=~p, fee=~p, signature=~p",
+                  [?TO_B58(Payer), ?TO_B58(Payee), Address, Hashlock, Timelock, Amount, Fee, Sig]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

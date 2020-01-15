@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_gen_gateway_v1_pb.hrl").
+-include("../../pb/blockchain_txn_gen_gateway_v1_pb.hrl").
 
 -export([
     new/4,
@@ -19,7 +19,8 @@
     nonce/1,
     fee/1,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -28,6 +29,9 @@
 
 -type txn_genesis_gateway() :: #blockchain_txn_gen_gateway_v1_pb{}.
 -export_type([txn_genesis_gateway/0]).
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -46,6 +50,7 @@ new(Gateway, Owner, Location, Nonce) ->
                                       owner=Owner,
                                       location=L,
                                       nonce=Nonce}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -138,6 +143,18 @@ absorb(Txn, Chain) ->
                                      Location,
                                      Nonce,
                                      Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec print(txn_genesis_gateway()) -> iodata().
+print(undefined) -> <<"type=genesis_gateway, undefined">>;
+print(#blockchain_txn_gen_gateway_v1_pb{
+         gateway=Gateway, owner=Owner,
+         location=L, nonce=Nonce}) ->
+    io_lib:format("type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
+                  [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), L, Nonce]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
