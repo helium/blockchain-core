@@ -18,7 +18,7 @@ message state_channel_v1 {
     uint64 credits = 3;
     uint64 nonce = 4;
     map<string, uint64> balances = 5;
-    bytes packets = 6;
+    bytes root_hash = 6;
     state_channel_state_v1 state = 7;
     uint64 expire_at_block = 8;
     bytes signature = 9;
@@ -29,10 +29,15 @@ message state_channel_packet_v1 {
     bytes signature = 2;
 }
 
+message state_channel_update_v1 {
+    state_channel_v1 state_channel = 1;
+    bytes hash = 2;
+}
+
 message state_channel_message_v1 {
     oneof msg {
         state_channel_request_v1 request = 1;
-        state_channel_v1 state_channel = 2;
+        state_channel_update_v1 state_channel_update = 2;
         state_channel_packet_v1 packet = 3;
     }
 }
