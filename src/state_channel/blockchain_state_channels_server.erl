@@ -154,7 +154,8 @@ handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
                             end,
                             ok = blockchain_state_channel_v1:save(DB, SC1),
                             State1 = update_state(SC1, Req, State0),
-                            ok = update_clients(SC1, State1),
+                            SCupdate = blockchain_state_channel_update_v1:new(SC1, <<"TODO">>),
+                            ok = update_clients(SCupdate, State1),
                             lager:info("added request ~p to state channel ~p", [Req, blockchain_state_channel_v1:id(SC1)]),
                             {noreply, State1}
                     end
@@ -281,8 +282,9 @@ get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
 %% Send updated state channel to clients
 %% @end
 %%--------------------------------------------------------------------
--spec update_clients(blockchain_state_channel_v1:state_channel(), state()) -> ok.
-update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
+-spec update_clients(blockchain_state_channel_update_v1:state_channel_update(), state()) -> ok.
+update_clients(SCUpdate, #state{swarm=Swarm, clients=Clients}) ->
+    SC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     ID = blockchain_state_channel_v1:id(SC),
     PubKeyBins = maps:get(ID, Clients, []),
     lists:foreach(
@@ -292,7 +294,7 @@ update_clients(SC, #state{swarm=Swarm, clients=Clients}) ->
                 {error, _Reason} ->
                     lager:warning("failed to dial ~p:~p", [Address, _Reason]);
                 {ok, Pid} ->
-                    blockchain_state_channel_handler:broadcast(Pid, SC)
+                    blockchain_state_channel_handler:broadcast(Pid, SCUpdate)
             end  
         end,
         PubKeyBins
