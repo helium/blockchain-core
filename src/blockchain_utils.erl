@@ -18,7 +18,8 @@
     distance/2,
     score_gateways/1,
     free_space_path_loss/2,
-    vars_binary_keys_to_atoms/1
+    vars_binary_keys_to_atoms/1,
+    icdf_select/2
 ]).
 
 -ifdef(TEST).
@@ -30,8 +31,10 @@
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
 
+-type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
--export_type([gateway_score_map/0]).
+
+-export_type([gateway_score_map/0, zone_map/0]).
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
@@ -169,7 +172,7 @@ hex_adjustment(Loc) ->
     EdgeLength = h3:edge_length_kilometers(Res),
     EdgeLength * (round(math:sqrt(3) * math:pow(10, 3)) / math:pow(10, 3)) / 2.
 
--spec score_gateways(blockchain_ledger_v1:ledger()) -> gateway_score_map().
+-spec score_gateways(Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
 score_gateways(Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case blockchain_ledger_v1:mode(Ledger) of
@@ -204,9 +207,20 @@ vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
+-spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()}.
+icdf_select(PopulationList, Rnd) ->
+    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
+    icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->
+    {ok, Node};
+icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
+    {ok, Node};
+icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
+    icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

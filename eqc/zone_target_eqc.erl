@@ -1,4 +1,4 @@
--module(path_v2_target_eqc).
+-module(zone_target_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -6,32 +6,31 @@
 -export([prop_target_check/0]).
 
 prop_target_check() ->
-    ?FORALL({Hash, ChallengerIndex}, {gen_hash(), gen_challenger_index()},
+    noshrink(
+    ?FORALL({_Hash, ChallengerIndex},
+            {gen_hash(), gen_challenger_index()},
             begin
+                %% known problematic hash/index pairs
                 Ledger = ledger(),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
-                Vars = maps:merge(targeting_vars(), default_vars()),
+                Hash = crypto:strong_rand_bytes(32),
+                Vars = maps:merge(default_vars(), targeting_vars()),
                 Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
                             undefined ->
                                 true;
                             ChallengerLoc ->
-                                GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
-                                                                   {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
-                                                                   {Gateway, Score}
-                                                           end,
-                                                           ActiveGateways),
-
-                                GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
-
-                                {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
-                                                                                 blockchain_poc_target_v2:target(Hash, GatewayScores, Vars)
-                                                                         end),
-                                io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))),
-                                                                     erlang:convert_time_unit(Time, microsecond, millisecond)]),
+                                {Time, {ok, TargetPubkeyBin}} =
+                                    timer:tc(fun() ->
+                                                      blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars)
+                                             end),
+                                io:format("Time: ~p\t Target: ~p~n",
+                                          [erlang:convert_time_unit(Time, microsecond, millisecond),
+                                           element(2,
+                                                   erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)))
+                                          ]),
 
                                 {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
                                 {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
@@ -39,8 +38,10 @@ prop_target_check() ->
                                 TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
                                 {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
                                 ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
-                                ok = file:write_file("/tmp/challenger_targets",
-                                                     io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p.\n",
+                                %% synthesize this from the location
+                                %% ok = file:write_file("/tmp/zones", io_lib:fwrite("PickedZoneIndex: ~p.\n", [PickedZoneIndex]), [append]),
+                                ok = file:write_file("/tmp/target_details",
+                                                     io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p\n",
                                                                    [ChallengerName, ChallengerLoc, TargetName, TargetLoc, TargetScore, Dist]),
                                                      [append]),
                                 maps:is_key(TargetPubkeyBin, ActiveGateways)
@@ -55,7 +56,7 @@ prop_target_check() ->
                           conjunction([{verify_target_found, Check}])
                          )
 
-            end).
+            end)).
 
 gen_hash() ->
     binary(32).
@@ -74,8 +75,15 @@ ledger() ->
     LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
     case filelib:is_file(LedgerTar) of
         true ->
-            %% ledger tar file present, extract
-            ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}]);
+            %% if we have already unpacked it, no need to do it again
+            LedgerDB = filename:join([PrivDir, "ledger.db"]),
+            case filelib:is_dir(LedgerDB) of
+                true ->
+                    ok;
+                false ->
+                    %% ledger tar file present, extract
+                    ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+            end;
         false ->
             %% ledger tar file not found, download & extract
             ok = ssl:start(),
@@ -83,15 +91,27 @@ ledger() ->
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end,
-    blockchain_ledger_v1:new(PrivDir).
+    Ledger = blockchain_ledger_v1:new(PrivDir),
+    %% if we haven't upgraded the ledger, upgrade it
+    case blockchain_ledger_v1:get_hexes(Ledger) of
+        {ok, _Hexes} ->
+            Ledger;
+        _ ->
+            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+            blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
+            blockchain:bootstrap_hexes(Ledger1),
+            blockchain_ledger_v1:commit_context(Ledger1),
+            Ledger
+    end.
 
 targeting_vars() ->
-    #{poc_v4_target_prob_score_wt => 0.1,
-      poc_v4_target_prob_edge_wt => 0.2,
-      poc_v5_target_prob_randomness_wt => 0.7,
+    #{poc_v4_target_prob_score_wt => 0.0,
+      poc_v4_target_prob_edge_wt => 0.0,
+      poc_v5_target_prob_randomness_wt => 1.0,
       poc_v4_target_challenge_age => 300,
       poc_v4_target_exclusion_cells => 6000,
-      poc_v4_target_score_curve => 5
+      poc_v4_target_score_curve => 2,
+      poc_target_hex_parent_res => 5
      }.
 
 default_vars() ->
@@ -104,4 +124,5 @@ default_vars() ->
       poc_v4_prob_rssi_wt => 0.3,
       poc_v4_prob_time_wt => 0.3,
       poc_v4_randomness_wt => 0.1,
-      poc_version => 5}.
+      poc_target_hex_parent_res => 5,
+      poc_version => 7}.

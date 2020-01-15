@@ -21,30 +21,27 @@
 -export([prop_icdf_check/0]).
 
 prop_icdf_check() ->
-    ?FORALL({Population, Iterations}, {gen_population(), gen_iterations()},
+    ?FORALL({Population, Iterations, Hash}, {gen_population(), gen_iterations(), binary(32)},
             begin
-                %% Switch the position to make it easier to work with the existing function.
-                %% Also Node names are unique cuz map and also each hotspot has a unique addr.
-                PopulationList = [{Weight, Node} || {Node, Weight} <- maps:to_list(Population)],
+                %% Use entropy to generate randval for running iterations
+                Entropy = blockchain_utils:rand_state(Hash),
 
-                %% Convert this to a cumulative probability distribution, the sum of
-                %% probabilities must add to 1 for ICDF to work.
-                %% We already do this for targeting when we assign the probabilities.
-                CumulativePopulationList = cdf(PopulationList),
-
-                %% Sigh, need it back to find the cumulative probability to verify against
-                CumulativePopulationMap = maps:from_list([{N, W} || {W, N} <- CumulativePopulationList]),
+                %% Need this to match counters against assumptions
+                CumulativePopulationList = cdf(Population),
+                CumulativePopulationMap = maps:from_list(CumulativePopulationList),
 
                 %% Intiial acc for the counter, each node starts with a 0 count
                 InitAcc = maps:map(fun(_, _) -> 0 end, CumulativePopulationMap),
 
                 %% Track all counts a node gets picked
-                Counter = lists:foldl(fun(_I, Acc) ->
-                                              {ok, Node} = select_target(CumulativePopulationList),
-                                              maps:put(Node, maps:get(Node, Acc) + 1, Acc)
+                {Counter, _} = lists:foldl(fun(_I, {Acc, AccEntropy}) ->
+                                              {RandVal, NewEntropy} = rand:uniform_s(AccEntropy),
+                                              {ok, Node} = blockchain_utils:icdf_select(Population, RandVal),
+                                              {maps:update_with(Node, fun(X) -> X + 1 end, 1, Acc), NewEntropy}
                                       end,
-                                      InitAcc,
+                                      {InitAcc, Entropy},
                                       lists:seq(1, Iterations)),
+
 
                 %% Check that it's roughly equal or more appropriately within some threshold (0.1 is good enough, probably).
                 %% Fucking probabilities.
@@ -54,14 +51,14 @@ prop_icdf_check() ->
                                                 maps:to_list(Counter)),
 
                 ?WHENFAIL(begin
-                              io:format("PopulationList: ~p~n", [PopulationList]),
+                              io:format("Population: ~p~n", [Population]),
                               io:format("CDF: ~p~n", [CumulativePopulationList]),
                               io:format("Counter: ~p~n", [Counter])
                           end,
                           noshrink(conjunction(
-                                     [{verify_unique_nodes, length(PopulationList) == length(lists:usort(PopulationList))},
-                                      {verify_cdf, lists:sum([W || {W, _} <- CumulativePopulationList]) >= 0.99}, %% it's pretty much 1.0 but damn floats
-                                      {verify_population_exists, length(PopulationList) > 0},
+                                     [{verify_population_exists, length(Population) > 0},
+                                      {verify_unique_nodes, length(Population) == length(lists:usort(Population))},
+                                      {verify_cdf, lists:sum([W || {_, W} <- CumulativePopulationList]) >= 0.99}, %% it's pretty much 1.0 but damn floats
                                       {verify_counts_line_up, CheckCounterLinesUp}]
                                     )
                                   )
@@ -77,11 +74,11 @@ gen_iterations() ->
 gen_population() ->
     %% We need unique node names to mimic unique hotspot addresses
     %% Also keeps things simple.
-    ?SUCHTHAT(M, map(gen_node(), gen_weight()), map_size(M) >= 3).
+    ?SUCHTHAT(L, list({gen_node(), gen_weight()}), length(L) >= 3).
 
 gen_node() ->
     %% Some random node name.
-    binary(4).
+    binary(32).
 
 gen_weight() ->
     %% A viable weight between (0, 1), open intervals.
@@ -93,16 +90,5 @@ gen_prob() ->
 
 cdf(PopulationList) ->
     %% This takes the population and coverts it to a cumulative distribution.
-    %% We always have a cumulative distribution to pick a target. Or even a witness.
-    Sum = lists:sum([W || {W, _} <- PopulationList]),
-    [{Weight/Sum, Node} || {Weight, Node} <- PopulationList].
-
-select_target(List) ->
-    %% The tests are unshrinkable because of the rand:uniform,
-    %% but we have noshrink in the conjunction anyway.
-    select_target(List, (1.0 - rand:uniform())).
-
-select_target([{Weight, Node}=_Head | _], Rnd) when Rnd - Weight =< 0 ->
-    {ok, Node};
-select_target([{Weight, _Node} | Tail], Rnd) ->
-    select_target(Tail, Rnd - Weight).
+    Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
+    [{Node, blockchain_utils:normalize_float(Weight/Sum)} || {Node, Weight} <- PopulationList].

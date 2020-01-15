@@ -12,13 +12,15 @@
 -module(blockchain_poc_target_v2).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
-         target/3, filter/5
+         target/3,
+         target_v2/3,
+         filter/5
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
-
 
 %% @doc Finds a potential target to start the path from.
 %% This must always return a target.
@@ -26,6 +28,10 @@
 -spec target(Hash :: binary(),
              GatewayScoreMap :: blockchain_utils:gateway_score_map(),
              Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
+target(_Hash, GatewayScoreMap, _Vars) when map_size(GatewayScoreMap) == 1 ->
+    %% We picked a zone which has just one hotspot,
+    %% just select that as target
+    {ok, hd(maps:keys(GatewayScoreMap))};
 target(Hash, GatewayScoreMap, Vars) ->
     ProbScores = score_prob(GatewayScoreMap, Vars),
     ProbEdges = edge_prob(GatewayScoreMap, Vars),
@@ -35,6 +41,49 @@ target(Hash, GatewayScoreMap, Vars) ->
     Entropy = blockchain_utils:rand_state(Hash),
     {RandVal, _} = rand:uniform_s(Entropy),
     select_target(ScaledProbs, RandVal, Vars).
+
+-spec target_v2(Hash :: binary(),
+                Ledger :: blockchain:ledger(),
+                Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
+target_v2(Hash, Ledger, Vars) ->
+    %% Grab the list of parent hexes
+    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
+    HexList = lists:keysort(1, maps:to_list(Hexes)),
+
+    %% choose hex via CDF
+    Entropy = blockchain_utils:rand_state(Hash),
+    {HexVal, Entropy1} = rand:uniform_s(Entropy),
+    {ok, Hex} = blockchain_utils:icdf_select(HexList, HexVal),
+
+    %% fetch from the disk the list of gateways, then the actual
+    %% gateways on that list, then score them, if the weight is not 0.
+    {ok, AddrList} = blockchain_ledger_v1:get_hex(Hex, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    GatewayMap =
+        lists:foldl(
+          fun(Addr, Acc) ->
+                  {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                  Score =
+                      case prob_score_wt(Vars) of
+                          0.0 ->
+                              1.0;
+                          _ ->
+                              {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                              Scr
+                      end,
+                  Acc#{Addr => {Gw, Score}}
+          end,
+          #{},
+          AddrList),
+
+    %% generate scores weights for the final CDF that does the actual selection
+    ProbScores = score_prob(GatewayMap, Vars),
+    ProbEdges = edge_prob(GatewayMap, Vars),
+    ProbTargetMap = target_prob(ProbScores, ProbEdges, Vars),
+    %% Sort the scaled probabilities in default order by gateway pubkey_bin
+    %% make sure that we carry the entropy through for determinism
+    {RandVal, _} = rand:uniform_s(Entropy1),
+    blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal).
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
@@ -47,26 +96,32 @@ target(Hash, GatewayScoreMap, Vars) ->
              Vars :: map()) -> blockchain_utils:gateway_score_map().
 filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
     maps:filter(fun(_Addr, {Gateway, _Score}) ->
-                        case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
-                            undefined ->
-                                %% No POC challenge, don't include
-                                false;
-                            C ->
-                                %% Check challenge age is recent depending on the set chain var
-                                (Height - C) < challenge_age(Vars) andalso
-                                %% Check that the potential target is far enough from the challenger
-                                %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
-                                %% so this should be safe.
-                                case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
-                                    false ->
-                                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
-                                    true ->
-                                        %% Allow to be included in testing
-                                        true
-                                end
-                        end
+                        valid(Gateway, ChallengerLoc, Height, Vars)
                 end,
                 maps:without([ChallengerAddr], GatewayScoreMap)).
+
+-spec valid(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+            ChallengerLoc :: h3:h3_index(),
+            Height :: pos_integer(),
+            Vars :: map()) -> boolean().
+valid(Gateway, ChallengerLoc, Height, Vars) ->
+    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+        undefined ->
+            %% No POC challenge, don't include
+            false;
+        C ->
+            %% Check challenge age is recent depending on the set chain var
+            (Height - C) < challenge_age(Vars) andalso
+            %% Check that the potential target is far enough from the challenger
+            %% NOTE: If we have a defined poc_challenge the gateway location cannot be undefined
+            %% so this should be safe.
+                case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
+                    false ->
+                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
+                    true ->
+                        true
+                end
+    end.
 
 %%%-------------------------------------------------------------------
 %% Helpers
@@ -89,12 +144,18 @@ score_prob(GatewayScoreMap, Vars) ->
 -spec edge_prob(GatewayScoreMap :: blockchain_utils:gateway_score_map(), Vars :: map()) -> prob_map().
 edge_prob(GatewayScoreMap, Vars) ->
     %% Get all locations
+    Sz = maps:size(GatewayScoreMap),
     case prob_edge_wt(Vars) of
         %% if we're just going to throw this away, no reason to do
         %% this work at all.
         0.0 ->
             maps:map(fun(_, _) ->
                              0.0
+                     end,
+                     GatewayScoreMap);
+        _ when Sz == 1 ->
+            maps:map(fun(_, _) ->
+                             1.0
                      end,
                      GatewayScoreMap);
         _ ->
@@ -154,7 +215,8 @@ scaled_prob(PTarget, Vars) ->
                      ?normalize_float((P / SumProbs), Vars)
              end, PTarget).
 
--spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(), Vars :: #{}) -> #{h3:index() => integer()}.
+-spec locations(GatewayScoreMap :: blockchain_utils:gateway_score_map(),
+                Vars :: #{}) -> #{h3:index() => integer()}.
 locations(GatewayScoreMap, Vars) ->
     %% Get all locations from score map
     Res = parent_res(Vars),
@@ -167,10 +229,13 @@ locations(GatewayScoreMap, Vars) ->
 
 -spec select_target(TaggedProbs :: [{libp2p_crypto:pubkey_bin(), float()}],
                     Rnd :: float(),
-                    Vars :: map()) -> {error, no_target} | {ok, libp2p_crypto:pubkey_bin()}.
+                    Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} |
+                                      {error, no_target}.
 select_target([], _, _) ->
     {error, no_target};
 select_target([{GwAddr, Prob}=_Head | _], Rnd, _Vars) when Rnd - Prob =< 0 ->
+    {ok, GwAddr};
+select_target([{GwAddr, _Prob} | Tail], _Rnd, _Vars) when Tail == [] ->
     {ok, GwAddr};
 select_target([{_GwAddr, Prob} | Tail], Rnd, Vars) ->
     select_target(Tail, ?normalize_float((Rnd - Prob), Vars), Vars).

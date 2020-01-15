@@ -84,6 +84,12 @@
 
     apply_raw_changes/2,
 
+    set_hexes/2, get_hexes/1,
+    set_hex/3, get_hex/2, delete_hex/2,
+
+    add_to_hex/3,
+    remove_from_hex/3,
+
     clean/1, close/1
 ]).
 
@@ -127,6 +133,8 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
+-define(hex_list, <<"$hex_list">>).
+-define(hex_prefix, "$hex_").
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
@@ -137,6 +145,7 @@
 -type active_gateways() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_v2:gateway()}.
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
+-type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
 
 -export_type([ledger/0]).
 
@@ -909,19 +918,29 @@ add_gateway(OwnerAddr,
 
             NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
-            NewGw = case ?MODULE:config(?poc_version, Ledger) of
-                        {ok, V} when V > 3 ->
-                            blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
-                        _ ->
-                            NewGw0
-                    end,
+            NewGw =
+                case ?MODULE:config(?poc_version, Ledger) of
+                    {ok, V} when V > 6 ->
+                        {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+                        Hex = h3:parent(Location, Res),
+                        add_to_hex(Hex, GatewayAddress, Ledger),
 
-            Gateways = active_gateways(Ledger),
-            Neighbors = blockchain_poc_path:neighbors(NewGw, Gateways, Ledger),
-            NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw),
-            fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
+                    {ok, V} when V > 3 ->
+                        Gateways = active_gateways(Ledger),
+                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
+                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
+                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw1);
+                    _ ->
+                        Gateways = active_gateways(Ledger),
+                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
+                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
+                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
+                        NewGw1
+                end,
 
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw1),
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
@@ -1977,6 +1996,84 @@ maybe_use_snapshot(#ledger_v1{snapshot=Snapshot}, Options) ->
         S ->
             [{snapshot, S} | Options]
     end.
+
+-spec set_hexes(HexMap :: hexmap(), Ledger :: ledger()) -> ok | {error, any()}.
+set_hexes(HexMap, Ledger) ->
+    HexList = maps:to_list(HexMap),
+    L = lists:sort(HexList),
+    CF = default_cf(Ledger),
+    cache_put(Ledger, CF, ?hex_list, term_to_binary(L, [compressed])).
+
+-spec get_hexes(Ledger :: ledger()) -> {ok, hexmap()} | {error, any()}.
+get_hexes(Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, ?hex_list, []) of
+        {ok, BinList} ->
+            {ok, maps:from_list(binary_to_term(BinList))};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec set_hex(Hex :: h3:h3_index(),
+              GwPubkeyBins :: [libp2p_crypto:pubkey_bin()],
+              Ledger :: ledger()) -> ok | {error, any()}.
+set_hex(Hex, GwPubkeyBins, Ledger) ->
+    L = lists:sort(GwPubkeyBins),
+    CF = default_cf(Ledger),
+    cache_put(Ledger, CF, hex_name(Hex), term_to_binary(L, [compressed])).
+
+-spec get_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> {ok, term()} | {error, any()}.
+get_hex(Hex, Ledger) ->
+    CF = default_cf(Ledger),
+    case cache_get(Ledger, CF, hex_name(Hex), []) of
+        {ok, BinList} ->
+            {ok, binary_to_term(BinList)};
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec delete_hex(Hex :: h3:h3_index(), Ledger :: ledger()) -> ok | {error, any()}.
+delete_hex(Hex, Ledger) ->
+    CF = default_cf(Ledger),
+    cache_delete(Ledger, CF, hex_name(Hex)).
+
+hex_name(Hex) ->
+    <<?hex_prefix, (integer_to_binary(Hex))/binary>>.
+
+add_to_hex(Hex, Gateway, Ledger) ->
+    Hexes = case get_hexes(Ledger) of
+                {ok, Hs} ->
+                    Hs;
+                {error, not_found} ->
+                    #{}
+            end,
+    Hexes1 = maps:update_with(Hex, fun(X) -> X + 1 end, 1, Hexes),
+    ok = set_hexes(Hexes1, Ledger),
+
+    case get_hex(Hex, Ledger) of
+        {ok, OldAddrs} ->
+            ok = set_hex(Hex, [Gateway | OldAddrs], Ledger);
+        {error, not_found} ->
+            ok = set_hex(Hex, [Gateway], Ledger)
+    end.
+
+remove_from_hex(Hex, Gateway, Ledger) ->
+    {ok, Hexes} = get_hexes(Ledger),
+    Hexes1 =
+        case maps:get(Hex, Hexes) of
+            1 ->
+                ok = delete_hex(Hex, Ledger),
+                maps:remove(Hex, Hexes);
+            N ->
+                {ok, OldAddrs} = get_hex(Hex, Ledger),
+                ok = set_hex(Hex, lists:delete(Gateway, OldAddrs), Ledger),
+                Hexes#{Hex => N - 1}
+        end,
+    ok = set_hexes(Hexes1, Ledger).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
