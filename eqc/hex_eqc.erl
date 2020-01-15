@@ -42,6 +42,12 @@ prop_hex_check() ->
                                                 end,
                                                 maps:to_list(Counter)),
 
+                %% Check whether the zone with the maximum number of hexes within has the highest counts
+                {MaxCountedHex, _Counts} = hd(lists:reverse(lists:keysort(2, maps:to_list(Counter)))),
+                {MaxPopHex, _} = hd(lists:reverse(lists:keysort(2, Population))),
+                CheckMaxPopZoneCount = MaxCountedHex == MaxPopHex,
+                io:format("CheckMaxPopZoneCount: ~p~n", [CheckMaxPopZoneCount]),
+
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
 
@@ -55,7 +61,9 @@ prop_hex_check() ->
                                      [{verify_population_exists, length(Population) > 0},
                                       {verify_unique_nodes, length(Population) == length(lists:usort(Population))},
                                       {verify_cdf, lists:sum([W || {_, W} <- CumulativePopulationList]) >= 0.99}, %% it's pretty much 1.0 but damn floats
-                                      {verify_counts_line_up, CheckCounterLinesUp}]
+                                      {verify_counts_line_up, CheckCounterLinesUp},
+                                      {verify_max_pop_zone_count, CheckMaxPopZoneCount}
+                                     ]
                                     )
                                   )
                          )
