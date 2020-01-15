@@ -545,8 +545,8 @@ open_db(Dir) ->
     {ok, _DB} = rocksdb:open(DBDir, DBOptions).
 
 start_swarm(Name, BaseDir) ->
-    NewOpts = lists:keystore(base_dir, 1, [], {base_dir, BaseDir})
-        ++ [{libp2p_nat, [{enabled, false}]}],
+    application:ensure_all_started(throttle),
+    NewOpts = [{base_dir, BaseDir}, {libp2p_nat, [{enabled, false}]}],
     libp2p_swarm:start(Name, NewOpts).
 
 -endif.
