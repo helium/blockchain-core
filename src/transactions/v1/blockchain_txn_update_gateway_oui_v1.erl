@@ -24,8 +24,11 @@
     is_valid_gateway_owner/2,
     is_valid_oui_owner/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
+
+-define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -190,6 +193,11 @@ validate_gateway(Txn, Ledger) ->
                 true -> {ok, GWInfo}
             end
     end.
+
+-spec print(txn_update_gateway_oui()) -> iodata().
+print(undefined) -> <<"type=update_gateway_oui, undefined">>;
+print(#blockchain_txn_update_gateway_oui_v1_pb{gateway=GW, oui=OUI, nonce=Nonce, fee=Fee}) ->
+    io_lib:format("type=update_gateway_oui, gateway=~p, oui=~p, nonce=~p, fee=~p", [?TO_ANIMAL_NAME(GW), OUI, Nonce, Fee]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
