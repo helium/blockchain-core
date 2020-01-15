@@ -1540,7 +1540,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                 {ok, NewLedger} ->
                     ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger})
             end,
-            resync_fun(Blockchain, LedgerHeight + 1, ChainHeight);
+            resync_fun(ChainHeight, LedgerHeight + 1, Blockchain);
         {error, _} ->
             %% chain is missing the block the ledger is stuck at
             %% it is unclear what we should do here.
