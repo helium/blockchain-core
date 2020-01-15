@@ -7,7 +7,7 @@
 
 prop_target_check() ->
     noshrink(
-    ?FORALL({Hash, ChallengerIndex},
+    ?FORALL({_Hash, ChallengerIndex},
             {gen_hash(), gen_challenger_index()},
             begin
                 %% known problematic hash/index pairs
@@ -16,6 +16,7 @@ prop_target_check() ->
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 Challenger = lists:nth(ChallengerIndex, maps:keys(ActiveGateways)),
+                Hash = crypto:strong_rand_bytes(32),
                 Vars = maps:merge(default_vars(), targeting_vars()),
                 Check = case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
                             undefined ->

@@ -48,16 +48,12 @@ target(Hash, GatewayScoreMap, Vars) ->
 target_v2(Hash, Ledger, Vars) ->
     %% Grab the list of parent hexes
     {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    HexList = maps:to_list(Hexes),
-
-    %% assemble the probabilities per hex for the CDF (each spot is
-    %% equally likely to get targeted at this stage)
-    HexProbs = blockchain_utils:cdf(HexList),
+    HexList = lists:keysort(1, maps:to_list(Hexes)),
 
     %% choose hex via CDF
     Entropy = blockchain_utils:rand_state(Hash),
     {HexVal, Entropy1} = rand:uniform_s(Entropy),
-    {ok, Hex} = blockchain_utils:icdf_select(HexProbs, HexVal),
+    {ok, Hex} = blockchain_utils:icdf_select(HexList, HexVal),
 
     %% fetch from the disk the list of gateways, then the actual
     %% gateways on that list, then score them, if the weight is not 0.
@@ -85,10 +81,9 @@ target_v2(Hash, Ledger, Vars) ->
     ProbEdges = edge_prob(GatewayMap, Vars),
     ProbTargetMap = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
-    TargetProbCDF = blockchain_utils:cdf(lists:keysort(1, maps:to_list(ProbTargetMap))),
     %% make sure that we carry the entropy through for determinism
     {RandVal, _} = rand:uniform_s(Entropy1),
-    blockchain_utils:icdf_select(TargetProbCDF, RandVal).
+    blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal).
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
