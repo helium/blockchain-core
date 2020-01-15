@@ -5,7 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channels_client).
 
--behavior(gen_server).
+-behavior(gen_statem).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -14,142 +14,198 @@
     start_link/1,
     credits/1,
     packet/1,
-    state_channel/1
+    state_channel_update/1
 ]).
 
 %% ------------------------------------------------------------------
-%% gen_server Function Exports
+%% gen_statem Function Exports
 %% ------------------------------------------------------------------
 -export([
     init/1,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
+    code_change/3,
+    callback_mode/0,
+    terminate/2
 ]).
 
--include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_longfi_pb.hrl").
+%% ------------------------------------------------------------------
+%% gen_statem callbacks Exports
+%% ------------------------------------------------------------------
+-export([
+    processing/3,
+    waiting/3
+]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(SERVER, ?MODULE).
+-include("blockchain.hrl").
+-include_lib("helium_proto/src/pb/helium_longfi_pb.hrl").
 
--record(state, {
+-define(SERVER, ?MODULE).
+-define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
+
+-record(data, {
     db :: rocksdb:db_handle() | undefined,
     swarm :: pid(),
     state_channels = #{} :: #{binary() => blockchain_state_channel_v1:state_channel()},
-    pending = queue:new() :: pending()
+    pending = undefined :: undefined | pending(),
+    packets = [] :: [any()]
 }).
 
--type pending() :: queue:new({blockchain_state_channel_request_v1:request(), any(), pid()}).
-
--define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
+-type packet() :: #helium_LongFiRxPacket_pb{}.
+-type pending() :: {blockchain_state_channel_request_v1:request(), any(), pid()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
+    gen_statem:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
 -spec credits(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 credits(ID) ->
-    gen_server:call(?SERVER, {credits, ID}).
+    gen_statem:call(?SERVER, {credits, ID}).
 
--spec packet(any()) -> ok.
+-spec packet(packet()) -> ok.
 packet(Packet) ->
-    gen_server:cast(?SERVER, {packet, Packet}).
+    gen_statem:cast(?SERVER, {packet, Packet}).
 
--spec state_channel(blockchain_state_channel_v1:state_channel()) -> ok.
-state_channel(SC) ->
-    gen_server:cast(?SERVER, {state_channel, SC}).
-
+-spec state_channel_update(blockchain_state_channel_update_v1:state_channel_update()) -> ok.
+state_channel_update(SCUpdate) ->
+    gen_statem:cast(?SERVER, {state_channel_update, SCUpdate}).
 %% ------------------------------------------------------------------
-%% gen_server Function Definitions
+%% gen_statem Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     {ok, DB} = blockchain_state_channel_db:get(),
-    {ok, #state{db=DB, swarm=Swarm}}.
+    {ok, processing, #data{db=DB, swarm=Swarm}}.
 
-handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+callback_mode() -> state_functions.
+
+terminate(_Reason, _Data) ->
+    ok.
+
+%% ------------------------------------------------------------------
+%% gen_statem callbacks
+%% ------------------------------------------------------------------
+
+processing(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
+    ok = trigger_processing(),
+    {keep_state,  Data#data{packets=[Packet|Packets]}};
+processing(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs}=Data) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    ID = blockchain_state_channel_v1:id(UpdatedSC),
+    lager:debug("received state channel update for ~p", [ID]),
+    case blockchain_state_channel_v1:validate(UpdatedSC) of
+        {error, _Reason} -> 
+            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+            {keep_state, Data};
+        ok ->
+            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+            {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}}
+    end;
+processing(info, process_packet, #data{packets=[]}=Data) ->
+    lager:debug("nothing to process"),
+    {keep_state,  Data};
+processing(info, process_packet, #data{swarm=Swarm, packets=Packets}=Data) ->
+    Packet = lists:last(Packets),
+    lager:debug("processing", [Packet]),
+    case process_packet(Packet, Swarm) of
+        {error, _Reason} ->
+            lager:warning("failed to process packet ~p ~p", [Packet, _Reason]),
+            ok = trigger_processing(),
+            {keep_state,  Data};
+        {ok, Pending} ->
+            {next_state, waiting, Data#data{pending=Pending, packets=lists:droplast(Packets)}}
+    end;
+processing(EventType, EventContent, Data) ->
+    handle_event(EventType, EventContent, Data).
+
+waiting(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
+    {keep_state,  Data#data{packets=[Packet|Packets]}};
+waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs, pending=Pending}=Data) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    ID = blockchain_state_channel_v1:id(UpdatedSC),
+    lager:debug("received state channel update for ~p", [ID]),
+    case blockchain_state_channel_v1:validate(UpdatedSC) of
+        {error, _Reason} -> 
+            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+            {keep_state,  Data};
+        ok ->
+            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+            SC = maps:get(ID, SCs, undefined),
+            case check_pending_request(SC, UpdatedSC, Pending) of
+                {error, _Reason} ->
+                    lager:warning("state channel update did not match pending req ~p", [_Reason]),
+                    {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}};
+                ok ->
+                    ok = send_packet(Pending),
+                    ok = trigger_processing(),
+                    {next_state, processing, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs),
+                                                       pending=undefined}}
+            end
+    end;
+waiting(EventType, EventContent, Data) ->
+    handle_event(EventType, EventContent, Data).
+
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+handle_event({call, From}, {credits, ID}, #data{state_channels=SCs}=Data) ->
     Reply = case maps:get(ID, SCs, undefined) of
         undefined -> {error, not_found};
         SC -> {ok, blockchain_state_channel_v1:credits(SC)}
     end,
-    {reply, Reply, State};
-handle_call(_Msg, _From, State) ->
-    lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
-    {reply, ok, State}.
+    {keep_state, Data, [{reply, From, Reply}]};
+handle_event(_EventType, _EventContent, Data) ->
+    lager:warning("ignoring unknown event [~p] ~p", [_EventType, _EventContent]),
+    {keep_state, Data}.
 
-handle_cast({packet, #helium_LongFiRxPacket_pb{oui=OUI,
-                                               fingerprint=Fingerprint,
-                                               payload=Payload}=Packet},
-            #state{swarm=Swarm, pending=Pending}=State) ->
-    lager:debug("got packet ~p", [Packet]),
+-spec trigger_processing() -> ok.
+trigger_processing() ->
+    self() ! process_packet,
+    ok.
+
+-spec process_packet(packet(), pid()) -> {ok, pending()} | {error, any()}.
+process_packet(#helium_LongFiRxPacket_pb{oui=OUI, fingerprint=Fingerprint, payload=Payload}=Packet, Swarm) ->
     case find_routing(OUI) of
         {error, _Reason} ->
-             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
-             {noreply, State};
+            lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
+             {error, _Reason};
         {ok, Peer} ->
             case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
                 {error, _Reason} ->
                     lager:warning("failed to dial ~p:~p", [Peer, _Reason]),
-                    {noreply, State};
+                     {error, _Reason};
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Amount = calculate_dc_amount(PubKeyBin, OUI, Payload),
                     Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, erlang:byte_size(Payload), Fingerprint),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
                     blockchain_state_channel_handler:send_request(Pid, Req),
-                    {noreply, State#state{pending=queue:in({Req, Packet, Pid}, Pending)}}
+                    {ok, {Req, Packet, Pid}}
             end
-    end;
-handle_cast({state_channel, UpdateSC}, #state{db=DB, state_channels=SCs, pending=Pending}=State) ->
-    ID = blockchain_state_channel_v1:id(UpdateSC),
-    lager:debug("received state channel update for ~p", [ID]),
-    SC = maps:get(ID, SCs, undefined),
-    case check_pending_requests(SC, UpdateSC, Pending) of
-        {error, _Reason} ->
-            lager:warning("state channel ~p is invalid ~p", [UpdateSC, _Reason]),
-            {noreply, State};
-        {ok, Found} ->
-            ok = send_packets(Found),
-            ok = blockchain_state_channel_v1:save(DB, UpdateSC),
-            {noreply, State#state{state_channels=maps:put(ID, UpdateSC, SCs),
-                                  pending=queue:filter(fun(E) -> not queue:member(E, Found) end, Pending)}}
-    end;
-handle_cast(_Msg, State) ->
-    lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
-    {noreply, State}.
+    end.
 
-handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
-    {noreply, State}.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-terminate(_Reason,  #state{db=DB}) ->
-    ok = rocksdb:close(DB).
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
-
--spec send_packets(queue:new()) -> ok.
-send_packets(Queue) ->
-    lists:foreach(
-        fun({_Req, Packet, Pid}) ->
-            Bin = helium_longfi_pb:encode_msg(Packet),
-            blockchain_state_channel_handler:send_packet(Pid, blockchain_state_channel_packet_v1:new(Bin))
-        end,
-        queue:to_list(Queue)
-    ).
+-spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.
+find_routing(OUI) ->
+    Chain = blockchain_worker:blockchain(),
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Routing} ->
+            % TODO: Select an address
+            [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
+            {ok, erlang:binary_to_list(Address)}
+    end.
 
 -spec calculate_dc_amount(libp2p_crypto:pubkey_to_bin(), non_neg_integer(), binary()) -> non_neg_integer().
 calculate_dc_amount(PubKeyBin, OUI, Payload) ->
@@ -168,33 +224,34 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
             end
     end.
 
--spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined,
-                             blockchain_state_channel_v1:state_channel(), pending()) -> {ok, pending()} | {error, any()}.
-check_pending_requests(SC, UpdateSC, Pending0) ->
-     case blockchain_state_channel_v1:validate(UpdateSC) of
-        {error, _}=Error -> 
-            Error;
-        ok ->
-            Nonce = blockchain_state_channel_v1:nonce(SC),
-            UpdateNonce = blockchain_state_channel_v1:nonce(UpdateSC),
-            case Nonce >= UpdateNonce of
-                true ->
-                    {error, {bad_nonce, Nonce, UpdateNonce}};
-                false ->
-                    Pending1 = queue:filter(
-                        fun({Req, Packet, _Pid}) ->
-                            check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
-                        end,
-                        Pending0
-                    ),
-                    {ok, Pending1}
+-spec check_pending_request(blockchain_state_channel_v1:state_channel() | undefined,
+                             blockchain_state_channel_v1:state_channel(), pending()) -> ok | {error, any()}.
+check_pending_request(undefined, UpdatedSC, {Req, Packet, _Pid}) ->
+    case {check_root_hash(Packet, UpdatedSC), check_balance(Req, undefined, UpdatedSC)} of
+        {false, _} -> {error, bad_root_hash};
+        {_, false} -> {error, wrong_balance};
+        {true, true} -> ok
+    end;
+check_pending_request(SC, UpdatedSC, {Req, Packet, _Pid}) ->
+    Nonce = blockchain_state_channel_v1:nonce(SC),
+    UpdateNonce = blockchain_state_channel_v1:nonce(UpdatedSC),
+    case Nonce >= UpdateNonce of
+        true ->
+            {error, {bad_nonce, Nonce, UpdateNonce}};
+        false ->
+            case {check_root_hash(Packet, UpdatedSC), check_balance(Req, SC, UpdatedSC)} of
+                {false, _} -> {error, bad_root_hash};
+                {_, false} -> {error, wrong_balance};
+                {true, true} -> ok
             end
     end.
 
--spec check_packet(any(), blockchain_state_channel_v1:state_channel()) -> true.
-check_packet(_Packet, SC) ->
-    _RootHash = blockchain_state_channel_v1:packets(SC),
-    true.
+-spec check_root_hash(any(), blockchain_state_channel_v1:state_channel()) -> boolean().
+check_root_hash(_Packet, SC) ->
+    case blockchain_state_channel_v1:root_hash(SC) of
+        undefined -> false;
+        _RootHash -> true
+    end.
 
 -spec check_balance(blockchain_state_channel_request_v1:request(),
                     blockchain_state_channel_v1:state_channel() | undefined,
@@ -219,22 +276,15 @@ check_balance(Req, SC, UpdateSC) ->
             NewBalance-OldBalance >= ReqPayloadSize
     end.
 
--spec find_routing(non_neg_integer()) -> {ok, string()} | {error, any()}.
-find_routing(OUI) ->
-    Chain = blockchain_worker:blockchain(),
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Routing} ->
-            % TODO: Select an address
-            [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
-            {ok, erlang:binary_to_list(Address)}
-    end.
+-spec send_packet(any()) -> ok.
+send_packet({_Req, Packet, Pid}) ->
+    Bin = helium_longfi_pb:encode_msg(Packet),
+    % TODO: This need to be signed
+    blockchain_state_channel_handler:send_packet(Pid, blockchain_state_channel_packet_v1:new(Bin)).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
--ifdef(TEST).
 
+-ifdef(TEST).
 -endif.
