@@ -269,12 +269,13 @@ full_test(Config) ->
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        ct:pal("MARKER ~p", [ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])]),
+        ct:pal("MARKER1 ~p", [ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])]),
         {ok, 5} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
+        ct:pal("MARKER2 ~p", [ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])]),
         {ok, 5} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
     end, 30, timer:seconds(1)),
 
