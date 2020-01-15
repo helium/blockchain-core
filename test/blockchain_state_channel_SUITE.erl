@@ -91,6 +91,7 @@ end_per_testcase(Test, Config) ->
 %%--------------------------------------------------------------------
 
 basic_test(Config) ->
+    application:ensure_all_started(throttle),
     BaseDir = proplists:get_value(base_dir, Config),
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
