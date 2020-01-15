@@ -18,12 +18,15 @@
     signature/1,
     sign/2,
     is_valid/2,
-    absorb/2
+    absorb/2,
+    print/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
 
 -type txn_state_channel_close() :: #blockchain_txn_state_channel_close_v1_pb{}.
 -export_type([txn_state_channel_close/0]).
@@ -108,6 +111,11 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:credit_dc(Owner, Credits, Ledger);
         _ -> ok
     end.
+
+-spec print(txn_state_channel_close()) -> iodata().
+print(undefined) -> <<"type=state_channel_close, undefined">>;
+print(#blockchain_txn_state_channel_close_v1_pb{state_channel=SC, closer=Closer}) ->
+    io_lib:format("type=state_channel_close, state_channel=~p, closer=~p", [SC, ?TO_B58(Closer)]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

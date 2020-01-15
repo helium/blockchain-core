@@ -205,6 +205,10 @@ add_request(Request, SigFun, SC0) ->
         {error, not_found} -> 0;
         {ok, B} -> B
     end,
+    RootHash = ?MODULE:packets(SC0),
+    FingerPrint = ?MODULE:fingerprint(SC0),
+    Value = <<Payee/binary, PayloadSize,FingerPrint>>,
+    UpdatedRooHash = recalculate_root_hash(RootHash, Value),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
     SC3 = ?MODULE:balance(Payee, Balance+PayloadSize, SC2),
@@ -212,11 +216,19 @@ add_request(Request, SigFun, SC0) ->
         true -> ?MODULE:state(closed, SC3);
         false -> SC3
     end,
-    ?MODULE:sign(SC4, SigFun).
+    SC5 = ?MODULE:packets(UpdatedRooHash, SC4),
+    ?MODULE:sign(SC5, SigFun).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec recalculate_root_hash(skewed:hash(), any()) -> skewed:hash().
+recalculate_root_hash(RootHash, Value) ->
+    Tree0 = skewed:new(RootHash),
+    Tree1 = skewed:add(Value, fun skewed:hash_value/1, Tree0),
+    skewed:root_hash(Tree1).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

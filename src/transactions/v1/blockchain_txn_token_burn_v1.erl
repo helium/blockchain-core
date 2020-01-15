@@ -30,6 +30,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
@@ -145,6 +147,12 @@ absorb(Txn, Chain) ->
                     blockchain_ledger_v1:credit_dc(Payee, Credits, Ledger)
             end
     end.
+
+-spec print(txn_token_burn()) -> iodata().
+print(undefined) -> <<"type=token_burn, undefined">>;
+print(#blockchain_txn_token_burn_v1_pb{payer=Payer, payee=Payee, amount=Amount, nonce=Nonce}) ->
+    io_lib:format("type=token_burn, payer=~p, payee=~p, amount=~p, nonce=~p",
+                  [?TO_B58(Payer), ?TO_B58(Payee), Amount, Nonce]).
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
