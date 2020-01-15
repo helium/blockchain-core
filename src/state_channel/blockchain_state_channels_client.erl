@@ -168,20 +168,27 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
             end
     end.
 
--spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined, blockchain_state_channel_v1:state_channel(), pending()) ->
-    {ok, pending()} | {error, any()}.
+-spec check_pending_requests(blockchain_state_channel_v1:state_channel() | undefined,
+                             blockchain_state_channel_v1:state_channel(), pending()) -> {ok, pending()} | {error, any()}.
 check_pending_requests(SC, UpdateSC, Pending0) ->
      case blockchain_state_channel_v1:validate(UpdateSC) of
         {error, _}=Error -> 
             Error;
         ok ->
-            Pending1 = queue:filter(
-                fun({Req, Packet, _Pid}) ->
-                    check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
-                end,
-                Pending0
-            ),
-            {ok, Pending1}
+            Nonce = blockchain_state_channel_v1:nonce(SC),
+            UpdateNonce = blockchain_state_channel_v1:nonce(UpdateSC),
+            case Nonce >= UpdateNonce of
+                true ->
+                    {error, {bad_nonce, Nonce, UpdateNonce}};
+                false ->
+                    Pending1 = queue:filter(
+                        fun({Req, Packet, _Pid}) ->
+                            check_packet(Packet, UpdateSC) andalso check_balance(Req, SC, UpdateSC)
+                        end,
+                        Pending0
+                    ),
+                    {ok, Pending1}
+            end
     end.
 
 -spec check_packet(any(), blockchain_state_channel_v1:state_channel()) -> true.
