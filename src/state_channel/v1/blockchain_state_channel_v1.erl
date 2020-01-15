@@ -12,7 +12,7 @@
     credits/1, credits/2,
     nonce/1, nonce/2,
     balances/1, balances/2, balance/2, balance/3,
-    packets/1, packets/2,
+    root_hash/1, root_hash/2,
     state/1, state/2,
     expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
@@ -45,7 +45,7 @@ new(ID, Owner) ->
         credits=0,
         nonce=0,
         balances=[],
-        packets= <<>>,
+        root_hash= <<>>,
         state=open,
         expire_at_block=0
     }.
@@ -105,13 +105,13 @@ balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances0}=SC) 
     Balances1 = lists:keystore(PayeeB58, 1, Balances0, {PayeeB58, Balance}),
     ?MODULE:balances(Balances1, SC).
 
--spec packets(state_channel()) -> binary().
-packets(#blockchain_state_channel_v1_pb{packets=Packets}) ->
-    Packets.
+-spec root_hash(state_channel()) -> skewed:hash().
+root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
+    RootHash.
 
--spec packets(binary(), state_channel()) -> state_channel().
-packets(Packets, SC) ->
-    SC#blockchain_state_channel_v1_pb{packets=Packets}.
+-spec root_hash(skewed:hash(), state_channel()) -> state_channel().
+root_hash(RootHash, SC) ->
+    SC#blockchain_state_channel_v1_pb{root_hash=RootHash}.
 
 -spec state(state_channel()) -> state().
 state(#blockchain_state_channel_v1_pb{state=State}) ->
@@ -205,9 +205,9 @@ add_request(Request, SigFun, SC0) ->
         {error, not_found} -> 0;
         {ok, B} -> B
     end,
-    RootHash = ?MODULE:packets(SC0),
-    FingerPrint = ?MODULE:fingerprint(SC0),
-    Value = <<Payee/binary, PayloadSize,FingerPrint>>,
+    RootHash = ?MODULE:root_hash(SC0),
+    FingerPrint = blockchain_state_channel_request_v1:fingerprint(Request),
+    Value = <<Payee/binary, PayloadSize, FingerPrint>>,
     UpdatedRooHash = recalculate_root_hash(RootHash, Value),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),
@@ -216,7 +216,7 @@ add_request(Request, SigFun, SC0) ->
         true -> ?MODULE:state(closed, SC3);
         false -> SC3
     end,
-    SC5 = ?MODULE:packets(UpdatedRooHash, SC4),
+    SC5 = ?MODULE:root_hash(UpdatedRooHash, SC4),
     ?MODULE:sign(SC5, SigFun).
 
 %% ------------------------------------------------------------------
@@ -242,7 +242,7 @@ new_test() ->
         credits=0,
         nonce=0,
         balances=[],
-        packets= <<>>,
+        root_hash= <<>>,
         state=open,
         expire_at_block=0
     },
@@ -280,10 +280,10 @@ balance_test() ->
     ?assertEqual({error, not_found}, balance(PubKeyBin, SC)),
     ?assertEqual({ok, 2}, balance(PubKeyBin, balance(PubKeyBin, 2, SC))).
 
-packets_test() ->
+root_hash_test() ->
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual(<<>>, packets(SC)),
-    ?assertEqual(<<"packets">>, packets(packets(<<"packets">>, SC))).
+    ?assertEqual(<<>>, root_hash(SC)),
+    ?assertEqual(<<"root_hash">>, root_hash(root_hash(<<"root_hash">>, SC))).
 
 state_test() ->
     SC = new(<<"1">>, <<"owner">>),
