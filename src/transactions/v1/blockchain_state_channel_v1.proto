@@ -26,7 +26,8 @@ message state_channel_v1 {
 
 message state_channel_packet_v1 {
     bytes packet = 1;
-    bytes signature = 2;
+    bytes hotspot = 2;
+    bytes signature = 3;
 }
 
 message state_channel_update_v1 {

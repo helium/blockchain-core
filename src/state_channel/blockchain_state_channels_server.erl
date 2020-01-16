@@ -164,7 +164,12 @@ handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
 handle_cast({packet_forward, Pid}, State) ->
     {noreply, State#state{packet_forward=Pid}};
 handle_cast({packet, Packet}, #state{packet_forward=Pid}=State) when is_pid(Pid) ->
-    Pid ! {packet, blockchain_state_channel_packet_v1:packet(Packet)},
+    case blockchain_state_channel_packet_v1:validate(Packet) of
+        {error, _Reason} ->
+            lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
+        true ->
+            Pid ! {packet, blockchain_state_channel_packet_v1:packet(Packet)}
+    end,
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
