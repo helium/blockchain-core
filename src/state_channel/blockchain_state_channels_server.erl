@@ -154,7 +154,7 @@ handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
                             end,
                             ok = blockchain_state_channel_v1:save(DB, SC1),
                             State1 = update_state(SC1, Req, State0),
-                            SCupdate = blockchain_state_channel_update_v1:new(SC1, <<"TODO">>),
+                            SCupdate = blockchain_state_channel_update_v1:new(SC1, blockchain_state_channel_v1:root_hash(SC0)),
                             ok = update_clients(SCupdate, State1),
                             lager:info("added request ~p to state channel ~p", [Req, blockchain_state_channel_v1:id(SC1)]),
                             {noreply, State1}
