@@ -178,32 +178,27 @@ upgrade_gateways_v2_(Ledger) ->
     ok.
 
 bootstrap_hexes(Ledger) ->
-    %% NB:  This requires extreme care.  the following var must be
-    %% issued before we upgrade to this code (or this release must be
-    %% followed by one other) and only then is it safe to change
-    %% poc_version to 7
-    case blockchain:config(?poc_target_hex_parent_res, Ledger) of
-        {ok, Res} ->
-            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-            Hexes =
-                maps:fold(
-                  fun(Addr, Gw, A) ->
-                          case blockchain_ledger_gateway_v2:location(Gw) of
-                              undefined -> A;
-                              Loc ->
-                                  Hex = h3:parent(Loc, Res),
-                                  maps:update_with(Hex, fun(X) -> [Addr | X] end, [Addr], A)
-                          end
-                  end,
-                  #{}, Gateways),
-            HexMap = maps:map(fun(_K, V) -> length(V) end, Hexes),
-            ok = blockchain_ledger_v1:set_hexes(HexMap, Ledger),
-            _ = maps:map(
-                  fun(Hex, Addresses) ->
-                          blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
-                  end, Hexes);
-        _ -> ok
-    end.
+    %% hardcode this until we have the var update hook.
+    Res = 5,
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    Hexes =
+        maps:fold(
+          fun(Addr, Gw, A) ->
+                  case blockchain_ledger_gateway_v2:location(Gw) of
+                      undefined -> A;
+                      Loc ->
+                          Hex = h3:parent(Loc, Res),
+                          maps:update_with(Hex, fun(X) -> [Addr | X] end, [Addr], A)
+                  end
+          end,
+          #{}, Gateways),
+    HexMap = maps:map(fun(_K, V) -> length(V) end, Hexes),
+    ok = blockchain_ledger_v1:set_hexes(HexMap, Ledger),
+    _ = maps:map(
+          fun(Hex, Addresses) ->
+                  blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
+          end, Hexes),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
