@@ -59,9 +59,9 @@ send_packet(Pid, Packet) ->
     Pid ! {send_packet, Packet},
     ok.
 
--spec broadcast(pid(), blockchain_state_channel_v1:state_channel()) -> ok.
-broadcast(Pid, SC) ->
-    Pid ! {broadcast, SC},
+-spec broadcast(pid(), blockchain_state_channel_update_v1:state_channel_update()) -> ok.
+broadcast(Pid, SCUpdate) ->
+    Pid ! {broadcast, SCUpdate},
     ok.
 
 %% ------------------------------------------------------------------
