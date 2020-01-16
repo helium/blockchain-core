@@ -68,7 +68,7 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
+    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, [{hibernate_after, 5000}]).
 
 %%--------------------------------------------------------------------
 %% @doc

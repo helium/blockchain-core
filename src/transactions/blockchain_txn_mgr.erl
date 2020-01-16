@@ -42,7 +42,7 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, Args, []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, Args, [{hibernate_after, 5000}]).
 
 -spec submit(Txn :: blockchain_txn:txn(), Callback :: fun()) -> ok.
 submit(Txn, Callback) ->
