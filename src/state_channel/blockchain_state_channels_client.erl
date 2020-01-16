@@ -128,7 +128,7 @@ processing(EventType, EventContent, Data) ->
 
 waiting(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
     {keep_state,  Data#data{packets=[Packet|Packets]}};
-waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs, pending=Pending}=Data) ->
+waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, swarm=Swarm, state_channels=SCs, pending=Pending}=Data) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     ID = blockchain_state_channel_v1:id(UpdatedSC),
     lager:debug("received state channel update for ~p", [ID]),
@@ -139,7 +139,8 @@ waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs,
         ok ->
             ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
             SC = maps:get(ID, SCs, undefined),
-            case check_pending_request(SC, UpdatedSC, Pending) of
+            {PubKeyBin, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+            case check_pending_request(SC, SCUpdate, Pending, PubKeyBin) of
                 {error, _Reason} ->
                     lager:warning("state channel update did not match pending req ~p", [_Reason]),
                     {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}};
@@ -225,33 +226,37 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
     end.
 
 -spec check_pending_request(blockchain_state_channel_v1:state_channel() | undefined,
-                             blockchain_state_channel_v1:state_channel(), pending()) -> ok | {error, any()}.
-check_pending_request(undefined, UpdatedSC, {Req, Packet, _Pid}) ->
-    case {check_root_hash(Packet, UpdatedSC), check_balance(Req, undefined, UpdatedSC)} of
+                            blockchain_state_channel_update_v1:state_channel_update(), pending(), libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
+check_pending_request(undefined, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, undefined, UpdatedSC)} of
         {false, _} -> {error, bad_root_hash};
         {_, false} -> {error, wrong_balance};
         {true, true} -> ok
     end;
-check_pending_request(SC, UpdatedSC, {Req, Packet, _Pid}) ->
+check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
     Nonce = blockchain_state_channel_v1:nonce(SC),
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     UpdateNonce = blockchain_state_channel_v1:nonce(UpdatedSC),
     case Nonce >= UpdateNonce of
         true ->
             {error, {bad_nonce, Nonce, UpdateNonce}};
         false ->
-            case {check_root_hash(Packet, UpdatedSC), check_balance(Req, SC, UpdatedSC)} of
+            case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
                 {false, _} -> {error, bad_root_hash};
                 {_, false} -> {error, wrong_balance};
                 {true, true} -> ok
             end
     end.
 
--spec check_root_hash(any(), blockchain_state_channel_v1:state_channel()) -> boolean().
-check_root_hash(_Packet, SC) ->
-    case blockchain_state_channel_v1:root_hash(SC) of
-        undefined -> false;
-        _RootHash -> true
-    end.
+-spec check_root_hash(packet(), blockchain_state_channel_update_v1:state_channel_update(), libp2p_crypto:pubkey_bin()) -> boolean().
+check_root_hash(#helium_LongFiRxPacket_pb{fingerprint=Fingerprint, payload=Payload}, SCUpdate, PubkeyBin) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
+    Hash = blockchain_state_channel_update_v1:hash(SCUpdate),
+    PayloadSize = erlang:byte_size(Payload),
+    Value = <<PubkeyBin/binary, PayloadSize, Fingerprint>>,
+    skewed:verify(skewed:hash_value(Value), [Hash], RootHash).
 
 -spec check_balance(blockchain_state_channel_request_v1:request(),
                     blockchain_state_channel_v1:state_channel() | undefined,
