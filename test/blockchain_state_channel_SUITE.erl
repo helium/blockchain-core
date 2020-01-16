@@ -99,6 +99,7 @@ basic_test(Config) ->
     ],
     {ok, Swarm} = libp2p_swarm:start(basic_test, SwarmOpts),
 
+    meck:unload(),
     meck:new(blockchain_swarm, [passthrough]),
     meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
     meck:new(blockchain_event, [passthrough]),
@@ -322,6 +323,7 @@ full_test(Config) ->
         {error, not_found} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])
     end, 30, timer:seconds(1)),
 
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
 
 expired_test(Config) ->
@@ -435,6 +437,7 @@ expired_test(Config) ->
         {error, not_found} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])
     end, 30, timer:seconds(1)),
 
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
        
 
