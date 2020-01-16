@@ -371,28 +371,31 @@ absorb(Txn, Chain) ->
             blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
     end,
 
+    %% hex index update code needs to be unconditional and hard-coded
+    %% until we have chain var update hook
+    %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+    Res = 5,
+    OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
+    OldHex =
+        case OldLoc of
+            undefined ->
+                undefined;
+            _ ->
+                h3:parent(OldLoc, Res)
+        end,
+    Hex = h3:parent(Location, Res),
+    case Hex of
+        OldHex ->
+            %% moved within the hex, no need to update
+            ok;
+        _ when OldHex == undefined ->
+            blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger);
+        _ ->
+            blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
+            blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
+    end,
+
     case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V >= 7 ->
-            {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-            OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
-            OldHex =
-                case OldLoc of
-                    undefined ->
-                        undefined;
-                    _ ->
-                        h3:parent(OldLoc, Res)
-                end,
-            Hex = h3:parent(Location, Res),
-            case Hex of
-                OldHex ->
-                    %% moved within the hex, no need to update
-                    ok;
-                _ when OldHex == undefined ->
-                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger);
-                _ ->
-                    blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
-                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
-            end;
         {ok, V} when V > 3 ->
             %% don't update neighbours anymore
             ok;
