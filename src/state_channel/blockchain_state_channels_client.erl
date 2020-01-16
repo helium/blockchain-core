@@ -139,13 +139,13 @@ waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, swarm=Swarm, state_
         ok ->
             ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
             SC = maps:get(ID, SCs, undefined),
-            {PubKeyBin, _} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+            {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
             case check_pending_request(SC, SCUpdate, Pending, PubKeyBin) of
                 {error, _Reason} ->
                     lager:warning("state channel update did not match pending req ~p", [_Reason]),
                     {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}};
                 ok ->
-                    ok = send_packet(Pending),
+                    ok = send_packet(Pending, SigFun),
                     ok = trigger_processing(),
                     {next_state, processing, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs),
                                                        pending=undefined}}
@@ -281,11 +281,12 @@ check_balance(Req, SC, UpdateSC) ->
             NewBalance-OldBalance >= ReqPayloadSize
     end.
 
--spec send_packet(any()) -> ok.
-send_packet({_Req, Packet, Pid}) ->
+-spec send_packet(pending(), function()) -> ok.
+send_packet({_Req, Packet, Pid}, SigFun) ->
     Bin = helium_longfi_pb:encode_msg(Packet),
-    % TODO: This need to be signed
-    blockchain_state_channel_handler:send_packet(Pid, blockchain_state_channel_packet_v1:new(Bin)).
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Bin),
+    PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
+    blockchain_state_channel_handler:send_packet(Pid, PacketMsg1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
