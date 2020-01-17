@@ -178,6 +178,13 @@ upgrade_gateways_v2_(Ledger) ->
     ok.
 
 bootstrap_hexes(Ledger) ->
+    bootstrap_hexes_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    bootstrap_hexes_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+bootstrap_hexes_(Ledger) ->
     %% hardcode this until we have the var update hook.
     Res = 5,
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),

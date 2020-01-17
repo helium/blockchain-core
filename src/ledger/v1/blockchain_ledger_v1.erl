@@ -90,6 +90,8 @@
     add_to_hex/3,
     remove_from_hex/3,
 
+    clean_all_hexes/1,
+
     clean/1, close/1
 ]).
 
@@ -2074,6 +2076,35 @@ remove_from_hex(Hex, Gateway, Ledger) ->
                 Hexes#{Hex => N - 1}
         end,
     ok = set_hexes(Hexes1, Ledger).
+
+clean_all_hexes(Ledger) ->
+    CF1 = default_cf(Ledger),
+    case get_hexes(Ledger) of
+        {ok, Hexes} ->
+            L1 = new_context(Ledger),
+            cache_delete(L1, CF1, ?hex_list),
+            %% undo the upgrade marker, too, so we automatically re-upgrade
+            %% next restart
+            cache_delete(L1, CF1, <<"hex_targets">>),
+            maps:map(fun(Hex, _) ->
+                             cache_delete(L1, CF1, hex_name(Hex))
+                     end, Hexes),
+            commit_context(L1);
+        _ -> ok
+    end,
+
+    DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+    CF2 = default_cf(DelayedLedger),
+    L2 = new_context(DelayedLedger),
+    case get_hexes(DelayedLedger) of
+        {ok, Hexes2} ->
+            cache_delete(L2, CF2, ?hex_list),
+            maps:map(fun(Hex, _) ->
+                             cache_delete(L2, CF2, hex_name(Hex))
+                     end, Hexes2),
+            commit_context(L2);
+        _ -> ok
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
