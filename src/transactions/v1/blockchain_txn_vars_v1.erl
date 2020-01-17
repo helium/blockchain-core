@@ -691,9 +691,11 @@ validate_var(?poc_typo_fixes, Value) ->
 validate_var(?poc_target_hex_parent_res, Value) ->
     validate_int(Value, "poc_target_hex_parent_res", 3, 7, false);
 validate_var(?poc_good_bucket_low, Value) ->
-    validate_int(Value, "poc_good_bucket_low", -70, -150, false);
+    validate_int(Value, "poc_good_bucket_low", -150, -90, false);
 validate_var(?poc_good_bucket_high, Value) ->
-    validate_int(Value, "poc_good_bucket_high", -70, 29, false);
+    validate_int(Value, "poc_good_bucket_high", -100, -70, false);
+validate_var(?poc_centrality_wt, Value) ->
+    validate_float(Value, "poc_centrality_wt", 0.0, 1.0);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

@@ -28,7 +28,7 @@ prop_hex_check() ->
                 %% Intiial acc for the counter, each node starts with a 0 count
                 InitAcc = maps:map(fun(_, _) -> 0 end, CumulativePopulationMap),
 
-                Fname = "/tmp/zones_" ++ libp2p_crypto:bin_to_b58(Hash),
+                %% Fname = "/tmp/zones_" ++ libp2p_crypto:bin_to_b58(Hash),
 
                 %% Track all counts a node gets picked
                 {Counter, _} = lists:foldl(fun(_I, {Acc, AccEntropy}) ->

@@ -87,7 +87,7 @@ build_(TargetPubkeyBin,
     %% Try to find a next hop
     {NewRandVal, NewRandState} = rand:uniform_s(RandState),
     case next_hop(TargetPubkeyBin, Ledger, HeadBlockTime, Vars, NewRandVal, Indices) of
-        {error, no_witness} ->
+        {error, _} ->
             lists:reverse(Path);
         {ok, WitnessPubkeyBin} ->
             %% Try the next hop in the new path, continue building forward
@@ -110,7 +110,7 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
                RandVal :: float(),
-               Indices :: [h3:h3_index()]) -> {error, no_witness} | {ok, libp2p_crypto:pubkey_bin()}.
+               Indices :: [h3:h3_index()]) -> {error, no_witness} | {error, all_witnesses_too_close} | {ok, libp2p_crypto:pubkey_bin()}.
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
@@ -122,19 +122,26 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
             GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
             %% Filter witnesses
             FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars),
-            %% Assign probabilities to filtered witnesses
-            %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
-            PWitnessRSSI = rssi_probs(FilteredWitnesses, Vars),
-            %% P(WitnessTime)  = Probability that the witness timestamp is not stale.
-            PWitnessTime = time_probs(HeadBlockTime, FilteredWitnesses, Vars),
-            %% P(WitnessCount) = Probability that the witness is infrequent.
-            PWitnessCount = witness_count_probs(FilteredWitnesses, Vars),
-            %% P(RSSICentrality) = Probability that the witness rssi lies within a good range
-            PWitnessRSSICentrality = witness_rssi_centrality_probs(FilteredWitnesses, Vars),
-            %% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
-            PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentrality),
-            %% Select witness using icdf
-            blockchain_utils:icdf_select(PWitness, RandVal)
+
+            case maps:size(FilteredWitnesses) of
+                S when S > 0 ->
+                    %% Assign probabilities to filtered witnesses
+                    %% P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
+                    PWitnessRSSI = rssi_probs(FilteredWitnesses, Vars),
+                    %% P(WitnessTime)  = Probability that the witness timestamp is not stale.
+                    PWitnessTime = time_probs(HeadBlockTime, FilteredWitnesses, Vars),
+                    %% P(WitnessCount) = Probability that the witness is infrequent.
+                    PWitnessCount = witness_count_probs(FilteredWitnesses, Vars),
+                    %% P(RSSICentrality) = Probability that the witness rssi lies within a good range
+                    PWitnessRSSICentrality = witness_rssi_centrality_probs(FilteredWitnesses, Vars),
+                    %% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
+                    PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentrality),
+                    PWitnessList = lists:keysort(1, maps:to_list(PWitness)),
+                    %% Select witness using icdf
+                    blockchain_utils:icdf_select(PWitnessList, RandVal);
+                _ ->
+                    {error, all_witnesses_too_close}
+            end
     end.
 
 -spec witness_prob(Vars :: map(),
@@ -466,17 +473,16 @@ split_hist(Hist, Vars) ->
     GoodBucketHigh = poc_good_bucket_high(Vars),
 
     %% Split the histogram into two buckets
-    lists:foldl(fun({Bucket, Val}, {GoodAcc, BadAcc}) ->
-                        case lists:member(Bucket, lists:seq(GoodBucketLow, GoodBucketHigh)) of
-                            true ->
-                                maps:put(Bucket, Val, GoodAcc);
-                            false ->
-                                maps:put(Bucket, Val, BadAcc)
-                        end
-                end,
-                {#{}, #{}},
-                maps:to_list(Hist)).
+    GoodBucket = maps:filter(fun(Bucket, _) ->
+                                     lists:member(Bucket, lists:seq(GoodBucketLow, GoodBucketHigh))
+                             end,
+                             Hist),
+    BadBucket = maps:without(maps:keys(GoodBucket), Hist),
+    {GoodBucket, BadBucket}.
 
+%%%-----------------------------------------------------------------------------
+%%% @doc TBD
+%%%-----------------------------------------------------------------------------
 -spec centrality_metrics(Hist :: blockchain_ledger_gateway_v2:histogram(),
                          Vars :: map()) -> {float(), float()}.
 centrality_metrics(Hist, Vars) ->
@@ -485,12 +491,19 @@ centrality_metrics(Hist, Vars) ->
     GoodBucketValues = maps:values(GoodBucket),
     BadBucketValues = maps:values(BadBucket),
 
-    MaxGood = lists:max(GoodBucketValues),
-    MaxBad = lists:max(BadBucketValues),
-    MeanGood = blockchain_utils:normalize_float(lists:sum(GoodBucketValues) / length(GoodBucketValues)),
-    MeanBad = blockchain_utils:normalize_float(lists:sum(BadBucketValues) / length(BadBucketValues)),
+    case lists:sum(GoodBucketValues) of
+        S when S > 0 ->
+            MaxGood = lists:max(GoodBucketValues),
+            MaxBad = lists:max(BadBucketValues),
 
-    MaxMetric = blockchain_utils:normalize_float(MaxBad / MaxGood),
-    MeanMetric = blockchain_utils:normalize_float(MeanBad / MeanGood),
+            MeanGood = blockchain_utils:normalize_float(lists:sum(GoodBucketValues) / length(GoodBucketValues)),
+            MeanBad = blockchain_utils:normalize_float(lists:sum(BadBucketValues) / length(BadBucketValues)),
 
-    {MaxMetric, MeanMetric}.
+            MaxMetric = blockchain_utils:normalize_float(MaxBad / MaxGood),
+            MeanMetric = blockchain_utils:normalize_float(MeanBad / MeanGood),
+
+            {MaxMetric, MeanMetric};
+        _ ->
+            %% Nothing in the goodbucket, consider bad
+            {1.0, 1.0}
+    end.
