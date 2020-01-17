@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("../../pb/blockchain_txn_routing_v1_pb.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/5,
@@ -30,9 +31,6 @@
 
 -type txn_routing() :: #blockchain_txn_routing_v1_pb{}.
 -export_type([txn_routing/0]).
-
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc

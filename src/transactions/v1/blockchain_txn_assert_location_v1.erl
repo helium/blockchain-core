@@ -9,6 +9,7 @@
 
 -include("../../pb/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/6, new/7,
@@ -43,9 +44,6 @@
 -type location() :: h3:h3index().
 -type txn_assert_location() :: #blockchain_txn_assert_location_v1_pb{}.
 -export_type([txn_assert_location/0]).
-
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc

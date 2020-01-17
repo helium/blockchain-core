@@ -5,6 +5,7 @@
 -module(blockchain_poc_witness_v1).
 
 -include("../../pb/blockchain_txn_poc_receipts_v1_pb.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/4,
@@ -26,9 +27,6 @@
 -type poc_witnesss() :: [poc_witness()].
 
 -export_type([poc_witness/0, poc_witnesss/0]).
-
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
