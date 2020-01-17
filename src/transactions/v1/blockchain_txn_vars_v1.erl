@@ -641,7 +641,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 7 ->
+        N when is_integer(N), N >= 1,  N =< 8 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -690,6 +690,10 @@ validate_var(?poc_typo_fixes, Value) ->
     end;
 validate_var(?poc_target_hex_parent_res, Value) ->
     validate_int(Value, "poc_target_hex_parent_res", 3, 7, false);
+validate_var(?poc_good_bucket_low, Value) ->
+    validate_int(Value, "poc_good_bucket_low", -70, -150, false);
+validate_var(?poc_good_bucket_high, Value) ->
+    validate_int(Value, "poc_good_bucket_high", -70, 29, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->

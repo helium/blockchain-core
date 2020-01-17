@@ -225,4 +225,10 @@
 %% Hierarchical targeting variables
 %% Create hexes at this resolution for all the hotspots on the network.
 -define(poc_target_hex_parent_res, poc_target_hex_parent_res).
+
+%% RSSI Bucketing variables
+%% Lower bound for known good rssi bucket
+-define(poc_good_bucket_low, poc_good_bucket_low).
+%% Upper bound for known good rssi bucket
+-define(poc_good_bucket_high, poc_good_bucket_high).
 %% ------------------------------------------------------------------
