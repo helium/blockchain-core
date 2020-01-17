@@ -45,9 +45,11 @@ server(Connection, Path, _TID, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [Blockchain]) ->
+    erlang:process_flag(trap_exit, true),
     lager:debug("started fastforward_handler client"),
     {ok, #state{blockchain=Blockchain}};
 init(server, _Conn, [_Path, _, Blockchain]) ->
+    erlang:process_flag(trap_exit, true),
     lager:debug("started fastforward_handler server"),
     {ok, Hash} = blockchain:head_hash(Blockchain),
     Msg = #blockchain_sync_hash_pb{hash=Hash},

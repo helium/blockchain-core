@@ -88,25 +88,14 @@ stop() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
+    erlang:process_flag(trap_exit, true),
+    lager:debug("starting...", []),
     Cache = ets:new(score_cache,
                     [named_table,
                      public,
                      {write_concurrency, true},
                      {read_concurrency, true}]),
-
-    case application:get_env(blockchain, disable_score_cache, false) of
-        false ->
-            case  blockchain_worker:blockchain() of
-                undefined ->
-                    erlang:send_after(500, self(), chain_init),
-                    {ok, #state{cache=Cache}};
-                Chain ->
-                    ok = blockchain_event:add_handler(self()),
-                    {ok, #state{chain=Chain, cache=Cache}}
-            end;
-        _ ->
-            {ok, #state{cache=Cache}}
-    end.
+    {ok, #state{cache=Cache}, 0}.
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -131,14 +120,15 @@ handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{chain = NC}};
 handle_info(chain_init, State) ->
-    case  blockchain_worker:blockchain() of
-        undefined ->
-            erlang:send_after(500, self(), chain_init),
-            {noreply, State};
-        Chain ->
-            ok = blockchain_event:add_handler(self()),
-            {noreply, State#state{chain=Chain}}
-    end;
+    handle_chain_init(State);
+
+handle_info(timeout, State)->
+    case application:get_env(blockchain, disable_score_cache, false) of
+        false ->
+            handle_chain_init(State);
+        _ ->
+            {noreply, State}
+     end;
 handle_info(_Msg, State) ->
     {noreply, State}.
 
@@ -146,4 +136,26 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(_Reason, _State) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
     ok.
+
+
+%% ------------------------------------------------------------------
+%% Internal functions
+%% ------------------------------------------------------------------
+
+-spec handle_chain_init(term()) -> {noreply, term()}.
+handle_chain_init(State) ->
+    try
+        case  blockchain_worker:blockchain() of
+            undefined ->
+                erlang:send_after(500, self(), chain_init),
+                {noreply, State};
+            Chain ->
+                ok = blockchain_event:add_handler(self()),
+                {noreply, State#state{chain=Chain}}
+        end
+    catch _:_ ->
+        erlang:send_after(500, self(), chain_init),
+        {noreply, State}
+    end.

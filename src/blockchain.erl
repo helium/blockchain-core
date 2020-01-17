@@ -907,6 +907,7 @@ fold_chain(Fun, Acc0, Block, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 close(#blockchain{db=DB, ledger=Ledger}) ->
+    lager:debug("closing ledger &  rocksdb",[]),
     persistent_term:erase(?ASSUMED_VALID),
     ok = blockchain_ledger_v1:close(Ledger),
     rocksdb:close(DB).

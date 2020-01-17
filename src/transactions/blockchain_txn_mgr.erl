@@ -60,6 +60,8 @@ txn_map() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(_Args) ->
+    erlang:process_flag(trap_exit, true),
+    lager:debug("starting...", []),
     ok = blockchain_event:add_handler(self()),
     Chain = blockchain_worker:blockchain(),
     {ok, #state{chain=Chain}}.
@@ -182,7 +184,14 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#s
 handle_info(_Msg, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _State=#state{chain=_Chain, txn_map=TxnMap}) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
+    SortedTxns = maps:to_list(TxnMap),
+    lists:foreach(
+        fun({_Txn, {_Callback, _Rejections, Dialer}}) ->
+            %% Stop dialer
+            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer)
+        end, SortedTxns),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

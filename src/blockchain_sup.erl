@@ -17,7 +17,7 @@
     id => I,
     start => {I, start_link, Args},
     restart => permanent,
-    shutdown => 5000,
+    shutdown => 20000,
     type => supervisor,
     modules => [I]
 }).
@@ -26,7 +26,7 @@
     id => I,
     start => {I, start_link, Args},
     restart => permanent,
-    shutdown => 5000,
+    shutdown => 20000,
     type => worker,
     modules => [I]
 }).
@@ -35,7 +35,7 @@
     id => I,
     start => {Mod, start_link, Args},
     restart => permanent,
-    shutdown => 5000,
+    shutdown => 20000,
     type => worker,
     modules => [I]
 }).
@@ -104,14 +104,15 @@ init(Args) ->
     BTxnMgrSupOpts = [],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
-        ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
-        ?WORKER(blockchain_worker, [BWorkerOpts]),
+        ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(blockchain_score_cache, []),
+        ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),
         ?SUP(blockchain_txn_mgr_sup, [BTxnMgrSupOpts])
     ],
     {ok, {?FLAGS, ChildSpecs}}.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

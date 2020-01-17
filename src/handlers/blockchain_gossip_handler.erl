@@ -49,28 +49,15 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
     end,
     noreply.
 
-add_block(Swarm, Block, Chain, Sender) ->
+add_block(_Swarm, Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
             ok;
         {error, disjoint_chain} ->
-            lager:warning("gossipped block doesn't fit with our chain"),
-            P2PPubkeyBin = libp2p_crypto:pubkey_bin_to_p2p(Sender),
-            lager:info("syncing with the sender ~p", [P2PPubkeyBin]),
-            case libp2p_swarm:dial_framed_stream(Swarm,
-                                                 P2PPubkeyBin,
-                                                 ?SYNC_PROTOCOL,
-                                                 blockchain_sync_handler,
-                                                 [Chain])
-            of
-                {ok, Stream} ->
-                    erlang:unlink(Stream),
-                    {ok, HeadHash} = blockchain:head_hash(Chain),
-                    Stream ! {hash, HeadHash};
-                _Error ->
-                    lager:warning("Failed to dial sync service on: ~p ~p", [P2PPubkeyBin, _Error])
-            end;
+            lager:warning("gossipped block doesn't fit with our chain, will start a new sync handler if one isnt already active"),
+            blockchain_worker:maybe_sync(),
+            ok;
         Error ->
             %% Uhm what is this?
             lager:error("Something bad happened: ~p", [Error])

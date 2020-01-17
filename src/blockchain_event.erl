@@ -105,5 +105,5 @@ code_change(_OldVsn, Pid, _Extra) ->
     {'ok', Pid}.
 
 terminate(_Reason, _Pid) ->
-    lager:warning("terminating ~p", [_Reason]),
+    lager:debug("terminating with reason ~p", [_Reason]),
     'ok'.

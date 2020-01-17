@@ -105,9 +105,11 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(_Reason, #state{swarm=Swarm}) when is_pid(Swarm) ->
-    _ = libp2p_swarm:stop(Swarm),
+    lager:debug("terminating with reason ~p", [_Reason]),
+    catch libp2p_swarm:stop(Swarm),
     ok;
 terminate(_Reason, _State) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
     ok.
 
 %% ------------------------------------------------------------------

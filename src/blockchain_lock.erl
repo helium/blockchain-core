@@ -7,7 +7,7 @@
 
 -export([acquire/0, release/0, force_release/0]).
 
--export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2]).
+-export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(holding_lock, holding_lock).
 -define(lock_ref, lock_ref).
@@ -45,6 +45,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
+    erlang:process_flag(trap_exit, true),
     {ok, {}}.
 
 handle_call({acquire, LRef}, {Client, _MRef} = From, State) ->
@@ -66,3 +67,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(_Msg, State) ->
     {noreply, State}.
+
+terminate(_Reason, _State) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
+    ok.
