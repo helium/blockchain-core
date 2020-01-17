@@ -55,9 +55,6 @@
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
 -export_type([txn_vars/0]).
 
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(X)))).
-
 %% message var_v1 {
 %%     string type = 1;
 %%     bytes value = 2;

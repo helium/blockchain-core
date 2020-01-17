@@ -26,9 +26,6 @@
 -type txn_bundle() :: #blockchain_txn_bundle_v1_pb{}.
 -export_type([txn_bundle/0]).
 
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(X)))).
-
 -spec new(Txns :: blockchain_txn:txns()) -> txn_bundle().
 new(Txns) ->
     #blockchain_txn_bundle_v1_pb{transactions=Txns}.

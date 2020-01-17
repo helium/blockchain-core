@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("../../pb/blockchain_txn_redeem_htlc_v1_pb.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/4,
@@ -29,9 +30,6 @@
 
 -type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
-
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
--define(TO_ANIMAL_NAME(X), element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(X)))).
 
 %%--------------------------------------------------------------------
 %% @doc
