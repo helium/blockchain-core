@@ -14,6 +14,7 @@
     start_link/1,
     credits/1,
     packet/1,
+    response/1,
     state_channel_update/1
 ]).
 
@@ -70,9 +71,14 @@ credits(ID) ->
 packet(Packet) ->
     gen_statem:cast(?SERVER, {packet, Packet}).
 
+-spec response(blockchain_state_channel_response_v1:reponse()) -> ok.
+response(Resp) ->
+    gen_statem:cast(?SERVER, {response, Resp}).
+
 -spec state_channel_update(blockchain_state_channel_update_v1:state_channel_update()) -> ok.
 state_channel_update(SCUpdate) ->
     gen_statem:cast(?SERVER, {state_channel_update, SCUpdate}).
+
 %% ------------------------------------------------------------------
 %% gen_statem Function Definitions
 %% ------------------------------------------------------------------
@@ -97,18 +103,6 @@ terminate(_Reason, _Data) ->
 processing(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
     ok = trigger_processing(),
     {keep_state,  Data#data{packets=[Packet|Packets]}};
-processing(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs}=Data) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    ID = blockchain_state_channel_v1:id(UpdatedSC),
-    lager:debug("received state channel update for ~p", [ID]),
-    case blockchain_state_channel_v1:validate(UpdatedSC) of
-        {error, _Reason} -> 
-            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
-            {keep_state, Data};
-        ok ->
-            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-            {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}}
-    end;
 processing(info, process_packet, #data{packets=[]}=Data) ->
     lager:debug("nothing to process"),
     {keep_state,  Data};
@@ -128,27 +122,43 @@ processing(EventType, EventContent, Data) ->
 
 waiting(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
     {keep_state,  Data#data{packets=[Packet|Packets]}};
-waiting(cast, {state_channel_update, SCUpdate}, #data{db=DB, swarm=Swarm, state_channels=SCs, pending=Pending}=Data) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    ID = blockchain_state_channel_v1:id(UpdatedSC),
-    lager:debug("received state channel update for ~p", [ID]),
-    case blockchain_state_channel_v1:validate(UpdatedSC) of
-        {error, _Reason} -> 
-            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+waiting(cast, {response, Resp}, #data{db=DB, swarm=Swarm, state_channels=SCs, pending={Req, _, _}=Pending}=Data) ->
+    lager:debug("received resp ~p", [Resp]),
+    case blockchain_state_channel_response_v1:req_hash(Resp) == blockchain_state_channel_request_v1:hash(Req) of
+        false ->
+            lager:warning("got unknown response ~p", [Resp]),
             {keep_state,  Data};
-        ok ->
-            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-            SC = maps:get(ID, SCs, undefined),
-            {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-            case check_pending_request(SC, SCUpdate, Pending, PubKeyBin) of
-                {error, _Reason} ->
-                    lager:warning("state channel update did not match pending req ~p", [_Reason]),
-                    {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}};
-                ok ->
-                    ok = send_packet(Pending, PubKeyBin, SigFun),
+        true ->
+            case blockchain_state_channel_response_v1:accepted(Resp) of
+                false ->
+                    lager:info("request ~p got rejected, next...", [Req]),
                     ok = trigger_processing(),
-                    {next_state, processing, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs),
-                                                       pending=undefined}}
+                    {next_state, processing, Data#data{pending=undefined}};
+                true ->
+                    SCUpdate = blockchain_state_channel_response_v1:state_channel_update(Resp),
+                    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+                    case blockchain_state_channel_v1:validate(UpdatedSC) of
+                        {error, _Reason} -> 
+                            lager:warning("state channel ~p is invalid ~p droping req", [UpdatedSC, _Reason]),
+                            ok = trigger_processing(),
+                            {next_state, processing, Data#data{pending=undefined}};
+                        ok ->
+                            ID = blockchain_state_channel_v1:id(UpdatedSC),
+                            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+                            SC = maps:get(ID, SCs, undefined),
+                            {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                            case check_pending_request(SC, SCUpdate, Pending, PubKeyBin) of
+                                {error, _Reason} ->
+                                    lager:warning("state channel update did not match pending req ~p, dropping req", [_Reason]),
+                                    ok = trigger_processing(),
+                                    {next_state, processing, Data#data{pending=undefined}};
+                                ok ->
+                                    ok = send_packet(Pending, PubKeyBin, SigFun),
+                                    ok = trigger_processing(),
+                                    {next_state, processing, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs),
+                                                                      pending=undefined}}
+                            end
+                    end
             end
     end;
 waiting(EventType, EventContent, Data) ->
@@ -165,6 +175,18 @@ handle_event({call, From}, {credits, ID}, #data{state_channels=SCs}=Data) ->
         SC -> {ok, blockchain_state_channel_v1:credits(SC)}
     end,
     {keep_state, Data, [{reply, From, Reply}]};
+handle_event(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs}=Data) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    ID = blockchain_state_channel_v1:id(UpdatedSC),
+    lager:debug("received state channel update for ~p", [ID]),
+    case blockchain_state_channel_v1:validate(UpdatedSC) of
+        {error, _Reason} -> 
+            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+            {keep_state, Data};
+        ok ->
+            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+            {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}}
+    end;
 handle_event(_EventType, _EventContent, Data) ->
     lager:warning("ignoring unknown event [~p] ~p", [_EventType, _EventContent]),
     {keep_state, Data}.
@@ -253,7 +275,7 @@ check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
 check_root_hash(#helium_LongFiRxPacket_pb{fingerprint=Fingerprint, payload=Payload}, SCUpdate, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
-    Hash = blockchain_state_channel_update_v1:hash(SCUpdate),
+    Hash = blockchain_state_channel_update_v1:previous_hash(SCUpdate),
     PayloadSize = erlang:byte_size(Payload),
     Value = <<PubkeyBin/binary, PayloadSize, Fingerprint>>,
     skewed:verify(skewed:hash_value(Value), [Hash], RootHash).
@@ -263,13 +285,13 @@ check_root_hash(#helium_LongFiRxPacket_pb{fingerprint=Fingerprint, payload=Paylo
                     blockchain_state_channel_v1:state_channel()) -> boolean().
 check_balance(Req, SC, UpdateSC) ->
     ReqPayee = blockchain_state_channel_request_v1:payee(Req),
+    ReqPayloadSize = blockchain_state_channel_request_v1:payload_size(Req),
     case blockchain_state_channel_v1:balance(ReqPayee, UpdateSC) of
         {error, _} ->
             false;
         {ok, 0} ->
-            false;
+            ReqPayloadSize == 0;
         {ok, NewBalance} ->
-            ReqPayloadSize = blockchain_state_channel_request_v1:payload_size(Req),
             OldBalance = case SC == undefined of
                 false ->
                     case blockchain_state_channel_v1:balance(ReqPayee, SC) of

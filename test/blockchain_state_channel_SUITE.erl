@@ -92,6 +92,7 @@ end_per_testcase(Test, Config) ->
 
 basic_test(Config) ->
     application:ensure_all_started(throttle),
+    application:ensure_all_started(lager),
     BaseDir = proplists:get_value(base_dir, Config),
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
@@ -194,8 +195,8 @@ zero_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     % Step 6: Sending packet with same OUI
-    Packet = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet]),
+    Packet0 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=12},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 7: Checking state channel on server/client (balance did not update but nonce did)
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -204,6 +205,23 @@ zero_test(Config) ->
     end, 30, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
+        ct:pal("MARKER ~p", [ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])]),
+        {ok, 0} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
+    end, 30, timer:seconds(1)),
+
+     % Step 8: Sending packet with same OUI and a payload
+    Payload1 = crypto:strong_rand_bytes(120),
+    Packet1 = #helium_LongFiRxPacket_pb{oui=1, fingerprint=13, payload=Payload1},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
+
+    % Step 9: Checking state channel on server/client (balance did not update but nonce did)
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID]) andalso
+        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        ct:pal("MARKER ~p", [ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])]),
         {ok, 0} == ct_rpc:call(GatewayNode1, blockchain_state_channels_client, credits, [ID])
     end, 30, timer:seconds(1)),
 

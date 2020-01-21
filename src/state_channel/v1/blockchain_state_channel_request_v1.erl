@@ -9,7 +9,8 @@
     new/4,
     payee/1, amount/1, payload_size/1, fingerprint/1,
     validate/1,
-    encode/1, decode/1
+    encode/1, decode/1,
+    hash/1
 ]).
 
 -include("blockchain.hrl").
@@ -53,12 +54,16 @@ validate(_Req) ->
     true.
 
 -spec encode(request()) -> binary().
-encode(#blockchain_state_channel_request_v1_pb{}=Payment) ->
-    blockchain_state_channel_v1_pb:encode_msg(Payment).
+encode(#blockchain_state_channel_request_v1_pb{}=Req) ->
+    blockchain_state_channel_v1_pb:encode_msg(Req).
 
 -spec decode(binary()) -> request().
-decode(BinaryPayment) ->
-    blockchain_state_channel_v1_pb:decode_msg(BinaryPayment, blockchain_state_channel_request_v1_pb).
+decode(BinaryReq) ->
+    blockchain_state_channel_v1_pb:decode_msg(BinaryReq, blockchain_state_channel_request_v1_pb).
+
+-spec hash(request()) -> binary().
+hash(#blockchain_state_channel_request_v1_pb{}=Req) ->
+    crypto:hash(sha256, blockchain_state_channel_v1_pb:encode_msg(Req)).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
