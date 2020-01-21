@@ -139,6 +139,7 @@ handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
             case select_state_channel(Req, State0) of
                 {error, _Reason} ->
                     lager:warning("no valid state channel found for ~p:~p", [Req, _Reason]),
+                    ok = send_resp(Req, State0),
                     {noreply, State0};
                 {ok, SC0} ->
                     case blockchain_state_channel_v1:validate_request(Req, SC0) of
@@ -153,11 +154,11 @@ handle_cast({request, Req}, #state{db=DB, owner={_, OwnerSigFun}}=State0) ->
                                 false -> ok
                             end,
                             ok = blockchain_state_channel_v1:save(DB, SC1),
-                            State1 = update_state(SC1, Req, State0),
                             SCupdate = blockchain_state_channel_update_v1:new(SC1, blockchain_state_channel_v1:root_hash(SC0)),
-                            ok = update_clients(SCupdate, State1),
+                            ok = send_resp(SCupdate, Req, State0),
+                            ok = update_clients(SCupdate, State0),
                             lager:info("added request ~p to state channel ~p", [Req, blockchain_state_channel_v1:id(SC1)]),
-                            {noreply, State1}
+                            {noreply, update_state(SC1, Req, State0)}
                     end
             end
     end;
@@ -280,6 +281,34 @@ get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
                 end,
                 blockchain_block:transactions(Block)
             )}
+    end.
+
+-spec send_resp(blockchain_state_channel_request_v1:request(), state()) -> ok.
+send_resp(Req, #state{swarm=Swarm}) ->
+    Payee = blockchain_state_channel_request_v1:payee(Req),
+    Address = libp2p_crypto:pubkey_bin_to_p2p(Payee),
+    case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+        {error, _Reason} ->
+            lager:warning("failed to dial ~p:~p", [Address, _Reason]);
+        {ok, Pid} ->
+            ReqHash = blockchain_state_channel_request_v1:hash(Req),
+            Resp = blockchain_state_channel_response_v1:rejected(ReqHash),
+            blockchain_state_channel_handler:send_response(Pid, Resp)
+    end.
+
+-spec send_resp(blockchain_state_channel_update_v1:state_channel_update(),
+                blockchain_state_channel_request_v1:request(),
+                state()) -> ok.
+send_resp(SCUpdate, Req, #state{swarm=Swarm}) ->
+    Payee = blockchain_state_channel_request_v1:payee(Req),
+    Address = libp2p_crypto:pubkey_bin_to_p2p(Payee),
+    case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+        {error, _Reason} ->
+            lager:warning("failed to dial ~p:~p", [Address, _Reason]);
+        {ok, Pid} ->
+            ReqHash = blockchain_state_channel_request_v1:hash(Req),
+            Resp = blockchain_state_channel_response_v1:accepted(ReqHash, SCUpdate),
+            blockchain_state_channel_handler:send_response(Pid, Resp)
     end.
 
 %%--------------------------------------------------------------------
