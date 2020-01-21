@@ -168,8 +168,7 @@ witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentra
 -spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
                  Vars :: map()) -> prob_map().
 rssi_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
-    %% There is only a single witness, probabilitiy of picking it is 1
-    maps:map(fun(_, _) -> 1.0 end, Witnesses);
+    assign_single_witness_prob(Witnesses);
 rssi_probs(Witnesses, Vars) ->
     WitnessList = maps:to_list(Witnesses),
     lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
@@ -207,8 +206,7 @@ rssi_probs(Witnesses, Vars) ->
                  Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
                  Vars :: map()) -> prob_map().
 time_probs(_, Witnesses, _Vars) when map_size(Witnesses) == 1 ->
-    %% There is only a single witness, probabilitiy of picking it is 1.0
-    maps:map(fun(_, _) -> 1.0 end, Witnesses);
+    assign_single_witness_prob(Witnesses);
 time_probs(HeadBlockTime, Witnesses, Vars) ->
     Deltas = lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
                                  case blockchain_ledger_gateway_v2:witness_recent_time(Witness) of
@@ -236,8 +234,7 @@ time_probs(HeadBlockTime, Witnesses, Vars) ->
 -spec witness_count_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
                           Vars :: map()) -> prob_map().
 witness_count_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
-    %% only a single witness, probability = 1.0
-    maps:map(fun(_, _) -> 1.0 end, Witnesses);
+    assign_single_witness_prob(Witnesses);
 witness_count_probs(Witnesses, Vars) ->
     TotalRSSIs = maps:map(fun(_WitnessPubkeyBin, Witness) ->
                                   RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
@@ -259,7 +256,7 @@ witness_count_probs(Witnesses, Vars) ->
 -spec witness_rssi_centrality_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
                                     Vars :: map()) -> prob_map().
 witness_rssi_centrality_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
-    maps:map(fun(_, _) -> 1.0 end, Witnesses);
+    assign_single_witness_prob(Witnesses);
 witness_rssi_centrality_probs(Witnesses, Vars) ->
     maps:map(fun(_WitnessPubkeyBin, Witness) ->
                      try
@@ -507,3 +504,34 @@ centrality_metrics(Hist, Vars) ->
             %% Nothing in the goodbucket, consider bad
             {1.0, 1.0}
     end.
+
+%%%-----------------------------------------------------------------------------
+%%% @doc
+%%% Check if the legit rssi values dominate the "impossible" RSSI bucket values
+%%% @end
+%%%-----------------------------------------------------------------------------
+-spec is_legit_rssi_dominating(Witness :: blockchain_ledger_gateway_v2:gateway_witness()) -> boolean().
+is_legit_rssi_dominating(Witness) ->
+    try
+        blockchain_ledger_gateway_v2:witness_hist(Witness)
+    of
+        Hist ->
+            lists:sum(maps:values(maps:without([28], Hist))) > maps:get(28, Hist)
+    catch
+        error:no_histogram ->
+            false
+    end.
+
+-spec assign_single_witness_prob(Witnesses :: blockchain_ledger_gateway_v2:witnesses()) -> prob_map().
+assign_single_witness_prob(Witnesses) ->
+    maps:map(fun(_WitnessPubkeyBin, Witness) ->
+                     case is_legit_rssi_dominating(Witness) of
+                         true ->
+                             %% There is only a single witness with dominating legit RSSIs
+                             1.0;
+                         false ->
+                             %% All bad RSSIs for this single witness
+                             0.0
+                     end
+             end,
+             Witnesses).
