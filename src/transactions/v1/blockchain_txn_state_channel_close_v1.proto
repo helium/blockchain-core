@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-import "blockchain_state_channel_v1.proto";
-
-message txn_state_channel_close_v1 {
-    state_channel_v1 state_channel = 1;
-    bytes closer = 2;
-    bytes signature = 3;
-}  

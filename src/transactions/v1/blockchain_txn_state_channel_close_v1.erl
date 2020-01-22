@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include_lib("pb/blockchain_txn_state_channel_close_v1_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
     new/2,
