@@ -109,7 +109,7 @@ pause_sync() ->
     gen_server:call(?SERVER, pause_sync, infinity).
 
 maybe_sync() ->
-    gen_server:call(?SERVER, maybe_sync, infinity).
+    gen_server:cast(?SERVER, maybe_sync).
 
 sync_paused() ->
     try
@@ -349,8 +349,6 @@ handle_call({new_ledger, Dir}, _From, State) ->
     Ledger1 = blockchain_ledger_v1:new(Dir),
     {reply, {ok, Ledger1}, State};
 
-handle_call(maybe_sync, _From, State) ->
-    {reply, ok, maybe_sync(State)};
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
     {reply, ok, maybe_sync(State#state{sync_paused = false})};
@@ -364,6 +362,8 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast(maybe_sync, State) ->
+    {noreply, maybe_sync(State)};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain}
                                                             ,swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of

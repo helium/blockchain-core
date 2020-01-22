@@ -54,7 +54,7 @@ add_block(_Swarm, Block, Chain, Sender) ->
         ok ->
             ok;
         {error, disjoint_chain} ->
-            lager:warning("gossipped block doesn't fit with our chain, will start sync if not already actve"),
+            lager:warning("gossipped block doesn't fit with our chain, will start sync if not already active"),
             blockchain_worker:maybe_sync(),
             ok;
         Error ->
