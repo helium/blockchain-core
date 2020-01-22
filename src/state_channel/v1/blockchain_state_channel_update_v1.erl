@@ -12,7 +12,7 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("pb/blockchain_state_channel_v1_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_state_channel_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
