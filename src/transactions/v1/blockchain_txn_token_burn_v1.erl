@@ -30,20 +30,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
-
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
-<<<<<<< HEAD
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(),  pos_integer(), pos_integer()) -> txn_token_burn().
-=======
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
->>>>>>> Add payee to token burn
 new(Payer, Amount, Nonce) ->
     #blockchain_txn_token_burn_v1_pb{
         payer=Payer,

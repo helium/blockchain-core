@@ -7,7 +7,7 @@
 
 -behavior(blockchain_txn).
 
--include("pb/blockchain_txn_update_gateway_oui_v1_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
     new/4,
