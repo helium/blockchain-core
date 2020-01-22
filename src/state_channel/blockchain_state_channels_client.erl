@@ -137,13 +137,13 @@ waiting(cast, {response, Resp}, #data{db=DB, swarm=Swarm, state_channels=SCs, pe
                 true ->
                     SCUpdate = blockchain_state_channel_response_v1:state_channel_update(Resp),
                     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-                    case blockchain_state_channel_v1:validate(UpdatedSC) of
+                    ID = blockchain_state_channel_v1:id(UpdatedSC),
+                    case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
                         {error, _Reason} -> 
                             lager:warning("state channel ~p is invalid ~p droping req", [UpdatedSC, _Reason]),
                             ok = trigger_processing(),
                             {next_state, processing, Data#data{pending=undefined}};
                         ok ->
-                            ID = blockchain_state_channel_v1:id(UpdatedSC),
                             ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
                             SC = maps:get(ID, SCs, undefined),
                             {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
@@ -156,7 +156,7 @@ waiting(cast, {response, Resp}, #data{db=DB, swarm=Swarm, state_channels=SCs, pe
                                     ok = send_packet(Pending, PubKeyBin, SigFun),
                                     ok = trigger_processing(),
                                     {next_state, processing, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs),
-                                                                      pending=undefined}}
+                                                                       pending=undefined}}
                             end
                     end
             end
@@ -179,7 +179,7 @@ handle_event(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     ID = blockchain_state_channel_v1:id(UpdatedSC),
     lager:debug("received state channel update for ~p", [ID]),
-    case blockchain_state_channel_v1:validate(UpdatedSC) of
+    case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
         {error, _Reason} -> 
             lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
             {keep_state, Data};
@@ -196,6 +196,22 @@ trigger_processing() ->
     self() ! process_packet,
     ok.
 
+-spec validate_state_channel_update(blockchain_state_channel_v1:state_channel() | undefined, blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
+validate_state_channel_update(undefined, NewStateChannel) ->
+    blockchain_state_channel_v1:validate(NewStateChannel);
+validate_state_channel_update(OldStateChannel, NewStateChannel) ->
+    case blockchain_state_channel_v1:validate(NewStateChannel) of
+        {error, _}=Error -> 
+            Error;
+        ok ->
+            NewNonce = blockchain_state_channel_v1:nonce(NewStateChannel),
+            OldNonce = blockchain_state_channel_v1:nonce(OldStateChannel),
+            case NewNonce > OldNonce of
+                false -> {error, {bad_nonce, NewNonce, OldNonce}};
+                true -> ok
+            end
+    end.
+
 -spec process_packet(packet(), pid()) -> {ok, pending()} | {error, any()}.
 process_packet(#helium_LongFiRxPacket_pb{oui=OUI, fingerprint=Fingerprint, payload=Payload}=Packet, Swarm) ->
     case find_routing(OUI) of
@@ -206,7 +222,7 @@ process_packet(#helium_LongFiRxPacket_pb{oui=OUI, fingerprint=Fingerprint, paylo
             case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
                 {error, _Reason} ->
                     lager:warning("failed to dial ~p:~p", [Peer, _Reason]),
-                     {error, _Reason};
+                    {error, _Reason};
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Amount = calculate_dc_amount(PubKeyBin, OUI, Payload),
@@ -249,26 +265,12 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
 
 -spec check_pending_request(blockchain_state_channel_v1:state_channel() | undefined,
                             blockchain_state_channel_update_v1:state_channel_update(), pending(), libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
-check_pending_request(undefined, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
+check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, undefined, UpdatedSC)} of
+    case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
         {false, _} -> {error, bad_root_hash};
         {_, false} -> {error, wrong_balance};
         {true, true} -> ok
-    end;
-check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
-    Nonce = blockchain_state_channel_v1:nonce(SC),
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    UpdateNonce = blockchain_state_channel_v1:nonce(UpdatedSC),
-    case Nonce >= UpdateNonce of
-        true ->
-            {error, {bad_nonce, Nonce, UpdateNonce}};
-        false ->
-            case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
-                {false, _} -> {error, bad_root_hash};
-                {_, false} -> {error, wrong_balance};
-                {true, true} -> ok
-            end
     end.
 
 -spec check_root_hash(packet(), blockchain_state_channel_update_v1:state_channel_update(), libp2p_crypto:pubkey_bin()) -> boolean().
