@@ -31,6 +31,7 @@
 
     new_ledger/1,
 
+    maybe_sync/0,
     sync/0,
     cancel_sync/0,
     pause_sync/0,
@@ -106,6 +107,9 @@ cancel_sync() ->
 
 pause_sync() ->
     gen_server:call(?SERVER, pause_sync, infinity).
+
+maybe_sync() ->
+    gen_server:call(?SERVER, maybe_sync, infinity).
 
 sync_paused() ->
     try
@@ -344,6 +348,9 @@ handle_call({new_ledger, Dir}, _From, State) ->
     %% snapshot cache ETS table can be owned by an ephemeral process.
     Ledger1 = blockchain_ledger_v1:new(Dir),
     {reply, {ok, Ledger1}, State};
+
+handle_call(maybe_sync, _From, State) ->
+    {reply, ok, maybe_sync(State)};
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
     {reply, ok, maybe_sync(State#state{sync_paused = false})};
