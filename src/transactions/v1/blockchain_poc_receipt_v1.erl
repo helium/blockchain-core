@@ -4,8 +4,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_receipt_v1).
 
--include("../../pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include("blockchain_utils.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
     new/5,

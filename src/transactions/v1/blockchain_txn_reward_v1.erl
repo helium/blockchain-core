@@ -4,8 +4,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_reward_v1).
 
--include("../../pb/blockchain_txn_rewards_v1_pb.hrl").
 -include("blockchain_utils.hrl").
+-include_lib("helium_proto/src/pb/blockchain_txn_rewards_v1_pb.hrl").
 
 -export([
     new/4,

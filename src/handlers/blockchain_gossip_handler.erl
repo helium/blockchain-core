@@ -8,7 +8,7 @@
 -behavior(libp2p_group_gossip_handler).
 
 -include("blockchain.hrl").
--include("pb/blockchain_gossip_handler_pb.hrl").
+-include_lib("helium_proto/src/pb/blockchain_gossip_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
