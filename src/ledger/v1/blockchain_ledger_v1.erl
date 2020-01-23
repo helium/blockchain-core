@@ -129,6 +129,7 @@
     pocs :: rocksdb:cf_handle(),
     securities :: rocksdb:cf_handle(),
     routing :: rocksdb:cf_handle(),
+    state_channels :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid()
 }).
 
@@ -1228,37 +1229,6 @@ credit_account(Address, Amount, Ledger) ->
             Error
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec debit_dc(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_dc(_Address, 0,_Ledger) ->
-    ok;
-debit_dc(Address, Fee, Ledger) ->
-    case ?MODULE:find_dc_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-            case (Balance - Fee) >= 0 of
-                true ->
-                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(
-                        blockchain_ledger_data_credits_entry_v1:nonce(Entry),
-                        (Balance - Fee)
-                    ),
-                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-                    EntriesCF = dc_entries_cf(Ledger),
-                    cache_put(Ledger, EntriesCF, Address, Bin);
-                false ->
-                    {error, {insufficient_balance, Fee, Balance}}
-            end
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec debit_account(libp2p_crypto:pubkey_bin(), integer(), integer(), ledger()) -> ok | {error, any()}.
 debit_account(Address, Amount, Nonce, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
@@ -1356,33 +1326,6 @@ debit_dc(Address, Fee, Ledger) ->
             end
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec credit_dc(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
-credit_dc(Address, Amount, Ledger) ->
-    EntriesCF = dc_entries_cf(Ledger),
-    case ?MODULE:find_dc_entry(Address, Ledger) of
-        {error, not_found} ->
-            Entry = blockchain_ledger_data_credits_entry_v1:new(0, Amount),
-            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {ok, Entry} ->
-            Entry1 = blockchain_ledger_data_credits_entry_v1:new(
-                blockchain_ledger_data_credits_entry_v1:nonce(Entry),
-                blockchain_ledger_data_credits_entry_v1:balance(Entry) + Amount
-            ),
-            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-            cache_put(Ledger, EntriesCF, Address, Bin);
-        {error, _}=Error ->
-            Error
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 debit_fee(_Address, 0,_Ledger) ->
     ok;
