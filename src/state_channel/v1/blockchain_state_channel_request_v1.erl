@@ -6,8 +6,8 @@
 -module(blockchain_state_channel_request_v1).
 
 -export([
-    new/4,
-    payee/1, amount/1, payload_size/1, fingerprint/1,
+    new/3,
+    payee/1, amount/1, payload_size/1,
     validate/1,
     encode/1, decode/1,
     hash/1
@@ -24,13 +24,12 @@
 
 -export_type([request/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), integer()) -> request().
-new(Payee, Amount, PayloadSize, Fingerprint) -> 
+-spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> request().
+new(Payee, Amount, PayloadSize) -> 
     #blockchain_state_channel_request_v1_pb{
         payee=Payee,
         amount=Amount,
-        payload_size=PayloadSize,
-        fingerprint=Fingerprint
+        payload_size=PayloadSize
     }.
 
 -spec payee(request()) -> libp2p_crypto:pubkey_bin().
@@ -44,10 +43,6 @@ amount(#blockchain_state_channel_request_v1_pb{amount=Amount}) ->
 -spec payload_size(request()) -> non_neg_integer().
 payload_size(#blockchain_state_channel_request_v1_pb{payload_size=PayloadSize}) ->
     PayloadSize.
-
--spec fingerprint(request()) -> integer().
-fingerprint(#blockchain_state_channel_request_v1_pb{fingerprint=Fingerprint}) ->
-    Fingerprint.
 
 -spec validate(request()) -> true.
 validate(_Req) ->
@@ -78,35 +73,30 @@ new_test() ->
     Req = #blockchain_state_channel_request_v1_pb{
         payee= <<"payee">>,
         amount=1,
-        payload_size=24,
-        fingerprint= 12
+        payload_size=24
     },
-    ?assertEqual(Req, new(<<"payee">>, 1, 24, 12)).
+    ?assertEqual(Req, new(<<"payee">>, 1, 24)).
 
 payee_test() ->
-    Req = new(<<"payee">>, 1, 24, 12),
+    Req = new(<<"payee">>, 1, 24),
     ?assertEqual(<<"payee">>, payee(Req)).
 
 amount_test() ->
-    Req = new(<<"payee">>, 1, 24, 12),
+    Req = new(<<"payee">>, 1, 24),
     ?assertEqual(1, amount(Req)).
 
 payload_size_test() ->
-    Req = new(<<"payee">>, 1, 24, 12),
+    Req = new(<<"payee">>, 1, 24),
     ?assertEqual(24, payload_size(Req)).
-
-fingerprint_test() ->
-    Req = new(<<"payee">>, 1, 24, 12),
-    ?assertEqual(12, fingerprint(Req)).
 
 validate_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = new(PubKeyBin, 1, 24, 12),
+    Req = new(PubKeyBin, 1, 24),
     ?assertEqual(true, validate(Req)).
 
 encode_decode_test() ->
-    Req = new(<<"payee">>, 1, 24, 12),
+    Req = new(<<"payee">>, 1, 24),
     ?assertEqual(Req, decode(encode(Req))).
 
 -endif.
