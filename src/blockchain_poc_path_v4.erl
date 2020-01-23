@@ -110,7 +110,10 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
                RandVal :: float(),
-               Indices :: [h3:h3_index()]) -> {error, no_witness} | {error, all_witnesses_too_close} | {ok, libp2p_crypto:pubkey_bin()}.
+               Indices :: [h3:h3_index()]) -> {error, no_witness} |
+                                              {error, all_witnesses_too_close} |
+                                              {error, zero_weight} |
+                                              {ok, libp2p_crypto:pubkey_bin()}.
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
