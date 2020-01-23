@@ -206,8 +206,7 @@ add_request(Request, SigFun, SC0) ->
         {ok, B} -> B
     end,
     RootHash = ?MODULE:root_hash(SC0),
-    FingerPrint = blockchain_state_channel_request_v1:fingerprint(Request),
-    Value = <<Payee/binary, PayloadSize, FingerPrint>>,
+    Value = <<Payee/binary, PayloadSize>>,
     UpdatedRooHash = recalculate_root_hash(RootHash, Value),
     SC1 = ?MODULE:credits(Credits-Amount, SC0),
     SC2 = ?MODULE:nonce(Nonce+1, SC1),

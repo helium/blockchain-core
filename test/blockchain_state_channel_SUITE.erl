@@ -13,7 +13,7 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/longfi_pb.hrl").
+-include_lib("helium_proto/src/pb/helium_packet_pb.hrl").
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -125,7 +125,7 @@ basic_test(Config) ->
 
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, 12),
+    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24),
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
@@ -195,7 +195,7 @@ zero_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     % Step 6: Sending packet with same OUI
-    Packet0 = #'LongFiRxPacket_pb'{oui=1, fingerprint=12},
+    Packet0 = #helium_packet_pb{oui=1},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 7: Checking state channel on server/client (balance did not update but nonce did)
@@ -211,7 +211,7 @@ zero_test(Config) ->
 
      % Step 8: Sending packet with same OUI and a payload
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = #'LongFiRxPacket_pb'{oui=1, fingerprint=13, payload=Payload1},
+    Packet1 = #helium_packet_pb{oui=1, payload=Payload1},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 9: Checking state channel on server/client (balance did not update but nonce did)
@@ -283,7 +283,7 @@ full_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = #'LongFiRxPacket_pb'{oui=1, fingerprint=1, payload=Payload0},
+    Packet0 = #helium_packet_pb{oui=1, payload=Payload0},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
@@ -300,8 +300,8 @@ full_test(Config) ->
 
     % Step 7: Making sure packet got transmitted
     receive
-        {packet, Bin} ->
-            ?assertEqual(longfi_pb:encode_msg(Packet0), Bin)
+        {packet, P0} ->
+            ?assertEqual(Packet0, P0)
     after 10000 ->
         ct:fail("packet timeout")
     end,
@@ -309,7 +309,7 @@ full_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = #'LongFiRxPacket_pb'{oui=1, fingerprint=2, payload=Payload1},
+    Packet1 = #helium_packet_pb{oui=1, payload=Payload1},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 6: Checking state channel on server/client
@@ -400,7 +400,7 @@ expired_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = #'LongFiRxPacket_pb'{oui=1, fingerprint=1, payload=Payload0},
+    Packet0 = #helium_packet_pb{oui=1, payload=Payload0},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
@@ -416,8 +416,8 @@ expired_test(Config) ->
 
     % Step 7: Making sure packet got transmitted
     receive
-        {packet, Bin} ->
-            ?assertEqual(longfi_pb:encode_msg(Packet0), Bin)
+        {packet, P0} ->
+            ?assertEqual(Packet0, P0)
     after 10000 ->
         ct:fail("packet timeout")
     end,
