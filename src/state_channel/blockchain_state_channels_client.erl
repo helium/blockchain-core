@@ -41,7 +41,7 @@
 -endif.
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/longfi_pb.hrl").
+-include_lib("helium_proto/src/pb/helium_packet_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
@@ -54,8 +54,8 @@
     packets = [] :: [any()]
 }).
 
--type packet() :: #'LongFiRxPacket_pb'{}.
--type pending() :: {blockchain_state_channel_request_v1:request(), any(), pid()}.
+-type packet() :: #helium_packet_pb{}.
+-type pending() :: {blockchain_state_channel_request_v1:request(), packet(), pid(), reference()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -122,13 +122,14 @@ processing(EventType, EventContent, Data) ->
 
 waiting(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
     {keep_state,  Data#data{packets=[Packet|Packets]}};
-waiting(cast, {response, Resp}, #data{db=DB, swarm=Swarm, state_channels=SCs, pending={Req, _, _}=Pending}=Data) ->
+waiting(cast, {response, Resp}, #data{db=DB, swarm=Swarm, state_channels=SCs, pending={Req, _Packet, _Pid, TimeRef}=Pending}=Data) ->
     lager:debug("received resp ~p", [Resp]),
     case blockchain_state_channel_response_v1:req_hash(Resp) == blockchain_state_channel_request_v1:hash(Req) of
         false ->
             lager:warning("got unknown response ~p", [Resp]),
             {keep_state,  Data};
         true ->
+            erlang:cancel_timer(TimeRef),
             case blockchain_state_channel_response_v1:accepted(Resp) of
                 false ->
                     lager:info("request ~p got rejected, next...", [Req]),
@@ -187,6 +188,10 @@ handle_event(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels
             ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
             {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}}
     end;
+handle_event(info, {req_timeout, Req, Packet}, #data{pending={Req, Packet, _Pid, _TimeRef}}=Data) ->
+    lager:warning("request ~p timed out, dropping", [Req]),
+    ok = trigger_processing(),
+    {next_state, processing, Data#data{pending=undefined}};
 handle_event(_EventType, _EventContent, Data) ->
     lager:warning("ignoring unknown event [~p] ~p", [_EventType, _EventContent]),
     {keep_state, Data}.
@@ -213,7 +218,7 @@ validate_state_channel_update(OldStateChannel, NewStateChannel) ->
     end.
 
 -spec process_packet(packet(), pid()) -> {ok, pending()} | {error, any()}.
-process_packet(#'LongFiRxPacket_pb'{oui=OUI, fingerprint=Fingerprint, payload=Payload}=Packet, Swarm) ->
+process_packet(#helium_packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
     case find_routing(OUI) of
         {error, _Reason} ->
             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
@@ -226,10 +231,11 @@ process_packet(#'LongFiRxPacket_pb'{oui=OUI, fingerprint=Fingerprint, payload=Pa
                 {ok, Pid} ->
                     {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Amount = calculate_dc_amount(PubKeyBin, OUI, Payload),
-                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, erlang:byte_size(Payload), Fingerprint),
+                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, erlang:byte_size(Payload)),
                     lager:info("sending payment req ~p to ~p", [Req, Peer]),
-                    blockchain_state_channel_handler:send_request(Pid, Req),
-                    {ok, {Req, Packet, Pid}}
+                    ok = blockchain_state_channel_handler:send_request(Pid, Req),
+                    TimeRef = erlang:send_after(timer:seconds(30), self(), {req_timeout, Req, Packet}),
+                    {ok, {Req, Packet, Pid, TimeRef}}
             end
     end.
 
@@ -265,7 +271,7 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
 
 -spec check_pending_request(blockchain_state_channel_v1:state_channel() | undefined,
                             blockchain_state_channel_update_v1:state_channel_update(), pending(), libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
-check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
+check_pending_request(SC, SCUpdate, {Req, Packet, _Pid, _TimeRef}, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
         {false, _} -> {error, bad_root_hash};
@@ -274,12 +280,13 @@ check_pending_request(SC, SCUpdate, {Req, Packet, _Pid}, PubkeyBin) ->
     end.
 
 -spec check_root_hash(packet(), blockchain_state_channel_update_v1:state_channel_update(), libp2p_crypto:pubkey_bin()) -> boolean().
-check_root_hash(#'LongFiRxPacket_pb'{fingerprint=Fingerprint, payload=Payload}, SCUpdate, PubkeyBin) ->
+check_root_hash(#helium_packet_pb{payload=Payload}, SCUpdate, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
     Hash = blockchain_state_channel_update_v1:previous_hash(SCUpdate),
     PayloadSize = erlang:byte_size(Payload),
-    Value = <<PubkeyBin/binary, PayloadSize, Fingerprint>>,
+    % TODO
+    Value = <<PubkeyBin/binary, PayloadSize>>,
     skewed:verify(skewed:hash_value(Value), [Hash], RootHash).
 
 -spec check_balance(blockchain_state_channel_request_v1:request(),
@@ -306,9 +313,8 @@ check_balance(Req, SC, UpdateSC) ->
     end.
 
 -spec send_packet(pending(), libp2p_crypto:pubkey_bin(), function()) -> ok.
-send_packet({_Req, Packet, Pid}, PubKeyBin, SigFun) ->
-    Bin = longfi_pb:encode_msg(Packet),
-    PacketMsg0 = blockchain_state_channel_packet_v1:new(Bin, PubKeyBin),
+send_packet({_Req, Packet, Pid, _TimeRef}, PubKeyBin, SigFun) ->
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubKeyBin),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Pid, PacketMsg1).
 
