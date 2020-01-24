@@ -651,7 +651,14 @@ add_block_(Block, Blockchain, Syncing) ->
                                                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                                                             Error;
                                                         ok ->
-                                                            case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
+                                                            try
+                                                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
+                                                            catch C:E ->
+                                                                    lager:info("poc gc failed with ~p:~p", [C,E]),
+                                                                    ok
+                                                            end,
+                                                            Ledger = blockchain:ledger(Blockchain),
+                                                            case blockchain_ledger_v1:new_snapshot(Ledger) of
                                                                 {error, Reason}=Error ->
                                                                     lager:error("Error creating snapshot, Reason: ~p", [Reason]),
                                                                     Error;
