@@ -93,7 +93,8 @@
 
     clean_all_hexes/1,
 
-    clean/1, close/1
+    clean/1, close/1,
+    compact/1
 ]).
 
 -include("blockchain.hrl").
@@ -1786,9 +1787,33 @@ clean(#ledger_v1{dir=Dir, db=DB}=L) ->
 close(#ledger_v1{db=DB}) ->
     rocksdb:close(DB).
 
+compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
+    rocksdb:compact_range(DB, undefined, undefined, []),
+    compact_ledger(DB, Active),
+    compact_ledger(DB, Delayed),
+    ok.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+compact_ledger(DB, #sub_ledger_v1{default=Default,
+                                  active_gateways=Gateways,
+                                  entries=Entries,
+                                  dc_entries=DCEntries,
+                                  htlcs=HTLCs,
+                                  pocs=PoCs,
+                                  securities=Securities,
+                                  routing=Routing}) ->
+    rocksdb:compact_range(DB, Default, undefined, undefined, []),
+    rocksdb:compact_range(DB, Gateways, undefined, undefined, []),
+    rocksdb:compact_range(DB, Entries, undefined, undefined, []),
+    rocksdb:compact_range(DB, DCEntries, undefined, undefined, []),
+    rocksdb:compact_range(DB, HTLCs, undefined, undefined, []),
+    rocksdb:compact_range(DB, PoCs, undefined, undefined, []),
+    rocksdb:compact_range(DB, Securities, undefined, undefined, []),
+    rocksdb:compact_range(DB, Routing, undefined, undefined, []),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -21,6 +21,7 @@
     fees_since/2,
     build/3,
     close/1,
+    compact/1,
 
     last_block_add_time/1,
 
@@ -882,6 +883,14 @@ close(#blockchain{db=DB, ledger=Ledger}) ->
     persistent_term:erase(?ASSUMED_VALID),
     ok = blockchain_ledger_v1:close(Ledger),
     rocksdb:close(DB).
+
+compact(#blockchain{db=DB, default=Default, blocks=BlocksCF, heights=HeightsCF, temp_blocks=TempBlocksCF}) ->
+    rocksdb:compact_range(DB, undefined, undefined, []),
+    rocksdb:compact_range(DB, Default, undefined, undefined, []),
+    rocksdb:compact_range(DB, BlocksCF, undefined, undefined, []),
+    rocksdb:compact_range(DB, HeightsCF, undefined, undefined, []),
+    rocksdb:compact_range(DB, TempBlocksCF, undefined, undefined, []),
+    ok.
 
 reset_ledger(Chain) ->
     {ok, Height} = height(Chain),
