@@ -24,9 +24,10 @@
 %%% - Every hop in the path must have a minimum exclusion distance
 %%%
 %%% The criteria for a potential next hop witness are biased like so:
-%%% - P(WitnessRSSI)  = Probability that the witness has a good (valid) RSSI.
-%%% - P(WitnessTime)  = Probability that the witness timestamp is not stale.
-%%% - P(WitnessCount) = Probability that the witness is infrequent.
+%%% - P(WitnessRSSI)        = Probability that the witness has a good (valid) RSSI.
+%%% - P(WitnessTime)        = Probability that the witness timestamp is not stale.
+%%% - P(WitnessCount)       = Probability that the witness is infrequent.
+%%% - P(WitnessCentrality)  = Probability that the witness RSSI looks reasonable
 %%%
 %%% The overall probability of picking a next witness is additive depending on
 %%% chain var configurable weights for each one of the calculated probs.
@@ -266,6 +267,9 @@ witness_rssi_centrality_probs(Witnesses, Vars) ->
                          blockchain_ledger_gateway_v2:witness_hist(Witness)
                      of
                          Hist ->
+                             %% The closer these values are to 0.0, the more confident we
+                             %% are that this witness has a reasonable looking RSSI, therefore
+                             %% we bias _for_ picking that witness
                              {MaxMetric, MeanMetric} = centrality_metrics(Hist, Vars),
                              blockchain_utils:normalize_float((1 - MaxMetric) * (1 - MeanMetric))
                      catch
@@ -451,7 +455,7 @@ poc_good_bucket_low(Vars) ->
 poc_good_bucket_high(Vars) ->
     maps:get(poc_good_bucket_high, Vars).
 
-
+%% ==================================================================
 %% Helper Functions
 %% ==================================================================
 
@@ -460,6 +464,7 @@ poc_good_bucket_high(Vars) ->
 %% in no way exists simply because
 %% blockchain_ledger_v1:find_gateway_info is too much to type a bunch
 %% of times.
+-spec find(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger()) -> blockchain_ledger_gateway_v2:gateway().
 find(Addr, Ledger) ->
     {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
     Gw.
@@ -481,7 +486,7 @@ split_hist(Hist, Vars) ->
     {GoodBucket, BadBucket}.
 
 %%%-----------------------------------------------------------------------------
-%%% @doc TBD
+%%% @doc Check whether the range of RSSI values lie within acceptable bounds
 %%%-----------------------------------------------------------------------------
 -spec centrality_metrics(Hist :: blockchain_ledger_gateway_v2:histogram(),
                          Vars :: map()) -> {float(), float()}.
@@ -502,17 +507,14 @@ centrality_metrics(Hist, Vars) ->
             MaxMetric = blockchain_utils:normalize_float(MaxBad / MaxGood),
             MeanMetric = blockchain_utils:normalize_float(MeanBad / MeanGood),
 
+            %% If either of these two become >= 1.0, we are certain that
+            %% either the witnessing is too close or inconclusive at best.
             {MaxMetric, MeanMetric};
         _ ->
             %% Nothing in the goodbucket, consider bad
             {1.0, 1.0}
     end.
 
-%%%-----------------------------------------------------------------------------
-%%% @doc
-%%% Check if the legit rssi values dominate the "impossible" RSSI bucket values
-%%% @end
-%%%-----------------------------------------------------------------------------
 -spec is_legit_rssi_dominating(Witness :: blockchain_ledger_gateway_v2:gateway_witness()) -> boolean().
 is_legit_rssi_dominating(Witness) ->
     try
