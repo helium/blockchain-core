@@ -153,7 +153,7 @@ signatures(ConsensusMembers, BinBlock) ->
      ).
 
 tmp_dir() ->
-    ?MODULE:nonl(os:cmd("mktemp -d")).
+    ?MODULE:nonl(os:cmd("mktemp -d ./_build/test/tmp/XXXXXXXX")).
 
 tmp_dir(Dir) ->
     filename:join(tmp_dir(), Dir).
