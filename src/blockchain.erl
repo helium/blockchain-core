@@ -1276,6 +1276,8 @@ load(Dir) ->
         temp_blocks=TempBlocksCF,
         ledger=Ledger
     },
+    compact(Blockchain),
+    blockchain_ledger_v1:compact(Ledger),
     {Blockchain, ?MODULE:genesis_block(Blockchain)}.
 
 %%--------------------------------------------------------------------
