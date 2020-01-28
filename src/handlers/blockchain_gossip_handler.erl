@@ -40,7 +40,8 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
                 lager:notice("gossip_handler unknown block: ~p", [Block]);
             _ ->
                 lager:debug("Got block: ~p from: ~p", [Block, From]),
-                add_block(Swarm, Block, Blockchain, From)
+                %% don't block the gossip server
+                spawn(fun() -> add_block(Swarm, Block, Blockchain, From) end)
         end
     catch
         _What:Why ->
