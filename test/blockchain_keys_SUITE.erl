@@ -3,7 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([all/0]).
+-export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([
     keys_test/1
@@ -25,6 +25,25 @@ all() ->
     ].
 
 %%--------------------------------------------------------------------
+%% TEST CASE SETUP
+%%--------------------------------------------------------------------
+init_per_testcase(TestCase, Config) ->
+    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+    [
+        {basedir, BaseDir},
+        {simdir, SimDir}
+        | Config
+    ].
+
+
+%%--------------------------------------------------------------------
+%% TEST CASE TEARDOWN
+%%--------------------------------------------------------------------
+end_per_testcase(_, _Config) ->
+    ok.
+
+
+%%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
@@ -33,8 +52,9 @@ all() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-keys_test(_Config) ->
-    BaseDir = "data/test_SUITE/keys_test",
+keys_test(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+
     Balance = 5000,
     NumConsensusMembers = 7,
 

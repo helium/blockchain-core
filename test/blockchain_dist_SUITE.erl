@@ -34,8 +34,10 @@ end_per_suite(Config) ->
 %% Configurations
 %% ------------------------------------------------------------------
 
-init_per_testcase(_TestCase, Config0) ->
-    InitConfig = blockchain_ct_utils:init_per_testcase(_TestCase, Config0),
+init_per_testcase(TestCase, Config) ->
+    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+
+    InitConfig = blockchain_ct_utils:init_per_testcase(TestCase, Config),
     Nodes = proplists:get_value(nodes, InitConfig),
     Balance = 5000,
     NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
@@ -75,7 +77,11 @@ init_per_testcase(_TestCase, Config0) ->
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_memebers, ConsensusMembers} | InitConfig].
+    [
+        {consensus_memebers, ConsensusMembers},
+        {basedir, BaseDir},
+        {simdir, SimDir}
+        | InitConfig].
 
 end_per_testcase(_TestCase, Config) ->
     blockchain_ct_utils:end_per_testcase(_TestCase, Config).

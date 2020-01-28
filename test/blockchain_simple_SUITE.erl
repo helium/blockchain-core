@@ -74,7 +74,8 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    BaseDir = "data/test_SUITE/" ++ erlang:atom_to_list(TestCase),
+    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here
@@ -94,6 +95,7 @@ init_per_testcase(TestCase, Config) ->
 
     [
         {basedir, BaseDir},
+        {simdir, SimDir},
         {balance, Balance},
         {sup, Sup},
         {pubkey, PubKey},
@@ -218,7 +220,8 @@ reload_test(Config) ->
     ok.
 
 restart_test(Config) ->
-    GenDir = "data/test_SUITE/restart2",
+    BaseDir = proplists:get_value(basedir, Config),
+    GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
     Opts = proplists:get_value(opts, Config),

@@ -10,10 +10,15 @@
     wait_until/1, wait_until/3,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
+    ct_priv_base_dirs/3,
+    cleanup_tmp_dir/1,
     nonl/1,
     create_payment_transaction/6,
     atomic_save/2
 ]).
+
+-define(BASE_TMP_DIR, "./_build/test/tmp").
+-define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
 
 init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -151,12 +156,43 @@ signatures(ConsensusMembers, BinBlock) ->
       ,[]
       ,ConsensusMembers
      ).
-
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory to be used as a scratch by eunit tests
+%% @end
+%%-------------------------------------------------------------------
 tmp_dir() ->
-    ?MODULE:nonl(os:cmd("mktemp -d ./_build/test/tmp/XXXXXXXX")).
+    os:cmd("mkdir -p " ++ ?BASE_TMP_DIR),
+    create_tmp_dir(?BASE_TMP_DIR_TEMPLATE).
+tmp_dir(SubDir) ->
+    Path = filename:join(?BASE_TMP_DIR, SubDir),
+    os:cmd("mkdir -p " ++ Path),
+    create_tmp_dir(Path ++ "/" ++ ?BASE_TMP_DIR_TEMPLATE).
 
-tmp_dir(Dir) ->
-    filename:join(tmp_dir(), Dir).
+%%--------------------------------------------------------------------
+%% @doc
+%% Deletes the specified directory
+%% @end
+%%-------------------------------------------------------------------
+-spec cleanup_tmp_dir(list()) -> ok.
+cleanup_tmp_dir(Dir)->
+    os:cmd("rm -rf " ++ Dir),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory based off priv_data to be used as a scratch by common tests
+%% @end
+%%-------------------------------------------------------------------
+-spec ct_priv_base_dirs(atom(), atom(), list()) -> {list(), list()}.
+ct_priv_base_dirs(Mod, TestCase, Config)->
+    PrivDir = ?config(priv_dir, Config),
+    TCName = erlang:atom_to_list(TestCase),
+    BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
+    SimDir = BaseDir ++ "_sim",
+    {BaseDir, SimDir}.
+
+
 
 nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
@@ -166,6 +202,7 @@ create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) -
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
+
 
 
 %%--------------------------------------------------------------------
@@ -178,3 +215,8 @@ atomic_save(File, Bin) ->
     TmpFile = File ++ "-tmp",
     ok = file:write_file(TmpFile, Bin),
     file:rename(TmpFile, File).
+
+-spec create_tmp_dir(list()) -> list().
+create_tmp_dir(Path)->
+    ?MODULE:nonl(os:cmd("mktemp -d " ++  Path)).
+

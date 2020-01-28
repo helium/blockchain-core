@@ -6,7 +6,7 @@
 -include("blockchain.hrl").
 
 -export([
-    all/0
+    all/0, init_per_testcase/2, end_per_testcase/2
 ]).
 
 -export([
@@ -32,12 +32,37 @@
 all() ->
     [basic, wrong_height, blockchain_restart, blockchain_almost_synced, blockchain_crash_while_absorbing, blockchain_crash_while_absorbing_and_assume_valid_moves, overlapping_streams].
 
+
+%%--------------------------------------------------------------------
+%% TEST CASE SETUP
+%%--------------------------------------------------------------------
+init_per_testcase(TestCase, Config) ->
+    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+    [
+        {basedir, BaseDir},
+        {simdir, SimDir}
+        | Config
+    ].
+
+
+
+%%--------------------------------------------------------------------
+%% TEST CASE TEARDOWN
+%%--------------------------------------------------------------------
+end_per_testcase(_, _Config) ->
+    ok.
+
+
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-basic(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/basic",
+basic(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+    ct:pal("ff suite base dir: ~p", [BaseDir]),
+    ct:pal("ff suite base SIM dir: ~p", [SimDir]),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -57,7 +82,6 @@ basic(_Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    SimDir = "data/assume_valid_SUITE/basic_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -69,11 +93,13 @@ basic(_Config) ->
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain)),
     ok = blockchain:add_block(LastBlock, Chain),
     ?assertEqual({ok, 101}, blockchain:height(Chain)),
-    ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 109}, blockchain:sync_height(Chain)),
     ok.
 
-wrong_height(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/wrong_height",
+wrong_height(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -93,7 +119,6 @@ wrong_height(_Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    SimDir = "data/assume_valid_SUITE/wrong_height_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock) + 1}),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -109,8 +134,10 @@ wrong_height(_Config) ->
     ok.
 
 
-blockchain_restart(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/blockchain_restart",
+blockchain_restart(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -130,7 +157,6 @@ blockchain_restart(_Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    SimDir = "data/assume_valid_SUITE/blockchain_restart_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -147,8 +173,10 @@ blockchain_restart(_Config) ->
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain1)),
     ok.
 
-blockchain_almost_synced(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/blockchain_almost_synced",
+blockchain_almost_synced(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -168,7 +196,6 @@ blockchain_almost_synced(_Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    SimDir = "data/assume_valid_SUITE/blockchain_almost_synced_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -186,8 +213,10 @@ blockchain_almost_synced(_Config) ->
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain1)),
     ok.
 
-blockchain_crash_while_absorbing(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/blockchain_crash_while_absorbing",
+blockchain_crash_while_absorbing(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -208,7 +237,6 @@ blockchain_crash_while_absorbing(_Config) ->
     LastBlock = lists:last(Blocks),
     ExplodeBlock = lists:nth(50, Blocks),
 
-    SimDir = "data/assume_valid_SUITE/blockchain_crash_while_absorbing_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     meck:new(blockchain_txn, [passthrough]),
@@ -250,8 +278,10 @@ blockchain_crash_while_absorbing(_Config) ->
     ok.
 
 
-blockchain_crash_while_absorbing_and_assume_valid_moves(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/blockchain_crash_while_absorbing_and_assume_valid_moves",
+blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -275,7 +305,6 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(_Config) ->
     FinalLastBlock = test_utils:create_block(ConsensusMembers, []),
     blockchain:add_block(FinalLastBlock, Chain0),
 
-    SimDir = "data/assume_valid_SUITE/blockchain_crash_while_absorbing_and_assume_valid_moves_sim",
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
 
     meck:new(blockchain_txn, [passthrough]),
@@ -313,8 +342,10 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(_Config) ->
     ?assertEqual({ok, 102}, blockchain:sync_height(Chain1)),
     ok.
 
-overlapping_streams(_Config) ->
-    BaseDir = "data/assume_valid_SUITE/overlapping_streams",
+overlapping_streams(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -334,7 +365,6 @@ overlapping_streams(_Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    SimDir = "data/assume_valid_SUITE/overlapping_streams_sim",
     {ok, Chain1} = blockchain:new(SimDir, Genesis, undefined),%, blockchain_block:hash_block(LastBlock)),
 
     ok = blockchain:add_blocks(lists:sublist(Blocks, 15), Chain1),

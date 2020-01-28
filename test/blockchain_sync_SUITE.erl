@@ -6,7 +6,7 @@
 -include("blockchain.hrl").
 
 -export([
-    all/0
+    all/0, init_per_testcase/2, end_per_testcase/2
 ]).
 
 -export([
@@ -27,6 +27,24 @@ all() ->
     [basic].
 
 %%--------------------------------------------------------------------
+%% TEST CASE SETUP
+%%--------------------------------------------------------------------
+init_per_testcase(TestCase, Config) ->
+    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+    [
+        {basedir, BaseDir},
+        {simdir, SimDir}
+        | Config
+    ].
+
+
+%%--------------------------------------------------------------------
+%% TEST CASE TEARDOWN
+%%--------------------------------------------------------------------
+end_per_testcase(_, _Config) ->
+    ok.
+
+%%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
@@ -35,8 +53,10 @@ all() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic(_Config) ->
-    BaseDir = "data/sync_SUITE/basic",
+basic(Config) ->
+    BaseDir = proplists:get_value(basedir, Config),
+    SimDir = proplists:get_value(simdir, Config),
+
     Balance = 5000,
     BlocksN = 100,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
@@ -47,7 +67,6 @@ basic(_Config) ->
     % Simulate other chain with sync handler only
     {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
-    SimDir = "data/sync_SUITE/basic_sim",
     Chain = blockchain:new(SimDir, Genesis, undefined),
 
     % Add some blocks
