@@ -31,6 +31,7 @@
 ]).
 
 -define(SERVER, ?MODULE).
+-define(SWARM_NAME, blockchain_swarm_pid).
 
 -record(state, {
     swarm :: undefined | pid()
@@ -48,7 +49,7 @@ start_link(Args) ->
 %%--------------------------------------------------------------------
 -spec pubkey_bin() -> libp2p_crypto:pubkey_bin().
 pubkey_bin() ->
-    gen_server:call(?MODULE, pubkey_bin, infinity).
+    libp2p_swarm:pubkey_bin(whereis(?SWARM_NAME)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -56,7 +57,7 @@ pubkey_bin() ->
 %%--------------------------------------------------------------------
 -spec swarm() -> pid().
 swarm() ->
-    gen_server:call(?MODULE, swarm, infinity).
+    whereis(?SWARM_NAME).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -64,7 +65,7 @@ swarm() ->
 %%--------------------------------------------------------------------
 -spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
 keys() ->
-    gen_server:call(?MODULE, key, infinity).
+    libp2p_swarm:keys(whereis(?SWARM_NAME)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,7 +73,7 @@ keys() ->
 %%--------------------------------------------------------------------
 -spec gossip_peers() -> [{string(), pid()}].
 gossip_peers() ->
-    gen_server:call(?MODULE, gossip_peers, infinity).
+    libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(whereis(?SWARM_NAME)), all).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -81,17 +82,10 @@ init(Args) ->
     erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Pid} = libp2p_swarm:start(?SERVER, Args),
+    register(?SWARM_NAME, Pid),
     true = erlang:link(Pid),
     {ok, #state{swarm=Pid}}.
 
-handle_call(pubkey_bin, _From, #state{swarm=Swarm}=State) ->
-    {reply, libp2p_swarm:pubkey_bin(Swarm), State};
-handle_call(swarm, _From, #state{swarm=Swarm}=State) ->
-    {reply, Swarm, State};
-handle_call(key, _From, #state{swarm=Swarm}=State)  ->
-    {reply, libp2p_swarm:keys(Swarm), State};
-handle_call(gossip_peers, _From, #state{swarm=Swarm}=State) ->
-    {reply, libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(Swarm), all), State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
