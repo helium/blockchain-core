@@ -93,7 +93,7 @@ basic(Config) ->
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain)),
     ok = blockchain:add_block(LastBlock, Chain),
     ?assertEqual({ok, 101}, blockchain:height(Chain)),
-    ?assertEqual({ok, 109}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
     ok.
 
 wrong_height(Config) ->
