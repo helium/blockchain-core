@@ -28,7 +28,8 @@
     remove_witness/2,
     witnesses/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
-    oui/1, oui/2
+    oui/1, oui/2,
+    convert/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
