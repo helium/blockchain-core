@@ -74,10 +74,9 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
-
+    Config0 = blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
     Balance = 5000,
-    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(BaseDir),
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here
     {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test])),
 
@@ -94,8 +93,6 @@ init_per_testcase(TestCase, Config) ->
     end, maps:values(Entries)),
 
     [
-        {basedir, BaseDir},
-        {simdir, SimDir},
         {balance, Balance},
         {sup, Sup},
         {pubkey, PubKey},
@@ -107,7 +104,7 @@ init_per_testcase(TestCase, Config) ->
         {consensus_members, ConsensusMembers},
         {genesis_members, GenesisMembers},
         Keys
-        | Config
+        | Config0
     ].
 
 %%--------------------------------------------------------------------
@@ -135,10 +132,10 @@ end_per_testcase(_, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -171,6 +168,8 @@ basic_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 reload_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+
     Balance = 5000,
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
@@ -201,7 +200,7 @@ reload_test(Config) ->
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new([Addr || {Addr, _} <- ConsensusMembers], <<"proof">>, 1, 0),
     Txs = InitialVars ++ GenPaymentTxs ++ [GenConsensusGroupTx],
     NewGenBlock = blockchain_block:new_genesis_block(Txs),
-    GenDir = "data/test_SUITE/reload2",
+    GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
     File = filename:join(GenDir, "genesis"),
     ok = test_utils:atomic_save(File, blockchain_block:serialize(NewGenBlock)),
 
@@ -220,8 +219,9 @@ reload_test(Config) ->
     ok.
 
 restart_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
     GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Sup = proplists:get_value(sup, Config),
     Opts = proplists:get_value(opts, Config),
@@ -281,10 +281,11 @@ restart_test(Config) ->
 
 
 htlc_payee_redeem_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
     Chain = proplists:get_value(chain, Config),
@@ -348,10 +349,11 @@ htlc_payee_redeem_test(Config) ->
     ok.
 
 htlc_payer_redeem_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     PubKey = proplists:get_value(pubkey, Config),
     PrivKey = proplists:get_value(privkey, Config),
     Chain = proplists:get_value(chain, Config),
@@ -777,9 +779,10 @@ export_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 delayed_ledger_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     Balance = proplists:get_value(balance, Config),
@@ -863,9 +866,10 @@ delayed_ledger_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 fees_since_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -900,10 +904,11 @@ fees_since_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 security_token_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -936,9 +941,10 @@ security_token_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 routing_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
     Ledger = blockchain:ledger(Chain),
@@ -1002,10 +1008,11 @@ routing_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 block_save_failed_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -1047,10 +1054,10 @@ block_save_failed_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 absorb_failed_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -1105,9 +1112,10 @@ absorb_failed_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 epoch_reward_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -1168,10 +1176,11 @@ epoch_reward_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 election_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     %% ConsensusMembers = proplists:get_value(consensus_members, Config),
     GenesisMembers = proplists:get_value(genesis_members, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     %% Chain = proplists:get_value(chain, Config),
     Chain = blockchain_worker:blockchain(),
     _Swarm = proplists:get_value(swarm, Config),
@@ -1345,10 +1354,11 @@ chain_vars_set_unset_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 token_burn_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 
@@ -1446,10 +1456,11 @@ token_burn_test(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 payer_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = ?config(base_dir, Config),
+
     ConsensusMembers = proplists:get_value(consensus_members, Config),
     Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(basedir, Config),
+    BaseDir = proplists:get_value(base_dir, Config),
     Chain = proplists:get_value(chain, Config),
     Swarm = proplists:get_value(swarm, Config),
 

@@ -31,13 +31,7 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
-    [
-        {basedir, BaseDir},
-        {simdir, SimDir}
-        | Config
-    ].
-
+    blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -55,8 +49,8 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,

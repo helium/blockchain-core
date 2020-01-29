@@ -37,12 +37,7 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
-    [
-        {basedir, BaseDir},
-        {simdir, SimDir}
-        | Config
-    ].
+    blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config).
 
 
 
@@ -58,8 +53,8 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 
 basic(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
     ct:pal("ff suite base dir: ~p", [BaseDir]),
     ct:pal("ff suite base SIM dir: ~p", [SimDir]),
 
@@ -97,8 +92,8 @@ basic(Config) ->
     ok.
 
 wrong_height(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -135,8 +130,8 @@ wrong_height(Config) ->
 
 
 blockchain_restart(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -174,8 +169,8 @@ blockchain_restart(Config) ->
     ok.
 
 blockchain_almost_synced(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -214,8 +209,8 @@ blockchain_almost_synced(Config) ->
     ok.
 
 blockchain_crash_while_absorbing(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -279,8 +274,8 @@ blockchain_crash_while_absorbing(Config) ->
 
 
 blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -343,8 +338,8 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
     ok.
 
 overlapping_streams(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-    SimDir = proplists:get_value(simdir, Config),
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
     BlocksN = 100,

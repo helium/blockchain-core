@@ -10,7 +10,6 @@
     wait_until/1, wait_until/3,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
-    ct_priv_base_dirs/3,
     cleanup_tmp_dir/1,
     nonl/1,
     create_payment_transaction/6,
@@ -178,20 +177,6 @@ tmp_dir(SubDir) ->
 cleanup_tmp_dir(Dir)->
     os:cmd("rm -rf " ++ Dir),
     ok.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% generate a tmp directory based off priv_data to be used as a scratch by common tests
-%% @end
-%%-------------------------------------------------------------------
--spec ct_priv_base_dirs(atom(), atom(), list()) -> {list(), list()}.
-ct_priv_base_dirs(Mod, TestCase, Config)->
-    PrivDir = ?config(priv_dir, Config),
-    TCName = erlang:atom_to_list(TestCase),
-    BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
-    SimDir = BaseDir ++ "_sim",
-    {BaseDir, SimDir}.
-
 
 
 nonl([$\n|T]) -> nonl(T);

@@ -28,12 +28,7 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    {BaseDir, SimDir} = test_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
-    [
-        {basedir, BaseDir},
-        {simdir, SimDir}
-        | Config
-    ].
+    blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config).
 
 
 %%--------------------------------------------------------------------
@@ -53,8 +48,7 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 keys_test(Config) ->
-    BaseDir = proplists:get_value(basedir, Config),
-
+    BaseDir = ?config(base_dir, Config),
     Balance = 5000,
     NumConsensusMembers = 7,
 
