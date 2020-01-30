@@ -123,7 +123,6 @@
     pocs :: rocksdb:cf_handle(),
     securities :: rocksdb:cf_handle(),
     routing :: rocksdb:cf_handle(),
-    context :: undefined | rocksdb:batch_handle(),
     cache :: undefined | ets:tid()
 }).
 
@@ -231,27 +230,25 @@ mark_key(Key, Ledger) ->
 %%--------------------------------------------------------------------
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
-    %% accumulate DB operations in a rocksdb batch
-    {ok, Context} = rocksdb:batch(),
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
-    context_cache({Context, Cache}, Ledger).
+    context_cache(Cache, Ledger).
 
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        {undefined, undefined} = C ->
-            C;
-        {Context, Cache} ->
-            {Context, flatten_cache(Cache)}
+        undefined ->
+            undefined;
+        Cache ->
+            flatten_cache(Cache)
     end.
 
 flatten_cache(Cache) ->
     ets:tab2list(Cache).
 
-install_context({Ctxt, FlatCache}, Ledger) ->
+install_context(FlatCache, Ledger) ->
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     ets:insert(Cache, FlatCache),
-    context_cache({Ctxt, Cache}, Ledger).
+    context_cache(Cache, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -260,33 +257,19 @@ install_context({Ctxt, FlatCache}, Ledger) ->
 -spec delete_context(ledger()) -> ledger().
 delete_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        {undefined, undefined} ->
+        undefined ->
             Ledger;
-        {undefined, Cache} ->
+        Cache ->
             ets:delete(Cache),
-            context_cache({undefined, undefined}, Ledger);
-        {Context, undefined} ->
-            rocksdb:batch_clear(Context),
-            context_cache({undefined, undefined}, Ledger);
-        {Context, Cache} ->
-            rocksdb:batch_clear(Context),
-            ets:delete(Cache),
-            context_cache({undefined, undefined}, Ledger)
+            context_cache(undefined, Ledger)
     end.
 
 -spec reset_context(ledger()) -> ok.
 reset_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        {undefined, undefined} ->
+        undefined ->
             ok;
-        {undefined, Cache} ->
-            true = ets:delete_all_objects(Cache),
-            ok;
-        {Context, undefined} ->
-            ok = rocksdb:batch_clear(Context),
-            ok;
-        {Context, Cache} ->
-            ok = rocksdb:batch_clear(Context),
+        Cache ->
             true = ets:delete_all_objects(Cache),
             ok
     end.
@@ -297,8 +280,10 @@ reset_context(Ledger) ->
 %%--------------------------------------------------------------------
 -spec commit_context(ledger()) -> ok.
 commit_context(#ledger_v1{db=DB}=Ledger) ->
-    {Context, _Cache} = ?MODULE:context_cache(Ledger),
+    Cache = ?MODULE:context_cache(Ledger),
+    Context = batch_from_cache(Cache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
+    rocksdb:release_batch(Context),
     delete_context(Ledger),
     ok.
 
@@ -306,11 +291,11 @@ commit_context(#ledger_v1{db=DB}=Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(ledger()) -> {undefined | rocksdb:batch_handle(), undefined | ets:tid()}.
-context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{context=Context, cache=Cache}}) ->
-    {Context, Cache};
-context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{context=Context, cache=Cache}}) ->
-    {Context, Cache}.
+-spec context_cache(ledger()) -> undefined | ets:tid().
+context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{cache=Cache}}) ->
+    Cache;
+context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{cache=Cache}}) ->
+    Cache.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -409,7 +394,8 @@ atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
 apply_raw_changes(Changes, #ledger_v1{db = DB} = Ledger) ->
     {ok, Batch} = rocksdb:batch(),
     apply_raw_changes(Changes, Ledger, Batch),
-    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+    rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    rocksdb:release_batch(Batch).
 
 apply_raw_changes([], _, _) ->
     ok;
@@ -1827,11 +1813,11 @@ var_name(Name) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache({undefined | rocksdb:batch_handle(), undefined | ets:tid()}, ledger()) -> ledger().
-context_cache({Context, Cache}, #ledger_v1{mode=active, active=Active}=Ledger) ->
-    Ledger#ledger_v1{active=Active#sub_ledger_v1{context=Context, cache=Cache}};
-context_cache({Context, Cache}, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
-    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{context=Context, cache=Cache}}.
+-spec context_cache(undefined | ets:tid(), ledger()) -> ledger().
+context_cache(Cache, #ledger_v1{mode=active, active=Active}=Ledger) ->
+    Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache}};
+context_cache(Cache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
+    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache}}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1915,9 +1901,9 @@ routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) 
 %%--------------------------------------------------------------------
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
-    {Context, Cache} = context_cache(Ledger),
-    ets:insert(Cache, {{CF, Key}, Value}),
-    rocksdb:batch_put(Context, CF, Key, Value).
+    Cache = context_cache(Ledger),
+    true = ets:insert(Cache, {{CF, Key}, Value}),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1926,12 +1912,12 @@ cache_put(Ledger, CF, Key, Value) ->
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
-        {_, undefined} ->
+        undefined ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
-        {Context, Cache} ->
+        Cache ->
             case ets:lookup(Cache, {CF, Key}) of
                 [] ->
-                    cache_get(context_cache({Context, undefined}, Ledger), CF, Key, Options);
+                    cache_get(context_cache(undefined, Ledger), CF, Key, Options);
                 [{_, ?CACHE_TOMBSTONE}] ->
                     %% deleted in the cache
                     not_found;
@@ -1946,9 +1932,9 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
 %%--------------------------------------------------------------------
 -spec cache_delete(ledger(), rocksdb:cf_handle(), any()) -> ok.
 cache_delete(Ledger, CF, Key) ->
-    {Context, Cache} = context_cache(Ledger),
-    ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
-    rocksdb:batch_delete(Context, CF, Key).
+    Cache = context_cache(Ledger),
+    true = ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
+    ok.
 
 cache_fold(Ledger, CF, Fun0, Acc) ->
     cache_fold(Ledger, CF, Fun0, Acc, []).
@@ -1964,10 +1950,10 @@ cache_fold(Ledger, CF, Fun0, Acc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        {_, undefined} ->
+        undefined ->
             %% fold rocks directly
             rocks_fold(Ledger, CF, Opts, Fun0, Acc);
-        {_Context, Cache} ->
+        Cache ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
             Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
@@ -2199,6 +2185,16 @@ clean_all_hexes(Ledger) ->
             commit_context(L2);
         _ -> ok
     end.
+
+batch_from_cache(ETS) ->
+    {ok, Batch} = rocksdb:batch(),
+    ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, Acc) ->
+                      rocksdb:batch_delete(Acc, CF, Key),
+                      Acc;
+                 ({{CF, Key}, Value}, Acc) ->
+                      rocksdb:batch_put(Acc, CF, Key, Value),
+                      Acc
+              end, Batch, ETS).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
