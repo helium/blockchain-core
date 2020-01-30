@@ -306,13 +306,19 @@ new_snapshot(#ledger_v1{db=DB,
                         snapshot=undefined,
                         snapshots=Cache,
                         mode=active,
-                        active=#sub_ledger_v1{context=undefined, cache=undefined},
-                        delayed=#sub_ledger_v1{context=undefined, cache=undefined}}=Ledger) ->
+                        active=#sub_ledger_v1{cache=undefined},
+                        delayed=#sub_ledger_v1{cache=undefined}}=Ledger) ->
     case rocksdb:snapshot(DB) of
         {ok, SnapshotHandle} ->
             {ok, Height} = current_height(Ledger),
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             {ok, DelayedHeight} = current_height(DelayedLedger),
+            case ets:lookup(Cache, DelayedHeight - 1) of
+                [{_Height, {snapshot, OldSnapshot}}] ->
+                    rocksdb:release_snapshot(OldSnapshot);
+                _ ->
+                    ok
+            end,
             ets:delete(Cache, DelayedHeight - 1),
             ets:insert(Cache, {Height, {snapshot, SnapshotHandle}}),
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
