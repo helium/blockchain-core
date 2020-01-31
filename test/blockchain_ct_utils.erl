@@ -325,7 +325,24 @@ raw_vars(Vars) ->
                 ?h3_neighbor_res => 12,
                 ?min_score => 0.15,
                 ?reward_version => 1,
-                ?allow_zero_amount => false
+                ?allow_zero_amount => false,
+                ?poc_version => 8,
+                ?poc_good_bucket_low => -132,
+                ?poc_good_bucket_high => -80,
+                ?poc_v5_target_prob_randomness_wt => 1.0,
+                ?poc_v4_target_prob_edge_wt => 0.0,
+                ?poc_v4_target_prob_score_wt => 0.0,
+                ?poc_v4_prob_rssi_wt => 0.0,
+                ?poc_v4_prob_time_wt => 0.0,
+                ?poc_v4_randomness_wt => 0.5,
+                ?poc_v4_prob_count_wt => 0.0,
+                ?poc_centrality_wt => 0.5,
+                ?poc_max_hop_cells => 2000,
+                ?poc_path_limit => 7,
+                ?poc_typo_fixes => true,
+                ?poc_target_hex_parent_res => 5,
+                ?witness_refresh_interval => 10,
+                ?witness_refresh_rand_n => 100
                },
 
     maps:merge(DefVars, Vars).

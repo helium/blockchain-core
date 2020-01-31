@@ -1465,7 +1465,7 @@ chain_vars_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
 
-    Vars = #{poc_version => 2},
+    Vars = #{garbage_value => 2},
 
     ct:pal("priv_key ~p", [Priv]),
 
@@ -1484,7 +1484,7 @@ chain_vars_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
@@ -1505,7 +1505,7 @@ chain_vars_set_unset_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
 
-    Vars = #{poc_version => 2},
+    Vars = #{garbage_value => 2},
 
     ct:pal("priv_key ~p", [Priv]),
 
@@ -1524,7 +1524,7 @@ chain_vars_set_unset_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
@@ -1539,7 +1539,7 @@ chain_vars_set_unset_test(Config) ->
     {ok, Height} = blockchain:height(Chain),
     ct:pal("Height ~p", [Height]),
 
-    UnsetVarTxn = blockchain_txn_vars_v1:new(#{}, 4, #{unsets => [poc_version]}),
+    UnsetVarTxn = blockchain_txn_vars_v1:new(#{}, 4, #{unsets => [garbage_value]}),
     UnsetProof = blockchain_txn_vars_v1:create_proof(Priv, UnsetVarTxn),
     UnsetVarTxn1 = blockchain_txn_vars_v1:proof(UnsetVarTxn, UnsetProof),
 
@@ -1552,7 +1552,7 @@ chain_vars_set_unset_test(Config) ->
                 _ = blockchain_gossip_handler:add_block(Block1, Chain, self()),
                 {ok, Height1} = blockchain:height(Chain),
                 ct:pal("Height1 ~p", [Height1]),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {ok, 2} when Height1 < (Height + Delay + 1) ->
                         ok;
                     {error, not_found} when Height1 >= (Height + Delay) ->
