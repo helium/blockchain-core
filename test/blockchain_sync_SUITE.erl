@@ -30,7 +30,7 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config).
+    blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN

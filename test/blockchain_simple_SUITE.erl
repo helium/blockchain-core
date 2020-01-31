@@ -74,7 +74,7 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    Config0 = blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here

@@ -20,7 +20,7 @@
          end_per_testcase/2,
          create_vars/0, create_vars/1,
          raw_vars/1,
-         ct_priv_base_dirs/3
+         init_base_dir_config/3
         ]).
 
 pmap(F, L) ->
@@ -323,8 +323,8 @@ raw_vars(Vars) ->
 %% generate a tmp directory based off priv_data to be used as a scratch by common tests
 %% @end
 %%-------------------------------------------------------------------
--spec ct_priv_base_dirs(atom(), atom(), list()) -> {list(), list()}.
-ct_priv_base_dirs(Mod, TestCase, Config)->
+-spec init_base_dir_config(atom(), atom(), list()) -> {list(), list()}.
+init_base_dir_config(Mod, TestCase, Config)->
     PrivDir = ?config(priv_dir, Config),
     TCName = erlang:atom_to_list(TestCase),
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,

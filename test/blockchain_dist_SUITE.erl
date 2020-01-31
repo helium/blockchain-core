@@ -35,7 +35,7 @@ end_per_suite(Config) ->
 %% ------------------------------------------------------------------
 
 init_per_testcase(TestCase, Config) ->
-    Config0 = blockchain_ct_utils:ct_priv_base_dirs(?MODULE, TestCase, Config),
+    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(TestCase, Config0),
     Nodes = proplists:get_value(nodes, InitConfig),
     Balance = 5000,
