@@ -259,7 +259,7 @@ init_per_testcase(TestCase, Config) ->
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
     ok.
 

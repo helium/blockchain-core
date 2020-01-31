@@ -111,7 +111,7 @@ init_per_testcase(TestCase, Config) ->
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
-    Sup = proplists:get_value(sup, Config),
+    Sup = ?config(sup, Config),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
         true ->
@@ -133,11 +133,11 @@ end_per_testcase(_, Config) ->
 %%--------------------------------------------------------------------
 basic_test(Config) ->
     BaseDir = ?config(base_dir, Config),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -171,12 +171,12 @@ reload_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
     Balance = 5000,
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Sup = proplists:get_value(sup, Config),
-    Opts = proplists:get_value(opts, Config),
-    Chain0 = proplists:get_value(chain, Config),
-    Swarm0 = proplists:get_value(swarm, Config),
-    N0 = proplists:get_value(n, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Sup = ?config(sup, Config),
+    Opts = ?config(opts, Config),
+    Chain0 = ?config(chain, Config),
+    Swarm0 = ?config(swarm, Config),
+    N0 = ?config(n, Config),
 
     % Add some blocks
     lists:foreach(
@@ -222,11 +222,11 @@ restart_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Sup = proplists:get_value(sup, Config),
-    Opts = proplists:get_value(opts, Config),
-    Chain0 = proplists:get_value(chain, Config),
-    Swarm0 = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Sup = ?config(sup, Config),
+    Opts = ?config(opts, Config),
+    Chain0 = ?config(chain, Config),
+    Swarm0 = ?config(swarm, Config),
     {ok, GenBlock} = blockchain:head_block(Chain0),
 
     % Add some blocks
@@ -283,13 +283,13 @@ restart_test(Config) ->
 htlc_payee_redeem_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    PubKey = proplists:get_value(pubkey, Config),
-    PrivKey = proplists:get_value(privkey, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -351,13 +351,13 @@ htlc_payee_redeem_test(Config) ->
 htlc_payer_redeem_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    PubKey = proplists:get_value(pubkey, Config),
-    PrivKey = proplists:get_value(privkey, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -416,17 +416,17 @@ htlc_payer_redeem_test(Config) ->
     ok.
 
 poc_request_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    PubKey = proplists:get_value(pubkey, Config),
-    PrivKey = proplists:get_value(privkey, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
     Owner = libp2p_crypto:pubkey_to_bin(PubKey),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    Balance = proplists:get_value(balance, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Balance = ?config(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
     Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
+    {Priv, _} = ?config(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
@@ -572,11 +572,11 @@ poc_request_test(Config) ->
     ok.
 
 bogus_coinbase_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
@@ -598,10 +598,10 @@ bogus_coinbase_test(Config) ->
     ok.
 
 bogus_coinbase_with_good_payment_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
@@ -623,9 +623,9 @@ bogus_coinbase_with_good_payment_test(Config) ->
     ok.
 
 export_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    GenesisMembers = proplists:get_value(genesis_members, Config),
-    Balance = proplists:get_value(balance, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    Balance = ?config(balance, Config),
     [_,
      {Payer1, {PayerPubKey1, PayerPrivKey1, _}},
      {Payer2, {_, PayerPrivKey2, _}},
@@ -634,13 +634,13 @@ export_test(Config) ->
     Amount = 2500,
     Fee = 0,
     N = length(ConsensusMembers),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    N = proplists:get_value(n, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    N = ?config(n, Config),
 
     Ledger = blockchain:ledger(Chain),
     Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
+    {Priv, _} = ?config(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
@@ -781,11 +781,11 @@ export_test(Config) ->
 delayed_ledger_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    Balance = proplists:get_value(balance, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Balance = ?config(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
     ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(Ledger)),
@@ -868,10 +868,10 @@ delayed_ledger_test(Config) ->
 fees_since_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Payee = blockchain_swarm:pubkey_bin(),
@@ -906,11 +906,11 @@ fees_since_test(Config) ->
 security_token_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -943,10 +943,10 @@ security_token_test(Config) ->
 routing_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
     Ledger = blockchain:ledger(Chain),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -1010,11 +1010,11 @@ routing_test(Config) ->
 block_save_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
      % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -1055,11 +1055,11 @@ block_save_failed_test(Config) ->
 %%--------------------------------------------------------------------
 absorb_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -1114,10 +1114,10 @@ absorb_failed_test(Config) ->
 epoch_reward_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     [_, {PubKeyBin, {_, _PrivKey, _}}|_] = ConsensusMembers,
 
@@ -1178,12 +1178,12 @@ epoch_reward_test(Config) ->
 election_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    %% ConsensusMembers = proplists:get_value(consensus_members, Config),
-    GenesisMembers = proplists:get_value(genesis_members, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    %% Chain = proplists:get_value(chain, Config),
+    %% ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
     Chain = blockchain_worker:blockchain(),
-    _Swarm = proplists:get_value(swarm, Config),
+    _Swarm = ?config(swarm, Config),
     N = 7,
 
     %% make sure our generated alpha & beta values are the same each time
@@ -1239,10 +1239,10 @@ election_test(Config) ->
     ok.
 
 chain_vars_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    {Priv, _} = proplists:get_value(master_key, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    {Priv, _} = ?config(master_key, Config),
 
     Ledger = blockchain:ledger(Chain),
 
@@ -1280,10 +1280,10 @@ chain_vars_test(Config) ->
     ok.
 
 chain_vars_set_unset_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    {Priv, _} = proplists:get_value(master_key, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    {Priv, _} = ?config(master_key, Config),
 
     Ledger = blockchain:ledger(Chain),
 
@@ -1356,11 +1356,11 @@ chain_vars_set_unset_test(Config) ->
 token_burn_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
@@ -1397,7 +1397,7 @@ token_burn_test(Config) ->
 
     % Step 3: Add exchange rate to ledger
     Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
+    {Priv, _} = ?config(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
@@ -1458,11 +1458,11 @@ token_burn_test(Config) ->
 payer_test(Config) ->
     BaseDir = ?config(base_dir, Config),
 
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    Balance = proplists:get_value(balance, Config),
-    BaseDir = proplists:get_value(base_dir, Config),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
 
     [_, {Payer, {_, PayerPrivKey, _}}, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
     PayerSigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
@@ -1472,7 +1472,7 @@ payer_test(Config) ->
 
     % Step 1: Add exchange rate to ledger
     Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
+    {Priv, _} = ?config(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
 
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
@@ -1582,17 +1582,17 @@ payer_test(Config) ->
     ok.
 
 poc_sync_interval_test(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    PubKey = proplists:get_value(pubkey, Config),
-    PrivKey = proplists:get_value(privkey, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
     Owner = libp2p_crypto:pubkey_to_bin(PubKey),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    Balance = proplists:get_value(balance, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Balance = ?config(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
     Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
+    {Priv, _} = ?config(master_key, Config),
     VarTxn = fake_var_txn(Priv, 3, #{token_burn_exchange_rate => Rate}),
     Block2 = test_utils:create_block(ConsensusMembers, [VarTxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),

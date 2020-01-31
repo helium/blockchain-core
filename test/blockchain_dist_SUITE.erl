@@ -37,9 +37,9 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, Config) ->
     Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(TestCase, Config0),
-    Nodes = proplists:get_value(nodes, InitConfig),
+    Nodes = ?config(nodes, InitConfig),
     Balance = 5000,
-    NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
+    NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
@@ -88,8 +88,8 @@ end_per_testcase(_TestCase, Config) ->
 %% ------------------------------------------------------------------
 
 gossip_test(Config) ->
-    Nodes = proplists:get_value(nodes, Config),
-    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
+    Nodes = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_memebers, Config),
 
     %% let these two serve as dummys
     [FirstNode, SecondNode | _Rest] = Nodes,
@@ -140,7 +140,7 @@ gossip_test(Config) ->
 %% ------------------------------------------------------------------
 
 check_genesis_block(Config, GenesisBlock) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     lists:foreach(fun(Node) ->
                           Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                           {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
@@ -152,7 +152,7 @@ check_genesis_block(Config, GenesisBlock) ->
                   end, Nodes).
 
 get_consensus_members(Config, ConsensusAddrs) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     lists:keysort(1, lists:foldl(fun(Node, Acc) ->
                                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                                          case lists:member(Addr, ConsensusAddrs) of
