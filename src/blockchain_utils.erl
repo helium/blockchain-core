@@ -120,10 +120,10 @@ pmap(F, L, Width) ->
            fun([], N) ->
                    N;
               (IL, N) ->
-                   spawn(
+                   spawn_opt(
                      fun() ->
                              Parent ! {pmap, N, lists:map(F, IL)}
-                     end),
+                     end, [{fullsweep_after, 0}]),
                    N+1
            end, 0, OL),
     L2 = [receive
