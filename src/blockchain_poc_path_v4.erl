@@ -59,12 +59,16 @@
 build(TargetPubkeyBin, Ledger, HeadBlockTime, Hash, Vars) ->
     TargetGw = find(TargetPubkeyBin, Ledger),
     TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
+    %% NOTE: Changing the rand_state here allows the _first_ next_hop
+    %% to have a different rand_val compared to the initial target
+    %% selection itself.
     RandState = blockchain_utils:rand_state(Hash),
+    {_RandVal, NewRandState} = rand:uniform_s(RandState),
     build_(TargetPubkeyBin,
            Ledger,
            HeadBlockTime,
            Vars,
-           RandState,
+           NewRandState,
            [TargetGwLoc],
            [TargetPubkeyBin]).
 

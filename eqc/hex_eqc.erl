@@ -34,7 +34,7 @@ prop_hex_check() ->
                 {Counter, _} = lists:foldl(fun(_I, {Acc, AccEntropy}) ->
                                               {RandVal, NewEntropy} = rand:uniform_s(AccEntropy),
                                               {ok, Node} = blockchain_utils:icdf_select(Population, RandVal),
-                                              ok = file:write_file(Fname, io_lib:fwrite("~p\n", [Node]), [append]),
+                                              %% ok = file:write_file(Fname, io_lib:fwrite("~p\n", [Node]), [append]),
                                               {maps:update_with(Node, fun(X) -> X + 1 end, 1, Acc), NewEntropy}
                                       end,
                                       {InitAcc, Entropy},
