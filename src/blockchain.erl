@@ -99,6 +99,10 @@ new(Dir, Genesis, AssumedValidBlockHash) when is_list(Genesis) ->
 new(Dir, undefined, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p", [Dir]),
     case load(Dir) of
+        {error, {db_open,"Corruption:" ++ _Reason}} ->
+            lager:error("DB could not be opened corrupted ~p, cleaning up", [_Reason]),
+            ok = clean(Dir),
+            new(Dir, undefined, AssumedValidBlockHash);
         {Blockchain, {error, {corruption, _Corrupted}}} ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
@@ -114,6 +118,10 @@ new(Dir, undefined, AssumedValidBlockHash) ->
 new(Dir, GenBlock, AssumedValidBlockHash) ->
     lager:info("loading blockchain from ~p and checking ~p", [Dir, GenBlock]),
     case load(Dir) of
+        {error, {db_open,"Corruption:" ++ _Reason}} ->
+            lager:error("DB could not be opened corrupted ~p, cleaning up", [_Reason]),
+            ok = clean(Dir),
+            new(Dir, undefined, AssumedValidBlockHash);
         {Blockchain, {error, {corruption, _Corrupted}}} ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
@@ -1276,28 +1284,37 @@ clean(#blockchain{dir=Dir, db=DB}=Blockchain) ->
     DBDir = filename:join(Dir, ?DB_FILE),
     ok = rocksdb:close(DB),
     ok = rocksdb:destroy(DBDir, []),
-    ok = blockchain_ledger_v1:clean(?MODULE:ledger(Blockchain)).
+    ok = blockchain_ledger_v1:clean(?MODULE:ledger(Blockchain));
+clean(Dir) when is_list(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = rocksdb:destroy(DBDir, []).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec load(file:filename_all()) -> {blockchain(), {ok, blockchain_block:block()} | {error, any()}}.
+-spec load(file:filename_all()) -> {blockchain(), {ok, blockchain_block:block()}
+                                                  | {error, any()}}
+                                   | {error, any()}.
 load(Dir) ->
-    {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF]} = open_db(Dir),
-    Ledger = blockchain_ledger_v1:new(Dir),
-    Blockchain = #blockchain{
-        dir=Dir,
-        db=DB,
-        default=DefaultCF,
-        blocks=BlocksCF,
-        heights=HeightsCF,
-        temp_blocks=TempBlocksCF,
-        ledger=Ledger
-    },
-    compact(Blockchain),
-    blockchain_ledger_v1:compact(Ledger),
-    {Blockchain, ?MODULE:genesis_block(Blockchain)}.
+    case open_db(Dir) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF]} ->
+            Ledger = blockchain_ledger_v1:new(Dir),
+            Blockchain = #blockchain{
+                dir=Dir,
+                db=DB,
+                default=DefaultCF,
+                blocks=BlocksCF,
+                heights=HeightsCF,
+                temp_blocks=TempBlocksCF,
+                ledger=Ledger
+            },
+            compact(Blockchain),
+            blockchain_ledger_v1:compact(Ledger),
+            {Blockchain, ?MODULE:genesis_block(Blockchain)}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1333,19 +1350,21 @@ open_db(Dir) ->
         end,
 
     CFOpts = GlobalOpts,
-
-    {ok, DB, OpenedCFs} = rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]),
-
-    L1 = lists:zip(ExistingCFs, OpenedCFs),
-    L2 = lists:map(
-        fun(CF) ->
-            {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
-            {CF, CF1}
-        end,
-        DefaultCFs -- ExistingCFs
-    ),
-    L3 = L1 ++ L2,
-    {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}.
+    case rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, DB, OpenedCFs} ->
+            L1 = lists:zip(ExistingCFs, OpenedCFs),
+            L2 = lists:map(
+                fun(CF) ->
+                    {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                    {CF, CF1}
+                end,
+                DefaultCFs -- ExistingCFs
+            ),
+            L3 = L1 ++ L2,
+            {ok, DB, [proplists:get_value(X, L3) || X <- DefaultCFs]}
+    end.
 
 
 %%--------------------------------------------------------------------
