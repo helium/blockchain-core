@@ -27,6 +27,8 @@
 
     analyze/1, repair/1,
 
+    fold_chain/4,
+
     reset_ledger/1, reset_ledger/2, reset_ledger/3
 ]).
 
@@ -401,7 +403,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
                         {ok, SnapshotLedger} when not ForceRecalc ->
                             {ok, SnapshotLedger};
                         _ ->
-                            case fold_chain(Chain0, DelayedHeight, DelayedLedger, Height) of
+                            case fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) of
                                 {ok, Chain1} ->
                                     Ledger1 = ?MODULE:ledger(Chain1),
                                     Ctxt = blockchain_ledger_v1:get_context(Ledger1),
@@ -420,7 +422,7 @@ ledger_at(Height, Chain0, ForceRecalc) ->
             Error
     end.
 
-fold_chain(Chain0, DelayedHeight, DelayedLedger, Height) ->
+fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
     lists:foldl(
       fun(H, {ok, ChainAcc}) ->
               case ?MODULE:get_block(H, Chain0) of
@@ -870,6 +872,23 @@ build_hash_chain_(StopHash, CF, Blockchain = #blockchain{db=DB}, [ParentHash|Tai
             case rocksdb:get(DB, CF, ParentHash, []) of
                 {ok, BinBlock} ->
                     build_hash_chain_(StopHash, CF, Blockchain, [blockchain_block:prev_hash(blockchain_block:deserialize(BinBlock))|Acc]);
+                _ ->
+                    Acc
+            end
+    end.
+
+
+%% @doc fold blocks in the chain `Chain' backwards from `Block' until a hole in the chain, the genesis block or the function returns `return'.
+fold_chain(Fun, Acc0, Block, Chain) ->
+    case Fun(Block, Acc0) of
+        return ->
+            %% return early
+            Acc0;
+        Acc ->
+            ParentHash = blockchain_block:prev_hash(Block),
+            case get_block(ParentHash, Chain) of
+                {ok, NextBlock} ->
+                    fold_chain(Fun, Acc, NextBlock, Chain);
                 _ ->
                     Acc
             end
