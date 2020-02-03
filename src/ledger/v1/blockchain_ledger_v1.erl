@@ -2210,12 +2210,14 @@ batch_from_cache(ETS) ->
 find_entry_test() ->
     BaseDir = test_utils:tmp_dir("find_entry_test"),
     Ledger = new(BaseDir),
-    ?assertEqual({error, not_found}, find_entry(<<"test">>, Ledger)).
+    ?assertEqual({error, not_found}, find_entry(<<"test">>, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 find_gateway_info_test() ->
     BaseDir = test_utils:tmp_dir("find_gateway_info_test"),
     Ledger = new(BaseDir),
-    ?assertEqual({error, not_found}, find_gateway_info(<<"address">>, Ledger)).
+    ?assertEqual({error, not_found}, find_gateway_info(<<"address">>, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 mode_test() ->
     BaseDir = test_utils:tmp_dir("mode_test"),
@@ -2227,12 +2229,14 @@ mode_test() ->
     ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)),
     Ledger2 = mode(delayed, Ledger1),
     Ledger3 = new_context(Ledger2),
-    ?assertEqual({error, not_found}, consensus_members(Ledger3)).
+    ?assertEqual({error, not_found}, consensus_members(Ledger3)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 consensus_members_1_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_1_test"),
     Ledger = new(BaseDir),
-    ?assertEqual({error, not_found}, consensus_members(Ledger)).
+    ?assertEqual({error, not_found}, consensus_members(Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 consensus_members_2_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_2_test"),
@@ -2240,7 +2244,8 @@ consensus_members_2_test() ->
     Ledger1 = new_context(Ledger),
     ok = consensus_members([1, 2, 3], Ledger1),
     ok = commit_context(Ledger1),
-    ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)).
+    ?assertEqual({ok, [1, 2, 3]}, consensus_members(Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 active_gateways_test() ->
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
@@ -2257,7 +2262,8 @@ add_gateway_test() ->
         {ok, _},
         find_gateway_info(<<"gw_address">>, Ledger)
     ),
-    ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)).
+    ?assertEqual({error, gateway_already_active}, add_gateway(<<"owner_address">>, <<"gw_address">>, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 add_gateway_location_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_location_test"),
@@ -2269,7 +2275,8 @@ add_gateway_location_test() ->
     ?assertEqual(
        ok,
        add_gateway_location(<<"gw_address">>, 1, 1, Ledger2)
-    ).
+    ),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 credit_account_test() ->
     BaseDir = test_utils:tmp_dir("credit_account_test"),
@@ -2278,7 +2285,8 @@ credit_account_test() ->
     ok = credit_account(<<"address">>, 1000, Ledger1),
     ok = commit_context(Ledger1),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
-    ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)).
+    ?assertEqual(1000, blockchain_ledger_entry_v1:balance(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 debit_account_test() ->
     BaseDir = test_utils:tmp_dir("debit_account_test"),
@@ -2294,7 +2302,8 @@ debit_account_test() ->
     ok = commit_context(Ledger2),
     {ok, Entry} = find_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_entry_v1:balance(Entry)),
-    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)).
+    ?assertEqual(1, blockchain_ledger_entry_v1:nonce(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 credit_dc_test() ->
     BaseDir = test_utils:tmp_dir("credit_dc_test"),
@@ -2303,7 +2312,8 @@ credit_dc_test() ->
     ok = credit_dc(<<"address">>, 1000, Ledger1),
     ok = commit_context(Ledger1),
     {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
-    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)).
+    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 debit_fee_test() ->
     BaseDir = test_utils:tmp_dir("debit_fee_test"),
@@ -2317,7 +2327,8 @@ debit_fee_test() ->
     ok = commit_context(Ledger2),
     {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
-    ?assertEqual(0, blockchain_ledger_data_credits_entry_v1:nonce(Entry)).
+    ?assertEqual(0, blockchain_ledger_data_credits_entry_v1:nonce(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 credit_security_test() ->
     BaseDir = test_utils:tmp_dir("credit_security_test"),
@@ -2330,7 +2341,8 @@ credit_security_test() ->
     ),
     {ok, Entry} = find_security_entry(<<"address">>, Ledger),
     ?assertEqual(#{<<"address">> => Entry}, securities(Ledger)),
-    ?assertEqual(1000, blockchain_ledger_security_entry_v1:balance(Entry)).
+    ?assertEqual(1000, blockchain_ledger_security_entry_v1:balance(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 debit_security_test() ->
     BaseDir = test_utils:tmp_dir("debit_security_test"),
@@ -2352,7 +2364,8 @@ debit_security_test() ->
     ),
     {ok, Entry} = find_security_entry(<<"address">>, Ledger),
     ?assertEqual(500, blockchain_ledger_security_entry_v1:balance(Entry)),
-    ?assertEqual(1, blockchain_ledger_security_entry_v1:nonce(Entry)).
+    ?assertEqual(1, blockchain_ledger_security_entry_v1:nonce(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 fold_test() ->
     BaseDir = test_utils:tmp_dir("poc_test"),
@@ -2423,7 +2436,8 @@ fold_test() ->
     %% check cached and uncached reads
     ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"aaa">>, [])),
 
-    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"key_1">>, [])).
+    ?assertEqual({ok, <<"bbb">>}, cache_get(Ledger, DCF, <<"key_1">>, [])),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 
 poc_test() ->
@@ -2521,7 +2535,7 @@ poc_test() ->
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo1)),
     meck:unload(blockchain_swarm),
     meck:unload(blockchain),
-
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 commit(Fun, Ledger0) ->
@@ -2566,7 +2580,7 @@ routing_test() ->
 
     ?assertEqual({ok, [1]}, blockchain_ledger_v1:find_ouis(<<"owner">>, Ledger)),
     ?assertEqual({ok, [2]}, blockchain_ledger_v1:find_ouis(<<"owner2">>, Ledger)),
-
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 -endif.

@@ -208,56 +208,64 @@ encrypt_decrypt_multi_layer_poc_v4_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
         Ledger = blockchain_ledger_v1:new(TestDir),
-        encrypt_decrypt(Ledger)
+        encrypt_decrypt(Ledger),
+        test_utils:cleanup_tmp_dir(TestDir)
       end},
      {"added blockhash entropy", fun() ->
          TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
          Ledger = blockchain_ledger_v1:new(TestDir),
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
          blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
-         encrypt_decrypt(Ledger1)
+         encrypt_decrypt(Ledger1),
+         test_utils:cleanup_tmp_dir(TestDir)
       end}].
 
 encrypt_decrypt_single_layer_poc_v4_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
         Ledger = blockchain_ledger_v1:new(TestDir),
-        encrypt_decrypt_single_layer(Ledger)
+        encrypt_decrypt_single_layer(Ledger),
+        test_utils:cleanup_tmp_dir(TestDir)
       end},
      {"added blockhash entropy", fun() ->
          TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
          Ledger = blockchain_ledger_v1:new(TestDir),
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
          blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
-         encrypt_decrypt_single_layer(Ledger1)
+         encrypt_decrypt_single_layer(Ledger1),
+         test_utils:cleanup_tmp_dir(TestDir)
       end}].
 
 encrypt_decrypt_double_layer_poc_v4_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
         Ledger = blockchain_ledger_v1:new(TestDir),
-        encrypt_decrypt_double_layer(Ledger)
+        encrypt_decrypt_double_layer(Ledger),
+        test_utils:cleanup_tmp_dir(TestDir)
       end},
      {"added blockhash entropy", fun() ->
          TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
          Ledger = blockchain_ledger_v1:new(TestDir),
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
          blockchain_ledger_v1:vars(#{?poc_version => 4}, [], Ledger1),
-         encrypt_decrypt_double_layer(Ledger1)
+         encrypt_decrypt_double_layer(Ledger1),
+         test_utils:cleanup_tmp_dir(TestDir)
       end}].
 
 encrypt_decrypt_test_() ->
     [{"no blockhash entropy", fun() ->
         TestDir = test_utils:tmp_dir("encrypt_decrypt_test_1"),
         Ledger = blockchain_ledger_v1:new(TestDir),
-        encrypt_decrypt(Ledger)
+        encrypt_decrypt(Ledger),
+        test_utils:cleanup_tmp_dir(TestDir)
       end},
      {"added blockhash entropy", fun() ->
          TestDir = test_utils:tmp_dir("encrypt_decrypt_test_2"),
          Ledger = blockchain_ledger_v1:new(TestDir),
          Ledger1 = blockchain_ledger_v1:new_context(Ledger),
          blockchain_ledger_v1:vars(#{?poc_version => 2}, [], Ledger1),
-         encrypt_decrypt(Ledger1)
+         encrypt_decrypt(Ledger1),
+         test_utils:cleanup_tmp_dir(TestDir)
       end}].
 
 encrypt_decrypt_single_layer(Ledger) ->

@@ -561,6 +561,7 @@ target_test_() ->
               ),
 
              unload_meck(),
+             test_utils:cleanup_tmp_dir(BaseDir),
              ok
      end}.
 
@@ -596,6 +597,7 @@ neighbors_test() ->
      ),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_graph_test() ->
@@ -623,6 +625,7 @@ build_graph_test() ->
     TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
     ?assertNot(lists:member(TooFar, maps:keys(Graph))),
     unload_meck(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_graph_in_line_test() ->
@@ -680,6 +683,7 @@ build_graph_in_line_test() ->
      ),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_test() ->
@@ -709,6 +713,7 @@ build_test() ->
     ?assertNotEqual(Target, lists:last(Path)),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_only_2_test() ->
@@ -732,6 +737,7 @@ build_only_2_test() ->
     ?assertNotEqual(Target, lists:last(Path)),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_prob_test_() ->
@@ -782,6 +788,7 @@ build_prob_test_() ->
               ),
              unload_meck(),
              catch blockchain_score_cache:stop(),
+             test_utils:cleanup_tmp_dir(BaseDir),
              ok
      end}.
 
@@ -801,6 +808,7 @@ build_failed_test() ->
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_with_default_score_test() ->
@@ -826,6 +834,7 @@ build_with_default_score_test() ->
     ?assert(lists:member(Target, Path)),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 active_gateways_test() ->
@@ -855,6 +864,7 @@ active_gateways_test() ->
 
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 -ifdef(BROKEN).
@@ -886,6 +896,7 @@ active_gateways_low_score_test() ->
 
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 -endif.
 
@@ -920,6 +931,7 @@ no_neighbor_test() ->
     ?assertEqual({error, not_enough_gateways}, build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger)),
     unload_meck(),
     catch blockchain_score_cache:stop(),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 build_gateways(LatLongs, Ledger) ->

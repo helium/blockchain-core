@@ -1532,7 +1532,8 @@ new_test() ->
     ?assertEqual({ok, Hash}, head_hash(Chain)),
     ?assertEqual({ok, Block}, head_block(Chain)),
     ?assertEqual({ok, Block}, get_block(Hash, Chain)),
-    ?assertEqual({ok, Block}, get_block(1, Chain)).
+    ?assertEqual({ok, Block}, get_block(1, Chain)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 % ledger_test() ->
 %     Block = blockchain_block:new_genesis_block([]),
@@ -1576,7 +1577,8 @@ blocks_test() ->
 
     GenBlock = blockchain_block:new_genesis_block(VarTxns),
     GenHash = blockchain_block:hash_block(GenBlock),
-    {ok, Chain} = new(test_utils:tmp_dir("blocks_test"), GenBlock, undefined),
+    TmpDir = test_utils:tmp_dir("blocks_test"),
+    {ok, Chain} = new(TmpDir, GenBlock, undefined),
     Block = blockchain_block_v1:new(#{prev_hash => GenHash,
                                       height => 2,
                                       transactions => [],
@@ -1605,7 +1607,8 @@ blocks_test() ->
     ?assert(meck:validate(blockchain_election)),
     meck:unload(blockchain_election),
     ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm).
+    meck:unload(blockchain_swarm),
+    test_utils:cleanup_tmp_dir(TmpDir).
 
 
 
@@ -1646,7 +1649,8 @@ get_block_test() ->
 
     GenBlock = blockchain_block:new_genesis_block(VarTxns),
     GenHash = blockchain_block:hash_block(GenBlock),
-    {ok, Chain} = new(test_utils:tmp_dir("get_block_test"), GenBlock, undefined),
+    TmpDir = test_utils:tmp_dir("get_block_test"),
+    {ok, Chain} = new(TmpDir, GenBlock, undefined),
     Block = blockchain_block_v1:new(#{prev_hash => GenHash,
                                       height => 2,
                                       transactions => [],
@@ -1671,7 +1675,8 @@ get_block_test() ->
     ?assert(meck:validate(blockchain_election)),
     meck:unload(blockchain_election),
     ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm).
+    meck:unload(blockchain_swarm),
+    test_utils:cleanup_tmp_dir(TmpDir).
 
 
 -endif.

@@ -654,7 +654,9 @@ consensus_members_rewards_test() ->
     end),
     ?assertEqual(Rewards, consensus_members_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1).
+    meck:unload(blockchain_ledger_v1),
+    test_utils:cleanup_tmp_dir(BaseDir).
+
 
 
 securities_rewards_test() ->
@@ -679,7 +681,8 @@ securities_rewards_test() ->
     end),
     ?assertEqual(Rewards, securities_rewards(Ledger, Vars)),
     ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1).
+    meck:unload(blockchain_ledger_v1),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengers_rewards_1_test() ->
     Txns = [
@@ -885,7 +888,8 @@ poc_challengees_rewards_3_test() ->
         %% c gets 2 shares
         {gateway, poc_challengees, <<"c">>} => 44
     },
-    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_witnesses_rewards_test() ->
     BaseDir = test_utils:tmp_dir("poc_witnesses_rewards_test"),
@@ -935,7 +939,8 @@ poc_witnesses_rewards_test() ->
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
                 {gateway,poc_witnesses,<<"b">>} => 25},
 
-    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)).
+    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengers_rewards_test() ->
     Txns = [
@@ -981,7 +986,8 @@ old_poc_challengees_rewards_version_1_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengees_rewards_version_2_test() ->
     BaseDir = test_utils:tmp_dir("old_poc_challengees_rewards_version_2_test"),
@@ -1021,7 +1027,8 @@ old_poc_challengees_rewards_version_2_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)).
+    ?assertEqual(Rewards, poc_challengees_rewards(Txns, Vars, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_witnesses_rewards_test() ->
     BaseDir = test_utils:tmp_dir("old_poc_witnesses_rewards_test"),
@@ -1049,7 +1056,8 @@ old_poc_witnesses_rewards_test() ->
         {gateway, poc_witnesses, <<"1">>} => 25,
         {gateway, poc_witnesses, <<"2">>} => 25
     },
-    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)).
+    ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 common_poc_vars() ->
     #{

@@ -1,4 +1,6 @@
 -module(blockchain_ct_utils).
+
+-include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("include/blockchain_vars.hrl").
 
@@ -17,7 +19,8 @@
          init_per_testcase/2,
          end_per_testcase/2,
          create_vars/0, create_vars/1,
-         raw_vars/1
+         raw_vars/1,
+         init_base_dir_config/3
         ]).
 
 pmap(F, L) ->
@@ -152,6 +155,7 @@ shuffle(List) ->
     [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 init_per_testcase(TestCase, Config) ->
+
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
     case net_kernel:start([list_to_atom("runner-blockchain-" ++
@@ -252,11 +256,10 @@ init_per_testcase(TestCase, Config) ->
                                  ])
                   end, Nodes),
 
-
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
 end_per_testcase(_TestCase, Config) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
     ok.
 
@@ -314,3 +317,20 @@ raw_vars(Vars) ->
 
     maps:merge(DefVars, Vars).
 
+
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory based off priv_data to be used as a scratch by common tests
+%% @end
+%%-------------------------------------------------------------------
+-spec init_base_dir_config(atom(), atom(), list()) -> {list(), list()}.
+init_base_dir_config(Mod, TestCase, Config)->
+    PrivDir = ?config(priv_dir, Config),
+    TCName = erlang:atom_to_list(TestCase),
+    BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
+    SimDir = BaseDir ++ "_sim",
+    [
+        {base_dir, BaseDir},
+        {sim_dir, SimDir}
+        | Config
+    ].

@@ -10,10 +10,14 @@
     wait_until/1, wait_until/3,
     create_block/2,
     tmp_dir/0, tmp_dir/1,
+    cleanup_tmp_dir/1,
     nonl/1,
     create_payment_transaction/6,
     atomic_save/2
 ]).
+
+-define(BASE_TMP_DIR, "./_build/test/tmp").
+-define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
 
 init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -151,12 +155,29 @@ signatures(ConsensusMembers, BinBlock) ->
       ,[]
       ,ConsensusMembers
      ).
-
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory to be used as a scratch by eunit tests
+%% @end
+%%-------------------------------------------------------------------
 tmp_dir() ->
-    ?MODULE:nonl(os:cmd("mktemp -d")).
+    os:cmd("mkdir -p " ++ ?BASE_TMP_DIR),
+    create_tmp_dir(?BASE_TMP_DIR_TEMPLATE).
+tmp_dir(SubDir) ->
+    Path = filename:join(?BASE_TMP_DIR, SubDir),
+    os:cmd("mkdir -p " ++ Path),
+    create_tmp_dir(Path ++ "/" ++ ?BASE_TMP_DIR_TEMPLATE).
 
-tmp_dir(Dir) ->
-    filename:join(tmp_dir(), Dir).
+%%--------------------------------------------------------------------
+%% @doc
+%% Deletes the specified directory
+%% @end
+%%-------------------------------------------------------------------
+-spec cleanup_tmp_dir(list()) -> ok.
+cleanup_tmp_dir(Dir)->
+    os:cmd("rm -rf " ++ Dir),
+    ok.
+
 
 nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
@@ -166,6 +187,7 @@ create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) -
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
+
 
 
 %%--------------------------------------------------------------------
@@ -178,3 +200,8 @@ atomic_save(File, Bin) ->
     TmpFile = File ++ "-tmp",
     ok = file:write_file(TmpFile, Bin),
     file:rename(TmpFile, File).
+
+-spec create_tmp_dir(list()) -> list().
+create_tmp_dir(Path)->
+    ?MODULE:nonl(os:cmd("mktemp -d " ++  Path)).
+
