@@ -44,7 +44,9 @@ target(Hash, GatewayScoreMap, Vars) ->
 
 -spec target_v2(Hash :: binary(),
                 Ledger :: blockchain:ledger(),
-                Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, no_target}.
+                Vars :: map()) -> {ok, libp2p_crypto:pubkey_bin()} |
+                                  {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} |
+                                  {error, no_target}.
 target_v2(Hash, Ledger, Vars) ->
     %% Grab the list of parent hexes
     {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
@@ -82,9 +84,17 @@ target_v2(Hash, Ledger, Vars) ->
     ProbTargetMap = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
     %% make sure that we carry the entropy through for determinism
-    {RandVal, _} = rand:uniform_s(Entropy1),
+    {RandVal, RandState} = rand:uniform_s(Entropy1),
     io:format("randval: ~p, select_target~n", [RandVal]),
-    blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal).
+    {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
+
+    case maps:get(poc_version, Vars) of
+        V when is_integer(V), V > 7 ->
+            {ok, {TargetPubkeybin, RandState}};
+        _ ->
+            {ok, TargetPubkeybin}
+    end.
+
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).

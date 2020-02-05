@@ -328,7 +328,7 @@ check_witness_too_far(WitnessLoc, GatewayLoc, Vars) ->
         %% Grid distance may badarg because of pentagonal distortion or
         %% non matching resolutions or just being too far.
         %% In either of those cases, we assume that the gateway
-        %% is potentially legitimate to be a target.
+        %% is potentially illegitimate to be a target.
         _:_ -> false
     end.
 

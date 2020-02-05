@@ -17,7 +17,7 @@ prop_path_check() ->
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
-                Check = case blockchain_poc_target_v3:target(Hash, Ledger, Vars) of
+                Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
                             {error, not_found} ->
                                 %% TODO: Investigation pending
                                 true;

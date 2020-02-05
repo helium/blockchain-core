@@ -222,7 +222,7 @@ is_valid(Txn, Chain) ->
                                                                                    Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    %% If we make it to this point, we are bound to have a target.
-                                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Entropy, OldLedger, Vars),
+                                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
                                                                                    maybe_log_duration(target, StartFT),
                                                                                    StartB = erlang:monotonic_time(millisecond),
                                                                                    Time = blockchain_block:time(Block1),
