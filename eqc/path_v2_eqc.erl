@@ -79,11 +79,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 2614 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 3024 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3023
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -104,8 +104,8 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 block_time() ->
-    %% block time at height 131551
-    1576022415 * 1000000000.
+    %% block time at height 194196
+    1580943269 * 1000000000.
 
 default_vars() ->
     #{poc_v4_exclusion_cells => 10,

@@ -16,7 +16,6 @@ prop_path_check() ->
                 LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
-
                 Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
                             {error, not_found} ->
                                 %% TODO: Investigation pending
@@ -79,8 +78,8 @@ gen_hash() ->
     binary(32).
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3023
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -107,21 +106,16 @@ ledger() ->
     end,
     Ledger = blockchain_ledger_v1:new(PrivDir),
     %% if we haven't upgraded the ledger, upgrade it
-    case blockchain_ledger_v1:get_hexes(Ledger) of
-        {ok, _Hexes} ->
-            Ledger;
-        _ ->
-            Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-            %% Ensure the ledger has the vars we're testing against
-            blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
-            blockchain:bootstrap_hexes(Ledger1),
-            blockchain_ledger_v1:commit_context(Ledger1),
-            Ledger
-    end.
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    %% Ensure the ledger has the vars we're testing against
+    blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
+    blockchain:bootstrap_hexes(Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
 
 block_time() ->
-    %% block time at height 168420
-    1578703246.
+    %% block time at height 194196
+    1580943269.
 
 check_path_h3_indices(Path, ActiveGateways) ->
     %% check every path member has a unique h3 index

@@ -77,8 +77,8 @@ gen_hash() ->
     binary(32).
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3023
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -118,8 +118,8 @@ ledger() ->
     end.
 
 block_time() ->
-    %% block time at height 168420
-    1578703246.
+    %% block time at height 194196
+    1580943269.
 
 check_path_h3_indices(Path, ActiveGateways) ->
     %% check every path member has a unique h3 index

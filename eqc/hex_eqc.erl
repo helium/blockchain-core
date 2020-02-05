@@ -73,8 +73,8 @@ cdf(PopulationList) ->
     [{Node, blockchain_utils:normalize_float(Weight/Sum)} || {Node, Weight} <- PopulationList].
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3024
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
