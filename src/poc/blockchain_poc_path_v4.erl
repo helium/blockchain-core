@@ -370,7 +370,6 @@ check_witness_bad_rssi(Witness, Vars) ->
                             %% If the bad RSSI count does not dominate
                             %% the overall RSSIs this witness has, include,
                             %% otherwise exclude
-                            %% XXX: This is an incorrect check
                             BadCount < lists:sum(maps:values(Hist))
                     end
             catch
@@ -498,7 +497,6 @@ find(Addr, Ledger) ->
                  Vars :: map()) -> {blockchain_ledger_gateway_v2:histogram(),
                                     blockchain_ledger_gateway_v2:histogram()}.
 split_hist(Hist, Vars) ->
-    %% TODO: Maybe these can just be constants instead of vars?
     GoodBucketLow = poc_good_bucket_low(Vars),
     GoodBucketHigh = poc_good_bucket_high(Vars),
 
