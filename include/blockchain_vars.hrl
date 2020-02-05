@@ -233,4 +233,6 @@
 -define(poc_good_bucket_low, poc_good_bucket_low).
 %% Upper bound for known good rssi bucket
 -define(poc_good_bucket_high, poc_good_bucket_high).
+%% Maximum allowed h3 grid cells for a potential next hop
+-define(poc_max_hop_cells, poc_max_hop_cells).
 %% ------------------------------------------------------------------

@@ -52,23 +52,18 @@
 
 %% @doc Build a path starting at `TargetPubkeyBin`.
 -spec build(TargetPubkeyBin :: libp2p_crypto:pubkey_bin(),
+            TargetRandState :: rand:state(),
             Ledger :: blockchain:ledger(),
             HeadBlockTime :: pos_integer(),
-            Hash :: binary(),
             Vars :: map()) -> path().
-build(TargetPubkeyBin, Ledger, HeadBlockTime, Hash, Vars) ->
+build(TargetPubkeyBin, TargetRandState, Ledger, HeadBlockTime, Vars) ->
     TargetGw = find(TargetPubkeyBin, Ledger),
     TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
-    %% NOTE: Changing the rand_state here allows the _first_ next_hop
-    %% to have a different rand_val compared to the initial target
-    %% selection itself.
-    RandState = blockchain_utils:rand_state(Hash),
-    {_RandVal, NewRandState} = rand:uniform_s(RandState),
     build_(TargetPubkeyBin,
            Ledger,
            HeadBlockTime,
            Vars,
-           NewRandState,
+           TargetRandState,
            [TargetGwLoc],
            [TargetPubkeyBin]).
 
@@ -90,8 +85,7 @@ build_(TargetPubkeyBin,
        Indices,
        Path) when length(Path) < Limit ->
     %% Try to find a next hop
-    {NewRandVal, NewRandState} = rand:uniform_s(RandState),
-    case next_hop(TargetPubkeyBin, Ledger, HeadBlockTime, Vars, NewRandVal, Indices) of
+    case next_hop(TargetPubkeyBin, Ledger, HeadBlockTime, Vars, RandState, Indices) of
         {error, _} ->
             lists:reverse(Path);
         {ok, WitnessPubkeyBin} ->
@@ -99,6 +93,7 @@ build_(TargetPubkeyBin,
             NextHopGw = find(WitnessPubkeyBin, Ledger),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessPubkeyBin | Path],
+            {_, NewRandState} = rand:uniform_s(RandState),
             build_(WitnessPubkeyBin,
                    Ledger,
                    HeadBlockTime,
@@ -114,12 +109,12 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
                Ledger :: blockchain:ledger(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
-               RandVal :: float(),
+               RandState :: rand:state(),
                Indices :: [h3:h3_index()]) -> {error, no_witness} |
                                               {error, all_witnesses_too_close} |
                                               {error, zero_weight} |
                                               {ok, libp2p_crypto:pubkey_bin()}.
-next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
+next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
     case blockchain_ledger_gateway_v2:witnesses(Gateway) of
@@ -146,6 +141,8 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
                     PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentrality),
                     PWitnessList = lists:keysort(1, maps:to_list(PWitness)),
                     %% Select witness using icdf
+                    {RandVal, _} = rand:uniform_s(RandState),
+                    io:format("randval: ~p, next_hop~n", [RandVal]),
                     blockchain_utils:icdf_select(PWitnessList, RandVal);
                 _ ->
                     {error, all_witnesses_too_close}
@@ -309,11 +306,31 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                                 (GatewayParent /= WitnessParent) andalso
                                 %% Don't include any witness whose parent is too close to any of the indices we've already seen
                                 check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) andalso
+                                %% Don't include any witness who have a bad rssi
                                 check_witness_bad_rssi(Witness, Vars) andalso
-                                check_witness_bad_rssi_centrality(Witness, Vars)
+                                %% Don't include any witness who have bad rssi range
+                                check_witness_bad_rssi_centrality(Witness, Vars) andalso
+                                %% Don't include any witness who are too far from the current gateway
+                                check_witness_too_far(WitnessLoc, GatewayLoc, Vars)
                         end
                 end,
                 Witnesses).
+
+-spec check_witness_too_far(WitnessLoc :: h3:h3_index(),
+                            GatewayLoc :: h3:h3_index(),
+                            Vars :: map()) -> boolean().
+check_witness_too_far(WitnessLoc, GatewayLoc, Vars) ->
+    POCMaxHopCells = poc_max_hop_cells(Vars),
+    try h3:grid_distance(WitnessLoc, GatewayLoc) of
+        Res ->
+            Res < POCMaxHopCells
+    catch
+        %% Grid distance may badarg because of pentagonal distortion or
+        %% non matching resolutions or just being too far.
+        %% In either of those cases, we assume that the gateway
+        %% is potentially legitimate to be a target.
+        _:_ -> false
+    end.
 
 -spec check_witness_distance(WitnessParent :: h3:h3_index(),
                              ParentIndices :: [h3:h3_index()],
@@ -458,6 +475,10 @@ poc_good_bucket_low(Vars) ->
 -spec poc_good_bucket_high(Vars :: map()) -> integer().
 poc_good_bucket_high(Vars) ->
     maps:get(poc_good_bucket_high, Vars).
+
+-spec poc_max_hop_cells(Vars :: map()) -> integer().
+poc_max_hop_cells(Vars) ->
+    maps:get(poc_max_hop_cells, Vars).
 
 %% ==================================================================
 %% Helper Functions

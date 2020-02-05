@@ -17,29 +17,31 @@ prop_path_check() ->
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
-                Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
+                Check = case blockchain_poc_target_v3:target(Hash, Ledger, Vars) of
                             {error, not_found} ->
                                 %% TODO: Investigation pending
                                 true;
-                            {ok, TargetPubkeyBin} ->
+                            {ok, {TargetPubkeyBin, TargetRandState}} ->
 
                                 {Time, Path} = timer:tc(fun() ->
                                                                 blockchain_poc_path_v4:build(TargetPubkeyBin,
+                                                                                             TargetRandState,
                                                                                              Ledger,
                                                                                              block_time(),
-                                                                                             Hash,
                                                                                              Vars)
                                                         end),
 
                                 PathLength = length(Path),
 
                                 B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+                                HumanFullPath = #{name(TargetPubkeyBin) => [[name(P) || P <- Path]]},
                                 HumanPath = [name(P) || P <- Path],
                                 io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
                                 case length(Path) > 1 of
                                     true ->
                                         ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                                        ok = file:write_file("/tmp/paths_name_js", io_lib:fwrite("~p.\n", [HumanFullPath]), [append]),
                                         ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
                                     false ->
                                         ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
@@ -162,11 +164,12 @@ targeting_vars() ->
       poc_good_bucket_high => -80,
 
       %% overwrite poc next hop weights
-      poc_v4_prob_rssi_wt => 0.1,
-      poc_v4_prob_time_wt => 0.1,
-      poc_v4_randomness_wt => 0.2,
-      poc_v4_prob_count_wt => 0.1,
-      poc_centrality_wt => 0.5
+      poc_v4_prob_rssi_wt => 0.08,
+      poc_v4_prob_time_wt => 0.01,
+      poc_v4_randomness_wt => 0.5,
+      poc_v4_prob_count_wt => 0.01,
+      poc_centrality_wt => 0.4,
+      poc_max_hop_cells => 40
      }.
 
 default_vars() ->
