@@ -10,7 +10,6 @@ prop_path_check() ->
             {gen_hash(), gen_path_limit(), gen_challenger_index()},
             begin
                 Ledger = ledger(),
-                {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -20,21 +19,12 @@ prop_path_check() ->
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
                 %% Find some challenger
-                {ChallengerPubkeyBin, ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
+                {ChallengerPubkeyBin, _ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
 
-                {ok, {Hex, HexRandState}} = blockchain_poc_target_v2:target_hex(Hash, Ledger),
-                GatewayMap0 = blockchain_poc_target_v2:zoned_gateways_with_scores(Hex, Ledger, Vars),
-                GatewayMap = blockchain_poc_target_v2:filter(GatewayMap0,
-                                                             ChallengerPubkeyBin,
-                                                             ChallengerLoc,
-                                                             Height,
-                                                             Vars),
-                Check = case maps:size(GatewayMap) of
-                            0 ->
-                                %% no eligible target to be found in this zone
+                Check = case blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars) of
+                            {error, no_target} ->
                                 true;
-                            _ ->
-                                {ok, {TargetPubkeyBin, TargetRandState}} = blockchain_poc_target_v2:find_target(GatewayMap, HexRandState, Vars),
+                            {ok, {TargetPubkeyBin, TargetRandState}} ->
                                 {Time, Path} = timer:tc(fun() ->
                                                                 blockchain_poc_path_v4:build(TargetPubkeyBin,
                                                                                              TargetRandState,

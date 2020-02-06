@@ -220,34 +220,11 @@ is_valid(Txn, Chain) ->
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V >= 8 ->
                                                                                    Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
-
                                                                                    %% Targeting phase
                                                                                    StartFT = erlang:monotonic_time(millisecond),
-
-                                                                                   %% XXX: How costly are the below two calls?
-                                                                                   %% In order to filter the gateways we need challenger info at this point
-                                                                                   {ok, ChallengerGw} = blockchain_ledger_v1:find_gateway_info(Challenger, OldLedger),
-                                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
-
-                                                                                   %% It's all anchored with the request block height/hash combo
-                                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
-
-                                                                                   %% To reduce the disk lookup, we find the target_hex and then tag gateways with scores
-                                                                                   %% only in the zoned hex
-                                                                                   {ok, {Hex, HexRandState}} = blockchain_poc_target_v2:target_hex(Entropy, OldLedger),
-                                                                                   GatewayMap0 = blockchain_poc_target_v2:zoned_gateways_with_scores(Hex, OldLedger, Vars),
-
-                                                                                   %% Filter out potentially bad targets
-                                                                                   GatewayMap = blockchain_poc_target_v2:filter(GatewayMap0,
-                                                                                                                                Challenger,
-                                                                                                                                ChallengerLoc,
-                                                                                                                                OldHeight,
-                                                                                                                                Vars),
-
                                                                                    %% Find the original target
-                                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v2:find_target(GatewayMap, HexRandState, Vars),
+                                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
                                                                                    maybe_log_duration(target, StartFT),
-
                                                                                    %% Path building phase
                                                                                    StartB = erlang:monotonic_time(millisecond),
                                                                                    Time = blockchain_block:time(Block1),
