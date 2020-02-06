@@ -6,22 +6,35 @@
 -export([prop_path_check/0]).
 
 prop_path_check() ->
-    ?FORALL({Hash, PathLimit},
-            {gen_hash(), gen_path_limit()},
+    ?FORALL({Hash, PathLimit, ChallengerIndex},
+            {gen_hash(), gen_path_limit(), gen_challenger_index()},
             begin
                 Ledger = ledger(),
+                {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
+
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
-                Check = case blockchain_poc_target_v2:target_v2(Hash, Ledger, Vars) of
-                            {error, not_found} ->
-                                %% TODO: Investigation pending
-                                true;
-                            {ok, {TargetPubkeyBin, TargetRandState}} ->
 
+                %% Find some challenger
+                {ChallengerPubkeyBin, ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
+
+                {ok, {Hex, HexRandState}} = blockchain_poc_target_v2:target_hex(Hash, Ledger),
+                GatewayMap0 = blockchain_poc_target_v2:zoned_gateways_with_scores(Hex, Ledger, Vars),
+                GatewayMap = blockchain_poc_target_v2:filter(GatewayMap0,
+                                                             ChallengerPubkeyBin,
+                                                             ChallengerLoc,
+                                                             Height,
+                                                             Vars),
+                Check = case maps:size(GatewayMap) of
+                            0 ->
+                                %% no eligible target to be found in this zone
+                                true;
+                            _ ->
+                                {ok, {TargetPubkeyBin, TargetRandState}} = blockchain_poc_target_v2:find_target(GatewayMap, HexRandState, Vars),
                                 {Time, Path} = timer:tc(fun() ->
                                                                 blockchain_poc_path_v4:build(TargetPubkeyBin,
                                                                                              TargetRandState,
@@ -58,7 +71,6 @@ prop_path_check() ->
                                 C4 = check_path_h3_indices(Path, ActiveGateways),
                                 C5 = check_next_hop(Path, ActiveGateways),
                                 C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5
-
                         end,
 
                 blockchain_ledger_v1:close(Ledger),
@@ -76,6 +88,9 @@ gen_path_limit() ->
 
 gen_hash() ->
     binary(32).
+
+gen_challenger_index() ->
+    ?SUCHTHAT(S, int(), S < 3024 andalso S > 0).
 
 ledger() ->
     %% Ledger at height: 194196
