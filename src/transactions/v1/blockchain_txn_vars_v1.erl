@@ -697,7 +697,7 @@ validate_var(?poc_good_bucket_high, Value) ->
 validate_var(?poc_centrality_wt, Value) ->
     validate_float(Value, "poc_centrality_wt", 0.0, 1.0);
 validate_var(?poc_max_hop_cells, Value) ->
-    validate_int(Value, "poc_max_hop_cells", 10, 500, false);
+    validate_int(Value, "poc_max_hop_cells", 100, 4000, false);
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
