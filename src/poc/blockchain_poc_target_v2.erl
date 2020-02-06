@@ -15,9 +15,12 @@
 -include("blockchain_vars.hrl").
 
 -export([
+         target_hex/2,
+         zoned_gateways_with_scores/3,
          target/3,
          target_v2/3,
-         filter/5
+         filter/5,
+         find_target/3
         ]).
 
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -48,53 +51,68 @@ target(Hash, GatewayScoreMap, Vars) ->
                                   {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} |
                                   {error, no_target}.
 target_v2(Hash, Ledger, Vars) ->
-    %% Grab the list of parent hexes
-    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    HexList = lists:keysort(1, maps:to_list(Hexes)),
+    {ok, {Hex, HexRandState}} = target_hex(Hash, Ledger),
 
-    %% choose hex via CDF
-    Entropy = blockchain_utils:rand_state(Hash),
-    {HexVal, Entropy1} = rand:uniform_s(Entropy),
-    {ok, Hex} = blockchain_utils:icdf_select(HexList, HexVal),
+    GatewayMap = zoned_gateways_with_scores(Hex, Ledger, Vars),
+    case maps:get(poc_version, Vars) of
+        V when is_integer(V), V > 7 ->
+            find_target(GatewayMap, HexRandState, Vars);
+        _ ->
+            {ok, {TargetPubkeybin, _}} = find_target(GatewayMap, HexRandState, Vars),
+            {ok, TargetPubkeybin}
+    end.
 
-    %% fetch from the disk the list of gateways, then the actual
-    %% gateways on that list, then score them, if the weight is not 0.
-    {ok, AddrList} = blockchain_ledger_v1:get_hex(Hex, Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    GatewayMap =
-        lists:foldl(
-          fun(Addr, Acc) ->
-                  {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-                  Score =
-                      case prob_score_wt(Vars) of
-                          0.0 ->
-                              1.0;
-                          _ ->
-                              {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-                              Scr
-                      end,
-                  Acc#{Addr => {Gw, Score}}
-          end,
-          #{},
-          AddrList),
-
+-spec find_target(GatewayMap :: blockchain_utils:gateway_score_map(),
+                  HexRandState :: rand:state(),
+                  Vars :: map()) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
+find_target(GatewayMap, HexRandState, Vars) ->
     %% generate scores weights for the final CDF that does the actual selection
     ProbScores = score_prob(GatewayMap, Vars),
     ProbEdges = edge_prob(GatewayMap, Vars),
     ProbTargetMap = target_prob(ProbScores, ProbEdges, Vars),
     %% Sort the scaled probabilities in default order by gateway pubkey_bin
     %% make sure that we carry the entropy through for determinism
-    {RandVal, RandState} = rand:uniform_s(Entropy1),
+    {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
     io:format("randval: ~p, select_target~n", [RandVal]),
     {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
+    {ok, {TargetPubkeybin, TargetRandState}}.
 
-    case maps:get(poc_version, Vars) of
-        V when is_integer(V), V > 7 ->
-            {ok, {TargetPubkeybin, RandState}};
-        _ ->
-            {ok, TargetPubkeybin}
-    end.
+-spec target_hex(Hash :: binary(),
+                 Ledger :: blockchain:ledger()) -> h3:h3_index().
+target_hex(Hash, Ledger) ->
+    %% Grab the list of parent hexes
+    {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
+    HexList = lists:keysort(1, maps:to_list(Hexes)),
 
+    %% choose hex via CDF
+    InitRandState = blockchain_utils:rand_state(Hash),
+    {HexVal, HexRandState} = rand:uniform_s(InitRandState),
+    {ok, Hex} = blockchain_utils:icdf_select(HexList, HexVal),
+    {ok, {Hex, HexRandState}}.
+
+-spec zoned_gateways_with_scores(Hex :: h3:h3_index(),
+                                 Ledger :: blockchain_ledger_v1:ledger(),
+                                 Vars :: map()) -> blockchain_utils:gateway_score_map().
+zoned_gateways_with_scores(Hex, Ledger, Vars) ->
+    %% fetch from the disk the list of gateways, then the actual
+    %% gateways on that list, then score them, if the weight is not 0.
+    {ok, AddrList} = blockchain_ledger_v1:get_hex(Hex, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    lists:foldl(
+      fun(Addr, Acc) ->
+              {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+              Score =
+              case prob_score_wt(Vars) of
+                  0.0 ->
+                      1.0;
+                  _ ->
+                      {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                      Scr
+              end,
+              Acc#{Addr => {Gw, Score}}
+      end,
+      #{},
+      AddrList).
 
 %% @doc Filter gateways based on these conditions:
 %% - Inactive gateways (those which haven't challenged in a long time).
@@ -303,3 +321,4 @@ check_challenger_distance(ChallengerLoc, GatewayLoc, Vars) ->
         %% is potentially legitimate to be a target.
         _:_ -> true
     end.
+
