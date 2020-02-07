@@ -163,12 +163,12 @@ targeting_vars() ->
       poc_good_bucket_high => -80,
 
       %% overwrite poc next hop weights
-      poc_v4_prob_rssi_wt => 0.08,
-      poc_v4_prob_time_wt => 0.01,
+      poc_v4_prob_rssi_wt => 0.0,
+      poc_v4_prob_time_wt => 0.0,
       poc_v4_randomness_wt => 0.5,
-      poc_v4_prob_count_wt => 0.01,
-      poc_centrality_wt => 0.4,
-      poc_max_hop_cells => 500
+      poc_v4_prob_count_wt => 0.0,
+      poc_centrality_wt => 0.5,
+      poc_max_hop_cells => 1300
      }.
 
 default_vars() ->
