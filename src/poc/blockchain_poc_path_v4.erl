@@ -80,12 +80,11 @@ build_(TargetPubkeyBin,
     case next_hop(TargetPubkeyBin, Ledger, HeadBlockTime, Vars, RandState, Indices) of
         {error, _} ->
             lists:reverse(Path);
-        {ok, WitnessPubkeyBin} ->
+        {ok, {WitnessPubkeyBin, NewRandState}} ->
             %% Try the next hop in the new path, continue building forward
             NextHopGw = find(WitnessPubkeyBin, Ledger),
             Index = blockchain_ledger_gateway_v2:location(NextHopGw),
             NewPath = [WitnessPubkeyBin | Path],
-            {_, NewRandState} = rand:uniform_s(RandState),
             build_(WitnessPubkeyBin,
                    Ledger,
                    HeadBlockTime,
@@ -105,7 +104,7 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
                Indices :: [h3:h3_index()]) -> {error, no_witness} |
                                               {error, all_witnesses_too_close} |
                                               {error, zero_weight} |
-                                              {ok, libp2p_crypto:pubkey_bin()}.
+                                              {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
@@ -133,8 +132,13 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
                     PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentrality),
                     PWitnessList = lists:keysort(1, maps:to_list(PWitness)),
                     %% Select witness using icdf
-                    {RandVal, _} = rand:uniform_s(RandState),
-                    blockchain_utils:icdf_select(PWitnessList, RandVal);
+                    {RandVal, NewRandState} = rand:uniform_s(RandState),
+                    case blockchain_utils:icdf_select(PWitnessList, RandVal) of
+                        {error, _}=E ->
+                            E;
+                        {ok, SelectedWitnessPubkeybin} ->
+                            {ok, {SelectedWitnessPubkeybin, NewRandState}}
+                    end;
                 _ ->
                     {error, all_witnesses_too_close}
             end
