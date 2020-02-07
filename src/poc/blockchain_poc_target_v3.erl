@@ -16,8 +16,6 @@
         ]).
 
 %% @doc Finds a potential target to start the path from.
-%% This must always return a target.
-%% Favors high scoring gateways, dependent on score^poc_v4_target_score_curve curve.
 -spec target(ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
              Hash :: binary(),
              Ledger :: blockchain:ledger(),
