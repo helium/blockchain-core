@@ -4,34 +4,26 @@
 %%% The way paths are built depends solely on witnessing data we have accumulated
 %%% in the blockchain ledger.
 %%%
-%%% Consider X having [A, B, C, D] as its geographic neighbors but only
-%%% having [A, C, E] as it's transmission witnesses. It stands to reason
-%%% that we would expect packets from X -> any[A, C, E] to work with relatively
-%%% high confidence compared to its geographic neighbors. RF varies
-%%% heavily depending on surroundings therefore relying only on geographic
-%%% vicinity is not enough to build potentially interesting paths.
+%%% Assuming we already have a `TargetPubkeyBin` and `TargetRandState` using `target_v3:target`.
+%%% We recursively start building a path starting at `TargetPubkeyBin`.
 %%%
-%%% In order to build a path, we first find a target gateway using
-%%% blockchain_poc_target_v3:target/3 and build a path outward from it.
+%%% Each potential hop's witnesses goes through the following checks:
 %%%
-%%% Once we have a target we recursively find a potential next hop from the target
-%%% gateway by looking into its witness list.
+%%% * Don't include any witnesses in any parent cell we've already visited
+%%% * Don't include any witness whose parent is the same as the gateway we're looking at
+%%% * Don't include any witness whose parent is too close to any of the indices we've already seen
+%%% * Don't include any witness who have bad rssi range
+%%% * Don't include any witness who are too far from the current gateway
 %%%
-%%% Before we calculate the probability associated with each witness in witness
-%%% list, we filter out potentially useless paths, depending on the following filters:
-%%% - Next hop witness must not be in the same hex index as the target
-%%% - Every hop in the path must be unique
-%%% - Every hop in the path must have a minimum exclusion distance
+%%% We then assign cumulative probabilities to each filtered witness. Each of those
+%%% probabilities have an associated weight to them governed by chain variables.
+%%% Currently supported weights are:
 %%%
-%%% The criteria for a potential next hop witness are biased like so:
-%%% - P(WitnessRSSI)        = Probability that the witness has a good (valid) RSSI.
-%%% - P(WitnessTime)        = Probability that the witness timestamp is not stale.
-%%% - P(WitnessCount)       = Probability that the witness is infrequent.
-%%% - P(WitnessCentrality)  = Probability that the witness RSSI looks reasonable
-%%%
-%%% The overall probability of picking a next witness is additive depending on
-%%% chain var configurable weights for each one of the calculated probs.
-%%% P(Witness) = RSSIWeight*P(WitnessRSSI) + TimeWeight*P(WitnessTime) + CountWeight*P(WitnessCount)
+%%% * time_weight
+%%% * rssi_weight
+%%% * count_weight
+%%% * randomness_wt
+%%% * centrality_wt
 %%%
 %%% We scale these probabilities and run an ICDF to select the witness from
 %%% the witness list. Once we have a potential next hop, we simply do the same process
