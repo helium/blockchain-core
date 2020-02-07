@@ -25,6 +25,8 @@
 
     last_block_add_time/1,
 
+    delete_temp_blocks/1,
+
     analyze/1, repair/1,
 
     fold_chain/4,
@@ -752,12 +754,9 @@ add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchai
             {error, block_higher_than_assumed_valid_height}
     end.
 
-absorb_temp_blocks([],#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}, _Syncing) ->
+absorb_temp_blocks([],Chain, _Syncing) ->
     %% we did it!
-    persistent_term:erase(?ASSUMED_VALID),
-    ok = rocksdb:delete(DB, DefaultCF, ?TEMP_HEADS, [{sync, true}]),
-    ok = rocksdb:drop_column_family(TempBlocksCF),
-    ok = rocksdb:destroy_column_family(TempBlocksCF),
+    delete_temp_blocks(Chain),
     ok;
 absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
@@ -1435,8 +1434,7 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
     case ?MODULE:get_block(Hash, Blockchain) of
         {ok, _} ->
             %% already got it, chief
-            %% TODO make sure we delete the column family, in case it has stale crap in it!
-            maybe_continue_resync(Blockchain);
+            maybe_continue_resync(delete_temp_blocks(Blockchain));
         _ ->
             %% set this up here, it will get cleared if we're able to add all the assume valid blocks
             ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
@@ -1460,7 +1458,7 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                                                    {error, Reason} ->
                                                        %% something went wrong!
                                                        lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
-                                                       %% TODO we should probably drop the column family here?
+                                                       delete_temp_blocks(Blockchain),
                                                        ok
                                                catch C:E:S ->
                                                        lager:warning("assume valid processing failed on init with assumed_valid hash present ~p:~p ~p", [C, E, S]),
@@ -1481,6 +1479,20 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                     maybe_continue_resync(Blockchain)
             end
     end.
+
+delete_temp_blocks(Blockchain=#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}) ->
+    persistent_term:erase(?ASSUMED_VALID),
+    ok = rocksdb:delete(DB, DefaultCF, ?TEMP_HEADS, [{sync, true}]),
+    ok = rocksdb:drop_column_family(TempBlocksCF),
+    ok = rocksdb:destroy_column_family(TempBlocksCF),
+    CFOpts = application:get_env(rocksdb, global_opts, []),
+    {ok, CF1} = rocksdb:create_column_family(DB, "temp_blocks", CFOpts),
+    NewChain = Blockchain#blockchain{temp_blocks=CF1},
+    %% do this in a spawn because we might be *in* the blockchain_worker process
+    %% or the blockchain_worker might not be running (eg. tests) and
+    %% this is a gen_server call which can throw an exception
+    spawn(fun() -> blockchain_worker:blockchain(NewChain) end),
+    NewChain.
 
 maybe_continue_resync(Blockchain) ->
     maybe_continue_resync(Blockchain, false).
