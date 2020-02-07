@@ -2,6 +2,7 @@
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-import(eqc_utils, [name/1, ledger/1, dead_hotspots/0, find_challenger/2]).
 
 -export([prop_path_check/0]).
 
@@ -9,7 +10,7 @@ prop_path_check() ->
     ?FORALL({Hash, PathLimit, ChallengerIndex},
             {gen_hash(), gen_path_limit(), gen_challenger_index()},
             begin
-                Ledger = ledger(),
+                Ledger = ledger(poc_v8_vars()),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
@@ -19,7 +20,7 @@ prop_path_check() ->
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
                 %% Find some challenger
-                {ChallengerPubkeyBin, _ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
+                {ChallengerPubkeyBin, _ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
                 Check = case blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars) of
                             {error, no_target} ->
@@ -60,7 +61,8 @@ prop_path_check() ->
                                 C3 = lists:member(TargetPubkeyBin, Path),
                                 C4 = check_path_h3_indices(Path, ActiveGateways),
                                 C5 = check_next_hop(Path, ActiveGateways),
-                                C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5
+                                C6 = check_target_and_path_members_not_dead(TargetPubkeyBin, Path),
+                                C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5 andalso C6
                         end,
 
                 blockchain_ledger_v1:close(Ledger),
@@ -81,42 +83,6 @@ gen_hash() ->
 
 gen_challenger_index() ->
     ?SUCHTHAT(S, int(), S < 3024 andalso S > 0).
-
-ledger() ->
-    %% Ledger at height: 194196
-    %% ActiveGateway Count: 3023
-    {ok, Dir} = file:get_cwd(),
-    %% Ensure priv dir exists
-    PrivDir = filename:join([Dir, "priv"]),
-    ok = filelib:ensure_dir(PrivDir ++ "/"),
-    %% Path to static ledger tar
-    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
-    case filelib:is_file(LedgerTar) of
-        true ->
-            %% if we have already unpacked it, no need to do it again
-            LedgerDB = filename:join([PrivDir, "ledger.db"]),
-            case filelib:is_dir(LedgerDB) of
-                true ->
-                    ok;
-                false ->
-                    %% ledger tar file present, extract
-                    ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
-            end;
-        false ->
-            %% ledger tar file not found, download & extract
-            ok = ssl:start(),
-            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
-            ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
-            ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
-    end,
-    Ledger = blockchain_ledger_v1:new(PrivDir),
-    %% if we haven't upgraded the ledger, upgrade it
-    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    %% Ensure the ledger has the vars we're testing against
-    blockchain_ledger_v1:vars(maps:merge(eqc_utils:current_vars(), poc_v8_vars()), [], Ledger1),
-    blockchain:bootstrap_hexes(Ledger1),
-    blockchain_ledger_v1:commit_context(Ledger1),
-    Ledger.
 
 block_time() ->
     %% block time at height 194196
@@ -142,10 +108,14 @@ check_next_hop([H | T], ActiveGateways) ->
             false
     end.
 
-name(PubkeyBin) ->
-    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
-    Name.
-
+check_target_and_path_members_not_dead(TargetPubkeyBin, Path) ->
+    DeadHotspots = dead_hotspots(),
+    (not lists:member(TargetPubkeyBin, DeadHotspots) andalso
+     lists:all(fun(P) ->
+                       not lists:member(P, DeadHotspots)
+               end,
+               Path)
+    ).
 
 poc_v8_vars() ->
     #{poc_version => 8,

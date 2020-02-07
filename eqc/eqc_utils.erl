@@ -1,6 +1,11 @@
 -module(eqc_utils).
 
--export([find_challenger/2, current_vars/0]).
+-export([find_challenger/2,
+         current_vars/0,
+         dead_hotspots/0,
+         ledger/1,
+         name/1
+        ]).
 
 find_challenger(ChallengerIndex, ActiveGateways) ->
     find_challenger(ChallengerIndex, ActiveGateways, 0).
@@ -23,6 +28,58 @@ next_iteration(N) when N > 0 ->
     N * -1;
 next_iteration(N) ->
     (N * -1) + 1.
+
+dead_hotspots() ->
+    DeadHotspots = [
+                    %% magic-carob-quail
+                    "11DMUS9sEDngNh5RF1k4pb23Ucbb9fN9RwPDd1ZMAJJiCjvo3Xx",
+                    %% delightful-stone-beetle
+                    "11idAPnBHP3AM3SjkpFRGy7XLVv12oecTFLHGBMfmBSvzNY9CW8",
+                    %% bitter-bronze-okapi
+                    "11CAwto42LXquADz1asH4gWU6yUbSi1hATDijYm8ZM4Z7RtzeQK"
+                   ],
+
+    lists:map(fun(B58Addr) -> libp2p_crypto:b58_to_bin(B58Addr) end, DeadHotspots).
+
+name(PubkeyBin) ->
+    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
+    Name.
+
+ledger(ExtraVars) ->
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3023
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    %% Path to static ledger tar
+    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
+    case filelib:is_file(LedgerTar) of
+        true ->
+            %% if we have already unpacked it, no need to do it again
+            LedgerDB = filename:join([PrivDir, "ledger.db"]),
+            case filelib:is_dir(LedgerDB) of
+                true ->
+                    ok;
+                false ->
+                    %% ledger tar file present, extract
+                    ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+            end;
+        false ->
+            %% ledger tar file not found, download & extract
+            ok = ssl:start(),
+            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
+            ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
+            ok = erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+    end,
+    Ledger = blockchain_ledger_v1:new(PrivDir),
+    %% if we haven't upgraded the ledger, upgrade it
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    %% Ensure the ledger has the vars we're testing against
+    blockchain_ledger_v1:vars(maps:merge(current_vars(), ExtraVars), [], Ledger1),
+    blockchain:bootstrap_hexes(Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
 
 current_vars() ->
     #{poc_challenge_sync_interval => 90,
@@ -58,3 +115,4 @@ current_vars() ->
       poc_v4_prob_no_rssi => 0.5,poc_version => 7,
       dkg_curve => 'SS512',poc_v4_prob_rssi_wt => 0.2,
       predicate_callback_fun => version}.
+
