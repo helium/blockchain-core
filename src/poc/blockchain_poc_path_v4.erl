@@ -142,7 +142,6 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
                     PWitnessList = lists:keysort(1, maps:to_list(PWitness)),
                     %% Select witness using icdf
                     {RandVal, _} = rand:uniform_s(RandState),
-                    io:format("randval: ~p, next_hop~n", [RandVal]),
                     blockchain_utils:icdf_select(PWitnessList, RandVal);
                 _ ->
                     {error, all_witnesses_too_close}

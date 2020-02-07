@@ -42,7 +42,6 @@ target(ChallengerPubkeyBin, Hash, Ledger, Vars) ->
             %% Sort the scaled probabilities in default order by gateway pubkey_bin
             %% make sure that we carry the rand_state through for determinism
             {RandVal, TargetRandState} = rand:uniform_s(HexRandState),
-            io:format("randval: ~p, select_target~n", [RandVal]),
             {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
             {ok, {TargetPubkeybin, TargetRandState}};
         _ ->

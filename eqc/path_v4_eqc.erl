@@ -113,7 +113,7 @@ ledger() ->
     %% if we haven't upgraded the ledger, upgrade it
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     %% Ensure the ledger has the vars we're testing against
-    blockchain_ledger_v1:vars(maps:merge(default_vars(), targeting_vars()), [], Ledger1),
+    blockchain_ledger_v1:vars(maps:merge(eqc_utils:current_vars(), poc_v8_vars()), [], Ledger1),
     blockchain:bootstrap_hexes(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
@@ -146,41 +146,23 @@ name(PubkeyBin) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
     Name.
 
-targeting_vars() ->
-    #{poc_v4_target_prob_score_wt => 0.0,
-      poc_v4_target_prob_edge_wt => 0.0,
-      poc_v5_target_prob_randomness_wt => 1.0,
-      poc_v4_target_challenge_age => 300,
-      poc_v4_target_exclusion_cells => 6000,
-      poc_v4_target_score_curve => 2,
-      poc_target_hex_parent_res => 5,
 
-      %% overwrite poc version
-      poc_version => 8,
-
-      %% additional rssi bucket range vars
+poc_v8_vars() ->
+    #{poc_version => 8,
+      %% lower range for good rssi
       poc_good_bucket_low => -115,
+      %% upper range for good rssi
       poc_good_bucket_high => -80,
-
-      %% overwrite poc next hop weights
-      poc_v4_prob_rssi_wt => 0.0,
-      poc_v4_prob_time_wt => 0.0,
+      %% math:sqrt(3) * 9.4 * (2000-1) ~ 32.5km, where 9.4 = hex_edge_length
+      poc_max_hop_cells => 2000,
+      %% half random next hop selection
       poc_v4_randomness_wt => 0.5,
-      poc_v4_prob_count_wt => 0.0,
+      %% other half based for next hop selection based on witness rssi centrality
       poc_centrality_wt => 0.5,
-      poc_max_hop_cells => 1300
-     }.
-
-default_vars() ->
-    #{poc_v4_exclusion_cells => 10,
-      poc_v4_parent_res => 11,
-      poc_v4_prob_bad_rssi => 0.01,
-      poc_v4_prob_count_wt => 0.3,
-      poc_v4_prob_good_rssi => 1.0,
-      poc_v4_prob_no_rssi => 0.5,
-      poc_v4_prob_rssi_wt => 0.3,
-      poc_v4_prob_time_wt => 0.3,
-      poc_v4_randomness_wt => 0.1,
-      poc_target_hex_parent_res => 5,
-      poc_version => 8
+      %% zeroed this because half random + half centrality
+      poc_v4_prob_rssi_wt => 0.0,
+      %% zeroed this because half random + half centrality
+      poc_v4_prob_time_wt => 0.0,
+      %% zeroed this because half random + half centrality
+      poc_v4_prob_count_wt => 0.0
      }.
