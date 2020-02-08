@@ -15,14 +15,26 @@
          target/4
         ]).
 
-%% @doc Finds a potential target to start the path from.
 -spec target(ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
              Hash :: binary(),
-             Ledger :: blockchain:ledger(),
-             Vars :: map()) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}} | {error, no_target}.
+             Ledger :: blockchain_ledger_v1:ledger(),
+             Vars :: map()) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
 target(ChallengerPubkeyBin, Hash, Ledger, Vars) ->
-    %% Get the zone to target within
-    {ok, {Hex, HexRandState}} = target_hex(Hash, Ledger),
+    %% Get all hexes once
+    HexList = sorted_hex_list(Ledger),
+    %% Initialize seed with Hash once
+    InitRandState = blockchain_utils:rand_state(Hash),
+    %% Initial zone to begin targeting into
+    {ok, {InitHex, InitHexRandState}} = choose_zone(InitRandState, HexList),
+    target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{InitHex, InitHexRandState}]).
+
+%% @doc Finds a potential target to start the path from.
+-spec target_(ChallengerPubkeyBin :: libp2p_crypto:pubkey_bin(),
+              Ledger :: blockchain_ledger_v1:ledger(),
+              Vars :: map(),
+              HexList :: [h3:h3_index()],
+              Attempted :: [{h3:h3_index(), rand:state()}]) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
+target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState} | Tail]=_Attempted) ->
     %% Get a list of gateway pubkeys within this hex
     {ok, AddrList} = blockchain_ledger_v1:get_hex(Hex, Ledger),
     %% Remove challenger if present and also remove gateways who haven't challenged
@@ -43,7 +55,11 @@ target(ChallengerPubkeyBin, Hash, Ledger, Vars) ->
             {ok, TargetPubkeybin} = blockchain_utils:icdf_select(lists:keysort(1, maps:to_list(ProbTargetMap)), RandVal),
             {ok, {TargetPubkeybin, TargetRandState}};
         _ ->
-            {error, no_target}
+            %% no eligible target in this zone
+            %% find a new zone
+            {ok, New} = choose_zone(HexRandState, HexList),
+            %% remove Hex from attemped, add New to attempted and retry
+            target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [New | Tail])
     end.
 
 %% @doc Filter gateways based on these conditions:
@@ -93,15 +109,21 @@ challenge_age(Vars) ->
 prob_randomness_wt(Vars) ->
     maps:get(poc_v5_target_prob_randomness_wt, Vars).
 
--spec target_hex(Hash :: binary(),
-                 Ledger :: blockchain:ledger()) -> h3:h3_index().
-target_hex(Hash, Ledger) ->
+
+-spec sorted_hex_list(Ledger :: blockchain_ledger_v1:ledger()) -> [h3:h3_index()].
+sorted_hex_list(Ledger) ->
     %% Grab the list of parent hexes
     {ok, Hexes} = blockchain_ledger_v1:get_hexes(Ledger),
-    HexList = lists:keysort(1, maps:to_list(Hexes)),
+    lists:keysort(1, maps:to_list(Hexes)).
 
-    %% choose hex via CDF
-    InitRandState = blockchain_utils:rand_state(Hash),
-    {HexVal, HexRandState} = rand:uniform_s(InitRandState),
-    {ok, Hex} = blockchain_utils:icdf_select(HexList, HexVal),
-    {ok, {Hex, HexRandState}}.
+-spec choose_zone(RandState :: rand:state(),
+                  HexList :: [h3:h3_index()]) -> {ok, {h3:h3_index(), rand:state()}}.
+choose_zone(RandState, HexList) ->
+    {HexVal, HexRandState} = rand:uniform_s(RandState),
+    case blockchain_utils:icdf_select(HexList, HexVal) of
+        {error, zero_weight} ->
+            %% retry
+            choose_zone(HexRandState, HexList);
+        {ok, Hex} ->
+            {ok, {Hex, HexRandState}}
+    end.

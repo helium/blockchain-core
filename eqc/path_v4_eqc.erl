@@ -22,48 +22,43 @@ prop_path_check() ->
                 %% Find some challenger
                 {ChallengerPubkeyBin, _ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
-                Check = case blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars) of
-                            {error, no_target} ->
-                                true;
-                            {ok, {TargetPubkeyBin, TargetRandState}} ->
-                                {Time, Path} = timer:tc(fun() ->
-                                                                blockchain_poc_path_v4:build(TargetPubkeyBin,
-                                                                                             TargetRandState,
-                                                                                             Ledger,
-                                                                                             block_time(),
-                                                                                             Vars)
-                                                        end),
+                {ok, {TargetPubkeyBin, TargetRandState}} = blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars),
+                {Time, Path} = timer:tc(fun() ->
+                                                blockchain_poc_path_v4:build(TargetPubkeyBin,
+                                                                             TargetRandState,
+                                                                             Ledger,
+                                                                             block_time(),
+                                                                             Vars)
+                                        end),
 
-                                PathLength = length(Path),
+                PathLength = length(Path),
 
-                                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
-                                HumanFullPath = #{name(TargetPubkeyBin) => [[name(P) || P <- Path]]},
-                                HumanPath = [name(P) || P <- Path],
-                                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
+                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+                HumanFullPath = #{name(TargetPubkeyBin) => [[name(P) || P <- Path]]},
+                HumanPath = [name(P) || P <- Path],
+                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
-                                case length(Path) > 1 of
-                                    true ->
-                                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
-                                        ok = file:write_file("/tmp/paths_name_js", io_lib:fwrite("~p.\n", [HumanFullPath]), [append]),
-                                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
-                                    false ->
-                                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
-                                end,
+                case length(Path) > 1 of
+                    true ->
+                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                        ok = file:write_file("/tmp/paths_name_js", io_lib:fwrite("~p.\n", [HumanFullPath]), [append]),
+                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
+                    false ->
+                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
+                end,
 
-                                %% Checks:
-                                %% - honor path limit
-                                %% - atleast one element in path
-                                %% - target is always in path
-                                %% - we never go back to the same h3 index in path
-                                %% - check next hop is a witness of previous gateway
-                                C1 = PathLength =< PathLimit andalso PathLength >= 1,
-                                C2 = length(Path) == length(lists:usort(Path)),
-                                C3 = lists:member(TargetPubkeyBin, Path),
-                                C4 = check_path_h3_indices(Path, ActiveGateways),
-                                C5 = check_next_hop(Path, ActiveGateways),
-                                C6 = check_target_and_path_members_not_dead(TargetPubkeyBin, Path),
-                                C1 andalso C2 andalso C3 andalso C3 andalso C4 andalso C5 andalso C6
-                        end,
+                %% Checks:
+                %% - honor path limit
+                %% - atleast one element in path
+                %% - target is always in path
+                %% - we never go back to the same h3 index in path
+                %% - check next hop is a witness of previous gateway
+                C1 = PathLength =< PathLimit andalso PathLength >= 1,
+                C2 = length(Path) == length(lists:usort(Path)),
+                C3 = lists:member(TargetPubkeyBin, Path),
+                C4 = check_path_h3_indices(Path, ActiveGateways),
+                C5 = check_next_hop(Path, ActiveGateways),
+                C6 = check_target_and_path_members_not_dead(TargetPubkeyBin, Path),
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
@@ -72,7 +67,15 @@ prop_path_check() ->
                               blockchain_ledger_v1:close(Ledger)
                           end,
                           %% TODO: split into multiple verifiers instead of a single consolidated one
-                          conjunction([{verify_path_construction, Check}]))
+                          conjunction([
+                                       {verify_path_limit, C1},
+                                       {verify_minimum_one_element, C2},
+                                       {verify_target_in_path, C3},
+                                       {verify_non_vw_path, C4},
+                                       {verify_next_hop_is_witness, C5},
+                                       {verify_not_dead, C6}
+                                      ])
+                         )
             end).
 
 gen_path_limit() ->
