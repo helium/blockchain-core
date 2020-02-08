@@ -28,13 +28,13 @@ prop_hex_check() ->
                 %% Intiial acc for the counter, each node starts with a 0 count
                 InitAcc = maps:map(fun(_, _) -> 0 end, CumulativePopulationMap),
 
-                Fname = "/tmp/zones_" ++ libp2p_crypto:bin_to_b58(Hash),
+                %% Fname = "/tmp/zones_" ++ libp2p_crypto:bin_to_b58(Hash),
 
                 %% Track all counts a node gets picked
                 {Counter, _} = lists:foldl(fun(_I, {Acc, AccEntropy}) ->
                                               {RandVal, NewEntropy} = rand:uniform_s(AccEntropy),
                                               {ok, Node} = blockchain_utils:icdf_select(Population, RandVal),
-                                              ok = file:write_file(Fname, io_lib:fwrite("~p\n", [Node]), [append]),
+                                              %% ok = file:write_file(Fname, io_lib:fwrite("~p\n", [Node]), [append]),
                                               {maps:update_with(Node, fun(X) -> X + 1 end, 1, Acc), NewEntropy}
                                       end,
                                       {InitAcc, Entropy},
@@ -73,8 +73,8 @@ cdf(PopulationList) ->
     [{Node, blockchain_utils:normalize_float(Weight/Sum)} || {Node, Weight} <- PopulationList].
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3024
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),

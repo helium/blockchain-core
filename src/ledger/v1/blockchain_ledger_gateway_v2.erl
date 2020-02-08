@@ -65,7 +65,8 @@
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
--export_type([gateway/0, gateway_witness/0, witnesses/0]).
+-type histogram() :: #{integer() => integer()}.
+-export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -400,7 +401,7 @@ has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
 witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
 
--spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | #{integer() => integer()}.
+-spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->
     Witness#witness.hist.
 

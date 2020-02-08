@@ -218,6 +218,20 @@ is_valid(Txn, Chain) ->
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     maybe_log_duration(ledger_at, StartLA),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
+                                                                               {ok, V} when V >= 8 ->
+                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
+                                                                                   %% Targeting phase
+                                                                                   StartFT = erlang:monotonic_time(millisecond),
+                                                                                   %% Find the original target
+                                                                                   {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
+                                                                                   maybe_log_duration(target, StartFT),
+                                                                                   %% Path building phase
+                                                                                   StartB = erlang:monotonic_time(millisecond),
+                                                                                   Time = blockchain_block:time(Block1),
+                                                                                   RetB = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
+                                                                                   maybe_log_duration(build, StartB),
+                                                                                   RetB;
+
                                                                                {ok, V} when V >= 7 ->
                                                                                    Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    StartFT = erlang:monotonic_time(millisecond),

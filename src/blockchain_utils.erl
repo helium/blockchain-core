@@ -208,7 +208,7 @@ vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
 
--spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()}.
+-spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
@@ -216,6 +216,8 @@ icdf_select(PopulationList, Rnd) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+icdf_select([{_Node, 0.0}], _Rnd, _OrigRnd) ->
+    {error, zero_weight};
 icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->
     {ok, Node};
 icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->

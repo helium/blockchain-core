@@ -225,4 +225,14 @@
 %% Hierarchical targeting variables
 %% Create hexes at this resolution for all the hotspots on the network.
 -define(poc_target_hex_parent_res, poc_target_hex_parent_res).
+
+%% RSSI Bucketing variables
+%% Weight associated with biasing for RSSI centrality measures
+-define(poc_centrality_wt, poc_centrality_wt).
+%% Lower bound for known good rssi bucket
+-define(poc_good_bucket_low, poc_good_bucket_low).
+%% Upper bound for known good rssi bucket
+-define(poc_good_bucket_high, poc_good_bucket_high).
+%% Maximum allowed h3 grid cells for a potential next hop
+-define(poc_max_hop_cells, poc_max_hop_cells).
 %% ------------------------------------------------------------------

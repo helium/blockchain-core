@@ -16,7 +16,7 @@ prop_path_check() ->
                 ActiveGateways = filter_gateways(blockchain_ledger_v1:active_gateways(Ledger), Height),
                 Vars = maps:put(poc_path_limit, PathLimit, default_vars()),
 
-                {Challenger, ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
+                {Challenger, ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
 
                 GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
                                                     {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
@@ -79,11 +79,11 @@ gen_hash() ->
     binary(32).
 
 gen_challenger_index() ->
-    ?SUCHTHAT(S, int(), S < 2614 andalso S > 0).
+    ?SUCHTHAT(S, int(), S < 3024 andalso S > 0).
 
 ledger() ->
-    %% Ledger at height: 168420
-    %% ActiveGateway Count: 2614
+    %% Ledger at height: 194196
+    %% ActiveGateway Count: 3023
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -104,8 +104,8 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 block_time() ->
-    %% block time at height 131551
-    1576022415 * 1000000000.
+    %% block time at height 194196
+    1580943269 * 1000000000.
 
 default_vars() ->
     #{poc_v4_exclusion_cells => 10,
@@ -151,24 +151,3 @@ name(PubkeyBin) ->
     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
     Name.
 
-find_challenger(ChallengerIndex, ActiveGateways) ->
-    find_challenger(ChallengerIndex, ActiveGateways, 0).
-
-find_challenger(ChallengerIndex, ActiveGateways, Iteration) ->
-    Idx = case abs(ChallengerIndex + Iteration) rem maps:size(ActiveGateways) of
-              0 -> maps:size(ActiveGateways);
-              N -> N
-          end,
-    Challenger = lists:nth(Idx, maps:keys(ActiveGateways)),
-    case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
-        undefined ->
-            find_challenger(ChallengerIndex, ActiveGateways, next_iteration(Iteration));
-        ChallengerLoc ->
-            {Challenger, ChallengerLoc}
-    end.
-
-next_iteration(0) -> 1;
-next_iteration(N) when N > 0 ->
-    N * -1;
-next_iteration(N) ->
-    (N * -1) + 1.
