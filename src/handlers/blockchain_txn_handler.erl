@@ -40,8 +40,12 @@ server(Connection, Path, _TID, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [Parent, TxnHash]) ->
+    erlang:process_flag(trap_exit, true),
+    lager:debug("starting txn handler client", []),
     {ok, #state{parent=Parent, txn_hash=TxnHash}};
 init(server, _Conn, [_Path, _Parent, Callback]) ->
+    erlang:process_flag(trap_exit, true),
+    lager:debug("starting txn handler server", []),
     {ok, #state{callback = Callback}}.
 
 handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->

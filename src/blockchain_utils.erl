@@ -123,7 +123,7 @@ pmap(F, L, Width) ->
                    spawn_opt(
                      fun() ->
                              Parent ! {pmap, N, lists:map(F, IL)}
-                     end, [{fullsweep_after, 0}]),
+                     end, [{fullsweep_after, 0}, link]),
                    N+1
            end, 0, OL),
     L2 = [receive
@@ -212,6 +212,7 @@ vars_binary_keys_to_atoms(Vars) ->
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

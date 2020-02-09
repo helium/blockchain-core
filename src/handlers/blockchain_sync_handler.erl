@@ -49,15 +49,15 @@ server(Connection, Path, _TID, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [Blockchain]) ->
-    case blockchain_worker:sync_paused() of
-        true ->
-            {stop, sync_paused};
-        false ->
-            BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
-            BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
-            {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit}}
-    end;
+    erlang:process_flag(trap_exit, true),
+    lager:info("starting sync handler client",[]),
+    BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
+    BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
+    {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit}};
+
 init(server, _Conn, [_Path, _, Blockchain]) ->
+    erlang:process_flag(trap_exit, true),
+    lager:info("starting sync handler server",[]),
     BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
     BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),
     {ok, #state{blockchain=Blockchain, batch_size=BatchSize, batch_limit=BatchLimit}}.

@@ -34,7 +34,8 @@
     sync/0,
     cancel_sync/0,
     pause_sync/0,
-    sync_paused/0
+    sync_paused/0,
+    maybe_sync/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -98,6 +99,9 @@ num_consensus_members() ->
 consensus_addrs() ->
     gen_server:call(?SERVER, consensus_addrs, infinity).
 
+maybe_sync() ->
+    gen_server:cast(?SERVER, maybe_sync).
+
 sync() ->
     gen_server:call(?SERVER, sync, infinity).
 
@@ -109,7 +113,7 @@ pause_sync() ->
 
 sync_paused() ->
     try
-        gen_server:call(?SERVER, sync_paused, 100)  % intentionally very low
+        gen_server:call(?SERVER, sync_paused, infinity)
     catch _:_ ->
             true  % it's fine to occasionally get this wrong
     end.
@@ -357,6 +361,8 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast(maybe_sync, State) ->
+    {noreply, maybe_sync(State)};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain}
                                                             ,swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
@@ -456,16 +462,12 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
                 false ->
                     ok;
                 true ->
-                    case libp2p_swarm:dial_framed_stream(Swarm,
-                                                         libp2p_crypto:pubkey_bin_to_p2p(Sender),
-                                                         ?SYNC_PROTOCOL,
-                                                         blockchain_sync_handler,
-                                                         [Chain]) of
-                        {ok, Stream} ->
-                            Stream ! {hash, LocalHead};
-                        _ ->
-                            lager:warning("Failed to dial sync service on: ~p", [Sender])
-                    end
+                    case  blockchain_utils:start_sync_stream(Swarm, Chain, libp2p_crypto:pubkey_bin_to_p2p(Sender)) of
+                        {ok, StreamPid} ->
+                            StreamPid ! {hash, LocalHead};
+                        {error, _Reason} ->
+                            lager:warning("Failed to dial sync service on: ~p, reason: ~p", [Sender, _Reason])
+                     end
             end
     end,
     {noreply, State};
@@ -477,6 +479,7 @@ handle_cast(mismatch, #state{blockchain=Chain}=State) ->
     ok = blockchain:delete_block(Block, Chain),
     blockchain_lock:release(),
     {noreply, State};
+
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -543,8 +546,19 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, #state{blockchain={no_genesis, Chain}}) ->
     ok = blockchain:close(Chain),
     ok;
-terminate(_Reason, #state{blockchain=Chain}) ->
-    ok = blockchain:close(Chain),
+terminate(_Reason, #state{blockchain=Chain, swarm = Swarm, sync_pid = SyncPid} = _State) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
+    %% we need to remove swarm handlers to prevent any new msgs being relayed
+    catch remove_handlers(Swarm),
+    %% close any client side blockchain sync handler
+    %% This process usually builds up a mailbox queue of previously relayed msgs
+    %% If we simply call libp2p_framed_stream:close(SyncPid), the close msg will go to the back of the mailbox queue
+    %% meaning we will process the other msgs first ( which are going to be block msgs )
+    %% ...we dont want to do that during a terminate...
+    %% as such we have to kill the sync handler, and bypass the mailbox msgs, otherwise its going to get messy with errors
+    exit(SyncPid, kill),
+    %% close the leger and the blockchain db
+    catch blockchain:close(Chain),
     ok.
 
 
@@ -585,10 +599,18 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            Pid = sync(Swarm, Chain, RandomPeer),
-            Ref = erlang:monitor(process, Pid),
-            lager:info("unknown starting ~p ~p", [Pid, Ref]),
-            State#state{sync_pid = Pid, sync_ref = Ref}
+            case dial_stream(Swarm, Chain, RandomPeer) of
+                {ok, StreamPid} ->
+                    {ok, HeadHash} = blockchain:sync_hash(Chain),
+                    StreamPid ! {hash, HeadHash},
+                    Ref = erlang:monitor(process, StreamPid),
+                    lager:info("sync handler started with pid ~p and ref ~p", [StreamPid, Ref]),
+                    State#state{sync_pid = StreamPid, sync_ref = Ref};
+                {error, _Reason} ->
+                    lager:info("failed to start sync handler with reason: ~p, will try again in ~p ms",[_Reason, ?SYNC_TIME]),
+                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                    State#state{sync_timer=Ref}
+            end
     end.
 
 cancel_sync(#state{sync_pid = undefined} = State, _Restart) ->
@@ -599,18 +621,29 @@ cancel_sync(#state{sync_pid = Pid, sync_ref = Ref} = State, Restart) ->
             erlang:demonitor(Ref, [flush]);
         _ -> ok
     end,
-    Pid ! cancel,
+    libp2p_framed_stream:close(Pid),
     State#state{sync_pid = undefined, sync_ref = make_ref()}.
 
 pause_sync(State) ->
     State1 = cancel_sync(State, false),
     State1#state{sync_paused = true}.
 
+
+dial_stream(Swarm, Chain, Peer) ->
+    case libp2p_swarm:dial_framed_stream(Swarm, Peer, ?SYNC_PROTOCOL,
+                                          blockchain_sync_handler,
+                                          [Chain])
+        of
+            {ok, Stream} ->
+                {ok, Stream};
+            {error, Reason} ->
+                {error, Reason}
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_handlers(pid(), blockchain:blockchain()) -> ok.
 add_handlers(Swarm, Blockchain) ->
     libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL,
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
@@ -635,33 +668,6 @@ remove_handlers(Swarm) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-sync(Swarm, Chain, Peer) ->
-    spawn(fun() ->
-        case libp2p_swarm:dial_framed_stream(Swarm,
-                                             Peer,
-                                             ?SYNC_PROTOCOL,
-                                             blockchain_sync_handler,
-                                             [Chain])
-        of
-            {ok, Stream} ->
-                {ok, HeadHash} = blockchain:sync_hash(Chain),
-                Stream ! {hash, HeadHash},
-
-                Ref1 = erlang:monitor(process, Stream),
-                receive
-                    cancel ->
-                        libp2p_framed_stream:close(Stream);
-                    {'DOWN', Ref1, process, Stream, _} ->
-                        %% we're done, nothing to do here.
-                        ok
-                        %% do we want an after clause here?  is there
-                        %% some way to measure stuckness vs just
-                        %% taking a long time?
-                end;
-            _ ->
-                ok
-        end
-    end).
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,
