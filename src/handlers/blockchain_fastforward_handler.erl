@@ -8,7 +8,7 @@
 -behavior(libp2p_framed_stream).
 
 
--include_lib("helium_proto/src/pb/blockchain_sync_handler_pb.hrl").
+-include_lib("helium_proto/include/blockchain_sync_handler_pb.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
