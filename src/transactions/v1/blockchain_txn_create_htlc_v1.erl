@@ -11,7 +11,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_utils.hrl").
--include_lib("helium_proto/src/pb/blockchain_txn_create_htlc_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
     new/7,

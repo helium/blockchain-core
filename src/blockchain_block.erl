@@ -33,7 +33,7 @@
                             Key::ignore | binary()) ->
     false | {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 
--include_lib("helium_proto/src/pb/blockchain_block_pb.hrl").
+-include_lib("helium_proto/include/blockchain_block_pb.hrl").
 
 -export([new_genesis_block/1, new_genesis_block/2,
          prev_hash/1,

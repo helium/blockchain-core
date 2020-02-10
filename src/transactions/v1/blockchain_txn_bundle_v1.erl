@@ -8,7 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_vars.hrl").
--include_lib("helium_proto/src/pb/blockchain_txn_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_pb.hrl").
 
 -define(MAX_BUNDLE_SIZE, 5).
 
