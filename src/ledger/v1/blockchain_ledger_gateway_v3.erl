@@ -15,6 +15,7 @@
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
+    height_added_at/1, height_added_at/2,
     print/3, print/4,
     serialize/1, deserialize/1,
     alpha/1,
@@ -58,7 +59,8 @@
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
-    witnesses = #{} ::  witnesses()
+    witnesses = #{} ::  witnesses(),
+    height_added_at :: undefined | non_neg_integer()
 }).
 
 -type gateway() :: #gateway_v3{}.
@@ -66,10 +68,6 @@
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
@@ -90,35 +88,19 @@ new(OwnerAddress, Location, Nonce) ->
         delta=1
     }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner_address(Gateway :: gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Gateway) ->
     Gateway#gateway_v3.owner_address.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                     Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
     Gateway#gateway_v3{owner_address=OwnerAddress}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec location(Gateway :: gateway()) ->  undefined | pos_integer().
 location(Gateway) ->
     Gateway#gateway_v3.location.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
     Gateway#gateway_v3{location=Location}.
@@ -185,87 +167,56 @@ scale_shape_param(ShapeParam) ->
         false -> ShapeParam
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec alpha(Gateway :: gateway()) -> float().
 alpha(Gateway) ->
     Gateway#gateway_v3.alpha.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec beta(Gateway :: gateway()) -> float().
 beta(Gateway) ->
     Gateway#gateway_v3.beta.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec delta(Gateway :: gateway()) -> undefined | non_neg_integer().
 delta(Gateway) ->
     Gateway#gateway_v3.delta.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
     Gateway#gateway_v3{alpha=normalize_float(scale_shape_param(Alpha)),
                        beta=normalize_float(scale_shape_param(Beta)),
                        delta=Delta}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
     Gateway#gateway_v3.last_poc_challenge.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec last_poc_challenge(LastPocChallenge :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
     Gateway#gateway_v3{last_poc_challenge=LastPocChallenge}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
 last_poc_onion_key_hash(Gateway) ->
     Gateway#gateway_v3.last_poc_onion_key_hash.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
     Gateway#gateway_v3{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
     Gateway#gateway_v3.nonce.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
     Gateway#gateway_v3{nonce=Nonce}.
+
+-spec height_added_at(Gateway :: gateway()) -> non_neg_integer().
+height_added_at(Gateway) ->
+    Gateway#gateway_v3.height_added_at.
+
+-spec height_added_at(HeightAddedAt :: non_neg_integer(), Gateway :: gateway()) -> gateway().
+height_added_at(HeightAddedAt, Gateway) ->
+    Gateway#gateway_v3{height_added_at=HeightAddedAt}.
+
 
 -spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
             Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -407,10 +358,6 @@ serialize(Gw) ->
     BinGw = erlang:term_to_binary(Gw),
     <<3, BinGw/binary>>.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec deserialize(binary()) -> gateway().
 deserialize(<<3, Bin/binary>>) ->
     erlang:binary_to_term(Bin);
