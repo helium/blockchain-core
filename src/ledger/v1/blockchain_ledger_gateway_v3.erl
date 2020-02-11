@@ -22,12 +22,14 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/5,
+    add_witness/3,
+
+    get_witness/2,
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
-    witness_hist/1, witness_recent_time/1, witness_first_time/1,
+
     convert/1
 ]).
 
@@ -39,15 +41,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
--record(witness, {
-          nonce :: non_neg_integer(),
-          count :: non_neg_integer(),
-          hist = erlang:error(no_histogram) :: #{integer() => integer()}, %% sampled rssi histogram
-          first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
-          recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
-          time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
-         }).
 
 -record(gateway_v3, {
     owner_address :: libp2p_crypto:pubkey_bin(),
@@ -64,9 +57,8 @@
 }).
 
 -type gateway() :: #gateway_v3{}.
--type gateway_witness() :: #witness{}.
--type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
--export_type([gateway/0, gateway_witness/0, witnesses/0]).
+-type witnesses() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_witness_v1:witness()}.
+-export_type([gateway/0]).
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
@@ -254,99 +246,71 @@ print(Address, Gateway, Ledger, Verbose) ->
      {owner_address, libp2p_crypto:pubkey_bin_to_p2p(owner_address(Gateway))},
      {location, UndefinedHandleFunc(location(Gateway))},
      {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
-     {nonce, nonce(Gateway)}
+     {nonce, nonce(Gateway)},
+     {height_added_at, height_added_at(Gateway)}
     ] ++ Scoring.
 
 
-add_witness(WitnessAddress, WitnessGW = #gateway_v3{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v3{witnesses=Witnesses}) ->
-    %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
-            %% nonce is the same, increment the count
-            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1},
-                                                  Witnesses)};
-        _ ->
-            %% nonce mismatch or first witnesses for this peer
-            %% replace any old witness record with this new one
-            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=create_histogram(WitnessGW, Gateway)},
-                                                  Witnesses)}
-    end;
-add_witness(WitnessAddress, WitnessGW = #gateway_v3{nonce=Nonce}, RSSI, TS, Gateway = #gateway_v3{witnesses=Witnesses}) ->
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
-            %% nonce is the same, increment the count
-            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1,
-                                                                  hist=update_histogram(RSSI, Hist),
-                                                                  recent_time=TS},
-                                                  Witnesses)};
-        _ ->
-            %% nonce mismatch or first witnesses for this peer
-            %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway),
-            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=update_histogram(RSSI, Histogram),
-                                                           first_time=TS,
-                                                           recent_time=TS},
-                                                  Witnesses)}
+-spec add_witness(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  Witness :: blockchain_ledger_gateway_witness_v1:witness(),
+                  Gateway :: gateway()) -> gateway().
+add_witness(WitnessPubkeyBin, Witness, Gateway) ->
+    case get_witness(Gateway, WitnessPubkeyBin) of
+        {error, witness_not_found} ->
+            %% First time seeing this witness for this gateway
+            %% Put it in the witnesses map
+            insert_witness(Gateway, WitnessPubkeyBin, WitnessPubkeyBin);
+
+        FoundWitness ->
+            FoundWitnessNonce = blockchain_ledger_gateway_witness_v1:nonce(FoundWitness),
+
+            %% Check if the nonce matches
+            WitnessNonce = blockchain_ledger_gateway_witness_v1:nonce(Witness),
+            case WitnessNonce == (FoundWitnessNonce + 1) of
+                false ->
+                    %% The nonce didn't lign up, remove this witness
+                    remove_witness(Gateway, WitnessPubkeyBin);
+                true ->
+                    %% Nonces match, increment count for this witness
+                    FoundWitnessCount = blockchain_ledger_gateway_witness_v1:count(FoundWitness),
+                    WitnessToAdd = blockchain_ledger_gateway_witness_v1:count(FoundWitnessCount+1, Witness),
+                    insert_witness(Gateway, WitnessPubkeyBin, WitnessToAdd)
+            end
     end.
 
-create_histogram(#gateway_v3{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v3{location=GatewayLoc}=_Gateway) ->
-    %% Get the free space path loss
-    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
-    %% Maximum number of bins in the histogram
-    NumBins = 10,
-    %% Spacing between histogram keys (x axis)
-    StepSize = ((-132 + abs(FreeSpacePathLoss))/(NumBins - 1)),
-    %% Construct a custom histogram around the expected path loss
-    maps:from_list([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
-
-update_histogram(Val, Histogram) ->
-    Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
-    update_histogram_(Val, Keys, Histogram).
-
-update_histogram_(_Val, [LastKey], Histogram) ->
-    maps:put(LastKey, maps:get(LastKey, Histogram, 0) + 1, Histogram);
-update_histogram_(Val, [Key | [Bound | _]], Histogram) when Val > Bound ->
-    maps:put(Key, maps:get(Key, Histogram, 0) + 1, Histogram);
-update_histogram_(Val, [_ | Tail], Histogram) ->
-    update_histogram_(Val, Tail, Histogram).
+-spec insert_witness(Gateway :: gateway(),
+                     WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                     Witness :: blockchain_ledger_gateway_witness_v1:witness()) -> gateway().
+insert_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin, Witness) ->
+    Gateway#gateway_v3{witnesses=maps:put(WitnessPubkeyBin, Witness, Witnesses)}.
 
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
     Gateway#gateway_v3{witnesses=#{}}.
 
--spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
-remove_witness(Gateway, WitnessAddr) ->
-    Gateway#gateway_v3{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v3.witnesses)}.
+-spec get_witness(Gateway :: gateway(),
+                  WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> {error, witness_not_found} | blockchain_ledger_gateway_witness_v1:witness().
+get_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
+    case has_witness(Gateway, WitnessPubkeyBin) of
+        false ->
+            {error, witness_not_found};
+        true ->
+            maps:get(WitnessPubkeyBin, Witnesses)
+    end.
 
--spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
-has_witness(#gateway_v3{witnesses=Witnesses}, WitnessAddr) ->
-    maps:is_key(WitnessAddr, Witnesses).
+-spec remove_witness(Gateway :: gateway(),
+                     WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> gateway().
+remove_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
+    Gateway#gateway_v3{witnesses=maps:remove(WitnessPubkeyBin, Witnesses)}.
 
--spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-spec has_witness(Gateway :: gateway(),
+                  WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
+has_witness(#gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
+    maps:is_key(WitnessPubkeyBin, Witnesses).
+
+-spec witnesses(gateway()) -> witnesses().
 witnesses(Gateway) ->
     Gateway#gateway_v3.witnesses.
-
--spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | #{integer() => integer()}.
-witness_hist(Witness) ->
-    Witness#witness.hist.
-
--spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
-witness_recent_time(Witness) ->
-    Witness#witness.recent_time.
-
--spec witness_first_time(gateway_witness()) -> undefined | non_neg_integer().
-witness_first_time(Witness) ->
-    Witness#witness.first_time.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -471,6 +435,12 @@ nonce_test() ->
     Gw = new(<<"owner_address">>, 12),
     ?assertEqual(0, nonce(Gw)),
     ?assertEqual(1, nonce(nonce(1, Gw))).
+
+height_added_at_test() ->
+    Gw0 = new(<<"owner_address">>, 12),
+    ?assertEqual(undefined, height_added_at(Gw0)),
+    Gw = height_added_at(100, Gw0),
+    ?assertEqual(100, height_added_at(Gw)).
 
 fake_config() ->
     meck:expect(blockchain_event,
