@@ -268,12 +268,13 @@ add_witness(WitnessPubkeyBin, Witness, Gateway) ->
             WitnessNonce = blockchain_ledger_gateway_witness_v1:nonce(Witness),
             case WitnessNonce == (FoundWitnessNonce + 1) of
                 false ->
-                    %% The nonce didn't lign up, remove this witness
+                    %% The nonce didn't line up, remove this witness
+                    %% It has likely reasserted location
                     remove_witness(Gateway, WitnessPubkeyBin);
                 true ->
                     %% Nonces match, increment count for this witness
                     FoundWitnessCount = blockchain_ledger_gateway_witness_v1:count(FoundWitness),
-                    WitnessToAdd = blockchain_ledger_gateway_witness_v1:count(FoundWitnessCount+1, Witness),
+                    WitnessToAdd = blockchain_ledger_gateway_witness_v1:count(Witness, FoundWitnessCount+1),
                     insert_witness(Gateway, WitnessPubkeyBin, WitnessToAdd)
             end
     end.

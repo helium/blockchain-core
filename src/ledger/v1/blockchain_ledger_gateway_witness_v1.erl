@@ -48,48 +48,54 @@ new(Nonce, Count) ->
 nonce(#witness_v1{nonce=Nonce}) ->
     Nonce.
 
--spec nonce(non_neg_integer(), witness()) -> witness().
-nonce(Nonce, Witness) ->
+-spec nonce(Witness :: witness(),
+            Nonce :: non_neg_integer()) -> witness().
+nonce(Witness, Nonce) ->
     Witness#witness_v1{nonce=Nonce}.
 
 -spec count(witness()) -> non_neg_integer().
 count(#witness_v1{count=Count}) ->
     Count.
 
--spec count(non_neg_integer(), witness()) -> witness().
-count(Count, Witness) ->
+-spec count(Witness :: witness(),
+            Count :: non_neg_integer()) -> witness().
+count(Witness, Count) ->
     Witness#witness_v1{count=Count}.
 
 -spec first_time(witness()) -> non_neg_integer().
 first_time(#witness_v1{first_time=FirstTime}) ->
     FirstTime.
 
--spec first_time(non_neg_integer(), witness()) -> witness().
-first_time(FirstTime, Witness) ->
+-spec first_time(Witness :: witness(),
+                 FirstTime :: non_neg_integer()) -> witness().
+first_time(Witness, FirstTime) ->
     Witness#witness_v1{first_time=FirstTime}.
 
 -spec recent_time(witness()) -> non_neg_integer().
 recent_time(#witness_v1{recent_time=RecentTime}) ->
     RecentTime.
 
--spec recent_time(non_neg_integer(), witness()) -> witness().
-recent_time(RecentTime, Witness) ->
+-spec recent_time(Witness :: witness(),
+                  RecentTime :: non_neg_integer()) -> witness().
+recent_time(Witness, RecentTime) ->
     Witness#witness_v1{recent_time=RecentTime}.
 
 -spec active_hist(witness()) -> witness_hist().
 active_hist(#witness_v1{active_hist=ActiveHist}) ->
     ActiveHist.
 
--spec active_hist(witness_hist(), witness()) -> witness().
-active_hist(ActiveHist, Witness) ->
+-spec active_hist(Witness :: witness(),
+                  ActiveHist :: witness_hist()) -> witness().
+active_hist(Witness, ActiveHist) ->
     Witness#witness_v1{active_hist=ActiveHist}.
 
 -spec old_hist(witness()) -> witness_hist().
 old_hist(#witness_v1{old_hist=OldHist}) ->
     OldHist.
 
--spec old_hist(witness_hist(), witness()) -> witness().
-old_hist(OldHist, Witness) ->
+-spec old_hist(Witness :: witness(),
+               OldHist :: witness_hist()) -> witness().
+old_hist(Witness, OldHist) ->
     Witness#witness_v1{old_hist=OldHist}.
 
 -spec serialize(witness()) -> binary().
