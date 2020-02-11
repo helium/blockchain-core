@@ -2,7 +2,12 @@
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
--import(eqc_utils, [name/1, ledger/1, dead_hotspots/0, find_challenger/2]).
+-import(eqc_utils,
+        [ledger/1,
+         dead_hotspots/0,
+         find_challenger/2,
+         maybe_output_paths/3
+        ]).
 
 -export([prop_path_check/0]).
 
@@ -33,19 +38,7 @@ prop_path_check() ->
 
                 PathLength = length(Path),
 
-                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
-                HumanFullPath = #{name(TargetPubkeyBin) => [[name(P) || P <- Path]]},
-                HumanPath = [name(P) || P <- Path],
-                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
-
-                case length(Path) > 1 of
-                    true ->
-                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
-                        ok = file:write_file("/tmp/paths_name_js", io_lib:fwrite("~p.\n", [HumanFullPath]), [append]),
-                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
-                    false ->
-                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
-                end,
+                ok = maybe_output_paths(TargetPubkeyBin, Path, Time),
 
                 %% Checks:
                 %% - honor path limit

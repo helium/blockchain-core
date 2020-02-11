@@ -3,7 +3,8 @@
 -export([find_challenger/2,
          dead_hotspots/0,
          ledger/1,
-         name/1
+         name/1,
+         maybe_output_paths/3
         ]).
 
 find_challenger(ChallengerIndex, ActiveGateways) ->
@@ -85,4 +86,27 @@ extract_ledger_tar(PrivDir, LedgerTar) ->
             {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+    end.
+
+maybe_output_paths(TargetPubkeyBin, Path, Time) ->
+    %% export EQC_DEBUG=1 when running eqc to output paths
+    case os:getenv("EQC_DEBUG") of
+        false ->
+            ok;
+        "1" ->
+            B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+            HumanFullPath = #{name(TargetPubkeyBin) => [[name(P) || P <- Path]]},
+            HumanPath = [name(P) || P <- Path],
+            io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
+
+            case length(Path) > 1 of
+                true ->
+                    ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                    ok = file:write_file("/tmp/paths_name_js", io_lib:fwrite("~p.\n", [HumanFullPath]), [append]),
+                    ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
+                false ->
+                    ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
+            end;
+        _ ->
+            ok
     end.
