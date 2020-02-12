@@ -28,9 +28,9 @@
 -endif.
 
 -type poc_witness() :: #blockchain_poc_witness_v1_pb{}.
--type poc_witnesss() :: [poc_witness()].
+-type poc_witnesses() :: [poc_witness()].
 
--export_type([poc_witness/0, poc_witnesss/0]).
+-export_type([poc_witness/0, poc_witnesses/0]).
 
 %%--------------------------------------------------------------------
 %% @doc

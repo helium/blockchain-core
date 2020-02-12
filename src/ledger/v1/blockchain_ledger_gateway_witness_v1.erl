@@ -9,10 +9,31 @@
          new/0, new/2,
          nonce/1, nonce/2,
          count/1, count/2,
+
          first_time/1, first_time/2,
          recent_time/1, recent_time/2,
-         active_hist/1, active_hist/2,
-         old_hist/1, old_hist/2,
+
+         %% get overview of each histogram
+         rssi_hist/1,
+         tof_hist/1,
+         snr_hist/1,
+
+         %% get current histograms for each category
+         current_rssi_hist/1,
+         current_tof_hist/1,
+         current_snr_hist/1,
+
+         %% get histogram history
+         rssi_hist_stack/1,
+         tof_hist_stack/1,
+         snr_hist_stack/1,
+
+         %% TODO: add funcs for updating histogram stacks
+         %% by pushing the new one(s) to the head and shifting
+         %% others to the tail. Remove the last from the
+         %% tail if length of any categorical stack reaches 7 or
+         %% whatever we configure in the ledger.
+
          serialize/1, deserialize/1
         ]).
 
@@ -23,16 +44,16 @@
 -record(witness_v1, {
           nonce = 0 :: non_neg_integer(),
           count = 0 :: non_neg_integer(),
-          active_hist = #{} :: witness_hist(), %% currently active RSSI histogram
-          old_hist = #{} :: witness_hist(), %% stale RSSI histogram
-          first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
-          recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
-          tof_hist = #{} :: tof_hist() %% TODO: add time of flight histogram
+
+          rssi_hist_stack = [] :: blockchain_ledger_hist:hist_stack(),
+          tof_hist_stack = [] :: blockchain_ledger_hist:hist_stack(),
+          snr_hist_stack = [] :: blockchain_ledger_hist:hist_stack(),
+
+          first_time :: undefined | non_neg_integer(),
+          recent_time :: undefined | non_neg_integer()
          }).
 
 -type witness() :: #witness_v1{}.
--type witness_hist() :: #{integer() => integer()}.
--type tof_hist() :: #{integer() => integer()}.
 
 -export_type([witness/0]).
 
@@ -53,7 +74,7 @@ nonce(#witness_v1{nonce=Nonce}) ->
 nonce(Witness, Nonce) ->
     Witness#witness_v1{nonce=Nonce}.
 
--spec count(witness()) -> non_neg_integer().
+-spec count(Witness :: witness()) -> non_neg_integer().
 count(#witness_v1{count=Count}) ->
     Count.
 
@@ -62,7 +83,7 @@ count(#witness_v1{count=Count}) ->
 count(Witness, Count) ->
     Witness#witness_v1{count=Count}.
 
--spec first_time(witness()) -> non_neg_integer().
+-spec first_time(Witness :: witness()) -> non_neg_integer().
 first_time(#witness_v1{first_time=FirstTime}) ->
     FirstTime.
 
@@ -71,7 +92,7 @@ first_time(#witness_v1{first_time=FirstTime}) ->
 first_time(Witness, FirstTime) ->
     Witness#witness_v1{first_time=FirstTime}.
 
--spec recent_time(witness()) -> non_neg_integer().
+-spec recent_time(Witness :: witness()) -> non_neg_integer().
 recent_time(#witness_v1{recent_time=RecentTime}) ->
     RecentTime.
 
@@ -80,25 +101,43 @@ recent_time(#witness_v1{recent_time=RecentTime}) ->
 recent_time(Witness, RecentTime) ->
     Witness#witness_v1{recent_time=RecentTime}.
 
--spec active_hist(witness()) -> witness_hist().
-active_hist(#witness_v1{active_hist=ActiveHist}) ->
-    ActiveHist.
+-spec rssi_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+rssi_hist(#witness_v1{rssi_hist_stack=Stack}) ->
+    blockchain_ledger_hist:merge(Stack).
 
--spec active_hist(Witness :: witness(),
-                  ActiveHist :: witness_hist()) -> witness().
-active_hist(Witness, ActiveHist) ->
-    Witness#witness_v1{active_hist=ActiveHist}.
+-spec tof_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+tof_hist(#witness_v1{tof_hist_stack=Stack}) ->
+    blockchain_ledger_hist:merge(Stack).
 
--spec old_hist(witness()) -> witness_hist().
-old_hist(#witness_v1{old_hist=OldHist}) ->
-    OldHist.
+-spec snr_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+snr_hist(#witness_v1{tof_hist_stack=Stack}) ->
+    blockchain_ledger_hist:merge(Stack).
 
--spec old_hist(Witness :: witness(),
-               OldHist :: witness_hist()) -> witness().
-old_hist(Witness, OldHist) ->
-    Witness#witness_v1{old_hist=OldHist}.
+-spec current_rssi_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+current_rssi_hist(#witness_v1{rssi_hist_stack=[Head | _]}) ->
+    Head.
 
--spec serialize(witness()) -> binary().
+-spec current_tof_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+current_tof_hist(#witness_v1{tof_hist_stack=[Head | _]}) ->
+    Head.
+
+-spec current_snr_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
+current_snr_hist(#witness_v1{snr_hist_stack=[Head | _]}) ->
+    Head.
+
+-spec rssi_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
+rssi_hist_stack(Witness) ->
+    Witness#witness_v1.rssi_hist_stack.
+
+-spec tof_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
+tof_hist_stack(Witness) ->
+    Witness#witness_v1.tof_hist_stack.
+
+-spec snr_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
+snr_hist_stack(Witness) ->
+    Witness#witness_v1.snr_hist_stack.
+
+-spec serialize(Witness :: witness()) -> binary().
 serialize(Witness) ->
     BinWitness = erlang:term_to_binary(Witness),
     <<1, BinWitness/binary>>.
@@ -120,9 +159,9 @@ new_test() ->
     Witness0 = #witness_v1{},
     ?assertEqual(Witness0, new()),
     Witness1 = #witness_v1{
-                nonce = 1,
-                count = 1
-               },
+                  nonce = 1,
+                  count = 1
+                 },
     ?assertEqual(Witness1, new(1, 1)).
 
 -endif.
