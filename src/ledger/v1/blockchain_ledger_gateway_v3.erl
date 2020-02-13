@@ -1,7 +1,6 @@
-%%%-------------------------------------------------------------------
+%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain Ledger Gateway V3 ==
-%% Add support for histogram rotation and histograms would be in mW
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_ledger_gateway_v3).
@@ -22,12 +21,11 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/3,
 
-    get_witness/2,
+    add_witness/2,
     has_witness/2,
     clear_witnesses/1,
-    remove_witness/2,
+    delete_witness/2,
     witnesses/1,
 
     convert/1
@@ -52,12 +50,12 @@
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
-    witnesses = #{} ::  witnesses(),
+    witnesses = [] ::  witnesses(),
     height_added_at :: undefined | non_neg_integer()
 }).
 
 -type gateway() :: #gateway_v3{}.
--type witnesses() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_gateway_witness_v1:witness()}.
+-type witnesses() :: [libp2p_crypto:pubkey_bin()].
 -export_type([gateway/0]).
 
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
@@ -247,67 +245,32 @@ print(Address, Gateway, Ledger, Verbose) ->
      {location, UndefinedHandleFunc(location(Gateway))},
      {last_poc_challenge, PocUndef(last_poc_challenge(Gateway))},
      {nonce, nonce(Gateway)},
-     {height_added_at, height_added_at(Gateway)}
+     {height_added_at, height_added_at(Gateway)},
+     {witnesses, witnesses(Gateway)}
     ] ++ Scoring.
-
-
--spec add_witness(WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                  Witness :: blockchain_ledger_gateway_witness_v1:witness(),
-                  Gateway :: gateway()) -> gateway().
-add_witness(WitnessPubkeyBin, Witness, Gateway) ->
-    case get_witness(Gateway, WitnessPubkeyBin) of
-        {error, witness_not_found} ->
-            %% First time seeing this witness for this gateway
-            %% Put it in the witnesses map
-            insert_witness(Gateway, WitnessPubkeyBin, WitnessPubkeyBin);
-
-        FoundWitness ->
-            FoundWitnessNonce = blockchain_ledger_gateway_witness_v1:nonce(FoundWitness),
-
-            %% Check if the nonce matches
-            WitnessNonce = blockchain_ledger_gateway_witness_v1:nonce(Witness),
-            case WitnessNonce == (FoundWitnessNonce + 1) of
-                false ->
-                    %% The nonce didn't line up, remove this witness
-                    %% It has likely reasserted location
-                    remove_witness(Gateway, WitnessPubkeyBin);
-                true ->
-                    %% Nonces match, increment count for this witness
-                    FoundWitnessCount = blockchain_ledger_gateway_witness_v1:count(FoundWitness),
-                    WitnessToAdd = blockchain_ledger_gateway_witness_v1:count(Witness, FoundWitnessCount+1),
-                    insert_witness(Gateway, WitnessPubkeyBin, WitnessToAdd)
-            end
-    end.
-
--spec insert_witness(Gateway :: gateway(),
-                     WitnessPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                     Witness :: blockchain_ledger_gateway_witness_v1:witness()) -> gateway().
-insert_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin, Witness) ->
-    Gateway#gateway_v3{witnesses=maps:put(WitnessPubkeyBin, Witness, Witnesses)}.
 
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
-    Gateway#gateway_v3{witnesses=#{}}.
+    Gateway#gateway_v3{witnesses=[]}.
 
--spec get_witness(Gateway :: gateway(),
-                  WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> {error, witness_not_found} | blockchain_ledger_gateway_witness_v1:witness().
-get_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
+-spec add_witness(Gateway :: gateway(), WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> gateway().
+add_witness(Gateway = #gateway_v3{witnesses = Witnesses}, WitnessPubkeyBin) ->
+    Gateway#gateway_v3{witnesses=lists:sort([WitnessPubkeyBin | Witnesses])}.
+
+-spec delete_witness(Gateway :: gateway(),
+                     WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> {error, witness_not_found} |
+                                                                        gateway().
+delete_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
     case has_witness(Gateway, WitnessPubkeyBin) of
         false ->
             {error, witness_not_found};
         true ->
-            maps:get(WitnessPubkeyBin, Witnesses)
+            Gateway#gateway_v3{witnesses=lists:delete(WitnessPubkeyBin, Witnesses)}
     end.
 
--spec remove_witness(Gateway :: gateway(),
-                     WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> gateway().
-remove_witness(Gateway = #gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
-    Gateway#gateway_v3{witnesses=maps:remove(WitnessPubkeyBin, Witnesses)}.
-
--spec has_witness(Gateway :: gateway(),
-                  WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
+-spec has_witness(Gateway :: gateway(), WitnessPubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
 has_witness(#gateway_v3{witnesses=Witnesses}, WitnessPubkeyBin) ->
-    maps:is_key(WitnessPubkeyBin, Witnesses).
+    lists:member(WitnessPubkeyBin, Witnesses).
 
 -spec witnesses(gateway()) -> witnesses().
 witnesses(Gateway) ->
@@ -359,6 +322,7 @@ convert(#gateway_v2{
           last_poc_onion_key_hash = LastHash,
           nonce = Nonce,
           version = Version,
+          witnesses = Witnesses,
           neighbors = _N}) ->
     #gateway_v3{
        owner_address = Owner,
@@ -369,7 +333,8 @@ convert(#gateway_v2{
        last_poc_challenge = LastPoC,
        last_poc_onion_key_hash = LastHash,
        nonce = Nonce,
-       version = Version}.
+       version = Version,
+       witnesses = maps:keys(Witnesses)}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
