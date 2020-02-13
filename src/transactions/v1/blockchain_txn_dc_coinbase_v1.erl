@@ -19,8 +19,7 @@
     is_valid/2,
     absorb/2,
     sign/2,
-    print/1,
-    absorbed/2
+    print/1
 ]).
 
 -ifdef(TEST).
@@ -123,17 +122,6 @@ print(#blockchain_txn_dc_coinbase_v1_pb{
          payee=Payee, amount=Amount}) ->
     io_lib:format("type=dc_coinbase payee=~p, amount=~p",
                   [?TO_B58(Payee), Amount]).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
--spec absorbed(txn_dc_coinbase(), blockchain:blockchain()) -> true | false.
-absorbed(_Txn, _Chain) ->
-    %% impossible to determine whether this type of transaction has already been absorbed
-    %% so we return false in all cases
-    %% atm this function is just here to highlight the lack of data to determine absorbed/2
-    false.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -439,8 +439,8 @@ absorbed(Txn, Chain) ->
     case erlang:function_exported(Type, absorbed, 2) of
         true ->
             try Type:absorbed(Txn, Chain) of
-                true -> true;
-                false -> false
+                Res ->
+                    Res
             catch
                 _What:Why:Stack ->
                     lager:warning("crash during absorbed: ~p ~p", [Why, Stack]),

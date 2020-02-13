@@ -13,7 +13,6 @@
     absorbed_txn_payment_v1_test/1,
     absorbed_txn_htlc_v1_test/1,
     absorbed_txn_oui_v1_test/1,
-    absorbed_txn_poc_request_v1/1,
     absorbed_txn_poc_receipts_v1/1,
     absorbed_txn_routing_v1_test/1,
     absorbed_txn_security_exchange_v1_test/1,
@@ -37,7 +36,6 @@ all() ->
         absorbed_txn_payment_v1_test,
         absorbed_txn_htlc_v1_test,
         absorbed_txn_oui_v1_test,
-        absorbed_txn_poc_request_v1,
         absorbed_txn_poc_receipts_v1,
         absorbed_txn_routing_v1_test,
         absorbed_txn_security_exchange_v1_test,
@@ -255,62 +253,6 @@ absorbed_txn_payment_v1_test(Config) ->
     %% but it should continue to pass validation
     ?assertEqual(ok, blockchain_txn_payment_v1:is_valid(SignedTxn1, Chain)).
 
-
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-absorbed_txn_poc_request_v1(Config) ->
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
-    PubKey = proplists:get_value(pubkey, Config),
-    PrivKey = proplists:get_value(privkey, Config),
-    _Owner = libp2p_crypto:pubkey_to_bin(PubKey),
-    Chain = proplists:get_value(chain, Config),
-    Swarm = proplists:get_value(swarm, Config),
-    _Balance = proplists:get_value(balance, Config),
-    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-
-    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
-    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-
-    Rate = 1000000,
-    {Priv, _} = proplists:get_value(master_key, Config),
-    Vars = #{token_burn_exchange_rate => Rate},
-    Txn1 = blockchain_txn_vars_v1:new(Vars, 3),
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn1),
-    Txn2 = blockchain_txn_vars_v1:proof(Txn1, Proof),
-    Block1 = test_utils:create_block(ConsensusMembers, [Txn2]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, self()),
-
-    %% add the gateway ( NOTE: this will generate 25 blocks )
-    p_create_and_test_gateway(Config, Gateway, GatewaySigFun, OwnerSigFun, Rate),
-
-    % Create the PoC challenge request txn
-    Keys0 = libp2p_crypto:generate_keys(ecc_compact),
-    Secret0 = libp2p_crypto:keys_to_bin(Keys0),
-    #{public := OnionCompactKey0} = Keys0,
-    SecretHash0 = crypto:hash(sha256, Secret0),
-    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
-    Txn3 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block1), 1),
-    SignedTxn3 = blockchain_txn_poc_request_v1:sign(Txn3, GatewaySigFun),
-
-
-    %% before we add the block verify it validates
-    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedTxn3, Chain)),
-    %% confirm the txn has not yet been absorbed
-    ?assertEqual(false, blockchain_txn_poc_request_v1:absorbed(Txn3, Chain)),
-
-    Block26 = test_utils:create_block(ConsensusMembers, [SignedTxn3]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block26, Chain, self()),
-    ok = blockchain_ct_utils:wait_until(fun() -> {ok, 26} =:= blockchain:height(Chain) end),
-
-    %% then check absorbed again on same block, it should return true
-    ?assertEqual(true, blockchain_txn_poc_request_v1:absorbed(Txn3, Chain)),
-    %% but it should continue to pass validation
-    ?assertEqual(ok, blockchain_txn_poc_request_v1:is_valid(SignedTxn3, Chain)).
 
 
 %%--------------------------------------------------------------------
