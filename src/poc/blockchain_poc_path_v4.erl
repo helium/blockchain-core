@@ -514,8 +514,11 @@ centrality_metrics(Hist, Vars) ->
     GoodBucketValues = maps:values(GoodBucket),
     BadBucketValues = maps:values(BadBucket),
 
-    case lists:sum(GoodBucketValues) of
-        S when S > 0 ->
+    SG0 = lists:sum(GoodBucketValues),
+    SB0 = lists:sum(BadBucketValues),
+
+    case {SG0, SB0} of
+        {SG, SB} when SG > 0 andalso SB > 0 ->
             MaxGood = lists:max(GoodBucketValues),
             MaxBad = lists:max(BadBucketValues),
 
@@ -528,8 +531,11 @@ centrality_metrics(Hist, Vars) ->
             %% If either of these two become >= 1.0, we are certain that
             %% either the witnessing is too close or inconclusive at best.
             {MaxMetric, MeanMetric};
+        {SG, 0} when SG > 0 ->
+            %% nothing in bad bucket
+            {0.0, 0.0};
         _ ->
-            %% Nothing in the goodbucket, consider bad
+            %% Everything else is considered bad
             {1.0, 1.0}
     end.
 
