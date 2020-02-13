@@ -81,6 +81,7 @@ init(Args) ->
          {libp2p_peerbook,
           [{signed_metadata_fun, fun blockchain_worker:signed_metadata_fun/0},
            {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))},
+           {notify_peer_gossip_limit, application:get_env(blockchain, gossip_width, 100)},
            {allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, false)}
           ]},
          {libp2p_group_gossip,
@@ -93,7 +94,7 @@ init(Args) ->
            {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
            {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
           ]}
-        ] ++ GroupMgrArgs,
+        ] ++ GroupMgrArgs ++ application:get_env(blockchain, libp2p_extras, []),
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},
         {base_dir, proplists:get_value(base_dir, Args, "data")},
