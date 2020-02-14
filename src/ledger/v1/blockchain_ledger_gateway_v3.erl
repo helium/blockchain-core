@@ -430,13 +430,13 @@ fake_config() ->
 convert_v1_to_v3_test() ->
     GwV1 = blockchain_ledger_gateway_v1:new(<<"owner_address">>, 12),
     GwV3 = ?MODULE:convert(GwV1),
-    ?assertEqual(#{}, ?MODULE:witnesses(GwV3)),
+    ?assertEqual([], ?MODULE:witnesses(GwV3)),
     ok.
 
 convert_v2_to_v3_test() ->
     GwV2 = blockchain_ledger_gateway_v2:new(<<"owner_address">>, 12),
     GwV3 = ?MODULE:convert(GwV2),
-    ?assertEqual(#{}, ?MODULE:witnesses(GwV3)),
+    ?assertEqual([], ?MODULE:witnesses(GwV3)),
     ok.
 
 -endif.
