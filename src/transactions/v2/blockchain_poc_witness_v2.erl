@@ -147,6 +147,22 @@ signal_test() ->
     Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual(-110, signal(Witness)).
 
+rx_time_test() ->
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, 666, 1, 1),
+    ?assertEqual(666, rx_time(Witness)).
+
+time_acc_test() ->
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, 666, 1, 1),
+    ?assertEqual(1, time_acc(Witness)).
+
+loc_acc_test() ->
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, 666, 1, 1),
+    ?assertEqual(1, loc_acc(Witness)).
+
+snr_test() ->
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, 666, 1, 1),
+    ?assertEqual(2, snr(Witness)).
+
 packet_hash_test() ->
     Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual(<<"hash">>, packet_hash(Witness)).
