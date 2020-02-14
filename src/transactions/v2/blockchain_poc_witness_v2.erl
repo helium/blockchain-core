@@ -127,47 +127,47 @@ print(#blockchain_poc_witness_v2_pb{
 
 new_test() ->
     Witness = #blockchain_poc_witness_v2_pb{
-                 gateway= <<"gateway">>,
-                 timestamp= 1,
-                 signal=12,
-                 packet_hash= <<"hash">>,
-                 signature = <<>>
+                 gateway = <<"gateway">>,
+                 signal = -110,
+                 packet_hash = <<"hash">>,
+                 snr = 2,
+                 rx_time = 666,
+                 time_acc = 1,
+                 loc_acc = 1
                 },
-    ?assertEqual(Witness, new(<<"gateway">>, 1, 12, <<"hash">>)).
+    ?assertEqual(Witness,
+                 new(<<"gateway">>, -110, <<"hash">>, 2, 666, 1, 1)
+                ).
 
 gateway_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual(<<"gateway">>, gateway(Witness)).
 
-timestamp_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
-    ?assertEqual(1, timestamp(Witness)).
-
 signal_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
-    ?assertEqual(12, signal(Witness)).
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
+    ?assertEqual(-110, signal(Witness)).
 
 packet_hash_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual(<<"hash">>, packet_hash(Witness)).
 
 signature_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual(<<>>, signature(Witness)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
-    Receipt0 = new(Gateway, 1, 12, <<"hash">>),
+    Witness0 = new(Gateway, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Receipt1 = sign(Receipt0, SigFun),
+    Receipt1 = sign(Witness0, SigFun),
     Sig1 = signature(Receipt1),
 
     EncodedReceipt = blockchain_txn_poc_receipts_v2_pb:encode_msg(Receipt1#blockchain_poc_witness_v2_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Witness = new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
     ?assertEqual({witness, Witness}, blockchain_poc_response_v2:decode(blockchain_poc_response_v2:encode(Witness))).
 
 -endif.

@@ -1,5 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
+%% == Blockchain Proof of Coverage Path Element V2 ==
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_path_element_v2).
 
@@ -7,12 +8,12 @@
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v2_pb.hrl").
 
 -export([
-    new/3,
-    challengee/1,
-    receipt/1, add_receipt/2,
-    witnesses/1, add_witness/2,
-    print/1
-]).
+         new/3,
+         challengee/1,
+         receipt/1, add_receipt/2,
+         witnesses/1, add_witness/2,
+         print/1
+        ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -28,10 +29,10 @@
           Witnesses :: blockchain_poc_witness_v2:poc_witnesses()) -> poc_element().
 new(Challengee, Receipt, Witnesses) ->
     #blockchain_poc_path_element_v2_pb{
-        challengee=Challengee,
-        receipt=Receipt,
-        witnesses=Witnesses
-    }.
+       challengee=Challengee,
+       receipt=Receipt,
+       witnesses=Witnesses
+      }.
 
 -spec challengee(Element :: poc_element()) -> libp2p_crypto:pubkey_bin().
 challengee(Element) ->
@@ -97,7 +98,6 @@ print(#blockchain_poc_path_element_v2_pb{
                                          Witnesses), "\n\t\t")
                   ]).
 
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -105,10 +105,10 @@ print(#blockchain_poc_path_element_v2_pb{
 
 new_test() ->
     Element = #blockchain_poc_path_element_v2_pb{
-        challengee= <<"challengee">>,
-        receipt= undefined,
-        witnesses= []
-    },
+                 challengee= <<"challengee">>,
+                 receipt= undefined,
+                 witnesses= []
+                },
     ?assertEqual(Element, new(<<"challengee">>, undefined, [])).
 
 challengee_test() ->

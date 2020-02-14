@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Blockchain Proof of Coverage Witness ==
+%% == Blockchain Proof of Coverage Response V2 ==
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_response_v2).
 

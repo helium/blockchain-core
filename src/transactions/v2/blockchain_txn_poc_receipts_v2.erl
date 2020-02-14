@@ -11,25 +11,25 @@
 -include("blockchain_utils.hrl").
 
 -export([
-    new/4,
-    hash/1,
-    onion_key_hash/1,
-    challenger/1,
-    secret/1,
-    path/1,
-    fee/1,
-    signature/1,
-    sign/2,
-    is_valid/2,
-    absorb/2,
-    create_secret_hash/2,
-    connections/1,
-    deltas/1, deltas/2,
-    check_path_continuation/1,
-    print/1,
-    hex_poc_id/1,
-    good_quality_witnesses/2
-]).
+         new/4,
+         hash/1,
+         onion_key_hash/1,
+         challenger/1,
+         secret/1,
+         path/1,
+         fee/1,
+         signature/1,
+         sign/2,
+         is_valid/2,
+         absorb/2,
+         create_secret_hash/2,
+         connections/1,
+         deltas/1, deltas/2,
+         check_path_continuation/1,
+         print/1,
+         hex_poc_id/1,
+         good_quality_witnesses/2
+        ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -48,13 +48,13 @@
           blockchain_poc_path_element_v2:path()) -> txn_poc_receipts().
 new(Challenger, Secret, OnionKeyHash, Path) ->
     #blockchain_txn_poc_receipts_v2_pb{
-        challenger=Challenger,
-        secret=Secret,
-        onion_key_hash=OnionKeyHash,
-        path=Path,
-        fee=0,
-        signature = <<>>
-    }.
+       challenger=Challenger,
+       secret=Secret,
+       onion_key_hash=OnionKeyHash,
+       path=Path,
+       fee=0,
+       signature = <<>>
+      }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -182,18 +182,18 @@ is_valid(Txn, Chain) ->
                                                             {error, challenge_too_old};
                                                         true ->
                                                             Condition = case blockchain:config(?poc_version, Ledger) of
-                                                                {ok, POCVersion} when POCVersion > 1 ->
-                                                                    fun(T) ->
-                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
-                                                                        blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                        blockchain_txn_poc_request_v2:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
-                                                                    end;
-                                                                _ ->
-                                                                    fun(T) ->
-                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
-                                                                        blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash
-                                                                    end
-                                                            end,
+                                                                            {ok, POCVersion} when POCVersion > 1 ->
+                                                                                fun(T) ->
+                                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
+                                                                                        blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash andalso
+                                                                                        blockchain_txn_poc_request_v2:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
+                                                                                end;
+                                                                            _ ->
+                                                                                fun(T) ->
+                                                                                        blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
+                                                                                        blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash
+                                                                                end
+                                                                        end,
                                                             case lists:any(Condition, blockchain_block:transactions(Block1)) of
                                                                 false ->
                                                                     {error, onion_key_hash_mismatch};
@@ -327,9 +327,9 @@ connections(Txn) ->
                         end ++
                         lists:map(fun(Witness) ->
                                           {blockchain_poc_path_element_v2:challengee(PathElement),
-                                          blockchain_poc_witness_v2:gateway(Witness),
-                                          blockchain_poc_witness_v2:signal(Witness),
-                                          blockchain_poc_witness_v2:rx_time(Witness)}
+                                           blockchain_poc_witness_v2:gateway(Witness),
+                                           blockchain_poc_witness_v2:signal(Witness),
+                                           blockchain_poc_witness_v2:rx_time(Witness)}
                                   end, blockchain_poc_path_element_v2:witnesses(PathElement)) ++ Acc
                 end, [], TaggedPaths).
 
@@ -354,18 +354,18 @@ deltas(Txn) ->
     Path = blockchain_txn_poc_receipts_v2:path(Txn),
     Length = length(Path),
     lists:reverse(element(1, lists:foldl(fun({N, Element}, {Acc, true}) ->
-                                   Challengee = blockchain_poc_path_element_v2:challengee(Element),
-                                   Receipt = blockchain_poc_path_element_v2:receipt(Element),
-                                   Witnesses = blockchain_poc_path_element_v2:witnesses(Element),
-                                   NextElements = lists:sublist(Path, N+1, Length),
-                                   HasContinued = check_path_continuation(NextElements),
-                                   {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
-                                   {set_deltas(Challengee, Val, Acc), Continue};
-                              (_, Acc) ->
-                                   Acc
-                           end,
-                           {[], true},
-                           lists:zip(lists:seq(1, Length), Path)))).
+                                                 Challengee = blockchain_poc_path_element_v2:challengee(Element),
+                                                 Receipt = blockchain_poc_path_element_v2:receipt(Element),
+                                                 Witnesses = blockchain_poc_path_element_v2:witnesses(Element),
+                                                 NextElements = lists:sublist(Path, N+1, Length),
+                                                 HasContinued = check_path_continuation(NextElements),
+                                                 {Val, Continue} = assign_alpha_beta(HasContinued, Receipt, Witnesses),
+                                                 {set_deltas(Challengee, Val, Acc), Continue};
+                                            (_, Acc) ->
+                                                 Acc
+                                         end,
+                                         {[], true},
+                                         lists:zip(lists:seq(1, Length), Path)))).
 
 -spec deltas(Txn :: txn_poc_receipts(),
              Ledger :: blockchain_ledger_v2:ledger()) -> deltas().
@@ -378,11 +378,11 @@ deltas(Txn, Ledger) ->
                                                  HasContinued = check_path_continuation(NextElements),
                                                  {Val, Continue} = calculate_alpha_beta(HasContinued, Element, Ledger),
                                                  {set_deltas(Challengee, Val, Acc), Continue};
-                              (_, Acc) ->
-                                   Acc
-                           end,
-                           {[], true},
-                           lists:zip(lists:seq(1, Length), Path)))).
+                                            (_, Acc) ->
+                                                 Acc
+                                         end,
+                                         {[], true},
+                                         lists:zip(lists:seq(1, Length), Path)))).
 
 -spec check_path_continuation(Elements :: [blockchain_poc_path_element_v2:poc_element()]) -> boolean().
 check_path_continuation(Elements) ->
@@ -511,32 +511,32 @@ good_quality_witnesses(Element, Ledger) ->
 
     %% Good quality witnesses
     lists:filter(fun(Witness) ->
-                                 WitnessPubkeyBin = blockchain_poc_witness_v2:gateway(Witness),
-                                 {ok, WitnessGw} = blockchain_ledger_v2:find_gateway_info(WitnessPubkeyBin, Ledger),
-                                 WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                                 WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
-                                 WitnessRSSI = blockchain_poc_witness_v2:signal(Witness),
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                                 %% Check that the witness is far
-                                 try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
-                                     Res -> Res
-                                 catch
-                                     %% Grid distance may badarg because of pentagonal distortion or
-                                     %% non matching resolutions or just being too far.
-                                     %% In either of those cases, we assume that the gateway
-                                     %% is potentially legitimate to be a target.
-                                     _:_ -> true
-                                 end andalso
-                                 %% Check that the RSSI seems reasonable
-                                 (WitnessRSSI =< FreeSpacePathLoss)
-                         end,
-                         Witnesses).
+                         WitnessPubkeyBin = blockchain_poc_witness_v2:gateway(Witness),
+                         {ok, WitnessGw} = blockchain_ledger_v2:find_gateway_info(WitnessPubkeyBin, Ledger),
+                         WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                         WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
+                         WitnessRSSI = blockchain_poc_witness_v2:signal(Witness),
+                         FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
+                         %% Check that the witness is far
+                         try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
+                             Res -> Res
+                         catch
+                             %% Grid distance may badarg because of pentagonal distortion or
+                             %% non matching resolutions or just being too far.
+                             %% In either of those cases, we assume that the gateway
+                             %% is potentially legitimate to be a target.
+                             _:_ -> true
+                         end andalso
+                         %% Check that the RSSI seems reasonable
+                         (WitnessRSSI =< FreeSpacePathLoss)
+                 end,
+                 Witnesses).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
- -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),
@@ -669,23 +669,23 @@ insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
                                                      Witnesses),
                           NextElements = lists:sublist(Path, N+1, Length),
                           WitnessInfo = case check_path_continuation(NextElements) of
-                                                 true ->
-                                                     %% the next hop is also a witness for this
-                                                     NextHopElement = hd(NextElements),
-                                                     NextHopAddr = blockchain_poc_path_element_v2:challengee(NextHopElement),
-                                                     case blockchain_poc_path_element_v2:receipt(NextHopElement) of
-                                                         undefined ->
-                                                             %% There is no receipt from the next hop
-                                                             %% We clamp to LowerTimeBound as best-effort
-                                                             [{undefined, LowerTimeBound, NextHopAddr} | WitnessInfo0];
-                                                         NextHopReceipt ->
-                                                             [{blockchain_poc_receipt_v2:signal(NextHopReceipt),
-                                                               blockchain_poc_receipt_v2:rx_time(NextHopReceipt),
-                                                               NextHopAddr} | WitnessInfo0]
-                                                     end;
-                                                 false ->
-                                                     WitnessInfo0
-                                             end,
+                                            true ->
+                                                %% the next hop is also a witness for this
+                                                NextHopElement = hd(NextElements),
+                                                NextHopAddr = blockchain_poc_path_element_v2:challengee(NextHopElement),
+                                                case blockchain_poc_path_element_v2:receipt(NextHopElement) of
+                                                    undefined ->
+                                                        %% There is no receipt from the next hop
+                                                        %% We clamp to LowerTimeBound as best-effort
+                                                        [{undefined, LowerTimeBound, NextHopAddr} | WitnessInfo0];
+                                                    NextHopReceipt ->
+                                                        [{blockchain_poc_receipt_v2:signal(NextHopReceipt),
+                                                          blockchain_poc_receipt_v2:rx_time(NextHopReceipt),
+                                                          NextHopAddr} | WitnessInfo0]
+                                                end;
+                                            false ->
+                                                WitnessInfo0
+                                        end,
                           blockchain_ledger_v2:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
                   end, lists:zip(lists:seq(1, Length), Path)).
 
@@ -880,13 +880,13 @@ hex_poc_id(Txn) ->
 
 new_test() ->
     Tx = #blockchain_txn_poc_receipts_v2_pb{
-        challenger = <<"challenger">>,
-        secret = <<"secret">>,
-        onion_key_hash = <<"onion">>,
-        path=[],
-        fee = 0,
-        signature = <<>>
-    },
+            challenger = <<"challenger">>,
+            secret = <<"secret">>,
+            onion_key_hash = <<"onion">>,
+            path=[],
+            fee = 0,
+            signature = <<>>
+           },
     ?assertEqual(Tx, new(<<"challenger">>,  <<"secret">>, <<"onion">>, [])).
 
 onion_key_hash_test() ->
@@ -932,11 +932,11 @@ create_secret_hash_test() ->
     ?assertEqual(10, erlang:length(Members2)),
 
     lists:foreach(
-        fun(M) ->
-            ?assert(lists:member(M, Members2))
-        end,
-        Members
-    ),
+      fun(M) ->
+              ?assert(lists:member(M, Members2))
+      end,
+      Members
+     ),
     ok.
 
 ensure_unique_layer_test() ->
@@ -948,53 +948,53 @@ ensure_unique_layer_test() ->
 
 delta_test() ->
     Txn1 = {blockchain_txn_poc_receipts_v2_pb,<<"a">>,<<"b">>,<<"c">>,
-                                   [{blockchain_poc_path_element_v2_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v2_pb,<<"d">>,
-                                                                                                     123,0,<<"e">>,p2p,
-                                                                                                     <<"f">>},
-                                                                       [{blockchain_poc_witness_v2_pb,<<"g">>,
-                                                                                                      456,-100,
-                                                                                                      <<"h">>,
-                                                                                                      <<"i">>},
-                                                                        {blockchain_poc_witness_v2_pb,<<"j">>,
-                                                                                                      789,-114,
-                                                                                                      <<"k">>,
-                                                                                                      <<"l">>}]},
-                                    {blockchain_poc_path_element_v2_pb,<<"second">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"m">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"n">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"i">>,
-                                                                       undefined,[]}],
-                                   0,
-                                   <<"impala">>},
+            [{blockchain_poc_path_element_v2_pb,<<"first">>,
+              {blockchain_poc_receipt_v2_pb,<<"d">>,
+               123,0,<<"e">>,p2p,
+               <<"f">>},
+              [{blockchain_poc_witness_v2_pb,<<"g">>,
+                456,-100,
+                <<"h">>,
+                <<"i">>},
+               {blockchain_poc_witness_v2_pb,<<"j">>,
+                789,-114,
+                <<"k">>,
+                <<"l">>}]},
+             {blockchain_poc_path_element_v2_pb,<<"second">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"m">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"n">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"i">>,
+              undefined,[]}],
+            0,
+            <<"impala">>},
     Deltas1 = deltas(Txn1),
     ?assertEqual(2, length(Deltas1)),
     ?assertEqual({0.9, 0}, proplists:get_value(<<"first">>, Deltas1)),
     ?assertEqual({0, 1}, proplists:get_value(<<"second">>, Deltas1)),
 
     Txn2 = {blockchain_txn_poc_receipts_v2_pb,<<"foo">>,
-                                   <<"bar">>,
-                                   <<"baz">>,
-                                   [{blockchain_poc_path_element_v2_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v2_pb,<<"a">>,
-                                                                                                     123,0,
-                                                                                                     <<1,2,3,4>>,
-                                                                                                     p2p,
-                                                                                                     <<"b">>},
-                                                                       []},
-                                    {blockchain_poc_path_element_v2_pb,<<"c">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"d">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"e">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"f">>,
-                                                                       undefined,[]}],
-                                   0,
-                                   <<"g">>},
+            <<"bar">>,
+            <<"baz">>,
+            [{blockchain_poc_path_element_v2_pb,<<"first">>,
+              {blockchain_poc_receipt_v2_pb,<<"a">>,
+               123,0,
+               <<1,2,3,4>>,
+               p2p,
+               <<"b">>},
+              []},
+             {blockchain_poc_path_element_v2_pb,<<"c">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"d">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"e">>,
+              undefined,[]},
+             {blockchain_poc_path_element_v2_pb,<<"f">>,
+              undefined,[]}],
+            0,
+            <<"g">>},
     Deltas2 = deltas(Txn2),
     ?assertEqual(1, length(Deltas2)),
     ?assertEqual({0, 0}, proplists:get_value(<<"first">>, Deltas2)),
@@ -1002,37 +1002,37 @@ delta_test() ->
 
 duplicate_delta_test() ->
     Txn = {blockchain_txn_poc_receipts_v2_pb,<<"foo">>,
-                                   <<"bar">>,
-                                   <<"baz">>,
-                                   [{blockchain_poc_path_element_v2_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v2_pb,<<"a">>,
-                                                                                                     1559953989978238892,0,<<"§Úi½">>,p2p,
-                                                                                                     <<"b">>},
-                                                                       []},
-                                    {blockchain_poc_path_element_v2_pb,<<"second">>,
-                                                                       undefined,
-                                                                       [{blockchain_poc_witness_v2_pb,<<"fourth">>,
-                                                                                                      1559953991034558678,-100,
-                                                                                                      <<>>,
-                                                                                                      <<>>},
-                                                                        {blockchain_poc_witness_v2_pb,<<"first">>,
-                                                                                                      1559953991035078007,-72,
-                                                                                                      <<>>,
-                                                                                                      <<>>}]},
-                                    {blockchain_poc_path_element_v2_pb,<<"third">>,
-                                                                       undefined,[]},
-                                    {blockchain_poc_path_element_v2_pb,<<"second">>,
-                                                                       undefined,
-                                                                       [{blockchain_poc_witness_v2_pb,<<"fourth">>,
-                                                                                                      1559953992074400943,-100,
-                                                                                                      <<>>,
-                                                                                                      <<>>},
-                                                                        {blockchain_poc_witness_v2_pb,<<"first">>,
-                                                                                                      1559953992075156868,-84,
-                                                                                                      <<>>,
-                                                                                                      <<>>}]}],
-                                   0,
-                                   <<"gg">>},
+           <<"bar">>,
+           <<"baz">>,
+           [{blockchain_poc_path_element_v2_pb,<<"first">>,
+             {blockchain_poc_receipt_v2_pb,<<"a">>,
+              1559953989978238892,0,<<"§Úi½">>,p2p,
+              <<"b">>},
+             []},
+            {blockchain_poc_path_element_v2_pb,<<"second">>,
+             undefined,
+             [{blockchain_poc_witness_v2_pb,<<"fourth">>,
+               1559953991034558678,-100,
+               <<>>,
+               <<>>},
+              {blockchain_poc_witness_v2_pb,<<"first">>,
+               1559953991035078007,-72,
+               <<>>,
+               <<>>}]},
+            {blockchain_poc_path_element_v2_pb,<<"third">>,
+             undefined,[]},
+            {blockchain_poc_path_element_v2_pb,<<"second">>,
+             undefined,
+             [{blockchain_poc_witness_v2_pb,<<"fourth">>,
+               1559953992074400943,-100,
+               <<>>,
+               <<>>},
+              {blockchain_poc_witness_v2_pb,<<"first">>,
+               1559953992075156868,-84,
+               <<>>,
+               <<>>}]}],
+           0,
+           <<"gg">>},
 
     Deltas = deltas(Txn),
     ?assertEqual(4, length(Deltas)),
