@@ -172,6 +172,26 @@ data_test() ->
     Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
     ?assertEqual(<<"data">>, data(Receipt)).
 
+rx_time_test() ->
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
+    ?assertEqual(666, rx_time(Receipt)).
+
+tx_time_test() ->
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
+    ?assertEqual(667, tx_time(Receipt)).
+
+snr_test() ->
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
+    ?assertEqual(2, snr(Receipt)).
+
+time_acc_test() ->
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
+    ?assertEqual(1, time_acc(Receipt)).
+
+loc_acc_test() ->
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
+    ?assertEqual(1, loc_acc(Receipt)).
+
 p2p_origin_test() ->
     Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, 666, 667, 1, 1),
     ?assertEqual(p2p, origin(Receipt)).
@@ -187,15 +207,7 @@ signature_test() ->
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(PubKey),
-    Receipt0 = ?MODULE:new(Gateway,
-                           -110,
-                           <<"data">>,
-                           radio,
-                           2,
-                           erlang:system_time(microsecond),
-                           erlang:system_time(microsecond),
-                           1,
-                           1),
+    Receipt0 = ?MODULE:new(Gateway, -110, <<"data">>, radio, 2, erlang:system_time(microsecond), erlang:system_time(microsecond), 1, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Receipt1 = sign(Receipt0, SigFun),
     Sig1 = signature(Receipt1),
@@ -204,25 +216,9 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedReceipt, Sig1, PubKey)).
 
 encode_decode_test() ->
-    Receipt = ?MODULE:new(<<"gateway">>,
-                          -110,
-                          <<"data">>,
-                          p2p,
-                          2,
-                          erlang:system_time(microsecond),
-                          erlang:system_time(microsecond),
-                          1,
-                          1),
+    Receipt = ?MODULE:new(<<"gateway">>, -110, <<"data">>, p2p, 2, erlang:system_time(microsecond), erlang:system_time(microsecond), 1, 1),
     ?assertEqual({receipt, Receipt}, blockchain_poc_response_v2:decode(blockchain_poc_response_v2:encode(Receipt))),
-    Receipt2 = ?MODULE:new(<<"gateway">>,
-                           -112,
-                           <<"data">>,
-                           radio,
-                           2,
-                           erlang:system_time(microsecond),
-                           erlang:system_time(microsecond),
-                           1,
-                           1),
+    Receipt2 = ?MODULE:new(<<"gateway2">>, -110, <<"data">>, radio, 2, erlang:system_time(microsecond), erlang:system_time(microsecond), 1, 1),
     ?assertEqual({receipt, Receipt2}, blockchain_poc_response_v2:decode(blockchain_poc_response_v2:encode(Receipt2))).
 
 -endif.
