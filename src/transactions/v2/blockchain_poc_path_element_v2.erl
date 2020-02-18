@@ -5,6 +5,7 @@
 -module(blockchain_poc_path_element_v2).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v2_pb.hrl").
 
 -export([
@@ -12,7 +13,10 @@
          challengee/1,
          receipt/1, add_receipt/2,
          witnesses/1, add_witness/2,
-         print/1
+         print/1,
+
+         good_quality_witnesses/2,
+         calculate_witness_quality/2
         ]).
 
 -ifdef(TEST).
@@ -47,7 +51,7 @@ receipt(Element) ->
 add_receipt(Element, Receipt) ->
     case receipt(Element) of
         R when R == Receipt ->
-            %% Readding the same receipt should not be allowed
+            %% Re-adding the same receipt should not be allowed
             {error, receipt_replay};
         _ ->
             Element#blockchain_poc_path_element_v2_pb{receipt=Receipt}
@@ -98,6 +102,71 @@ print(#blockchain_poc_path_element_v2_pb{
                                          Witnesses), "\n\t\t")
                   ]).
 
+-spec good_quality_witnesses(Element :: blockchain_poc_path_element_v2:poc_element(),
+                             Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v2:poc_witness()].
+good_quality_witnesses(#blockchain_poc_path_element_v2_pb{witnesses=Witnesses,
+                                                          challengee=Challengee},
+                       Ledger) ->
+    {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
+    {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
+
+    {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
+    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+    ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
+
+    %% Good quality witnesses
+    lists:filter(fun(Witness) ->
+                         WitnessPubkeyBin = blockchain_poc_witness_v2:gateway(Witness),
+                         {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
+                         WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                         WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
+                         WitnessRSSI = blockchain_poc_witness_v2:signal(Witness),
+                         FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
+                         %% Check that the witness is far from the challengee hotspot and also check that the RSSI seems reasonable
+                         check_witness_challengee_distance(WitnessParentIndex, ChallengeeParentIndex, ExclusionCells) andalso
+                         (WitnessRSSI =< FreeSpacePathLoss)
+                 end,
+                 Witnesses).
+
+-spec check_witness_challengee_distance(WitnessParentIndex :: h3:h3_index(),
+                                        ChallengeeParentIndex :: h3:h3_index(),
+                                        ExclusionCells :: non_neg_integer()) -> boolean().
+check_witness_challengee_distance(WitnessParentIndex, ChallengeeParentIndex, ExclusionCells) ->
+    try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
+        Res -> Res
+    catch
+        %% Grid distance may badarg because of pentagonal distortion or
+        %% non matching resolutions or just being too far.
+        %% In either of those cases, we assume that the gateway
+        %% is potentially illegitimate to be a witness.
+        _:_ -> false
+    end.
+
+-spec calculate_witness_quality(Element :: blockchain_poc_path_element_v2:poc_element(),
+                                Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
+calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=undefined}=Element, Ledger) ->
+    %% no poc receipt
+    case ?MODULE:good_quality_witnesses(Element, Ledger) of
+        [] ->
+            %% Either the witnesses are too close or the RSSIs are too high
+            %% no alpha bump
+            {0, 0};
+        _ ->
+            %% high alpha bump, but not as high as when there is a receipt
+            {0.7, 0}
+    end;
+calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=_R}=Element, Ledger) ->
+    %% element has a receipt
+    case ?MODULE:good_quality_witnesses(Element, Ledger) of
+        [] ->
+            %% Either the witnesses are too close or the RSSIs are too high
+            %% no alpha bump
+            {0, 0};
+        _ ->
+            %% high alpha bump
+            {0.9, 0}
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -128,6 +197,12 @@ add_receipt_test() ->
     Element0 = new(<<"challengee">>, undefined, []),
     Element = add_receipt(Element0, Receipt),
     ?assertEqual(Receipt, receipt(Element)).
+
+add_receipt_replay_test() ->
+    Receipt = blockchain_poc_receipt_v2:new(<<"gateway">>, -110, <<"data">>, radio, 2, 666, 667, 1, 1),
+    Element0 = new(<<"challengee">>, undefined, []),
+    Element = add_receipt(Element0, Receipt),
+    ?assertEqual({error, receipt_replay}, add_receipt(Element, Receipt)).
 
 add_witness_test() ->
     Witness = blockchain_poc_witness_v2:new(<<"gateway">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),

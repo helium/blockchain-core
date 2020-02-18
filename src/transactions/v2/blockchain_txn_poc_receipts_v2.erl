@@ -12,6 +12,7 @@
 
 -export([
          new/4,
+
          hash/1,
          onion_key_hash/1,
          challenger/1,
@@ -19,16 +20,22 @@
          path/1,
          fee/1,
          signature/1,
+
          sign/2,
+
          is_valid/2,
          absorb/2,
+
          create_secret_hash/2,
          connections/1,
+
          deltas/1, deltas/2,
+
          check_path_continuation/1,
+
          print/1,
-         hex_poc_id/1,
-         good_quality_witnesses/2
+
+         hex_poc_id/1
         ]).
 
 -ifdef(TEST).
@@ -136,7 +143,7 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v2_pb:encode_msg(BaseTxn),
-    {ok, Height} = blockchain_ledger_v2:current_height(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     HexPOCID = ?MODULE:hex_poc_id(Txn),
 
@@ -149,7 +156,7 @@ is_valid(Txn, Chain) ->
                 true ->
                     {error, empty_path};
                 false ->
-                    case blockchain_ledger_v2:find_poc(POCOnionKeyHash, Ledger) of
+                    case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
                         {error, Reason}=Error ->
                             lager:error([{poc_id, HexPOCID}],
                                         "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
@@ -161,7 +168,7 @@ is_valid(Txn, Chain) ->
                                 {error, _} ->
                                     {error, poc_not_found};
                                 {ok, PoC} ->
-                                    case blockchain_ledger_v2:find_gateway_info(Challenger, Ledger) of
+                                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                                         {error, Reason}=Error ->
                                             lager:error([{poc_id, HexPOCID}],
                                                         "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
@@ -219,7 +226,7 @@ is_valid(Txn, Chain) ->
                                                                     maybe_log_duration(ledger_at, StartLA),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V >= 8 ->
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v2:all_vars(OldLedger)),
+                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    %% Targeting phase
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    %% Find the original target
@@ -233,7 +240,7 @@ is_valid(Txn, Chain) ->
                                                                                    RetB;
 
                                                                                {ok, V} when V >= 7 ->
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v2:all_vars(OldLedger)),
+                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    %% If we make it to this point, we are bound to have a target.
                                                                                    {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
@@ -247,13 +254,13 @@ is_valid(Txn, Chain) ->
                                                                                {ok, V} when V >= 4 ->
                                                                                    StartS = erlang:monotonic_time(millisecond),
                                                                                    GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v2:all_vars(OldLedger)),
+                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    maybe_log_duration(scored, StartS),
 
                                                                                    Time = blockchain_block:time(Block1),
                                                                                    {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
                                                                                    ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
-                                                                                   {ok, OldHeight} = blockchain_ledger_v2:current_height(OldLedger),
+                                                                                   {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
                                                                                    %% If we make it to this point, we are bound to have a target.
@@ -368,7 +375,7 @@ deltas(Txn) ->
                                          lists:zip(lists:seq(1, Length), Path)))).
 
 -spec deltas(Txn :: txn_poc_receipts(),
-             Ledger :: blockchain_ledger_v2:ledger()) -> deltas().
+             Ledger :: blockchain_ledger_v1:ledger()) -> deltas().
 deltas(Txn, Ledger) ->
     Path = blockchain_txn_poc_receipts_v2:path(Txn),
     Length = length(Path),
@@ -429,7 +436,7 @@ assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
 
 -spec calculate_alpha_beta(HasContinued :: boolean(),
                            Element :: blockchain_poc_path_element_v2:poc_element(),
-                           Ledger :: blockchain_ledger_v2:ledger()) -> {{float(), 0 | 1}, boolean()}.
+                           Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
 calculate_alpha_beta(HasContinued, Element, Ledger) ->
     Receipt = blockchain_poc_path_element_v2:receipt(Element),
     Witnesses = blockchain_poc_path_element_v2:witnesses(Element),
@@ -442,7 +449,7 @@ calculate_alpha_beta(HasContinued, Element, Ledger) ->
             {{1, 0}, true};
         {false, undefined, Wxs} when length(Wxs) > 0 ->
             %% path broke, no receipt, witnesses
-            {calculate_witness_quality(Element, Ledger), true};
+            {blockchain_poc_path_element_v2:calculate_witness_quality(Element, Ledger), true};
         {false, Receipt, []} when Receipt /= undefined ->
             %% path broke, receipt, no witnesses
             case blockchain_poc_receipt_v2:origin(Receipt) of
@@ -457,38 +464,10 @@ calculate_alpha_beta(HasContinued, Element, Ledger) ->
             end;
         {false, Receipt, Wxs} when Receipt /= undefined andalso length(Wxs) > 0 ->
             %% path broke, receipt, witnesses
-            {calculate_witness_quality(Element, Ledger), true};
+            {blockchain_poc_path_element_v2:calculate_witness_quality(Element, Ledger), true};
         {false, _, _} ->
             %% path broke, you killed it
             {{0, 1}, false}
-    end.
-
--spec calculate_witness_quality(Element :: blockchain_poc_path_element_v2:poc_element(),
-                                Ledger :: blockchain_ledger_v2:ledger()) -> {float(), 0}.
-calculate_witness_quality(Element, Ledger) ->
-    case blockchain_poc_path_element_v2:receipt(Element) of
-        undefined ->
-            %% no poc receipt
-            case good_quality_witnesses(Element, Ledger) of
-                [] ->
-                    %% Either the witnesses are too close or the RSSIs are too high
-                    %% no alpha bump
-                    {0, 0};
-                _ ->
-                    %% high alpha bump, but not as high as when there is a receipt
-                    {0.7, 0}
-            end;
-        _Receipt ->
-            %% element has a receipt
-            case good_quality_witnesses(Element, Ledger) of
-                [] ->
-                    %% Either the witnesses are too close or the RSSIs are too high
-                    %% no alpha bump
-                    {0, 0};
-                _ ->
-                    %% high alpha bump
-                    {0.9, 0}
-            end
     end.
 
 -spec set_deltas(Challengee :: libp2p_crypto:pubkey_bin(),
@@ -497,40 +476,6 @@ calculate_witness_quality(Element, Ledger) ->
 set_deltas(Challengee, {A, B}, Deltas) ->
     [{Challengee, {A, B}} | Deltas].
 
--spec good_quality_witnesses(Element :: blockchain_poc_path_element_v2:poc_element(),
-                             Ledger :: blockchain_ledger_v2:ledger()) -> [blockchain_poc_witness_v2:poc_witness()].
-good_quality_witnesses(Element, Ledger) ->
-    Challengee = blockchain_poc_path_element_v2:challengee(Element),
-    Witnesses = blockchain_poc_path_element_v2:witnesses(Element),
-    {ok, ParentRes} = blockchain_ledger_v2:config(?poc_v4_parent_res, Ledger),
-    {ok, ExclusionCells} = blockchain_ledger_v2:config(?poc_v4_exclusion_cells, Ledger),
-
-    {ok, ChallengeeGw} = blockchain_ledger_v2:find_gateway_info(Challengee, Ledger),
-    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
-    ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
-
-    %% Good quality witnesses
-    lists:filter(fun(Witness) ->
-                         WitnessPubkeyBin = blockchain_poc_witness_v2:gateway(Witness),
-                         {ok, WitnessGw} = blockchain_ledger_v2:find_gateway_info(WitnessPubkeyBin, Ledger),
-                         WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
-                         WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
-                         WitnessRSSI = blockchain_poc_witness_v2:signal(Witness),
-                         FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                         %% Check that the witness is far
-                         try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
-                             Res -> Res
-                         catch
-                             %% Grid distance may badarg because of pentagonal distortion or
-                             %% non matching resolutions or just being too far.
-                             %% In either of those cases, we assume that the gateway
-                             %% is potentially legitimate to be a target.
-                             _:_ -> true
-                         end andalso
-                         %% Check that the RSSI seems reasonable
-                         (WitnessRSSI =< FreeSpacePathLoss)
-                 end,
-                 Witnesses).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -542,14 +487,14 @@ absorb(Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     Secret = ?MODULE:secret(Txn),
     Ledger = blockchain:ledger(Chain),
-    {ok, Height} = blockchain_ledger_v2:current_height(Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     HexPOCID = ?MODULE:hex_poc_id(Txn),
 
     try
         %% get these to make sure we're not replaying.
-        {ok, PoCs} = blockchain_ledger_v2:find_poc(LastOnionKeyHash, Ledger),
+        {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
         {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
-        {ok, GwInfo} = blockchain_ledger_v2:find_gateway_info(Challenger, Ledger),
+        {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Challenger, Ledger),
         LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
@@ -573,20 +518,20 @@ absorb(Txn, Chain) ->
                         end
                 end,
 
-                case blockchain_ledger_v2:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
+                case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
                     {error, _}=Error1 ->
                         Error1;
                     ok ->
                         case blockchain:config(?poc_version, Ledger) of
                             {ok, V} when V > 4 ->
                                 lists:foldl(fun({Gateway, Delta}, _Acc) ->
-                                                    blockchain_ledger_v2:update_gateway_score(Gateway, Delta, Ledger)
+                                                    blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                             end,
                                             ok,
                                             ?MODULE:deltas(Txn, Ledger));
                             _ ->
                                 lists:foldl(fun({Gateway, Delta}, _Acc) ->
-                                                    blockchain_ledger_v2:update_gateway_score(Gateway, Delta, Ledger)
+                                                    blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                             end,
                                             ok,
                                             ?MODULE:deltas(Txn))
@@ -601,10 +546,10 @@ absorb(Txn, Chain) ->
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),
                                  Challenger :: libp2p_crypto:pubkey_bin(),
-                                 Ledger :: blockchain_ledger_v2:ledger(),
+                                 Ledger :: blockchain_ledger_v1:ledger(),
                                  Chain :: blockchain:blockchain()) -> {error, any()} | {ok, {non_neg_integer(), non_neg_integer()}}.
 get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
-    case blockchain_ledger_v2:find_poc(OnionKeyHash, Ledger) of
+    case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
         {error, Reason}=Error0 ->
             lager:error("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [OnionKeyHash, Reason]),
             Error0;
@@ -613,7 +558,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                 {error, _}=Error1 ->
                     Error1;
                 {ok, _PoC} ->
-                    case blockchain_ledger_v2:find_gateway_info(Challenger, Ledger) of
+                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                         {error, Reason}=Error2 ->
                             lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
                             Error2;
@@ -624,7 +569,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                                     lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
                                     Error3;
                                 {ok, Block1} ->
-                                    {ok, HH} = blockchain_ledger_v2:current_height(Ledger),
+                                    {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
                                     case blockchain:get_block(HH, Chain) of
                                         {error, _}=Error4 ->
                                             Error4;
@@ -647,7 +592,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
 -spec insert_witnesses(Path :: blockchain_poc_path_element_v2:path(),
                        LowerTimeBound :: non_neg_integer(),
                        UpperTimeBound :: non_neg_integer(),
-                       Ledger :: blockchain_ledger_v2:ledger()) -> ok.
+                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
     Length = length(Path),
     lists:foreach(fun({N, Element}) ->
@@ -686,7 +631,7 @@ insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
                                             false ->
                                                 WitnessInfo0
                                         end,
-                          blockchain_ledger_v2:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
+                          blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
                   end, lists:zip(lists:seq(1, Length), Path)).
 
 %%--------------------------------------------------------------------
@@ -723,7 +668,7 @@ create_secret_hash(Secret, X, Acc) ->
 %% entirely of padding, so there cannot be a valid receipt, but there can be
 %% witnesses (as evidence that the final recipient transmitted it).
 -spec validate(txn_poc_receipts(), list(),
-               [binary(), ...], [binary(), ...], blockchain_ledger_v2:ledger()) -> ok | {error, atom()}.
+               [binary(), ...], [binary(), ...], blockchain_ledger_v1:ledger()) -> ok | {error, atom()}.
 validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     TxnPath = ?MODULE:path(Txn),
     TxnPathLength = length(TxnPath),
@@ -775,7 +720,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                            true ->
                                                                {error, too_many_witnesses};
                                                            false ->
-                                                               case blockchain_ledger_v2:config(?poc_version, OldLedger) of
+                                                               case blockchain_ledger_v1:config(?poc_version, OldLedger) of
                                                                    {ok, V} when V > 1 ->
                                                                        %% check there are no duplicates in witnesses list
                                                                        WitnessGateways = [blockchain_poc_witness_v2:gateway(W) || W <- Witnesses],
@@ -816,7 +761,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                lists:zip3(TxnPath, Path, ZippedLayers)
                               ),
                     %% clean up ledger context
-                    blockchain_ledger_v2:delete_context(OldLedger),
+                    blockchain_ledger_v1:delete_context(OldLedger),
                     Result
 
             end
@@ -849,7 +794,7 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                   %% the witnesses should have an asserted location
                   %% at the point when the request was mined!
                   WitnessGateway = blockchain_poc_witness_v2:gateway(Witness),
-                  case blockchain_ledger_v2:find_gateway_info(WitnessGateway, OldLedger) of
+                  case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
                       {error, _} ->
                           false;
                       {ok, _} when Gateway == WitnessGateway ->

@@ -164,7 +164,7 @@ neighbors(Neighbors, Gateway) ->
 -spec score(Address :: libp2p_crypto:pubkey_bin(),
             Gateway :: gateway(),
             Height :: pos_integer(),
-            Ledger :: blockchain_ledger_v2:ledger()) -> {float(), float(), float()}.
+            Ledger :: blockchain_ledger_v1:ledger()) -> {float(), float(), float()}.
 score(Address,
       #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
