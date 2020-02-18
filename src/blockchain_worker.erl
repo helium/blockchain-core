@@ -568,7 +568,7 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     %% last block add time is relative to the system clock so as long as the local
     %% clock mostly increments this will eventually be true on a stuck node
     case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
-        X when X > 300; ->
+        X when X > 300 ->
             start_sync(State);
         _ ->
             %% no need to sync now, check again later
