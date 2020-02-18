@@ -573,7 +573,8 @@ maybe_sync(#state{blockchain = Chain} = State) ->
         {ok, Head} ->
             BlockTime = blockchain_block:time(Head),
             case erlang:system_time(seconds) - BlockTime of
-                X when X > 300 ->
+                X when X > 300; X < 0 ->
+                    %% negative values indicate we have an unreliable clock
                     start_sync(State);
                 _ ->
                     %% no need to sync now, check again later
@@ -584,7 +585,14 @@ maybe_sync(#state{blockchain = Chain} = State) ->
 
 start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
     %% figure out who we're connected to
-    {Peers, _} = lists:unzip(libp2p_config:lookup_sessions(libp2p_swarm:tid(blockchain_swarm:swarm()))),
+    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(libp2p_swarm:tid(blockchain_swarm:swarm()))),
+    %% Get the p2p addresses of our peers, so we will connect on existing sessions
+    Peers = lists:filter(fun(E) ->
+                                 case libp2p_transport_p2p:p2p_addr(E) of
+                                     {ok, _} -> true;
+                                     _       -> false
+                                 end
+                         end, Peers0),
     case Peers of
         [] ->
             %% try again later when there's peers
@@ -592,8 +600,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            Pid = sync(Swarm, Chain, RandomPeer),
-            Ref = erlang:monitor(process, Pid),
+            {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
             lager:info("unknown starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
@@ -643,7 +650,7 @@ remove_handlers(Swarm) ->
 %% @end
 %%--------------------------------------------------------------------
 sync(Swarm, Chain, Peer) ->
-    spawn(fun() ->
+    spawn_monitor(fun() ->
         case libp2p_swarm:dial_framed_stream(Swarm,
                                              Peer,
                                              ?SYNC_PROTOCOL,
