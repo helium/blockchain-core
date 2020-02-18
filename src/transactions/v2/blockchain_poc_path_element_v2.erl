@@ -155,7 +155,7 @@ calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=undefined}=
             %% high alpha bump, but not as high as when there is a receipt
             {0.7, 0}
     end;
-calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=_R}=Element, Ledger) ->
+calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=R}=Element, Ledger) when R /= undefined ->
     %% element has a receipt
     case ?MODULE:good_quality_witnesses(Element, Ledger) of
         [] ->
