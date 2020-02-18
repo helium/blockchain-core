@@ -47,7 +47,7 @@ receipt(Element) ->
     Element#blockchain_poc_path_element_v2_pb.receipt.
 
 -spec add_receipt(Element :: poc_element(),
-                  Receipt :: blockchain_poc_receipt_v2:poc_receipt()) -> poc_element().
+                  Receipt :: blockchain_poc_receipt_v2:poc_receipt()) -> {error, receipt_replay} | poc_element().
 add_receipt(Element, Receipt) ->
     case receipt(Element) of
         R when R == Receipt ->
@@ -58,20 +58,14 @@ add_receipt(Element, Receipt) ->
     end.
 
 -spec add_witness(Element :: poc_element(),
-                  Witness :: blockchain_poc_witness_v2:poc_witness()) -> poc_element().
+                  Witness :: blockchain_poc_witness_v2:poc_witness()) -> {error, witness_already_added} | poc_element().
 add_witness(Element = #blockchain_poc_path_element_v2_pb{witnesses=Witnesses}, Witness) ->
     %% Only add a witness to this path element if:
-    %% 1. The number of witnesses for this path element is less than 5
-    %% 2. It has not been a witness for this path element earlier
+    %% It has not been a witness for this path element earlier
     case has_witness(Element, Witness) of
         false ->
-            case length(witnesses(Element)) < 5 of
-                false ->
-                    {error, max_witnesses};
-                true ->
-                    %% ok to add
-                    Element#blockchain_poc_path_element_v2_pb{witnesses=lists:sort([Witness | Witnesses])}
-            end;
+            %% ok to add
+            Element#blockchain_poc_path_element_v2_pb{witnesses=lists:sort([Witness | Witnesses])};
         true ->
             {error, witness_already_added}
     end.
@@ -216,38 +210,5 @@ duplicate_witness_test() ->
     Element0 = new(<<"challengee">>, undefined, []),
     Element1 = add_witness(Element0, Witness),
     ?assertEqual({error, witness_already_added}, add_witness(Element1, Witness)).
-
-max_witnesses_test() ->
-    Witness1 = blockchain_poc_witness_v2:new(<<"gateway1">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness2 = blockchain_poc_witness_v2:new(<<"gateway2">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness3 = blockchain_poc_witness_v2:new(<<"gateway3">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness4 = blockchain_poc_witness_v2:new(<<"gateway4">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness5 = blockchain_poc_witness_v2:new(<<"gateway5">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-
-    Element0 = new(<<"challengee">>, undefined, []),
-    Element1 = add_witness(Element0, Witness1),
-    Element2 = add_witness(Element1, Witness2),
-    Element3 = add_witness(Element2, Witness3),
-    Element4 = add_witness(Element3, Witness4),
-    Element5 = add_witness(Element4, Witness5),
-
-    ?assertEqual(5, length(witnesses(Element5))).
-
-max_witnesses_error_test() ->
-    Witness1 = blockchain_poc_witness_v2:new(<<"gateway1">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness2 = blockchain_poc_witness_v2:new(<<"gateway2">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness3 = blockchain_poc_witness_v2:new(<<"gateway3">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness4 = blockchain_poc_witness_v2:new(<<"gateway4">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness5 = blockchain_poc_witness_v2:new(<<"gateway5">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-    Witness6 = blockchain_poc_witness_v2:new(<<"gateway6">>, -110, <<"hash">>, 2, erlang:system_time(microsecond), 1, 1),
-
-    Element0 = new(<<"challengee">>, undefined, []),
-    Element1 = add_witness(Element0, Witness1),
-    Element2 = add_witness(Element1, Witness2),
-    Element3 = add_witness(Element2, Witness3),
-    Element4 = add_witness(Element3, Witness4),
-    Element5 = add_witness(Element4, Witness5),
-
-    ?assertEqual({error, max_witnesses}, add_witness(Element5, Witness6)).
 
 -endif.
