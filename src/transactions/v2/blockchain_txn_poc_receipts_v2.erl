@@ -138,110 +138,158 @@ sign(Txn, SigFun) ->
 -spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    HexPOCID = ?MODULE:hex_poc_id(Txn),
     Challenger = ?MODULE:challenger(Txn),
-    Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
+    Path = ?MODULE:path(Txn),
+    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    Secret = ?MODULE:secret(Txn),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v2_pb:encode_msg(BaseTxn),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    HexPOCID = ?MODULE:hex_poc_id(Txn),
+    Signature = ?MODULE:signature(Txn),
+    PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
 
-    StartPre = erlang:monotonic_time(millisecond),
-    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-        false ->
-            {error, bad_signature};
-        true ->
-            case ?MODULE:path(Txn) =:= [] of
-                true ->
-                    {error, empty_path};
-                false ->
-                    case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
-                        {error, Reason}=Error ->
-                            lager:error([{poc_id, HexPOCID}],
-                                        "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
-                                        [POCOnionKeyHash, Reason]),
-                            Error;
+    case check_signature(EncodedTxn, Signature, PubKey, HexPOCID) of
+        {error, _}=E1 -> E1;
+        {ok, true} ->
+            case check_empty_path(Path, HexPOCID) of
+                {error, _}=E2 -> E2;
+                {ok, false} ->
+                    case check_find_poc(POCOnionKeyHash, Ledger, HexPOCID) of
+                        {error, _}=E3 -> E3;
                         {ok, PoCs} ->
-                            Secret = ?MODULE:secret(Txn),
-                            case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
-                                {error, _} ->
-                                    {error, poc_not_found};
+                            case check_valid_poc(PoCs, Challenger, Secret, HexPOCID) of
+                                {error, _}=E4 -> E4;
                                 {ok, PoC} ->
-                                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                                        {error, Reason}=Error ->
-                                            lager:error([{poc_id, HexPOCID}],
-                                                        "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                                                        [Challenger, Reason]),
-                                            Error;
+                                    case check_gw_info(Challenger, Ledger, HexPOCID) of
+                                        {error, _}=E5 -> E5;
                                         {ok, GwInfo} ->
-                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
-                                            case blockchain:get_block(LastChallenge, Chain) of
-                                                {error, Reason}=Error ->
-                                                    lager:error([{poc_id, HexPOCID}],
-                                                                "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                                [LastChallenge, Reason]),
-                                                    Error;
-                                                {ok, Block1} ->
-                                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                                                    case LastChallenge + PoCInterval >= Height of
-                                                        false ->
-                                                            {error, challenge_too_old};
-                                                        true ->
-                                                            Condition = fun(T) ->
-                                                                                blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
-                                                                                blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash andalso
-                                                                                blockchain_txn_poc_request_v2:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
-                                                                        end,
-                                                            case lists:any(Condition, blockchain_block:transactions(Block1)) of
-                                                                false ->
-                                                                    {error, onion_key_hash_mismatch};
-                                                                true ->
-                                                                    %% Note there are 2 block hashes here; one is the block hash encoded into the original
-                                                                    %% PoC request used to establish a lower bound on when that PoC request was made,
-                                                                    %% and one is the block hash at which the PoC was absorbed onto the chain.
-                                                                    %%
-                                                                    %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
-                                                                    %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
-                                                                    %% with the chain.
-                                                                    %%
-                                                                    %% The second of these is combined with the PoC secret to produce the combined entropy
-                                                                    %% from both the chain and from the PoC requester.
-                                                                    %%
-                                                                    %% Keeping these distinct and using them for their intended purpose is important.
-                                                                    PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
-                                                                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
-                                                                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
-                                                                    maybe_log_duration(prelude, StartPre),
-                                                                    StartLA = erlang:monotonic_time(millisecond),
-                                                                    {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
-                                                                    maybe_log_duration(ledger_at, StartLA),
-
-                                                                    Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
-                                                                    %% Find the original target
-                                                                    {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
-                                                                    %% Path building phase
-                                                                    Time = blockchain_block:time(Block1),
-                                                                    Path = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
-
-                                                                    N = erlang:length(Path),
-                                                                    [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
-                                                                    OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
-                                                                    {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger),
-                                                                    %% no witness will exist with the first layer hash
-                                                                    [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
-                                                                    StartV = erlang:monotonic_time(millisecond),
-                                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
-                                                                    maybe_log_duration(receipt_validation, StartV),
-                                                                    Ret
-                                                            end
-                                                    end
+                                            case check_last_challenge_block(GwInfo, Chain, Ledger, HexPOCID) of
+                                                {error, _}=E6 -> E6;
+                                                {ok, LastChallengeBlock} ->
+                                                    check_path(LastChallengeBlock, PoC, Challenger, Secret, POCOnionKeyHash, Txn, Chain)
                                             end
                                     end
                             end
                     end
             end
     end.
+
+check_signature(EncodedTxn, Signature, PubKey, HexPOCID) ->
+    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+        false ->
+            lager:error([{poc_id, HexPOCID}], "poc_receipts error bad_signature"),
+            {error, bad_signature};
+        true ->
+            {ok, true}
+    end.
+
+check_empty_path(Path, HexPOCID) ->
+    case Path =:= [] of
+        true ->
+            lager:error([{poc_id, HexPOCID}], "poc_receipts error empty_path"),
+            {error, empty_path};
+        false ->
+            {ok, false}
+    end.
+
+check_find_poc(POCOnionKeyHash, Ledger, HexPOCID) ->
+    case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
+        {error, Reason}=Error ->
+            lager:error([{poc_id, HexPOCID}],
+                        "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
+                        [POCOnionKeyHash, Reason]),
+            Error;
+        {ok, _PoCs}=Res ->
+            Res
+    end.
+
+check_valid_poc(PoCs, Challenger, Secret, HexPOCID) ->
+    case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
+        {error, _} ->
+            lager:error([{poc_id, HexPOCID}],
+                        "poc_receipts error invalid_poc, challenger: ~p, pocs: ~p",
+                        [Challenger, PoCs]),
+            {error, poc_not_found};
+        {ok, _PoC}=Res ->
+            Res
+    end.
+
+check_gw_info(Challenger, Ledger, HexPOCID) ->
+    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+        {error, Reason}=Error ->
+            lager:error([{poc_id, HexPOCID}],
+                        "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                        [Challenger, Reason]),
+            Error;
+        {ok, _GwInfo}=Res ->
+            Res
+    end.
+
+check_last_challenge_block(GwInfo, Chain, Ledger, HexPOCID) ->
+    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+    case blockchain:get_block(LastChallenge, Chain) of
+        {error, Reason}=Error ->
+            lager:error([{poc_id, HexPOCID}],
+                        "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                        [LastChallenge, Reason]),
+            Error;
+        {ok, LastChallengeBlock} ->
+            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+            PoCInterval = blockchain_utils:challenge_interval(Ledger),
+            case LastChallenge + PoCInterval >= Height of
+                false ->
+                    {error, challenge_too_old};
+                true ->
+                    {ok, LastChallengeBlock}
+            end
+    end.
+
+check_path(LastChallengeBlock, PoC, Challenger, Secret, POCOnionKeyHash, Txn, Chain) ->
+    CheckFun = fun(T) ->
+                       blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
+                       blockchain_txn_poc_request_v2:onion_key_hash(T) == POCOnionKeyHash andalso
+                       blockchain_txn_poc_request_v2:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
+               end,
+    case lists:any(CheckFun, blockchain_block:transactions(LastChallengeBlock)) of
+        false ->
+            {error, onion_key_hash_mismatch};
+        true ->
+            %% Note there are 2 block hashes here; one is the block hash encoded into the original
+            %% PoC request used to establish a lower bound on when that PoC request was made,
+            %% and one is the block hash at which the PoC was absorbed onto the chain.
+            %%
+            %% The first, mediated via a chain var, is mixed with the ECDH derived key for each layer
+            %% of the onion to ensure that nodes cannot decrypt the onion layer if they are not synced
+            %% with the chain.
+            %%
+            %% The second of these is combined with the PoC secret to produce the combined entropy
+            %% from both the chain and from the PoC requester.
+            %%
+            %% Keeping these distinct and using them for their intended purpose is important.
+            PrePoCBlockHash = blockchain_ledger_poc_v2:block_hash(PoC),
+            PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(LastChallengeBlock),
+            Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
+            {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(LastChallengeBlock), Chain),
+
+            Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
+            %% Find the original target
+            {ok, {Target, TargetRandState}} = blockchain_poc_target_v3:target(Challenger, Entropy, OldLedger, Vars),
+            %% Path building phase
+            Time = blockchain_block:time(LastChallengeBlock),
+            Path = blockchain_poc_path_v4:build(Target, TargetRandState, OldLedger, Time, Vars),
+
+            N = erlang:length(Path),
+            [<<IV:16/integer-unsigned-little, _/binary>> | LayerData] = blockchain_txn_poc_receipts_v2:create_secret_hash(Entropy, N+1),
+            OnionList = lists:zip([libp2p_crypto:bin_to_pubkey(P) || P <- Path], LayerData),
+            {_Onion, Layers} = blockchain_poc_packet:build(libp2p_crypto:keys_from_bin(Secret), IV, OnionList, PrePoCBlockHash, OldLedger),
+            %% no witness will exist with the first layer hash
+            [_|LayerHashes] = [crypto:hash(sha256, L) || L <- Layers],
+            StartV = erlang:monotonic_time(millisecond),
+            Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
+            maybe_log_duration(receipt_validation, StartV),
+            Ret
+    end.
+
 
 maybe_log_duration(Type, Start) ->
     case application:get_env(blockchain, log_validation_times, false) of
