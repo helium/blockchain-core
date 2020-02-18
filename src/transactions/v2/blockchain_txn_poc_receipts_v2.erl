@@ -174,6 +174,10 @@ is_valid(Txn, Chain) ->
             end
     end.
 
+-spec check_signature(EncodedTxn :: binary(),
+                      Signature :: binary(),
+                      PubKey :: libp2p_crypto:pubkey(),
+                      HexPOCID :: string()) -> {error, bad_signature} | {ok, true}.
 check_signature(EncodedTxn, Signature, PubKey, HexPOCID) ->
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
@@ -183,6 +187,8 @@ check_signature(EncodedTxn, Signature, PubKey, HexPOCID) ->
             {ok, true}
     end.
 
+-spec check_empty_path(Path :: blockchain_poc_path_element_v2:path(),
+                       HexPOCID :: string()) -> {error, empty_path} | {ok, false}.
 check_empty_path(Path, HexPOCID) ->
     case Path =:= [] of
         true ->
@@ -192,6 +198,9 @@ check_empty_path(Path, HexPOCID) ->
             {ok, false}
     end.
 
+-spec check_find_poc(POCOnionKeyHash :: binary(),
+                     Ledger :: blockchain_ledger_v1:ledger(),
+                     HexPOCID :: string()) -> {error, any()} | {ok, blockchain_ledger_poc_v2:pocs()}.
 check_find_poc(POCOnionKeyHash, Ledger, HexPOCID) ->
     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
         {error, Reason}=Error ->
@@ -203,6 +212,10 @@ check_find_poc(POCOnionKeyHash, Ledger, HexPOCID) ->
             Res
     end.
 
+-spec check_valid_poc(PoCs :: blockchain_ledger_poc_v2:pocs(),
+                      Challenger :: libp2p_crypto:pubkey_bin(),
+                      Secret :: binary(),
+                      HexPOCID :: string()) -> {error, poc_not_found} | {ok, blockchain_ledger_poc_v2:poc()}.
 check_valid_poc(PoCs, Challenger, Secret, HexPOCID) ->
     case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
         {error, _} ->
@@ -214,6 +227,9 @@ check_valid_poc(PoCs, Challenger, Secret, HexPOCID) ->
             Res
     end.
 
+-spec check_gw_info(Challenger :: libp2p_crypto:pubkey_bin(),
+                    Ledger :: blockchain_ledger_v1:ledger(),
+                    HexPOCID :: string()) -> {error, any()} | {ok, blockchain_ledger_gateway_v2:gateway()}.
 check_gw_info(Challenger, Ledger, HexPOCID) ->
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
         {error, Reason}=Error ->
@@ -225,6 +241,10 @@ check_gw_info(Challenger, Ledger, HexPOCID) ->
             Res
     end.
 
+-spec check_last_challenge_block(GwInfo :: blockchain_ledger_gateway_v2:gateway(),
+                                 Chain :: blockchain:blockchain(),
+                                 Ledger :: blockchain_ledger_v1:ledger(),
+                                 HexPOCID :: string()) -> {error, any()} | {ok, blockchain_block:block()}.
 check_last_challenge_block(GwInfo, Chain, Ledger, HexPOCID) ->
     LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
     case blockchain:get_block(LastChallenge, Chain) of
@@ -244,6 +264,13 @@ check_last_challenge_block(GwInfo, Chain, Ledger, HexPOCID) ->
             end
     end.
 
+-spec check_path(LastChallengeBlock :: blockchain_block:block(),
+                 PoC :: blockchain_ledger_poc_v2:poc(),
+                 Challenger :: libp2p_crypto:pubkey_bin(),
+                 Secret :: binary(),
+                 POCOnionKeyHash :: binary(),
+                 Txn :: txn_poc_receipts(),
+                 Chain :: blockchain:blockchain()) -> {error, any()} | ok.
 check_path(LastChallengeBlock, PoC, Challenger, Secret, POCOnionKeyHash, Txn, Chain) ->
     CheckFun = fun(T) ->
                        blockchain_txn:type(T) == blockchain_txn_poc_request_v2 andalso
