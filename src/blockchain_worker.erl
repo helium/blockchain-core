@@ -565,22 +565,15 @@ maybe_sync(#state{sync_pid = Pid} = State) when Pid /= undefined ->
     State;
 maybe_sync(#state{blockchain = Chain} = State) ->
     erlang:cancel_timer(State#state.sync_timer),
-    case blockchain:head_block(Chain) of
-        {error, _Reason} ->
-            lager:error("could not get head block ~p", [_Reason]),
+    %% last block add time is relative to the system clock so as long as the local
+    %% clock mostly increments this will eventually be true on a stuck node
+    case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
+        X when X > 300; ->
+            start_sync(State);
+        _ ->
+            %% no need to sync now, check again later
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            State#state{sync_timer=Ref};
-        {ok, Head} ->
-            BlockTime = blockchain_block:time(Head),
-            case erlang:system_time(seconds) - BlockTime of
-                X when X > 300; X < 0 ->
-                    %% negative values indicate we have an unreliable clock
-                    start_sync(State);
-                _ ->
-                    %% no need to sync now, check again later
-                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                    State#state{sync_timer=Ref}
-            end
+            State#state{sync_timer=Ref}
     end.
 
 start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
