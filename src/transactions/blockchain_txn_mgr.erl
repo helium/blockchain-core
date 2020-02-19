@@ -347,7 +347,7 @@ normalise_block_height(_CurBlockHeight, RecvBlockHeight)->
     RecvBlockHeight.
 
 submit_f(NumMembers)->
-    (NumMembers - 1) div 3 * 2.
+    ((NumMembers - 1) div 3 ) * 2.
 
 reject_f(NumMembers)->
     (NumMembers - 1) div 3.
