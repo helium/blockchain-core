@@ -205,11 +205,11 @@ signatory_rand_members(Chain, SubmitF) ->
             Ledger = blockchain:ledger(Chain),
             {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
             Members = Members0 -- [blockchain_swarm:pubkey_bin()],
-            RandomMembers = randomize_list(Members),
+            RandomMembers = blockchain_utils:shuffle(Members),
             {ok, lists:sublist(RandomMembers, SubmitF)};
         _ ->
             %% we have signatories
-            RandomSignatories = randomize_list(Signatories),
+            RandomSignatories = blockchain_utils:shuffle(Signatories),
             {ok, lists:sublist(RandomSignatories, SubmitF)}
     end.
 
@@ -351,9 +351,3 @@ submit_f(NumMembers)->
 
 reject_f(NumMembers)->
     (NumMembers - 1) div 3.
-
-randomize_list(L)->
-    R = [{rand:uniform(1000000), I} || I <- L],
-    O = lists:sort(R),
-    {_, RandomL} = lists:unzip(O),
-    RandomL.
