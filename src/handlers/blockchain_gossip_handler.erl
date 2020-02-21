@@ -1,6 +1,8 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain Gossip Stream Handler ==
+%% NOTE: gossip protocol negotation is performed as part of group gossip
+%%       as this is where stream dialing takes place
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_gossip_handler).
@@ -100,12 +102,12 @@ add_block(Block, Chain, Sender, SwarmTID) ->
 gossip_data(SwarmTID, Block) ->
     PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     BinBlock = blockchain_block:serialize(Block),
-    Msg= #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
+    Msg = #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
 regossip_block(Block, SwarmTID) ->
     libp2p_group_gossip:send(
       libp2p_swarm:gossip_group(SwarmTID),
-      ?GOSSIP_PROTOCOL,
+      ?GOSSIP_PROTOCOL_V1,
       blockchain_gossip_handler:gossip_data(SwarmTID, Block)
      ).
