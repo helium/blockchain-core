@@ -41,10 +41,10 @@
          }).
 
 -type cached_txn_type() :: {Txn :: blockchain_txn:txn(),
-                            {Callback :: fun(), RecvBlockHeight :: undefined | integer(),
+                                {Callback :: fun(), RecvBlockHeight :: undefined | integer(),
                                 Acceptions :: [libp2p_crypto:pubkey_bin()],
                                 Rejections :: [libp2p_crypto:pubkey_bin()],
-                                    Dialers :: undefined | [pid()]}}.
+                                Dialers :: undefined | [pid()]}}.
 
 
 %% ------------------------------------------------------------------
@@ -92,7 +92,7 @@ handle_cast({submit, Txn, Callback}, State=#state{chain = Chain,
                                                   cur_block_height = H,
                                                   submit_f = SubmitF}) ->
     %% send the txn to consensus group
-    Dialers = submit_txn_to_cg(Chain, Txn, SubmitF),
+    Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
     ok = cache_txn(Txn, Callback, H, [], [], Dialers),
     {noreply, State};
 
@@ -127,9 +127,10 @@ handle_info({accepted, {Dialer, Txn, Member}}, State) ->
     ok = accepted(Txn, Member, Dialer),
     {noreply, State};
 
-handle_info({rejected, {Dialer, Txn, Member}}, #state{cur_block_height = CurBlockHeight, reject_f = RejectF} = State) ->
+handle_info({rejected, {Dialer, Txn, Member}}, #state{chain = Chain, cur_block_height = CurBlockHeight,
+                                                        reject_f = RejectF} = State) ->
     lager:debug("txn: ~s, rejected_by: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = rejected(Txn, Member, Dialer, CurBlockHeight, RejectF),
+    ok = rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF),
     {noreply, State};
 
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
@@ -151,7 +152,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#s
                             ok = invoke_callback(Callback, ok),
                             delete_cached_txn(Txn);
                         false ->
-                            ok
+                            noop
                     end
                 end, sorted_cached_txns()),
 
@@ -189,12 +190,13 @@ initialize_with_chain(State, Chain)->
     ok = resubmit(Chain, Height, SubmitF),
     State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
 
--spec invoke_callback(fun(), ok | {error, invalid} | {error, rejected}) -> pid().
+-spec invoke_callback(fun(), ok | {error, invalid} | {error, rejected}) -> ok.
 invoke_callback(Callback, Msg) ->
-    spawn(fun() -> Callback(Msg) end).
+    spawn(fun() -> Callback(Msg) end),
+    ok.
 
--spec signatory_rand_members(blockchain:blockchain(), integer()) -> {ok, [libp2p_crypto:pubkey_bin()]}.
-signatory_rand_members(Chain, SubmitF) ->
+-spec signatory_rand_members(blockchain:blockchain(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]) -> {ok, [libp2p_crypto:pubkey_bin()]}.
+signatory_rand_members(Chain, SubmitF, Acceptions, Rejections) ->
     {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock),
         not Signer =:= blockchain_swarm:pubkey_bin()],
@@ -204,12 +206,12 @@ signatory_rand_members(Chain, SubmitF) ->
             %% so use a random consensus member
             Ledger = blockchain:ledger(Chain),
             {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
-            Members = Members0 -- [blockchain_swarm:pubkey_bin()],
+            Members = Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions -- Rejections,
             RandomMembers = blockchain_utils:shuffle(Members),
             {ok, lists:sublist(RandomMembers, SubmitF)};
         _ ->
             %% we have signatories
-            RandomSignatories = blockchain_utils:shuffle(Signatories),
+            RandomSignatories = blockchain_utils:shuffle(Signatories) -- Acceptions -- Rejections,
             {ok, lists:sublist(RandomSignatories, SubmitF)}
     end.
 
@@ -221,7 +223,7 @@ retry(Txn, Chain, SubmitF) ->
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, _Dialers}}} ->
             %% resubmit the txn to CG
-            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF),
+            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, Acceptions, Rejections),
             cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, NewDialers)
     end.
 
@@ -255,31 +257,25 @@ resubmit(Chain, CurBlockHeight, SubmitF)->
                     RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
                     %% the txn is valid, keep in our cache and reschedule
                     lager:info("Resubmitting txn: ~p", [blockchain_txn:hash(Txn)]),
-                    NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF),
+                    NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
                     cache_txn(Txn, Callback, RecvBlockHeight0, [], [], NewDialers)
             end
         end, CachedTxns).
 
--spec rejected(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(), undefined | integer(), integer()) -> ok.
-rejected(Txn, Member, Dialer, CurBlockHeight, RejectF) ->
+-spec rejected(blockchain:blockchain(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(), undefined | integer(), integer()) -> ok.
+rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF) ->
     case cached_txn(Txn) of
         {error, _} ->
             %% We no longer have this txn, do nothing
             ok;
-        {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
+        {ok, {Txn, {_, _, _, Rejections, _}} = TxnPayload} ->
             %% stop the dialer which rejected the txn
             ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
             %% add the member to the rejections list, so we avoid resubmitting to one which already rejected
             Rejections0 = lists:usort([Member|Rejections]),
-            case length(Rejections0) > RejectF andalso (CurBlockHeight - RecvBlockHeight) > ?MAX_BLOCK_SPAN of
-                true ->
-                    %% txn has been exceeded our max rejection count
-                    ok = invoke_callback(Callback, {error, rejected}),
-                    delete_cached_txn(Txn);
-                false ->
-                    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections0, Dialers)
-            end
+            reject_actions(Chain, TxnPayload, Rejections0, RejectF, CurBlockHeight)
     end.
+
 
 -spec accepted(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid()) -> ok.
 accepted(Txn, Member, Dialer) ->
@@ -294,9 +290,41 @@ accepted(Txn, Member, Dialer) ->
             cache_txn(Txn, Callback, RecvBlockHeight, lists:usort([Member|Acceptions]), Rejections, Dialers)
     end.
 
--spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer()) -> [pid()].
-submit_txn_to_cg(Chain, Txn, SubmitF)->
-    {ok, Members} = signatory_rand_members(Chain, SubmitF),
+%% txn has not been accepted after multiple block epochs and has exceeded the max number of rejections
+%% delete it and invoke callback
+-spec reject_actions(blockchain:blockchain(), cached_txn_type(), [libp2p_crypto:pubkey_bin()], integer(), integer()) -> ok.
+reject_actions(_Chain,
+                {Txn, {Callback, RecvBlockHeight, _Acceptions, _Rejections, _Dialers}},
+                NewRejections,
+                RejectF,
+                CurBlockHeight)
+    when length(NewRejections) > RejectF andalso (CurBlockHeight - RecvBlockHeight) > ?MAX_BLOCK_SPAN ->
+    %% txn has been exceeded our max rejection count
+    ok = invoke_callback(Callback, {error, rejected}),
+    delete_cached_txn(Txn);
+%% the txn has been rejected but has not yet exceeded the max number of rejections,
+%% so resend to another CG member
+reject_actions(Chain,
+                {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}},
+                NewRejections,
+                RejectF,
+                _CurBlockHeight)
+    when length(NewRejections) < RejectF ->
+    NewDialer = submit_txn_to_cg(Chain, Txn, 1, Acceptions, Rejections),
+    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, NewRejections, [NewDialer | Dialers]);
+%% the txn has been rejected but has exceeded the max number of rejections for this block epoch
+%% only need to update the cache
+reject_actions(_Chain,
+                {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}},
+                _NewRejections,
+                _RejectF,
+                _CurBlockHeight)->
+    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, Dialers).
+
+
+-spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]) -> [pid()].
+submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections)->
+    {ok, Members} = signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections),
     dial_members(Members, Chain, Txn).
 
 
@@ -347,7 +375,8 @@ normalise_block_height(_CurBlockHeight, RecvBlockHeight)->
     RecvBlockHeight.
 
 submit_f(NumMembers)->
-    ((NumMembers - 1) div 3 ) * 2.
-
+    %% F/2+1
+    trunc(((NumMembers - 1) div 3 ) / 2) + 1.
 reject_f(NumMembers)->
-    (NumMembers - 1) div 3.
+    %% F+1
+    trunc((NumMembers) div 3) + 1.
