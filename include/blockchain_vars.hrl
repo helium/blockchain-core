@@ -251,7 +251,6 @@
 -define(poc_max_hop_cells, poc_max_hop_cells).
 %% ------------------------------------------------------------------
 %%
-%%
 %% ------------------------------------------------------------------
 %% Txn Payment V2 vars
 %%
@@ -294,8 +293,6 @@
 %% how often we attempt to take a snapshot of the ledger
 -define(snapshot_interval, snapshot_interval).
 %% ------------------------------------------------------------------
-
-%% ------------------------------------------------------------------
 %% Price oracle variables
 %%
 %% Oracle public keys - encoded like so...
@@ -310,4 +307,10 @@
 %% How many seconds to stop scanning for oracle prices.
 %% (Will also affect what prices get dropped from the cached list of prices.)
 -define(price_oracle_price_scan_max, price_oracle_price_scan_max).
+%% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% POC Txn V2 vars
+%% Total allowed witnesses in a poc path
+-define(total_allowed_witnesses, total_allowed_witnesses).
 %% ------------------------------------------------------------------

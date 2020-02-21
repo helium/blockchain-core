@@ -865,6 +865,10 @@ validate_var(?price_oracle_height_delta, Value) ->
     %% submitted and when it is committed to the ledger
     validate_int(Value, "price_oracle_height_delta", 0, 500, false);
 
+%% PoC transaction V2 vars
+validate_var(?total_allowed_witnesses, Value) ->
+    validate_int(Value, "total_allowed_witnesses", 5, 100, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

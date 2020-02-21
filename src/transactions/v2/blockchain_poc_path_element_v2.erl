@@ -15,8 +15,10 @@
          witnesses/1, add_witness/2,
          print/1,
 
-         good_quality_witnesses/2,
-         calculate_witness_quality/2
+         distant_witnesses/2,
+         check_path_continuation/1,
+         total_eligible_witnesses/2,
+         squish/4
         ]).
 
 -ifdef(TEST).
@@ -96,11 +98,11 @@ print(#blockchain_poc_path_element_v2_pb{
                                          Witnesses), "\n\t\t")
                   ]).
 
--spec good_quality_witnesses(Element :: blockchain_poc_path_element_v2:poc_element(),
-                             Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v2:poc_witness()].
-good_quality_witnesses(#blockchain_poc_path_element_v2_pb{witnesses=Witnesses,
-                                                          challengee=Challengee},
-                       Ledger) ->
+-spec distant_witnesses(Element :: blockchain_poc_path_element_v2:poc_element(),
+                        Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_poc_witness_v2:poc_witness()].
+distant_witnesses(#blockchain_poc_path_element_v2_pb{witnesses=Witnesses,
+                                                     challengee=Challengee},
+                  Ledger) ->
     {ok, ParentRes} = blockchain_ledger_v1:config(?poc_v4_parent_res, Ledger),
     {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
 
@@ -108,19 +110,24 @@ good_quality_witnesses(#blockchain_poc_path_element_v2_pb{witnesses=Witnesses,
     ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
-    %% Good quality witnesses
+    %% Get those witnesses which are far from the challengee gateway
     lists:filter(fun(Witness) ->
                          WitnessPubkeyBin = blockchain_poc_witness_v2:gateway(Witness),
                          {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
                          WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                          WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
-                         WitnessRSSI = blockchain_poc_witness_v2:signal(Witness),
-                         FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
-                         %% Check that the witness is far from the challengee hotspot and also check that the RSSI seems reasonable
-                         check_witness_challengee_distance(WitnessParentIndex, ChallengeeParentIndex, ExclusionCells) andalso
-                         (WitnessRSSI =< FreeSpacePathLoss)
+                         %% Check that the witness is far from the challengee hotspot
+                         check_witness_challengee_distance(WitnessParentIndex, ChallengeeParentIndex, ExclusionCells)
                  end,
                  Witnesses).
+
+-spec drop_random_eligible_witness(Hash :: binary(),
+                                   Element :: poc_element(),
+                                   Ledger :: blockchain_ledger_v1:ledger()) -> poc_element().
+drop_random_eligible_witness(Hash, Element, Ledger) ->
+    Witnesses = ?MODULE:witnesses(Element),
+    ToDrop = hd(blockchain_utils:shuffle_from_hash(Hash, distant_witnesses(Element, Ledger))),
+    Element#blockchain_poc_path_element_v2_pb{witnesses=lists:sort(Witnesses -- [ToDrop])}.
 
 -spec check_witness_challengee_distance(WitnessParentIndex :: h3:h3_index(),
                                         ChallengeeParentIndex :: h3:h3_index(),
@@ -136,30 +143,72 @@ check_witness_challengee_distance(WitnessParentIndex, ChallengeeParentIndex, Exc
         _:_ -> false
     end.
 
--spec calculate_witness_quality(Element :: blockchain_poc_path_element_v2:poc_element(),
-                                Ledger :: blockchain_ledger_v1:ledger()) -> {float(), 0}.
-calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=undefined}=Element, Ledger) ->
-    %% no poc receipt
-    case ?MODULE:good_quality_witnesses(Element, Ledger) of
-        [] ->
-            %% Either the witnesses are too close or the RSSIs are too high
-            %% no alpha bump
-            {0, 0};
-        _ ->
-            %% high alpha bump, but not as high as when there is a receipt
-            {0.7, 0}
-    end;
-calculate_witness_quality(#blockchain_poc_path_element_v2_pb{receipt=R}=Element, Ledger) when R /= undefined ->
-    %% element has a receipt
-    case ?MODULE:good_quality_witnesses(Element, Ledger) of
-        [] ->
-            %% Either the witnesses are too close or the RSSIs are too high
-            %% no alpha bump
-            {0, 0};
-        _ ->
-            %% high alpha bump
-            {0.9, 0}
+-spec check_path_continuation(NextElements :: [poc_element()]) -> boolean().
+check_path_continuation(NextElements) ->
+    lists:any(fun(E) ->
+                      ?MODULE:receipt(E) /= undefined orelse
+                      ?MODULE:witnesses(E) /= []
+              end,
+              NextElements).
+
+-spec total_eligible_witnesses(Path :: poc_path(),
+                               Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+total_eligible_witnesses(Path, Ledger) ->
+    %% sum all the distant witnesses in the path
+    lists:foldl(fun(Element, Acc) ->
+                        length(distant_witnesses(Element, Ledger)) + Acc
+                end,
+                0,
+                Path).
+
+-spec squish(Path :: poc_path(),
+             Hash :: binary(),
+             Ledger :: blockchain_ledger_v1:ledger(),
+             ToSquish :: non_neg_integer()) -> poc_path().
+squish(Path, _Hash, _Ledger, 0) ->
+    %% No more squishing needed
+    Path;
+squish(Path, Hash, Ledger, ToSquish) ->
+    %% get length of the path
+    PathLength = length(Path),
+
+    case PathLength == 1 of
+        true ->
+            %% do nothing, single element path
+            Path;
+        false ->
+            %% get the element with max number of witnesses
+            MaxWitnessElement = max_witness_element(Path),
+            %% get the index of that element
+            MaxWitnessElementIndex = blockchain_utils:index_of(MaxWitnessElement, Path),
+            %% drop a random eligible witness from that element
+            NewMaxWitnessElement = drop_random_eligible_witness(Hash, MaxWitnessElement, Ledger),
+
+            case MaxWitnessElementIndex of
+                1 ->
+                    %% replace at head
+                    NewPath = [NewMaxWitnessElement] ++ tl(Path),
+                    squish(NewPath, Hash, Ledger, ToSquish - 1);
+                L when L == PathLength ->
+                    %% replace at tail
+                    [_ | Tail] = lists:reverse(Path),
+                    NewPath = lists:reverse([NewMaxWitnessElement | Tail]),
+                    squish(NewPath, Hash, Ledger, ToSquish - 1);
+                _ ->
+                    %% do sublist nonsense
+                    NewPath = lists:sublist(Path, MaxWitnessElementIndex - 1) ++
+                    [NewMaxWitnessElement] ++
+                    lists:sublist(Path, MaxWitnessElementIndex + 1, PathLength),
+                    squish(NewPath, Hash, Ledger, ToSquish - 1)
+            end
     end.
+
+-spec max_witness_element(Path :: poc_path()) -> poc_element().
+max_witness_element(Path) ->
+    hd(lists:sort(fun(E1, E2) ->
+                          length(witnesses(E1)) >= length(witnesses(E2))
+                  end,
+                  Path)).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

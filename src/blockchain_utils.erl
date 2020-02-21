@@ -25,7 +25,8 @@
     bitvector_to_map/2,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
-    vars_keys_to_list/1
+    vars_keys_to_list/1,
+    index_of/2
 ]).
 
 -ifdef(TEST).
@@ -230,6 +231,13 @@ icdf_select(PopulationList, Rnd) ->
 find_txn(Block, PredFun) ->
     Txns = blockchain_block:transactions(Block),
     lists:filter(fun(T) -> PredFun(T) end, Txns).
+
+-spec index_of(any(), list()) -> non_neg_integer().
+index_of(Item, List) -> index_of(Item, List, 1).
+
+index_of(_, [], _)  -> not_found;
+index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
