@@ -190,7 +190,7 @@ zero_test(Config) ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(0, blockchain_ledger_state_channel_v1:amount(SC)),
-    
+
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
@@ -276,7 +276,7 @@ full_test(Config) ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC)),
-    
+
     ?assertEqual({ok, TotalDC}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
@@ -393,7 +393,7 @@ expired_test(Config) ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC)),
-    
+
     ?assertEqual({ok, TotalDC}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID])),
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
@@ -435,7 +435,7 @@ expired_test(Config) ->
         C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
         {ok, 22} == ct_rpc:call(RouterNode, blockchain, height, [C])
     end, 30, timer:seconds(1)),
-   
+
     % Step 8: Adding close txn to blockchain
     receive
         {txn, Txn} ->
@@ -457,7 +457,7 @@ expired_test(Config) ->
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
-       
+
 
 %% ------------------------------------------------------------------
 %% Helper functions
