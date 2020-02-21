@@ -22,6 +22,7 @@
     sign/2,
     is_valid/2,
     absorb/2,
+    absorbed/2,
     create_secret_hash/2,
     connections/1,
     deltas/1, deltas/2,
@@ -194,6 +195,7 @@ is_valid(Txn, Chain) ->
                                                                         blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash
                                                                     end
                                                             end,
+                                                            %% get list of txns and see if any meet conditions above
                                                             case lists:any(Condition, blockchain_block:transactions(Block1)) of
                                                                 false ->
                                                                     {error, onion_key_hash_mismatch};
@@ -596,6 +598,24 @@ absorb(Txn, Chain) ->
               lager:error([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
               {error, state_missing}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+ -spec absorbed(txn_poc_receipts(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    case blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger) of
+        {error, _} -> true;
+        _ -> false
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),
                                  OnionKeyHash :: binary(),

@@ -22,7 +22,7 @@
     spend/3, spend/4,
     payment_txn/5, payment_txn/6,
     submit_txn/1, submit_txn/2,
-    create_htlc_txn/6,
+    create_htlc_txn/7,
     redeem_htlc_txn/3,
     peer_height/3,
     notify/1,
@@ -163,9 +163,9 @@ payment_txn(SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec create_htlc_txn(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
-create_htlc_txn(Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee) ->
-    gen_server:cast(?SERVER, {create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}).
+-spec create_htlc_txn(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> ok.
+create_htlc_txn(Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee, Nonce) ->
+    gen_server:cast(?SERVER, {create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee, Nonce}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -430,9 +430,9 @@ handle_cast({payment_txn, SigFun, PubkeyBin, Recipient, Amount, Fee, Nonce}, #st
             ok = send_txn(SignedPaymentTxn)
     end,
     {noreply, State};
-handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee}, #state{swarm=Swarm}=State) ->
+handle_cast({create_htlc_txn, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee, Nonce}, #state{swarm=Swarm}=State) ->
     Payer = libp2p_swarm:pubkey_bin(Swarm),
-    CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee),
+    CreateTxn = blockchain_txn_create_htlc_v1:new(Payer, Payee, PubkeyBin, Hashlock, Timelock, Amount, Fee, Nonce),
     {ok, _PubKey, SigFun, _ECDHFun} = libp2p_swarm:keys(Swarm),
     SignedCreateHTLCTxn = blockchain_txn_create_htlc_v1:sign(CreateTxn, SigFun),
     ok = send_txn(SignedCreateHTLCTxn),

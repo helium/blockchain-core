@@ -300,7 +300,7 @@ htlc_payee_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     % send some money to the payee so they have enough to pay the fee for redeeming
@@ -365,7 +365,7 @@ htlc_payer_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),

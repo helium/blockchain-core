@@ -22,7 +22,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -185,6 +186,21 @@ absorb(Txn, Chain) ->
             FeeError
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_security_exchange(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    case blockchain_ledger_v1:find_security_entry(Payer, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_security_entry_v1:nonce(Entry) >= TxnNonce
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -24,7 +24,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -196,6 +197,22 @@ absorb(Txn, Chain) ->
                     Credits = Amount * Rate,
                     blockchain_ledger_v1:credit_dc(Payer, Credits, Ledger)
             end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_token_burn(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    Payer = ?MODULE:payer(Txn),
+    case blockchain_ledger_v1:find_entry(Payer, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Entry} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            blockchain_ledger_entry_v1:nonce(Entry) >= TxnNonce
     end.
 
  %% ------------------------------------------------------------------

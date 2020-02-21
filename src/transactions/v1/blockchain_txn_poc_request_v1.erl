@@ -189,6 +189,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     Version = version(Txn),
+
     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
         {ok, Gw} ->
             Gw1 = blockchain_ledger_gateway_v2:version(Version, Gw),
@@ -199,7 +200,7 @@ absorb(Txn, Chain) ->
                     BlockHash = ?MODULE:block_hash(Txn),
                     blockchain_ledger_v1:request_poc(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger)
             end;
-        {error, _Reason}=Error ->
+        {error, _} = Error ->
             Error
     end.
 

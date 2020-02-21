@@ -14,7 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
-    new/7,
+    new/8,
     hash/1,
     payer/1,
     payee/1,
@@ -23,11 +23,13 @@
     timelock/1,
     amount/1,
     fee/1,
+    nonce/1,
     signature/1,
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    absorbed/2
 ]).
 
 -ifdef(TEST).
@@ -42,8 +44,8 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
-          non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
-new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
+          non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
+new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee, Nonce) ->
     #blockchain_txn_create_htlc_v1_pb{
         payer=Payer,
         payee=Payee,
@@ -52,6 +54,7 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Fee) ->
         timelock=Timelock,
         amount=Amount,
         fee=Fee,
+        nonce=Nonce,
         signature = <<>>
     }.
 
@@ -126,6 +129,13 @@ fee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec nonce(txn_create_htlc()) -> non_neg_integer().
+nonce(Txn) ->
+    Txn#blockchain_txn_create_htlc_v1_pb.nonce.
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec signature(txn_create_htlc()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.signature.
@@ -190,11 +200,11 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
+    Nonce = ?MODULE:nonce(Txn),
     case blockchain_ledger_v1:find_entry(Payer, Ledger) of
         {error, _}=Error ->
             Error;
-        {ok, Entry} ->
-            Nonce = blockchain_ledger_entry_v1:nonce(Entry) + 1,
+        {ok, _Entry} ->
             case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
@@ -208,6 +218,7 @@ absorb(Txn, Chain) ->
                                                             Payer,
                                                             Payee,
                                                             Amount,
+                                                            Nonce,
                                                             ?MODULE:hashlock(Txn),
                                                             ?MODULE:timelock(Txn),
                                                             Ledger)
@@ -227,6 +238,24 @@ print(#blockchain_txn_create_htlc_v1_pb{
     io_lib:format("type=create_htlc payer=~p payee=~p, address=~p, hashlock=~p, timelock=~p, amount=~p, fee=~p, signature=~p",
                   [?TO_B58(Payer), ?TO_B58(Payee), Address, Hashlock, Timelock, Amount, Fee, Sig]).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec absorbed(txn_create_htlc(), blockchain:blockchain()) -> true | false.
+absorbed(Txn, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    Address = ?MODULE:address(Txn),
+    case blockchain_ledger_v1:find_htlc(Address, Ledger) of
+        {error, _} ->
+            false;
+        {ok, Entry} ->
+            TxnNonce = ?MODULE:nonce(Txn),
+            %% if the ledger nonce is > than the txn nonce, then assume we have seen this txn before
+            blockchain_ledger_htlc_v1:nonce(Entry) >= TxnNonce
+    end.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -241,45 +270,46 @@ new_test() ->
         timelock=0,
         amount=666,
         fee=1,
-        signature= <<>>
+        signature= <<>>,
+        nonce=1
     },
-    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 payee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
 address_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(<<"address">>, address(Tx)).
 
 amount_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(666, amount(Tx)).
 
 fee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(1, fee(Tx)).
 
 hashlock_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(<<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, hashlock(Tx)).
 
 timelock_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(0, timelock(Tx)).
 
 signature_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1),
+    Tx0 = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
