@@ -394,32 +394,26 @@ handle_cast({submit_txn, Txn}, State) ->
 handle_cast({submit_txn, Txn, Callback}, State) ->
     ok = send_txn(Txn, Callback),
     {noreply, State};
-handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=Swarm}=State) ->
+handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State) ->
     lager:info("got peer height message with blockchain ~p", [lager:pr(Chain, blockchain)]),
-    case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
-        {{error, _Reason}, _} ->
-            lager:error("could not get head hash ~p", [_Reason]);
-        {_, {error, _Reason}} ->
-            lager:error("could not get head block ~p", [_Reason]);
-        {{ok, LocalHead}, {ok, LocalHeadBlock}} ->
-            LocalHeight = blockchain_block:height(LocalHeadBlock),
-            case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
-                false ->
-                    ok;
-                true ->
-                    case libp2p_swarm:dial_framed_stream(Swarm,
-                                                         libp2p_crypto:pubkey_bin_to_p2p(Sender),
-                                                         ?SYNC_PROTOCOL,
-                                                         blockchain_sync_handler,
-                                                         [Chain]) of
-                        {ok, Stream} ->
-                            Stream ! {hash, LocalHead};
-                        _ ->
-                            lager:warning("Failed to dial sync service on: ~p", [Sender])
-                    end
-            end
-    end,
-    {noreply, State};
+    NewState =
+        case {blockchain:head_hash(Chain), blockchain:head_block(Chain)} of
+            {{error, _Reason}, _} ->
+                lager:error("could not get head hash ~p", [_Reason]),
+                State;
+            {_, {error, _Reason}} ->
+                lager:error("could not get head block ~p", [_Reason]),
+                State;
+            {{ok, LocalHead}, {ok, LocalHeadBlock}} ->
+                LocalHeight = blockchain_block:height(LocalHeadBlock),
+                case LocalHeight < Height orelse (LocalHeight == Height andalso Head /= LocalHead) of
+                    false ->
+                        ok;
+                    true ->
+                        start_sync(State)
+                end
+        end,
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -452,9 +446,9 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
             #state{gossip_ref = GossipRef, blockchain = Blockchain,
-                   swarm_tid=SwarmTID} = State) ->
+                   swarm_tid = SwarmTID} = State) ->
     Gossip = libp2p_swarm:gossip_group(SwarmTID),
-    libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
+    libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL_V1,
                                     {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
@@ -589,59 +583,69 @@ pause_sync(State) ->
 %%--------------------------------------------------------------------
 -spec add_handlers(ets:tab(), blockchain:blockchain()) -> {ok, reference()}.
 add_handlers(SwarmTID, Blockchain) ->
-    Gossip = libp2p_swarm:gossip_group(SwarmTID),
-    libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
-                                    {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
-    Ref = erlang:monitor(process, Gossip),
-    ok = libp2p_swarm:add_stream_handler(
-        SwarmTID,
-        ?SYNC_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
-    ),
-    ok = libp2p_swarm:add_stream_handler(
-        SwarmTID,
-        ?FASTFORWARD_PROTOCOL,
-        {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, Blockchain]}
-    ),
+    GossipPid = libp2p_swarm:gossip_group(SwarmTID),
+    Ref = erlang:monitor(process, GossipPid),
+    %% add the gossip handler
+    ok = libp2p_group_gossip:add_handler(GossipPid, ?GOSSIP_PROTOCOL_V1,
+                            {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
+
+    %% add the sync handlers, sync handlers support multiple versions so we need to add for each
+    SyncAddFun = fun(ProtocolVersion) ->
+                        ok = libp2p_swarm:add_stream_handler(SwarmTID, ProtocolVersion,
+                                {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, [ProtocolVersion, Blockchain]]}) end,
+    lists:foreach(SyncAddFun, ?SUPPORTED_SYNC_PROTOCOLS),
+    %% add the FF handlers, FF handlers support multiple versions so we need to add for each
+    FFAddFun = fun(ProtocolVersion) ->
+                        ok = libp2p_swarm:add_stream_handler(SwarmTID, ProtocolVersion,
+                                {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, [ProtocolVersion, Blockchain]]}) end,
+    lists:foreach(FFAddFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS),
     {ok, Ref}.
 
 -spec remove_handlers(ets:tab()) -> ok.
 remove_handlers(SwarmTID) ->
-    libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(SwarmTID), ?GOSSIP_PROTOCOL),
-    libp2p_swarm:remove_stream_handler(SwarmTID, ?SYNC_PROTOCOL),
-    libp2p_swarm:remove_stream_handler(SwarmTID, ?FASTFORWARD_PROTOCOL).
+    %% remove the gossip handler
+    ok = libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(SwarmTID), ?GOSSIP_PROTOCOL_V1),
+
+    %% remove the sync handlers
+    SyncRemoveFun = fun(ProtocolVersion) ->
+                        libp2p_swarm:remove_stream_handler(SwarmTID, ProtocolVersion) end,
+    lists:foreach(SyncRemoveFun, ?SUPPORTED_SYNC_PROTOCOLS),
+    %% remove the FF handlers
+    FFRemoveFun = fun(ProtocolVersion) ->
+                        libp2p_swarm:remove_stream_handler(SwarmTID, ProtocolVersion) end,
+    lists:foreach(FFRemoveFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec sync(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin())-> {pid(), reference()} | ok.
 sync(Swarm, Chain, Peer) ->
-    spawn_monitor(fun() ->
-        case libp2p_swarm:dial_framed_stream(Swarm,
-                                             Peer,
-                                             ?SYNC_PROTOCOL,
-                                             blockchain_sync_handler,
-                                             [Chain])
-        of
-            {ok, Stream} ->
-                {ok, HeadHash} = blockchain:sync_hash(Chain),
-                Stream ! {hash, HeadHash},
+    DialFun =
+        fun() ->
+            case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
+                    {ok, Stream} ->
+                        {ok, HeadHash} = blockchain:sync_hash(Chain),
+                        Stream ! {hash, HeadHash},
+                        Ref1 = erlang:monitor(process, Stream),
+                        receive
+                            cancel ->
+                                libp2p_framed_stream:close(Stream);
+                            {'DOWN', Ref1, process, Stream, _Reason} ->
+                                %% we're done, nothing to do here.
+                                ok
+                        after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 10)) ->
+                                libp2p_framed_stream:close(Stream),
+                                ok
+                        end;
+                    {error, _Reason} ->
+                        lager:debug("dialing sync stream failed: ~p",[_Reason]),
+                        ok
+            end
+        end,
+    spawn_monitor(fun()->DialFun() end).
 
-                Ref1 = erlang:monitor(process, Stream),
-                receive
-                    cancel ->
-                        libp2p_framed_stream:close(Stream);
-                    {'DOWN', Ref1, process, Stream, _} ->
-                        %% we're done, nothing to do here.
-                        ok
-                after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 10)) ->
-                        libp2p_framed_stream:close(Stream),
-                        ok
-                end;
-            _ ->
-                ok
-        end
-    end).
+
 
 send_txn(Txn) ->
     ok = blockchain_txn_mgr:submit(Txn,

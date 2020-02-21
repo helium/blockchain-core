@@ -82,7 +82,7 @@ keys() ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec gossip_peers() -> [{string(), pid()}].
+-spec gossip_peers() -> [string()].
 gossip_peers() ->
     libp2p_group_gossip:connected_addrs(libp2p_swarm:gossip_group(?SWARM_NAME), all).
 
