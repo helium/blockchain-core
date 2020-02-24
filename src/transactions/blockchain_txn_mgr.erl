@@ -171,7 +171,7 @@ handle_info(_Msg, State) ->
 terminate(_Reason, _State) ->
     lager:debug("terminating with reason ~p", [_Reason]),
     %% stop dialers of cached txns
-    [blockchain_txn_mgr_sup:stop_dialers(Dialers) || {_Txn, {_, _, _, _, Dialers}} <- cached_txns()],
+    catch [blockchain_txn_mgr_sup:stop_dialers(Dialers) || {_Txn, {_, _, _, _, Dialers}} <- cached_txns()],
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -242,7 +242,7 @@ resubmit(Chain, CurBlockHeight, SubmitF)->
             case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
                 {false, false} ->
                     %% the txn is not in the valid nor the invalid list
-                    %% this means the validations cannot decide as yet, such as is the case with a bad or out of order nonce
+                    %% this means the validations cannot decide as yet, such as is the case with a bad or out of sequence nonce
                     %% its already in our cache so keep it there and we will try again next resubmit
                     %% really we do nothing here, but we define this condition explicity to make the scenario obvious
                     ok;
@@ -264,13 +264,13 @@ resubmit(Chain, CurBlockHeight, SubmitF)->
 
 -spec rejected(blockchain:blockchain(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(), undefined | integer(), integer()) -> ok.
 rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF) ->
+    %% stop the dialer which rejected the txn
+    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     case cached_txn(Txn) of
         {error, _} ->
             %% We no longer have this txn, do nothing
             ok;
         {ok, {Txn, {_, _, _, Rejections, _}} = TxnPayload} ->
-            %% stop the dialer which rejected the txn
-            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
             %% add the member to the rejections list, so we avoid resubmitting to one which already rejected
             Rejections0 = lists:usort([Member|Rejections]),
             reject_actions(Chain, TxnPayload, Rejections0, RejectF, CurBlockHeight)
@@ -279,13 +279,14 @@ rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF) ->
 
 -spec accepted(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid()) -> ok.
 accepted(Txn, Member, Dialer) ->
+    %% stop the dialer which accepted the txn, we dont have any further use for it
+    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     case cached_txn(Txn) of
         {error, _} ->
             %% We no longer have this txn, do nothing
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
-            %% stop the dialer which accepted the txn, we dont have any further use for it
-            ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
+
             %% add the member to the accepted list, so we avoid resubmitting to one which already accepted
             cache_txn(Txn, Callback, RecvBlockHeight, lists:usort([Member|Acceptions]), Rejections, Dialers)
     end.
@@ -315,18 +316,16 @@ reject_actions(Chain,
 %% the txn has been rejected but has exceeded the max number of rejections for this block epoch
 %% only need to update the cache
 reject_actions(_Chain,
-                {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}},
-                _NewRejections,
+                {Txn, {Callback, RecvBlockHeight, Acceptions, _Rejections, Dialers}},
+                NewRejections,
                 _RejectF,
                 _CurBlockHeight)->
-    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, Dialers).
-
+    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, NewRejections, Dialers).
 
 -spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]) -> [pid()].
 submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections)->
     {ok, Members} = signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections),
     dial_members(Members, Chain, Txn).
-
 
 -spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn(), [pid()]) -> [pid()].
 dial_members(Members, Chain, Txn)->
