@@ -6,7 +6,7 @@
 -module(blockchain_ledger_htlc_v1).
 
 -export([
-    new/0, new/5,
+    new/0, new/6,
     nonce/1, nonce/2,
     payer/1, payer/2,
     payee/1, payee/2,
@@ -42,12 +42,13 @@ new() ->
     #htlc_v1{}.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), non_neg_integer(),
-          binary(), non_neg_integer()) -> htlc().
-new(Payer, Payee, Balance, Hashlock, Timelock) when Balance /= undefined ->
+          non_neg_integer(), binary(), non_neg_integer()) -> htlc().
+new(Payer, Payee, Balance, Nonce, Hashlock, Timelock) when Balance /= undefined ->
     #htlc_v1{
         payer=Payer,
         payee=Payee,
         balance=Balance,
+        nonce=Nonce,
         hashlock=Hashlock,
         timelock=Timelock
     }.
@@ -194,7 +195,7 @@ new_test() ->
         hashlock= <<"hashlock">>,
         timelock=13
     },
-    ?assertEqual(HTLC1, new(<<"payer">>, <<"payee">>, 12, <<"hashlock">>, 13)).
+    ?assertEqual(HTLC1, new(<<"payer">>, <<"payee">>, 12, 0, <<"hashlock">>, 13)).
 
 nonce_test() ->
     HTLC = new(),
