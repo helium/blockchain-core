@@ -75,7 +75,7 @@ init_per_testcase(Test, Config) ->
 
     ok = check_genesis_block(InitConfig, GenesisBlock),
     ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_memebers, ConsensusMembers} | InitConfig].
+    [{consensus_members, ConsensusMembers} | InitConfig].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -147,7 +147,7 @@ basic_test(Config) ->
 
 zero_test(Config) ->
     [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
 
     % Step 1: Create OUI txn
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
@@ -229,7 +229,7 @@ zero_test(Config) ->
 
 full_test(Config) ->
     [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
@@ -259,10 +259,13 @@ full_test(Config) ->
     ID = crypto:strong_rand_bytes(32),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     % Step 3: Adding block
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    ct:pal("RouterChain: ~p", [RouterChain]),
     Block0 = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
+    ct:pal("Block0: ~p", [Block0]),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, Self]),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -346,7 +349,7 @@ full_test(Config) ->
 
 expired_test(Config) ->
     [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_memebers, Config),
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
