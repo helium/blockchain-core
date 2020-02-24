@@ -5,7 +5,7 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channels_client).
 
--behavior(gen_statem).
+-behavior(gen_server).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -19,23 +19,17 @@
         ]).
 
 %% ------------------------------------------------------------------
-%% gen_statem Function Exports
+%% gen_server exports
 %% ------------------------------------------------------------------
 -export([
          init/1,
-         code_change/3,
-         callback_mode/0,
+         handle_call/3,
+         handle_info/2,
+         handle_cast/2,
          terminate/2,
-         handle_common/3
+         code_change/3
         ]).
 
-%% ------------------------------------------------------------------
-%% gen_statem callbacks Exports
-%% ------------------------------------------------------------------
--export([
-         processing/3,
-         waiting/3
-        ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -45,151 +39,162 @@
 -include_lib("helium_proto/include/packet_pb.hrl").
 
 -define(SERVER, ?MODULE).
--define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
 
--record(data, {
+-record(state, {
           db :: rocksdb:db_handle() | undefined,
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
-          pending = undefined :: undefined | pending(),
-          packets = [] :: [packet()]
+          packets = [] :: [{packet(), pending()}]
          }).
 
+-type state() :: #state{}.
 -type packet() :: #packet_pb{}.
--type pending() :: {packet(), pid(), blockchain_state_channel_request_v1:request()}.
+-type pending() :: undefined | {pid(), blockchain_state_channel_request_v1:request(), reference()}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
--type data() :: #data{}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_statem:start_link({local, ?SERVER}, ?SERVER, Args, []).
+    gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
 -spec credits(ID :: blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 credits(ID) ->
-    gen_statem:call(?SERVER, {credits, ID}).
+    gen_server:call(?SERVER, {credits, ID}, infinity).
 
 -spec packet(Packet :: packet()) -> ok.
 packet(Packet) ->
-    gen_statem:cast(?SERVER, {packet, Packet}).
+    gen_server:cast(?SERVER, {packet, Packet}).
 
 -spec response(Resp :: blockchain_state_channel_response_v1:reponse()) -> ok.
 response(Resp) ->
-    gen_statem:cast(?SERVER, {response, Resp}).
+    gen_server:cast(?SERVER, {response, Resp}).
 
 -spec state_channel_update(SCUpdate :: blockchain_state_channel_update_v1:state_channel_update()) -> ok.
 state_channel_update(SCUpdate) ->
-    gen_statem:cast(?SERVER, {state_channel_update, SCUpdate}).
+    gen_server:cast(?SERVER, {state_channel_update, SCUpdate}).
 
 %% ------------------------------------------------------------------
-%% Required callbacks for statem
+%% init, terminate and code_change
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     {ok, DB} = blockchain_state_channel_db:get(),
-    %% Start in waiting state
-    Data = #data{db=DB, swarm=Swarm},
-    {ok, waiting, Data}.
+    State = #state{db=DB, swarm=Swarm},
+    schedule_packet_handling(),
+    {ok, State}.
+
+terminate(_Reason, _State) ->
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-callback_mode() ->
-    [state_functions, state_enter].
-
-terminate(_Reason, _Data) ->
-    ok.
-
 %% ------------------------------------------------------------------
-%% States
+%% gen_server message handling
 %% ------------------------------------------------------------------
-waiting(enter, _OldState, #data{packets=[]}) ->
-    %% There are no packets to process
-    keep_state_and_data;
-waiting(state_timeout, NextState, Data) ->
-    %% Switch state because of timeout
-    {next_state, NextState, Data};
-waiting(enter, _OldState, #data{packets=Packets, swarm=Swarm}=Data) ->
-    %% pop and process the first packet in Packets
-    [Packet | Rest] = Packets,
-    case process_packet(Packet, Swarm) of
-        {error, _Reason} ->
-            lager:warning("failed to process packet ~p ~p", [Packet, _Reason]),
-            {keep_state, Data, [postpone]};
-        {ok, Pending} ->
-            NewData = Data#data{pending=Pending, packets=Rest},
-            {next_state, processing, NewData, [{state_timeout, timer:seconds(30), waiting}]}
-    end.
 
-processing(enter, _OldState, #data{pending=undefined}=Data) ->
-    %% Entered processing state with no request pending
-    %% Go back to waiting state
-    {next_state, waiting, Data};
-processing(cast, {response, _Resp}, #data{pending=undefined}=Data) ->
-    %% Got response when there is no request pending
-    %% Cool story?
-    {next_state, waiting, Data};
-processing(state_timeout, NextState, Data) ->
-    %% Switch state because of timeout
-    {next_state, NextState, Data};
-processing(cast, {response, Resp}, Data) ->
-    case handle_processing(Resp, Data) of
-        {error, _Reason} ->
-            lager:warning("failed to handle response ~p", [Resp]),
-            {next_state, waiting, Data#data{pending=undefined}};
-        {ok, NewStateChannels} ->
-            {next_state, waiting, Data#data{state_channels=NewStateChannels, pending=undefined}}
-    end.
+handle_cast({state_channel_update, SCUpdate}, #state{db=DB, state_channels=SCs}=State) ->
+    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+    ID = blockchain_state_channel_v1:id(UpdatedSC),
+    lager:debug("received state channel update for ~p", [ID]),
+    NewState = case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
+                   {error, _Reason} ->
+                       lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+                       State;
+                   ok ->
+                       ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+                       State#state{state_channels=maps:put(ID, UpdatedSC, SCs)}
+               end,
+    {noreply, NewState};
+handle_cast({packet, Packet}, #state{packets=[], swarm=Swarm}=State) ->
+    %% process this packet immediately
+    NewState = case handle_packet(Packet, Swarm) of
+                   {error, _} ->
+                       State#state{packets=[{Packet, undefined}]};
+                   {ok, Pending} ->
+                       State#state{packets=[{Packet, Pending}]}
+               end,
+    {noreply, NewState};
+handle_cast({packet, Packet}, #state{packets=Packets}=State) ->
+    %% got a packet while still processing packets
+    %% add this packet at the end and continue packet handling
+    schedule_packet_handling(),
+    NewPackets = Packets ++ [{Packet, undefined}],
+    {noreply, State#state{packets=NewPackets}};
+handle_cast({response, Resp}, #state{packets=[]}=State) ->
+    %% Got a response when there are no packets
+    lager:debug("dropping response: ~p, no packets...", [Resp]),
+    {noreply, State};
+handle_cast({response, Resp}, #state{db=DB, swarm=Swarm}=State) when DB /= undefined andalso Swarm /= undefined ->
+    %% Got a response when there are packets
+    %% Check if any of the pending request match this resp hash
+    lager:debug("got response: ~p", [Resp]),
+    NewState = handle_response(Resp, State),
+    {noreply, NewState};
+handle_cast(_Msg, State) ->
+    lager:debug("unhandled receive: ~p", [_Msg]),
+    schedule_packet_handling(),
+    {noreply, State}.
 
 
-%% ------------------------------------------------------------------
-%% Common events
-%% ------------------------------------------------------------------
-handle_common({call,From}, {credits, ID}, #data{state_channels=SCs}) ->
+handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
                 undefined ->
                     {error, not_found};
                 SC ->
                     {ok, blockchain_state_channel_v1:credits(SC)}
             end,
-    {keep_state_and_data, [{reply, From, Reply}]};
-handle_common(cast, {state_channel_update, SCUpdate}, #data{db=DB, state_channels=SCs}=Data) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    ID = blockchain_state_channel_v1:id(UpdatedSC),
-    lager:debug("received state channel update for ~p", [ID]),
-    case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
-        {error, _Reason} ->
-            lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
-            keep_state_and_data;
-        ok ->
-            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-            {keep_state, Data#data{state_channels=maps:put(ID, UpdatedSC, SCs)}}
-    end;
-handle_common(cast, {packet, Packet}, #data{packets=[], swarm=Swarm}=Data) ->
-    %% We got a packet message while in either waiting/processing state
-    %% Process this packet immediately as we have no other packets to process
-    case process_packet(Packet, Swarm) of
-        {error, _Reason} ->
-            lager:warning("failed to process packet ~p ~p", [Packet, _Reason]),
-            NewData = Data#data{packets=[Packet]},
-            %% We'll process this packet later
-            {keep_state, NewData, [postpone]};
-        {ok, Pending} ->
-            %% We managed to get a pending request, go to processing
-            {next_state, processing, Data#data{pending=Pending}, [{state_timeout, timer:seconds(30), waiting}]}
-    end;
-handle_common(cast, {packet, Packet}, #data{packets=Packets}=Data) ->
-    %% We still have packets to process, add this received packet
-    %% at the end of Packets to get processed when possible
-    NewData = Data#data{packets=Packets ++ [Packet]},
-    {keep_state, NewData, [postpone]}.
+    {reply, Reply, State};
+handle_call(_, _, State) ->
+    {reply, ok, State}.
+
+handle_info(process_packet, #state{packets=[]}=State) ->
+    %% Don't have any packets to process, reschedule
+    lager:debug("got process_packet, no packets to process"),
+    {noreply, State};
+handle_info(process_packet, #state{swarm=Swarm,
+                                   packets=[{Packet, undefined} | Remaining]}=State) ->
+    %% Processing the first packet in queue
+    %% It has no pending request, try it
+    lager:debug("got process_packet, processing, packet: ~p, pending: undefined", [Packet]),
+    NewState = case handle_packet(Packet, Swarm) of
+                   {error, _} ->
+                       %% Send this packet to the back of the queue,
+                       %% Could also drop it probably
+                       State#state{packets=Remaining ++ [{Packet, undefined}]};
+                   {ok, Pending} ->
+                       %% This packet got processed, wait for a response, whenever
+                       %% that happens, put it at the back of the queue
+                       State#state{packets=Remaining ++ [{Packet, Pending}]}
+               end,
+    schedule_packet_handling(),
+    {noreply, NewState};
+handle_info(process_packet, #state{packets=[{Packet, Pending} | Remaining]}=State) ->
+    %% The packet at the head already has a pending request presumably waiting for
+    %% a response message, keep cycling the queue
+    lager:debug("got process_packet, packet: ~p, pending: ~p", [Packet, Pending]),
+    NewState = State#state{packets=Remaining ++ [{Packet, Pending}]},
+    schedule_packet_handling(),
+    {noreply, NewState};
+handle_info({req_timeout, Packet}, #state{packets=Packets}=State) ->
+    %% Request timed out
+    lager:debug("req_timeout for packet: ~p, enqueued packets: ~p, rescheduling...",
+               [Packet, Packets]),
+    %% If we already had this packet remove it first
+    NewPackets0 = lists:keydelete(Packet, 1, Packets),
+    %% Move this packet to the end of the queue.
+    NewState = State#state{packets=NewPackets0 ++ [{Packet, undefined}]},
+    {noreply, NewState}.
 
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+schedule_packet_handling() ->
+    erlang:send_after(timer:seconds(1), self(), process_packet).
 
 -spec validate_state_channel_update(OldStateChannel :: blockchain_state_channel_v1:state_channel() | undefined,
                                     NewStateChannel :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
@@ -208,25 +213,26 @@ validate_state_channel_update(OldStateChannel, NewStateChannel) ->
             end
     end.
 
--spec process_packet(Packet :: packet(),
-                     Swarm :: pid()) -> {ok, pending()} | {error, any()}.
-process_packet(#packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
+-spec handle_packet(Packet :: packet(),
+                    Swarm :: pid()) -> {ok, pending()} | {error, any()}.
+handle_packet(#packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
     case find_routing(OUI) of
         {error, _Reason} ->
-            lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
+            lager:error("failed to find router for oui ~p:~p", [OUI, _Reason]),
             {error, _Reason};
         {ok, Peer} ->
             case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
                 {error, _Reason} ->
-                    lager:warning("failed to dial ~p:~p", [Peer, _Reason]),
+                    lager:error("failed to dial ~p:~p", [Peer, _Reason]),
                     {error, _Reason};
                 {ok, Stream} ->
-                    {PubKeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    Amount = calculate_dc_amount(PubKeyBin, OUI, Payload),
-                    Req = blockchain_state_channel_request_v1:new(PubKeyBin, Amount, erlang:byte_size(Payload)),
-                    lager:info("sending payment req ~p to ~p", [Req, Peer]),
+                    {PubkeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                    Amount = calculate_dc_amount(PubkeyBin, OUI, Payload),
+                    Req = blockchain_state_channel_request_v1:new(PubkeyBin, Amount, erlang:byte_size(Payload)),
+                    lager:debug("sending payment req ~p to ~p", [Req, Peer]),
                     ok = blockchain_state_channel_handler:send_request(Stream, Req),
-                    {ok, {Packet, Stream, Req}}
+                    TimeRef = erlang:send_after(timer:seconds(30), self(), {req_timeout, Packet}),
+                    {ok, {Stream, Req, TimeRef}}
             end
     end.
 
@@ -243,17 +249,17 @@ find_routing(OUI) ->
             {ok, erlang:binary_to_list(Address)}
     end.
 
--spec calculate_dc_amount(PubKeyBin :: libp2p_crypto:pubkey_to_bin(),
+-spec calculate_dc_amount(PubkeyBin :: libp2p_crypto:pubkey_to_bin(),
                           OUI :: non_neg_integer(),
                           Payload :: binary()) -> non_neg_integer().
-calculate_dc_amount(PubKeyBin, OUI, Payload) ->
+calculate_dc_amount(PubkeyBin, OUI, Payload) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
     Size = erlang:byte_size(Payload),
     Price = blockchain_state_channel_utils:calculate_dc_amount(Size),
-    case blockchain_ledger_v1:find_gateway_info(PubKeyBin, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(PubkeyBin, Ledger) of
         {error, _Reason} ->
-            lager:error("failed to find gateway ~p: ~p", [PubKeyBin, _Reason]),
+            lager:warning("failed to find gateway ~p: ~p", [PubkeyBin, _Reason]),
             Price;
         {ok, GWInfo} ->
             case blockchain_ledger_gateway_v2:oui(GWInfo) of
@@ -264,9 +270,10 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
 
 -spec check_pending_request(SC :: blockchain_state_channel_v1:state_channel() | undefined,
                             SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
-                            Pending :: pending(),
+                            Packet :: packet(),
+                            Req :: blockchain_state_channel_request_v1:request(),
                             PubkeyBin :: libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
-check_pending_request(SC, SCUpdate, {Packet, _Stream, Req}, PubkeyBin) ->
+check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
         {false, _} -> {error, bad_root_hash};
@@ -276,7 +283,7 @@ check_pending_request(SC, SCUpdate, {Packet, _Stream, Req}, PubkeyBin) ->
 
 -spec check_root_hash(Packet :: packet(),
                       SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
-                      PubKeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
+                      PubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
 check_root_hash(#packet_pb{payload=Payload}, SCUpdate, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
@@ -309,50 +316,74 @@ check_balance(Req, SC, UpdateSC) ->
             NewBalance-OldBalance >= ReqPayloadSize
     end.
 
--spec send_packet(Pending :: pending(),
+-spec send_packet(Packet :: packet(),
+                  Stream :: pid(),
                   PubkeyBin :: libp2p_crypto:pubkey_bin(),
                   SigFun :: function()) -> ok.
-send_packet({Packet, Stream, _Req}, PubKeyBin, SigFun) ->
-    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubKeyBin),
+send_packet(Packet, Stream, PubkeyBin, SigFun) ->
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
--spec handle_processing(Resp :: blockchain_state_channel_response_v1:response(),
-                        Data :: data()) -> {error, any()} | {ok, state_channels()}.
-handle_processing(Resp,
-                  #data{db=DB,
-                        swarm=Swarm,
-                        pending={_Packet, _Stream, Req}=Pending,
-                        state_channels=SCs}) ->
-    case blockchain_state_channel_response_v1:req_hash(Resp) == blockchain_state_channel_request_v1:hash(Req) of
+-spec handle_response(Resp :: blockchain_state_channel_response_v1:response(),
+                      State :: state()) -> state().
+handle_response(Resp, #state{packets=Packets, state_channels=SCs, db=DB, swarm=Swarm}=State) ->
+    Filtered = lists:filter(fun({_Packet, undefined}) ->
+                                    false;
+                               ({_Packet, {_Stream, Req, _TimeRef}}) ->
+                                    blockchain_state_channel_response_v1:req_hash(Resp) ==
+                                    blockchain_state_channel_request_v1:hash(Req)
+                            end,
+                            Packets),
+
+    case Filtered of
+        [] ->
+            State;
+        [{Packet, {Stream, Req, TimeRef}}] ->
+            erlang:cancel_timer(TimeRef),
+            case do_response(Resp, Req, Packet, SCs, Stream, DB, Swarm) of
+                {error, _} ->
+                    State;
+                {ok, NewStateChannels} ->
+                    State#state{state_channels=NewStateChannels,
+                                packets=lists:keydelete(Packet, 1, Packets)}
+            end;
+        _ ->
+            State
+    end.
+
+
+-spec do_response(Resp :: blockchain_state_channel_response_v1:response(),
+                  Req :: blockchain_state_channel_request_v1:request(),
+                  Packet :: packet(),
+                  SCs :: state_channels(),
+                  Stream :: pid(),
+                  DB :: rocksdb:handle(),
+                  Swarm :: pid()) -> {error, any()} | {ok, state_channels()}.
+do_response(Resp, Req, Packet, SCs, Stream, DB, Swarm) ->
+    case blockchain_state_channel_response_v1:accepted(Resp) of
         false ->
-            {error, hash_mismatch};
+            lager:error("request ~p got rejected, next...", [Req]),
+            {error, request_rejected};
         true ->
-            case blockchain_state_channel_response_v1:accepted(Resp) of
-                false ->
-                    lager:info("request ~p got rejected, next...", [Req]),
-                    {error, request_rejected};
-                true ->
-                    SCUpdate = blockchain_state_channel_response_v1:state_channel_update(Resp),
-                    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-                    ID = blockchain_state_channel_v1:id(UpdatedSC),
-                    case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
-                        {error, _Reason}=E0 ->
-                            lager:warning("state channel ~p is invalid ~p droping req", [UpdatedSC, _Reason]),
-                            E0;
+            SCUpdate = blockchain_state_channel_response_v1:state_channel_update(Resp),
+            UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
+            ID = blockchain_state_channel_v1:id(UpdatedSC),
+            case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
+                {error, _Reason}=E0 ->
+                    lager:error("state channel ~p is invalid ~p droping req", [UpdatedSC, _Reason]),
+                    E0;
+                ok ->
+                    ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
+                    SC = maps:get(ID, SCs, undefined),
+                    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                    case check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) of
+                        {error, _Reason}=E1 ->
+                            lager:error("state channel update did not match pending req ~p, dropping req", [_Reason]),
+                            E1;
                         ok ->
-                            ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-                            SC = maps:get(ID, SCs, undefined),
-                            {PubKeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                            case check_pending_request(SC, SCUpdate, Pending, PubKeyBin) of
-                                {error, _Reason}=E1 ->
-                                    lager:warning("state channel update did not match pending req ~p, dropping req", [_Reason]),
-                                    E1;
-                                ok ->
-                                    ok = send_packet(Pending, PubKeyBin, SigFun),
-                                    NewStateChannels = maps:put(ID, UpdatedSC, SCs),
-                                    {ok, NewStateChannels}
-                            end
+                            ok = send_packet(Packet, Stream, PubkeyBin, SigFun),
+                            {ok, maps:put(ID, UpdatedSC, SCs)}
                     end
             end
     end.
