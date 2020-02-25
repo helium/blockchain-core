@@ -598,8 +598,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            Pid = sync(Swarm, Chain, RandomPeer),
-            Ref = erlang:monitor(process, Pid),
+            {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
             % lager:info("unknown starting ~p ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
