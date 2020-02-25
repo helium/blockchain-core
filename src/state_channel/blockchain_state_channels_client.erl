@@ -41,7 +41,7 @@
 -endif.
 
 -include("blockchain.hrl").
--include_lib("helium_proto/src/pb/helium_packet_pb.hrl").
+-include_lib("helium_proto/include/packet_pb.hrl").
 
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_client.STATE_CHANNELS">>).
@@ -54,7 +54,7 @@
     packets = [] :: [any()]
 }).
 
--type packet() :: #helium_packet_pb{}.
+-type packet() :: #packet_pb{}.
 -type pending() :: {blockchain_state_channel_request_v1:request(), packet(), pid(), reference()}.
 
 %% ------------------------------------------------------------------
@@ -218,7 +218,7 @@ validate_state_channel_update(OldStateChannel, NewStateChannel) ->
     end.
 
 -spec process_packet(packet(), pid()) -> {ok, pending()} | {error, any()}.
-process_packet(#helium_packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
+process_packet(#packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
     case find_routing(OUI) of
         {error, _Reason} ->
             lager:warning("failed to find router for oui ~p:~p", [OUI, _Reason]),
@@ -280,7 +280,7 @@ check_pending_request(SC, SCUpdate, {Req, Packet, _Pid, _TimeRef}, PubkeyBin) ->
     end.
 
 -spec check_root_hash(packet(), blockchain_state_channel_update_v1:state_channel_update(), libp2p_crypto:pubkey_bin()) -> boolean().
-check_root_hash(#helium_packet_pb{payload=Payload}, SCUpdate, PubkeyBin) ->
+check_root_hash(#packet_pb{payload=Payload}, SCUpdate, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
     Hash = blockchain_state_channel_update_v1:previous_hash(SCUpdate),
