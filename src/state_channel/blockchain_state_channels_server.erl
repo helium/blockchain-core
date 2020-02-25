@@ -49,7 +49,7 @@
     chain = undefined :: blockchain:blockchain() | undefined,
     swarm = undefined :: pid() | undefined,
     owner = undefined :: {libp2p_crypto:pubkey_bin(), function()} | undefined,
-    state_channels = #{} :: #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()},
+    state_channels = #{} :: state_channels(),
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
     packet_forward = undefined :: undefined | pid()
@@ -57,6 +57,7 @@
 
 -type state() :: #state{}.
 -type clients() :: #{blockchain_state_channel_v1:id() => [libp2p_crypto:pubkey_bin()]}.
+-type state_channels() ::  #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -179,10 +180,11 @@ handle_cast(_Msg, State) ->
 handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=SCs}=State) ->
     case blockchain_worker:blockchain() of
         undefined ->
-            self() ! post_init,
+            erlang:send_after(timer:seconds(1), self(), post_init),
             {noreply, State};
         Chain ->
-            LedgerSCs = get_ledger_state_channels(Chain, Owner),
+            Ledger = blockchain:ledger(Chain),
+            LedgerSCs = convert_to_state_channels(blockchain_ledger_v1:find_all_state_channels_by_owner(Ledger, Owner)),
             {noreply, State#state{chain=Chain, state_channels=maps:merge(LedgerSCs, SCs)}}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain, owner={Owner, _}, state_channels=SCs}=State0) ->
@@ -329,7 +331,7 @@ update_clients(SCUpdate, #state{swarm=Swarm, clients=Clients}) ->
                     lager:warning("failed to dial ~p:~p", [Address, _Reason]);
                 {ok, Pid} ->
                     blockchain_state_channel_handler:broadcast(Pid, SCUpdate)
-            end  
+            end
         end,
         PubKeyBins
     ).
@@ -434,25 +436,6 @@ load_state(DB) ->
             {ok, #state{db=DB, state_channels=SCs, clients=Clients}}
     end.
 
--spec get_ledger_state_channels(blockchain:blockchain(), libp2p_crypto:pubkey_bin()) -> #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
-get_ledger_state_channels(Chain, Owner) ->
-    Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_state_channels_by_owner(Owner, Ledger) of
-        {error, _Reason} ->
-            maps:new();
-        {ok, LedgerSCIDs} ->
-            lists:foldl(
-                fun(ID, Acc) ->
-                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                        {error, _} -> Acc;
-                        {ok, SC} -> maps:put(ID, SC, Acc)
-                    end
-                end,
-                maps:new(),
-                LedgerSCIDs
-            )
-    end.
-
 -spec update_state(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_request_v1:request(), state()) -> state().
 update_state(SC, Req, #state{db=DB, state_channels=SCs, payees_to_sc=PayeesToSC, clients=Clients}=State) ->
     ID = blockchain_state_channel_v1:id(SC),
@@ -488,6 +471,18 @@ get_state_channels(DB) ->
         not_found -> {ok, []};
         Error -> Error
     end.
+
+-spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map()) -> state_channels().
+convert_to_state_channels(LedgerSCs) ->
+    maps:map(fun(ID, LedgerStateChannel) ->
+                     Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
+                     Amount = blockchain_ledger_state_channel_v1:amount(LedgerStateChannel),
+                     ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
+                     SC0 = blockchain_state_channel_v1:new(ID, Owner),
+                     SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
+                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1)
+             end,
+             LedgerSCs).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
