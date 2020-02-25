@@ -22,7 +22,7 @@
 -export_type([state_channel_update/0]).
 
 -spec new(blockchain_state_channel_v1:state_channel(), skewed:hash()) -> state_channel_update().
-new(SC, Hash) -> 
+new(SC, Hash) ->
     #blockchain_state_channel_update_v1_pb{
         state_channel=SC,
         previous_hash=Hash
