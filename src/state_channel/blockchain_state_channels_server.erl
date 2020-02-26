@@ -189,6 +189,7 @@ handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=
     end;
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain, owner={Owner, OwnerSigFun}, state_channels=SCs}=State0) ->
     {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
+    BlockHeight = blockchain_block:height(Block),
     State1 = lists:foldl(
         fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
                 case blockchain_txn:type(Txn) of
@@ -196,10 +197,10 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                         ID = blockchain_txn_state_channel_open_v1:id(Txn),
                         Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
                         Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
-                        ExpireAt = blockchain_txn_state_channel_open_v1:expire_at_block(Txn),
+                        ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
                         SC0 = blockchain_state_channel_v1:new(ID, Owner),
                         SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                        SC2 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1),
+                        SC2 = blockchain_state_channel_v1:expire_at_block(BlockHeight + ExpireWithin, SC1),
                         State#state{state_channels=maps:put(ID, SC2, SCs0)};
                     blockchain_txn_state_channel_close_v1 ->
                         SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
@@ -213,7 +214,6 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
         State0,
         Txns
     ),
-    BlockHeight = blockchain_block:height(Block),
     ok = close_expired_state_channels(BlockHeight, Owner, OwnerSigFun, maps:values(State1#state.state_channels)),
     {noreply, State1};
 handle_info(_Msg, State) ->
