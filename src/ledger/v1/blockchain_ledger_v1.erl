@@ -1630,11 +1630,15 @@ find_all_state_channels_by_owner(Ledger, Owner) ->
     end.
 
 
--spec add_state_channel(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), pos_integer(), ledger()) -> ok | {error, any()}.
-add_state_channel(ID, Owner, Amount, Timer, Ledger) ->
+-spec add_state_channel(ID :: binary(),
+                        Owner :: libp2p_crypto:pubkey_bin(),
+                        Amount :: non_neg_integer(),
+                        ExpireWithin :: pos_integer(),
+                        Ledger :: ledger()) -> ok | {error, any()}.
+add_state_channel(ID, Owner, Amount, ExpireWithin, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
-    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount, CurrHeight+Timer),
+    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount, CurrHeight+ExpireWithin),
     Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
     Key = state_channel_key(ID, Owner),
     ok = cache_put(Ledger, SCsCF, Key, Bin),
