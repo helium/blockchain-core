@@ -490,9 +490,11 @@ convert_to_state_channels(LedgerSCs) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
                      Amount = blockchain_ledger_state_channel_v1:amount(LedgerStateChannel),
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
+                     Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
                      SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1)
+                     SC2 = blockchain_state_channel_v1:nonce(Nonce, SC1),
+                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC2)
              end,
              LedgerSCs).
 
