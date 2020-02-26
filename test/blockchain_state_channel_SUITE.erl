@@ -160,7 +160,7 @@ zero_test(Config) ->
 
     % Step 2: Create state channel open zero txn
     ID = blockchain_state_channel_v1:zero_id(),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 0, 100),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 0, 100, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Create add gateway txn (making Gateqay node a gateway and router 1 its owner)
@@ -257,7 +257,7 @@ full_test(Config) ->
     % Step 2: Create state channel open txn
     TotalDC = 10,
     ID = crypto:strong_rand_bytes(32),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
@@ -377,7 +377,7 @@ expired_test(Config) ->
     % Step 2: Create state channel open txn
     TotalDC = 10,
     ID = crypto:strong_rand_bytes(32),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 20),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 20, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Adding block
