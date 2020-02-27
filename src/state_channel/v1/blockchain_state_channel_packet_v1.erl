@@ -14,24 +14,22 @@
 
 -include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
--include_lib("helium_proto/include/packet_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type helium_packet() :: #packet_pb{}.
 -type packet() :: #blockchain_state_channel_packet_v1_pb{}.
 -export_type([packet/0]).
 
--spec new(helium_packet(), libp2p_crypto:pubkey_bin()) -> packet().
-new(Packet, Hotspot) -> 
+-spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin()) -> packet().
+new(Packet, Hotspot) ->
     #blockchain_state_channel_packet_v1_pb{
         packet=Packet,
         hotspot=Hotspot
     }.
 
--spec packet(packet()) -> helium_packet().
+-spec packet(packet()) -> blockchain_helium_packet_v1:packet().
 packet(#blockchain_state_channel_packet_v1_pb{packet=Packet}) ->
     Packet.
 
@@ -80,39 +78,39 @@ decode(BinaryPacket) ->
 
 new_test() ->
     Packet = #blockchain_state_channel_packet_v1_pb{
-        packet= #packet_pb{},
+        packet= blockchain_helium_packet_v1:new(),
         hotspot = <<"hotspot">>
     },
-    ?assertEqual(Packet, new(#packet_pb{}, <<"hotspot">>)).
+    ?assertEqual(Packet, new(blockchain_helium_packet_v1:new(), <<"hotspot">>)).
 
 hotspot_test() ->
-    Packet = new(#packet_pb{}, <<"hotspot">>),
+    Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>),
     ?assertEqual(<<"hotspot">>, hotspot(Packet)).
 
 packet_test() ->
-    Packet = new(#packet_pb{}, <<"hotspot">>),
-    ?assertEqual(#packet_pb{}, packet(Packet)).
+    Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>),
+    ?assertEqual(blockchain_helium_packet_v1:new(), packet(Packet)).
 
 signature_test() ->
-    Packet = new(#packet_pb{}, <<"hotspot">>),
+    Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>),
     ?assertEqual(<<>>, signature(Packet)).
 
 sign_test() ->
     #{secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Packet = new(#packet_pb{}, <<"hotspot">>),
+    Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>),
     ?assertNotEqual(<<>>, signature(sign(Packet, SigFun))).
 
 validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Packet0 = new(#packet_pb{}, PubKeyBin),
+    Packet0 = new(blockchain_helium_packet_v1:new(), PubKeyBin),
     Packet1 = sign(Packet0, SigFun),
     ?assertEqual(true, validate(Packet1)).
 
 encode_decode_test() ->
-    Packet = new(#packet_pb{}, <<"hotspot">>),
+    Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>),
     ?assertEqual(Packet, decode(encode(Packet))).
 
 -endif.
