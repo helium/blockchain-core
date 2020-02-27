@@ -29,6 +29,8 @@
 
     analyze/1, repair/1,
 
+    checkpoint/2,
+
     fold_chain/4,
 
     reset_ledger/1, reset_ledger/2, reset_ledger/3
@@ -1270,6 +1272,17 @@ missing_block(#blockchain{db=DB, default=DefaultCF}) ->
         false ->
             not_found
     end.
+
+checkpoint(undefined, _Directory) -> {error, no_blockchain};
+checkpoint(#blockchain{db=DB}, Directory) ->
+   case filelib:is_file(Directory) of
+      true ->
+         %% This file/directory exists - it must *not* exist
+         {error, directory_exists};
+      false ->
+         rocksdb:checkpoint(DB, Directory)
+   end.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -5,6 +5,7 @@
                       blockchain_cli_ledger,
                       blockchain_cli_repair,
                       blockchain_cli_trace,
+                      blockchain_cli_rocksdb,
                       blockchain_cli_txn
                      ]).
 
