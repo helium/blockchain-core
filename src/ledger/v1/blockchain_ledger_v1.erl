@@ -1323,10 +1323,7 @@ debit_dc(Address, Fee, Nonce, Ledger) ->
                     Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
                     case (Balance - Fee) >= 0 of
                         true ->
-                            Entry1 = blockchain_ledger_data_credits_entry_v1:new(
-                                       blockchain_ledger_data_credits_entry_v1:nonce(Entry),
-                                       (Balance - Fee)
-                                      ),
+                            Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
                             Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
                             EntriesCF = dc_entries_cf(Ledger),
                             cache_put(Ledger, EntriesCF, Address, Bin);
