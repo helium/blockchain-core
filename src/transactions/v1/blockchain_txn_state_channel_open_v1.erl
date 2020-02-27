@@ -118,22 +118,27 @@ is_valid(Txn, Chain) ->
                                 A when A < 0 ->
                                     {error, bad_amount};
                                 A when A > 0 ->
-                                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
+                                    case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
+                                        {error, _}=Err0 ->
+                                            Err0;
+                                        {ok, DCEntry} ->
+                                            TxnNonce = ?MODULE:nonce(Txn),
+                                            NextLedgerNonce = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1,
+                                            case TxnNonce =:= NextLedgerNonce of
+                                                false ->
+                                                    {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
+                                                true ->
+                                                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger)
+                                            end
+                                    end;
                                 0 ->
                                     case blockchain_state_channel_v1:zero_id() == ID of
                                         false -> {error, mistmaching_id};
                                         true -> ok
                                     end
                             end;
-                        {ok, SC} ->
-                            TxnNonce = ?MODULE:nonce(Txn),
-                            NextLedgerNonce = blockchain_ledger_state_channel_v1:nonce(SC) + 1,
-                            case TxnNonce =:= NextLedgerNonce of
-                                false ->
-                                    {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
-                                true ->
-                                    ok
-                            end;
+                        {ok, _} ->
+                            {error, state_channel_already_exists};
                         {error, _}=Err ->
                             Err
                     end
