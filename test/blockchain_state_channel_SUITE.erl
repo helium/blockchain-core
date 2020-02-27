@@ -14,7 +14,6 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/include/packet_pb.hrl").
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -200,7 +199,7 @@ zero_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     % Step 6: Sending packet with same OUI
-    Packet0 = #packet_pb{oui=1},
+    Packet0 = blockchain_helium_packet_v1:new(1, <<"sup">>),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 7: Checking state channel on server/client (balance did not update but nonce did)
@@ -216,7 +215,7 @@ zero_test(Config) ->
 
      % Step 8: Sending packet with same OUI and a payload
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = #packet_pb{oui=1, payload=Payload1},
+    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 9: Checking state channel on server/client (balance did not update but nonce did)
@@ -291,7 +290,7 @@ full_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = #packet_pb{oui=1, payload=Payload0},
+    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
@@ -317,7 +316,7 @@ full_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = #packet_pb{oui=1, payload=Payload1},
+    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 6: Checking state channel on server/client
@@ -408,7 +407,7 @@ expired_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = #packet_pb{oui=1, payload=Payload0},
+    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
@@ -525,7 +524,7 @@ replay_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = #packet_pb{oui=1, payload=Payload0},
+    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     % Step 6: Checking state channel on server/client
@@ -551,7 +550,7 @@ replay_test(Config) ->
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = #packet_pb{oui=1, payload=Payload1},
+    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     % Step 6: Checking state channel on server/client
