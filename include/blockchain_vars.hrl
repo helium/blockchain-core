@@ -236,3 +236,10 @@
 %% Maximum allowed h3 grid cells for a potential next hop
 -define(poc_max_hop_cells, poc_max_hop_cells).
 %% ------------------------------------------------------------------
+%%
+%%
+%% ------------------------------------------------------------------
+%% Txn Payment V2 vars
+%%
+%% Max payments allowed within a single payment_v2 transaction
+-define(max_payments, max_payments).
