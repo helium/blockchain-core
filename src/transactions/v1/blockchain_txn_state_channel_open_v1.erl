@@ -10,12 +10,13 @@
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/5,
     hash/1,
     id/1,
     owner/1,
     amount/1,
-    expire_at_block/1,
+    nonce/1,
+    expire_within/1,
     fee/1,
     signature/1,
     sign/2,
@@ -29,57 +30,70 @@
 -endif.
 
 -define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
+-define(APPROX_BLOCKS_IN_WEEK, 10080).
+-define(MIN_EXPIRE_WITHIN, 10).
 
 -type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
 -export_type([txn_state_channel_open/0]).
 
--spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer(), pos_integer()) -> txn_state_channel_open().
-new(ID, Owner, Amount, ExpireAt) ->
+-spec new(ID :: binary(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer(),
+          ExpireWithin :: pos_integer(),
+          Nonce :: non_neg_integer()) -> txn_state_channel_open().
+new(ID, Owner, Amount, ExpireWithin, Nonce) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         amount=Amount,
-        expire_at_block=ExpireAt,
+        expire_within=ExpireWithin,
+        nonce=Nonce,
         signature = <<>>
     }.
 
--spec hash(txn_state_channel_open()) -> blockchain_txn:hash().
+-spec hash(Txn :: txn_state_channel_open()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_state_channel_open_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
--spec id(txn_state_channel_open()) -> binary().
+-spec id(Txn :: txn_state_channel_open()) -> binary().
 id(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.id.
 
--spec owner(txn_state_channel_open()) -> libp2p_crypto:pubkey_bin().
+-spec owner(Txn :: txn_state_channel_open()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.owner.
 
--spec amount(txn_state_channel_open()) -> integer().
+-spec amount(Txn :: txn_state_channel_open()) -> integer().
 amount(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.amount.
 
--spec expire_at_block(txn_state_channel_open()) -> pos_integer().
-expire_at_block(Txn) ->
-    Txn#blockchain_txn_state_channel_open_v1_pb.expire_at_block.
+-spec nonce(Txn :: txn_state_channel_open()) -> non_neg_integer().
+nonce(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.nonce.
 
--spec fee(txn_state_channel_open()) -> 0.
+-spec expire_within(Txn :: txn_state_channel_open()) -> pos_integer().
+expire_within(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.expire_within.
+
+-spec fee(Txn :: txn_state_channel_open()) -> 0.
 fee(_Txn) ->
     0.
 
--spec signature(txn_state_channel_open()) -> binary().
+-spec signature(Txn :: txn_state_channel_open()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.signature.
 
--spec sign(txn_state_channel_open(), libp2p_crypto:sig_fun()) -> txn_state_channel_open().
+-spec sign(Txn :: txn_state_channel_open(),
+           SigFun :: libp2p_crypto:sig_fun()) -> txn_state_channel_open().
 sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_state_channel_open_v1_pb{signature=SigFun(EncodedTxn)}.
 
 % TODO: Make timer limits chain vars
--spec is_valid(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(Txn :: txn_state_channel_open(),
+               Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
@@ -91,10 +105,8 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            ExpireAt = ?MODULE:expire_at_block(Txn),
-            {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
-            % 10080: approximate number of blocks in a week (1/min)
-            case ExpireAt > CurrHeight+10 andalso ExpireAt < CurrHeight+10080 of
+            ExpireWithin = ?MODULE:expire_within(Txn),
+            case ExpireWithin > ?MIN_EXPIRE_WITHIN andalso ExpireWithin < ?APPROX_BLOCKS_IN_WEEK of
                 false ->
                     {error, invalid_expire_at_block};
                 true ->
@@ -106,7 +118,19 @@ is_valid(Txn, Chain) ->
                                 A when A < 0 ->
                                     {error, bad_amount};
                                 A when A > 0 ->
-                                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger);
+                                    case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
+                                        {error, _}=Err0 ->
+                                            Err0;
+                                        {ok, DCEntry} ->
+                                            TxnNonce = ?MODULE:nonce(Txn),
+                                            NextLedgerNonce = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1,
+                                            case TxnNonce =:= NextLedgerNonce of
+                                                false ->
+                                                    {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
+                                                true ->
+                                                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger)
+                                            end
+                                    end;
                                 0 ->
                                     case blockchain_state_channel_v1:zero_id() == ID of
                                         false -> {error, mistmaching_id};
@@ -114,37 +138,39 @@ is_valid(Txn, Chain) ->
                                     end
                             end;
                         {ok, _} ->
-                            {error, state_channel_already_exist};
+                            {error, state_channel_already_exists};
                         {error, _}=Err ->
                             Err
                     end
             end
     end.
 
--spec absorb(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(Txn :: txn_state_channel_open(),
+             Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     Amount = ?MODULE:amount(Txn),
-    ExpireAt = ?MODULE:expire_at_block(Txn),
+    ExpireWithin = ?MODULE:expire_within(Txn),
+    Nonce = ?MODULE:nonce(Txn),
     case blockchain_state_channel_v1:zero_id() == ID andalso Amount == 0 of
         true ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger);
+            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger);
         false ->
-            case blockchain_ledger_v1:debit_dc(Owner, Amount, Ledger) of
+            case blockchain_ledger_v1:debit_dc(Owner, Amount, Nonce, Ledger) of
                 {error, _}=Error ->
                     Error;
                 ok ->
-                    blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireAt, Ledger)
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger)
             end
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
 print(undefined) -> <<"type=state_channel_open, undefined">>;
-print(#blockchain_txn_state_channel_open_v1_pb{id=ID, owner=Owner, amount=Amount, expire_at_block=ExpireAt}) ->
-    io_lib:format("type=state_channel_open, id=~p, owner=~p, amount=~p, expire_at_block=~p",
-                  [ID, ?TO_B58(Owner), Amount, ExpireAt]).
+print(#blockchain_txn_state_channel_open_v1_pb{id=ID, owner=Owner, amount=Amount, expire_within=ExpireWithin}) ->
+    io_lib:format("type=state_channel_open, id=~p, owner=~p, amount=~p, expire_within=~p",
+                  [ID, ?TO_B58(Owner), Amount, ExpireWithin]).
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -156,30 +182,31 @@ new_test() ->
         id = <<"id">>,
         owner= <<"owner">>,
         amount=666,
-        expire_at_block=10,
+        expire_within=10,
+        nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 666, 10)).
+    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 666, 10, 1)).
 
 id_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10),
+    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
     ?assertEqual(<<"id">>, id(Tx)).
 
 owner_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10),
+    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 amount_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10),
+    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
     ?assertEqual(666, amount(Tx)).
 
 signature_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10),
+    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"id">>, <<"owner">>, 666, 10),
+    Tx0 = new(<<"id">>, <<"owner">>, 666, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
