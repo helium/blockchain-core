@@ -14,7 +14,8 @@
     start_link/1,
     credits/1, nonce/1,
     request/1,
-    packet/1
+    packet/1,
+    state_channels/0
 ]).
 
 -export([
@@ -81,6 +82,10 @@ request(Req) ->
 packet(Req) ->
     gen_server:cast(?SERVER, {packet, Req}).
 
+-spec state_channels() -> state_channels().
+state_channels() ->
+    gen_server:call(?SERVER, state_channels, infinity).
+
 %% Helper function for tests (remove)
 -spec burn(blockchain_state_channel_v1:id(), non_neg_integer()) -> ok.
 burn(ID, Amount) ->
@@ -117,6 +122,8 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
         SC -> {ok, blockchain_state_channel_v1:nonce(SC)}
     end,
     {reply, Reply, State};
+handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
+    {reply, SCs, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
