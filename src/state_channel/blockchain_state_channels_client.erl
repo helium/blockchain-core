@@ -36,7 +36,6 @@
 -endif.
 
 -include("blockchain.hrl").
--include_lib("helium_proto/include/packet_pb.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -44,11 +43,10 @@
           db :: rocksdb:db_handle() | undefined,
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
-          packets = [] :: [{packet(), pending()}]
+          packets = [] :: [{blockchain_helium_packet_v1:packet(), pending()}]
          }).
 
 -type state() :: #state{}.
--type packet() :: #packet_pb{}.
 -type pending() :: undefined | {pid(), blockchain_state_channel_request_v1:request(), reference()}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
 
@@ -62,7 +60,7 @@ start_link(Args) ->
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}, infinity).
 
--spec packet(Packet :: packet()) -> ok.
+-spec packet(Packet :: blockchain_helium_packet_v1:packet()) -> ok.
 packet(Packet) ->
     gen_server:cast(?SERVER, {packet, Packet}).
 
@@ -213,9 +211,10 @@ validate_state_channel_update(OldStateChannel, NewStateChannel) ->
             end
     end.
 
--spec handle_packet(Packet :: packet(),
+-spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     Swarm :: pid()) -> {ok, pending()} | {error, any()}.
-handle_packet(#packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
+handle_packet(Packet, Swarm) ->
+    OUI = blockchain_helium_packet_v1:oui(Packet),
     case find_routing(OUI) of
         {error, _Reason} ->
             lager:error("failed to find router for oui ~p:~p", [OUI, _Reason]),
@@ -227,6 +226,7 @@ handle_packet(#packet_pb{oui=OUI, payload=Payload}=Packet, Swarm) ->
                     {error, _Reason};
                 {ok, Stream} ->
                     {PubkeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                    Payload = blockchain_helium_packet_v1:payload(Packet),
                     Amount = calculate_dc_amount(PubkeyBin, OUI, Payload),
                     Req = blockchain_state_channel_request_v1:new(PubkeyBin, Amount, erlang:byte_size(Payload)),
                     lager:debug("sending payment req ~p to ~p", [Req, Peer]),
@@ -270,7 +270,7 @@ calculate_dc_amount(PubkeyBin, OUI, Payload) ->
 
 -spec check_pending_request(SC :: blockchain_state_channel_v1:state_channel() | undefined,
                             SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
-                            Packet :: packet(),
+                            Packet :: blockchain_helium_packet_v1:packet(),
                             Req :: blockchain_state_channel_request_v1:request(),
                             PubkeyBin :: libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
 check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) ->
@@ -281,14 +281,14 @@ check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) ->
         {true, true} -> ok
     end.
 
--spec check_root_hash(Packet :: packet(),
+-spec check_root_hash(Packet :: blockchain_helium_packet_v1:packet(),
                       SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
                       PubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
-check_root_hash(#packet_pb{payload=Payload}, SCUpdate, PubkeyBin) ->
+check_root_hash(Packet, SCUpdate, PubkeyBin) ->
     UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
     RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
     Hash = blockchain_state_channel_update_v1:previous_hash(SCUpdate),
-    PayloadSize = erlang:byte_size(Payload),
+    PayloadSize = erlang:byte_size(blockchain_helium_packet_v1:payload(Packet)),
     % TODO
     Value = <<PubkeyBin/binary, PayloadSize>>,
     skewed:verify(skewed:hash_value(Value), [Hash], RootHash).
@@ -316,7 +316,7 @@ check_balance(Req, SC, UpdateSC) ->
             NewBalance-OldBalance >= ReqPayloadSize
     end.
 
--spec send_packet(Packet :: packet(),
+-spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Stream :: pid(),
                   PubkeyBin :: libp2p_crypto:pubkey_bin(),
                   SigFun :: function()) -> ok.
@@ -355,7 +355,7 @@ handle_response(Resp, #state{packets=Packets, state_channels=SCs, db=DB, swarm=S
 
 -spec do_response(Resp :: blockchain_state_channel_response_v1:response(),
                   Req :: blockchain_state_channel_request_v1:request(),
-                  Packet :: packet(),
+                  Packet :: blockchain_helium_packet_v1:packet(),
                   SCs :: state_channels(),
                   Stream :: pid(),
                   DB :: rocksdb:handle(),
