@@ -198,7 +198,7 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
                                             end
                                     end;
                                 true ->
-                                    {error, invalid_transaction_self_payment_v2}
+                                    {error, self_payment}
                             end
                     end
             end

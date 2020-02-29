@@ -12,7 +12,8 @@
          different_payees_test/1,
          empty_payees_test/1,
          zero_payment_test/1,
-         negative_payment_test/1
+         negative_payment_test/1,
+         self_payment_test/1
         ]).
 
 all() ->
@@ -22,7 +23,8 @@ all() ->
      different_payees_test,
      empty_payees_test,
      zero_payment_test,
-     negative_payment_test
+     negative_payment_test,
+     self_payment_test
     ].
 
 %%--------------------------------------------------------------------
@@ -217,10 +219,8 @@ different_payees_test(Config) ->
 empty_payees_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
-    Balance = ?config(balance, Config),
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
-    Swarm = ?config(swarm, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -232,20 +232,6 @@ empty_payees_test(Config) ->
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
     ?assertEqual({error, zero_payees}, blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
 
-    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
-
-    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
-    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
-    ?assertEqual({ok, 2}, blockchain:height(Chain)),
-
-    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
-
-    Ledger = blockchain:ledger(Chain),
-
-    %% Payer balance must not be deducted
-    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
-    ?assertEqual(Balance, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
 zero_payment_test(Config) ->
@@ -284,4 +270,28 @@ negative_payment_test(Config) ->
     Amount2 = -100,
 
     ?assertException(error, function_clause, blockchain_payment_v2:new(Recipient2, Amount2)),
+    ok.
+
+self_payment_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+
+    %% Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+
+    %% Create a payment to a single payee TWICE
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Amount = 1000,
+    Payment1 = blockchain_payment_v2:new(Recipient, Amount),
+    Payment2 = blockchain_payment_v2:new(Payer, Amount),
+
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1, 0),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    ct:pal("~s", [blockchain_txn:print(SignedTx)]),
+    ?assertEqual({error, self_payment}, blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
+
     ok.
