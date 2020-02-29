@@ -72,6 +72,7 @@
 %% not run their code later.
 -define(upgrades,
         [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
+         {<<"gateway_v3">>, fun upgrade_gateways_v3/1},
          {<<"hex_targets">>, fun bootstrap_hexes/1}]).
 %% NB: we need to keep this in sync with the filter in the fingerprints
 
@@ -153,8 +154,12 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
         true ->
             process_upgrades(Tail, Ledger1);
         false ->
-            Fun(Ledger1),
-            blockchain_ledger_v1:mark_key(Key, Ledger1)
+            case Fun(Ledger1) of
+                ok ->
+                    blockchain_ledger_v1:mark_key(Key, Ledger1);
+                _ ->
+                    ok
+            end
     end,
     blockchain_ledger_v1:commit_context(Ledger1),
     ok.
@@ -168,11 +173,16 @@ mark_upgrades(Upgrades, Ledger) ->
     ok.
 
 upgrade_gateways_v2(Ledger) ->
-    upgrade_gateways_v2_(Ledger),
-    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
-    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
-    upgrade_gateways_v2_(Ledger2),
-    blockchain_ledger_v1:commit_context(Ledger2).
+    case ?MODULE:config(?poc_version, Ledger) of
+        {ok, V} when is_integer(V) andalso V > 6 ->
+            dont_upgrade;
+        _ ->
+            upgrade_gateways_v2_(Ledger),
+            Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+            Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+            upgrade_gateways_v2_(Ledger2),
+            blockchain_ledger_v1:commit_context(Ledger2)
+    end.
 
 upgrade_gateways_v2_(Ledger) ->
     %% the initial load here will automatically convert these into v2 records
@@ -190,6 +200,29 @@ upgrade_gateways_v2_(Ledger) ->
       end, Gateways),
     ok.
 
+upgrade_gateways_v3(Ledger) ->
+    case ?MODULE:config(?poc_version, Ledger) of
+        {ok, V} when is_integer(V) andalso V > 6 ->
+            upgrade_gateways_v3_(Ledger),
+            Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+            Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+            upgrade_gateways_v3_(Ledger2),
+            blockchain_ledger_v1:commit_context(Ledger2);
+        _ ->
+            dont_upgrade
+    end.
+
+upgrade_gateways_v3_(Ledger) ->
+    %% the initial load here will automatically convert these into v2 records
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    %% find all neighbors for everyone
+    maps:map(
+      fun(A, G) ->
+              blockchain_ledger_v1:update_gateway(G, A, Ledger)
+      end, Gateways),
+    ok.
+
+
 bootstrap_hexes(Ledger) ->
     bootstrap_hexes_(Ledger),
     Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
@@ -204,7 +237,7 @@ bootstrap_hexes_(Ledger) ->
     Hexes =
         maps:fold(
           fun(Addr, Gw, A) ->
-                  case blockchain_ledger_gateway_v2:location(Gw) of
+                  case blockchain_ledger_gateway_v3:location(Gw) of
                       undefined -> A;
                       Loc ->
                           Hex = h3:parent(Loc, Res),

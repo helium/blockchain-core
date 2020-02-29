@@ -19,7 +19,7 @@ prop_path_check() ->
                 {Challenger, ChallengerLoc} = eqc_utils:find_challenger(ChallengerIndex, ActiveGateways),
 
                 GatewayScoreMap = maps:map(fun(Addr, Gateway) ->
-                                                    {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gateway, Height, Ledger),
+                                                    {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, Gateway, Height, Ledger),
                                                     {Gateway, Score}
                                             end,
                                             ActiveGateways),
@@ -129,7 +129,7 @@ check_next_hop([_H], _ActiveGateways) ->
     true;
 check_next_hop([H | T], ActiveGateways) ->
     HGw = maps:get(H, ActiveGateways),
-    case maps:is_key(hd(T), blockchain_ledger_gateway_v2:witnesses(HGw)) of
+    case maps:is_key(hd(T), blockchain_ledger_gateway_v3:witnesses(HGw)) of
         true ->
             check_next_hop(T, ActiveGateways);
         false ->
@@ -138,7 +138,7 @@ check_next_hop([H | T], ActiveGateways) ->
 
 filter_gateways(Gateways, Height) ->
     maps:filter(fun(_, Gateway) ->
-                        case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+                        case blockchain_ledger_gateway_v3:last_poc_challenge(Gateway) of
                             undefined ->
                                 false;
                             C ->

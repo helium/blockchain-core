@@ -16,7 +16,7 @@ find_challenger(ChallengerIndex, ActiveGateways, Iteration) ->
               N -> N
           end,
     Challenger = lists:nth(Idx, maps:keys(ActiveGateways)),
-    case blockchain_ledger_gateway_v2:location(maps:get(Challenger, ActiveGateways)) of
+    case blockchain_ledger_gateway_v3:location(maps:get(Challenger, ActiveGateways)) of
         undefined ->
             find_challenger(ChallengerIndex, ActiveGateways, next_iteration(Iteration));
         ChallengerLoc ->

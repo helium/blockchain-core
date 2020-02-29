@@ -316,7 +316,7 @@ is_valid(Txn, Chain) ->
                                 {error, _} ->
                                     {error, {unknown_gateway, Gateway, Ledger}};
                                 {ok, GwInfo} ->
-                                    GwOwner = blockchain_ledger_gateway_v2:owner_address(GwInfo),
+                                    GwOwner = blockchain_ledger_gateway_v3:owner_address(GwInfo),
                                     case Owner == GwOwner of
                                         false ->
                                             {error, {bad_owner, {assert_location, Owner, GwOwner}}};
@@ -327,7 +327,7 @@ is_valid(Txn, Chain) ->
                                                 false ->
                                                     {error, {insufficient_assert_res, {assert_location, Location, Gateway}}};
                                                 true ->
-                                                    LedgerNonce = blockchain_ledger_gateway_v2:nonce(GwInfo),
+                                                    LedgerNonce = blockchain_ledger_gateway_v3:nonce(GwInfo),
                                                     case Nonce =:= LedgerNonce + 1 of
                                                         false ->
                                                             {error, {bad_nonce, {assert_location, Nonce, LedgerNonce}}};
@@ -373,7 +373,7 @@ absorb(Txn, Chain) ->
     %% until we have chain var update hook
     %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
     Res = 5,
-    OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
+    OldLoc = blockchain_ledger_gateway_v3:location(OldGw),
     OldHex =
         case OldLoc of
             undefined ->
@@ -391,20 +391,6 @@ absorb(Txn, Chain) ->
         _ ->
             blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
             blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
-    end,
-
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V > 3 ->
-            %% don't update neighbours anymore
-            ok;
-        _ ->
-            %% TODO gc this nonsense in some deterministic way
-            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-            Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
-            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-            ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
-            Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
-            ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
     end.
 
 %%--------------------------------------------------------------------

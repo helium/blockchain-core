@@ -108,9 +108,9 @@ score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger) ->
 
     maps:fold(
       fun(Addr, Gw, {Old, Candidates} = Acc) ->
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Last0 = last(blockchain_ledger_gateway_v3:last_poc_challenge(Gw)),
               Loc = location(ClusterRes, Gw),
-              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+              {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, Gw, Height, Ledger),
               Last = Height - Last0,
               Missing = Last > 3 * PoCInterval,
               case lists:member(Addr, OldGroup0) of
@@ -152,7 +152,7 @@ locations(Res, Group, Gws) ->
 location(none, _Gw) ->
     none;
 location(Res, Gw) ->
-    case blockchain_ledger_gateway_v2:location(Gw) of
+    case blockchain_ledger_gateway_v3:location(Gw) of
         undefined ->
             no_location;
         Loc ->

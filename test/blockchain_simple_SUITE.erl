@@ -67,8 +67,10 @@ all() ->
         chain_vars_set_unset_test,
         token_burn_test,
         payer_test,
-        poc_sync_interval_test,
         update_gateway_oui_test
+
+        %% obsolete tests
+        %% poc_sync_interval_test
     ].
 
 %%--------------------------------------------------------------------
@@ -475,7 +477,7 @@ poc_request_test(Config) ->
 
     % Check that the Gateway is there
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
 
     % Assert the Gateways location
     AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 1),
@@ -509,8 +511,8 @@ poc_request_test(Config) ->
     ?assertEqual({ok, Block26}, blockchain:get_block(HeadHash3, Chain)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(26, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo2)),
-    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo2)),
+    ?assertEqual(26, blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo2)),
+    ?assertEqual(OnionKeyHash0, blockchain_ledger_gateway_v3:last_poc_onion_key_hash(GwInfo2)),
 
     % Check that the PoC info
     {ok, [PoC]} = blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger),
@@ -556,8 +558,8 @@ poc_request_test(Config) ->
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_poc(OnionKeyHash0, Ledger)),
     % Check that the last_poc_challenge block height got recorded in GwInfo
     {ok, GwInfo3} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(63, blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo3)),
-    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo3)),
+    ?assertEqual(63, blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo3)),
+    ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v3:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
@@ -700,7 +702,7 @@ export_test(Config) ->
     ?assertEqual({ok, 24}, blockchain:height(Chain)),
     ?assertEqual({ok, Block24}, blockchain:get_block(24, Chain)),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
 
     timer:sleep(500),
 
@@ -1088,7 +1090,7 @@ epoch_reward_test(Config) ->
 
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, find_gateway_info, fun(Address, _Ledger) ->
-        {ok, blockchain_ledger_gateway_v2:new(Address, 12)}
+        {ok, blockchain_ledger_gateway_v3:new(Address, 12)}
     end),
 
     % Add few empty blocks to fake epoch
@@ -1151,7 +1153,7 @@ election_test(Config) ->
          {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
          Alpha = (rand:uniform() * 10.0) + 1.0,
          Beta = (rand:uniform() * 10.0) + 1.0,
-         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         I2 = blockchain_ledger_gateway_v3:set_alpha_beta_delta(Alpha, Beta, 1, I),
          blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
      end
      || {Addr, _} <- GenesisMembers],
@@ -1176,7 +1178,7 @@ election_test(Config) ->
     Scored =
         [begin
              {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
-             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v3:score(Addr, I, 1, Ledger),
              {Score, Addr}
          end
          || Addr <- New],
@@ -1200,7 +1202,7 @@ chain_vars_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
 
-    Vars = #{poc_version => 2},
+    Vars = #{garbage_value => 2},
 
     ct:pal("priv_key ~p", [Priv]),
 
@@ -1219,7 +1221,7 @@ chain_vars_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
                     {ok, 2} when Height >= (Delay + 1) ->
@@ -1241,7 +1243,7 @@ chain_vars_set_unset_test(Config) ->
 
     Ledger = blockchain:ledger(Chain),
 
-    Vars = #{poc_version => 2},
+    Vars = #{garbage_value => flarp},
 
     ct:pal("priv_key ~p", [Priv]),
 
@@ -1260,10 +1262,10 @@ chain_vars_set_unset_test(Config) ->
                 Block = test_utils:create_block(ConsensusMembers, []),
                 _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
                 {ok, Height} = blockchain:height(Chain),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
                     {error, not_found} when Height < (Delay + 1) ->
                         ok;
-                    {ok, 2} when Height >= (Delay + 1) ->
+                    {ok, flarp} when Height >= (Delay + 1) ->
                         ok;
                     Res ->
                         throw({error, {chain_var_wrong_height, Res, Height}})
@@ -1275,7 +1277,7 @@ chain_vars_set_unset_test(Config) ->
     {ok, Height} = blockchain:height(Chain),
     ct:pal("Height ~p", [Height]),
 
-    UnsetVarTxn = blockchain_txn_vars_v1:new(#{}, 4, #{unsets => [poc_version]}),
+    UnsetVarTxn = blockchain_txn_vars_v1:new(#{}, 4, #{unsets => [garbage_value]}),
     UnsetProof = blockchain_txn_vars_v1:create_proof(Priv, UnsetVarTxn),
     UnsetVarTxn1 = blockchain_txn_vars_v1:proof(UnsetVarTxn, UnsetProof),
 
@@ -1288,8 +1290,8 @@ chain_vars_set_unset_test(Config) ->
                 _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, self()),
                 {ok, Height1} = blockchain:height(Chain),
                 ct:pal("Height1 ~p", [Height1]),
-                case blockchain:config(poc_version, Ledger) of % ignore "?"
-                    {ok, 2} when Height1 < (Height + Delay + 1) ->
+                case blockchain:config(garbage_value, Ledger) of % ignore "?"
+                    {ok, flarp} when Height1 < (Height + Delay + 1) ->
                         ok;
                     {error, not_found} when Height1 >= (Height + Delay) ->
                         ok;
@@ -1491,8 +1493,8 @@ payer_test(Config) ->
     ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
-    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
-    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v2:location(GwInfo)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v3:owner_address(GwInfo)),
+    ?assertEqual(?TEST_LOCATION, blockchain_ledger_gateway_v3:location(GwInfo)),
 
     %% try resyncing the ledger
     {ok, NewChain} = blockchain:reset_ledger(Chain),
@@ -1636,7 +1638,7 @@ poc_sync_interval_test(Config) ->
 
     %% Check last_poc_challenge for added gateway is updated
     {ok, AddedGw2} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    LastPOCChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(AddedGw2),
+    LastPOCChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(AddedGw2),
     ?assert(LastPOCChallenge > 45),
 
     %% Added gateway's poc eligibility should become valid
@@ -1709,7 +1711,7 @@ update_gateway_oui_test(Config) ->
     _ = blockchain_gossip_handler:add_block(Swarm, Block25, Chain, self()),
     ok = test_utils:wait_until(fun() -> {ok, 25} == blockchain:height(Chain) end),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
-    ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
+    ?assertEqual(OUI1, blockchain_ledger_gateway_v3:oui(GwInfo)),
     
     ok.
 

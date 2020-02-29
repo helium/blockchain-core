@@ -3,7 +3,7 @@
 %% == Blockchain Ledger Gateway ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_gateway_v2).
+-module(blockchain_ledger_gateway_v3).
 
 -export([
     new/2, new/3,
@@ -11,8 +11,6 @@
     location/1, location/2,
     score/4,
     version/1, version/2,
-    add_neighbor/2, remove_neighbor/2,
-    neighbors/1, neighbors/2,
     last_poc_challenge/1, last_poc_challenge/2,
     last_poc_onion_key_hash/1, last_poc_onion_key_hash/2,
     nonce/1, nonce/2,
@@ -27,7 +25,8 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
-    witness_hist/1, witness_recent_time/1, witness_first_time/1
+    witness_hist/1, witness_recent_time/1, witness_first_time/1,
+    oui/1, oui/2
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -48,7 +47,7 @@
           time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
          }).
 
--record(gateway_v2, {
+-record(gateway_v3, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
     alpha = 1.0 :: float(),
@@ -58,11 +57,11 @@
     last_poc_onion_key_hash :: undefined | binary(),
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
-    neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
+    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}},
+    oui = undefined :: undefined | pos_integer()
 }).
 
--type gateway() :: #gateway_v2{}.
+-type gateway() :: #gateway_v3{}.
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 -type histogram() :: #{integer() => integer()}.
@@ -75,7 +74,7 @@
 -spec new(OwnerAddress :: libp2p_crypto:pubkey_bin(),
           Location :: pos_integer() | undefined) -> gateway().
 new(OwnerAddress, Location) ->
-    #gateway_v2{
+    #gateway_v3{
         owner_address=OwnerAddress,
         location=Location,
         delta=1
@@ -85,7 +84,7 @@ new(OwnerAddress, Location) ->
           Location :: pos_integer() | undefined,
           Nonce :: non_neg_integer()) -> gateway().
 new(OwnerAddress, Location, Nonce) ->
-    #gateway_v2{
+    #gateway_v3{
         owner_address=OwnerAddress,
         location=Location,
         nonce=Nonce,
@@ -98,7 +97,7 @@ new(OwnerAddress, Location, Nonce) ->
 %%--------------------------------------------------------------------
 -spec owner_address(Gateway :: gateway()) -> libp2p_crypto:pubkey_bin().
 owner_address(Gateway) ->
-    Gateway#gateway_v2.owner_address.
+    Gateway#gateway_v3.owner_address.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -107,7 +106,7 @@ owner_address(Gateway) ->
 -spec owner_address(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                     Gateway :: gateway()) -> gateway().
 owner_address(OwnerAddress, Gateway) ->
-    Gateway#gateway_v2{owner_address=OwnerAddress}.
+    Gateway#gateway_v3{owner_address=OwnerAddress}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -115,7 +114,7 @@ owner_address(OwnerAddress, Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Gateway :: gateway()) ->  undefined | pos_integer().
 location(Gateway) ->
-    Gateway#gateway_v2.location.
+    Gateway#gateway_v3.location.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -123,28 +122,13 @@ location(Gateway) ->
 %%--------------------------------------------------------------------
 -spec location(Location :: pos_integer(), Gateway :: gateway()) -> gateway().
 location(Location, Gateway) ->
-    Gateway#gateway_v2{location=Location}.
+    Gateway#gateway_v3{location=Location}.
 
 version(Gateway) ->
-    Gateway#gateway_v2.version.
+    Gateway#gateway_v3.version.
 
 version(Version, Gateway) ->
-    Gateway#gateway_v2{version = Version}.
-
-add_neighbor(Neighbor, Gateway) ->
-    N = Gateway#gateway_v2.neighbors,
-    Gateway#gateway_v2{neighbors = lists:usort([Neighbor | N])}.
-
-remove_neighbor(Neighbor, Gateway) ->
-    N = Gateway#gateway_v2.neighbors,
-    Gateway#gateway_v2{neighbors = lists:delete(Neighbor, N)}.
-
-neighbors(Gateway) ->
-    Gateway#gateway_v2.neighbors.
-
-neighbors(Neighbors, Gateway) ->
-    Gateway#gateway_v2{neighbors = Neighbors}.
-
+    Gateway#gateway_v3{version = Version}.
 
 %%--------------------------------------------------------------------
 %% @doc The score corresponds to the P(claim_of_location).
@@ -165,7 +149,7 @@ neighbors(Neighbors, Gateway) ->
             Height :: pos_integer(),
             Ledger :: blockchain_ledger_v2:ledger()) -> {float(), float(), float()}.
 score(Address,
-      #gateway_v2{alpha=Alpha, beta=Beta, delta=Delta},
+      #gateway_v3{alpha=Alpha, beta=Beta, delta=Delta},
       Height,
       Ledger) ->
     blockchain_score_cache:fetch({Address, Alpha, Beta, Delta, Height},
@@ -208,7 +192,7 @@ scale_shape_param(ShapeParam) ->
 %%--------------------------------------------------------------------
 -spec alpha(Gateway :: gateway()) -> float().
 alpha(Gateway) ->
-    Gateway#gateway_v2.alpha.
+    Gateway#gateway_v3.alpha.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -216,7 +200,7 @@ alpha(Gateway) ->
 %%--------------------------------------------------------------------
 -spec beta(Gateway :: gateway()) -> float().
 beta(Gateway) ->
-    Gateway#gateway_v2.beta.
+    Gateway#gateway_v3.beta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -224,7 +208,7 @@ beta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec delta(Gateway :: gateway()) -> undefined | non_neg_integer().
 delta(Gateway) ->
-    Gateway#gateway_v2.delta.
+    Gateway#gateway_v3.delta.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -232,7 +216,7 @@ delta(Gateway) ->
 %%--------------------------------------------------------------------
 -spec set_alpha_beta_delta(Alpha :: float(), Beta :: float(), Delta :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
-    Gateway#gateway_v2{alpha=normalize_float(scale_shape_param(Alpha)),
+    Gateway#gateway_v3{alpha=normalize_float(scale_shape_param(Alpha)),
                        beta=normalize_float(scale_shape_param(Beta)),
                        delta=Delta}.
 
@@ -242,7 +226,7 @@ set_alpha_beta_delta(Alpha, Beta, Delta, Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(Gateway :: gateway()) ->  undefined | non_neg_integer().
 last_poc_challenge(Gateway) ->
-    Gateway#gateway_v2.last_poc_challenge.
+    Gateway#gateway_v3.last_poc_challenge.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -250,7 +234,7 @@ last_poc_challenge(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_challenge(LastPocChallenge :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 last_poc_challenge(LastPocChallenge, Gateway) ->
-    Gateway#gateway_v2{last_poc_challenge=LastPocChallenge}.
+    Gateway#gateway_v3{last_poc_challenge=LastPocChallenge}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -258,7 +242,7 @@ last_poc_challenge(LastPocChallenge, Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(Gateway :: gateway()) ->  undefined | binary().
 last_poc_onion_key_hash(Gateway) ->
-    Gateway#gateway_v2.last_poc_onion_key_hash.
+    Gateway#gateway_v3.last_poc_onion_key_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -266,7 +250,7 @@ last_poc_onion_key_hash(Gateway) ->
 %%--------------------------------------------------------------------
 -spec last_poc_onion_key_hash(LastPocOnionKeyHash :: binary(), Gateway :: gateway()) -> gateway().
 last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
-    Gateway#gateway_v2{last_poc_onion_key_hash=LastPocOnionKeyHash}.
+    Gateway#gateway_v3{last_poc_onion_key_hash=LastPocOnionKeyHash}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -274,7 +258,7 @@ last_poc_onion_key_hash(LastPocOnionKeyHash, Gateway) ->
 %%--------------------------------------------------------------------
 -spec nonce(Gateway :: gateway()) -> non_neg_integer().
 nonce(Gateway) ->
-    Gateway#gateway_v2.nonce.
+    Gateway#gateway_v3.nonce.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -282,7 +266,7 @@ nonce(Gateway) ->
 %%--------------------------------------------------------------------
 -spec nonce(Nonce :: non_neg_integer(), Gateway :: gateway()) -> gateway().
 nonce(Nonce, Gateway) ->
-    Gateway#gateway_v2{nonce=Nonce}.
+    Gateway#gateway_v3{nonce=Nonce}.
 
 -spec print(Address :: libp2p_crypto:pubkey_bin(), Gateway :: gateway(),
             Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -324,28 +308,28 @@ print(Address, Gateway, Ledger, Verbose) ->
     ] ++ Scoring.
 
 
-add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+add_witness(WitnessAddress, WitnessGW = #gateway_v3{nonce=Nonce}, undefined, undefined, Gateway = #gateway_v3{witnesses=Witnesses}) ->
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
     case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
+            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
                                                   Witness#witness{count=Count + 1},
                                                   Witnesses)};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
+            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
                                                            hist=create_histogram(WitnessGW, Gateway)},
                                                   Witnesses)}
     end;
-add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gateway = #gateway_v2{witnesses=Witnesses}) ->
+add_witness(WitnessAddress, WitnessGW = #gateway_v3{nonce=Nonce}, RSSI, TS, Gateway = #gateway_v3{witnesses=Witnesses}) ->
     case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
+            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
                                                   Witness#witness{count=Count + 1,
                                                                   hist=update_histogram(RSSI, Hist),
                                                                   recent_time=TS},
@@ -354,7 +338,7 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway),
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
+            Gateway#gateway_v3{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
                                                            hist=update_histogram(RSSI, Histogram),
@@ -363,8 +347,8 @@ add_witness(WitnessAddress, WitnessGW = #gateway_v2{nonce=Nonce}, RSSI, TS, Gate
                                                   Witnesses)}
     end.
 
-create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v2{location=GatewayLoc}=_Gateway) ->
+create_histogram(#gateway_v3{location=WitnessLoc}=_WitnessGW,
+                 #gateway_v3{location=GatewayLoc}=_Gateway) ->
     %% Get the free space path loss
     FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
     %% Maximum number of bins in the histogram
@@ -387,19 +371,19 @@ update_histogram_(Val, [_ | Tail], Histogram) ->
 
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
-    Gateway#gateway_v2{witnesses=#{}}.
+    Gateway#gateway_v3{witnesses=#{}}.
 
 -spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
 remove_witness(Gateway, WitnessAddr) ->
-    Gateway#gateway_v2{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v2.witnesses)}.
+    Gateway#gateway_v3{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v3.witnesses)}.
 
 -spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
-has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
+has_witness(#gateway_v3{witnesses=Witnesses}, WitnessAddr) ->
     maps:is_key(WitnessAddr, Witnesses).
 
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
-    Gateway#gateway_v2.witnesses.
+    Gateway#gateway_v3.witnesses.
 
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->
@@ -413,6 +397,14 @@ witness_recent_time(Witness) ->
 witness_first_time(Witness) ->
     Witness#witness.first_time.
 
+-spec oui(gateway()) -> pos_integer().
+oui(Gateway) ->
+    Gateway#gateway_v3.oui.
+
+-spec oui(pos_integer() | undefined, gateway()) -> gateway().
+oui(OUI, Gateway) ->
+    Gateway#gateway_v3{oui=OUI}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Version 2
@@ -420,10 +412,8 @@ witness_first_time(Witness) ->
 %%--------------------------------------------------------------------
 -spec serialize(Gateway :: gateway()) -> binary().
 serialize(Gw) ->
-    Neighbors = neighbors(Gw),
-    Gw1 = neighbors(lists:usort(Neighbors), Gw),
-    BinGw = erlang:term_to_binary(Gw1),
-    <<2, BinGw/binary>>.
+    BinGw = erlang:term_to_binary(Gw),
+    <<3, BinGw/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -434,11 +424,12 @@ deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
     convert(V1);
 deserialize(<<2, Bin/binary>>) ->
-    Gw = erlang:binary_to_term(Bin),
-    Neighbors = neighbors(Gw),
-    neighbors(lists:usort(Neighbors), Gw).
+    V2 = erlang:binary_to_term(Bin),
+    convert(V2);
+deserialize(<<3, Bin/binary>>) ->
+    erlang:binary_to_term(Bin).
 
-%% OK to include here, v1 should now be immutable.
+%% OK to include here, v1 and v2 should now be immutable.
 -record(gateway_v1, {
     owner_address :: libp2p_crypto:pubkey_bin(),
     location :: undefined | pos_integer(),
@@ -451,6 +442,21 @@ deserialize(<<2, Bin/binary>>) ->
     version = 0 :: non_neg_integer()
 }).
 
+-record(gateway_v2, {
+    owner_address :: libp2p_crypto:pubkey_bin(),
+    location :: undefined | pos_integer(),
+    alpha = 1.0 :: float(),
+    beta = 1.0 :: float(),
+    delta :: non_neg_integer(),
+    last_poc_challenge :: undefined | non_neg_integer(),
+    last_poc_onion_key_hash :: undefined | binary(),
+    nonce = 0 :: non_neg_integer(),
+    version = 0 :: non_neg_integer(),
+    neighbors = [] :: [libp2p_crypto:pubkey_bin()],
+    witnesses = #{} ::  #{libp2p_crypto:pubkey_bin() => #witness{}}
+}).
+
+
 convert(#gateway_v1{
           owner_address = Owner,
           location = Location,
@@ -461,7 +467,7 @@ convert(#gateway_v1{
           last_poc_onion_key_hash = LastHash,
           nonce = Nonce,
           version = Version}) ->
-    #gateway_v2{
+    #gateway_v3{
        owner_address = Owner,
        location = Location,
        alpha = Alpha,
@@ -470,9 +476,27 @@ convert(#gateway_v1{
        last_poc_challenge = LastPoC,
        last_poc_onion_key_hash = LastHash,
        nonce = Nonce,
-       version = Version,
-       %% this gets set in the upgrade path
-       neighbors = []}.
+       version = Version};
+convert(#gateway_v2{
+          owner_address = Owner,
+          location = Location,
+          alpha = Alpha,
+          beta = Beta,
+          delta = Delta,
+          last_poc_challenge = LastPoC,
+          last_poc_onion_key_hash = LastHash,
+          nonce = Nonce,
+          version = Version}) ->
+    #gateway_v3{
+       owner_address = Owner,
+       location = Location,
+       alpha = Alpha,
+       beta = Beta,
+       delta = Delta,
+       last_poc_challenge = LastPoC,
+       last_poc_onion_key_hash = LastHash,
+       nonce = Nonce,
+       version = Version}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -480,7 +504,7 @@ convert(#gateway_v1{
 -ifdef(TEST).
 
 new_test() ->
-    Gw = #gateway_v2{
+    Gw = #gateway_v3{
         owner_address = <<"owner_address">>,
         location = 12,
         last_poc_challenge = undefined,

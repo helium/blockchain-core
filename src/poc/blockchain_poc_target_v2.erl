@@ -68,7 +68,7 @@ target_v2(Hash, Ledger, Vars) ->
                           0.0 ->
                               1.0;
                           _ ->
-                              {_, _, Scr} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+                              {_, _, Scr} = blockchain_ledger_gateway_v3:score(Addr, Gw, Height, Ledger),
                               Scr
                       end,
                   Acc#{Addr => {Gw, Score}}
@@ -100,12 +100,12 @@ filter(GatewayScoreMap, ChallengerAddr, ChallengerLoc, Height, Vars) ->
                 end,
                 maps:without([ChallengerAddr], GatewayScoreMap)).
 
--spec valid(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+-spec valid(Gateway :: blockchain_ledger_gateway_v3:gateway(),
             ChallengerLoc :: h3:h3_index(),
             Height :: pos_integer(),
             Vars :: map()) -> boolean().
 valid(Gateway, ChallengerLoc, Height, Vars) ->
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+    case blockchain_ledger_gateway_v3:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include
             false;
@@ -117,7 +117,7 @@ valid(Gateway, ChallengerLoc, Height, Vars) ->
             %% so this should be safe.
                 case application:get_env(blockchain, disable_poc_v4_target_challenge_age, false) of
                     false ->
-                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v2:location(Gateway), Vars);
+                        check_challenger_distance(ChallengerLoc, blockchain_ledger_gateway_v3:location(Gateway), Vars);
                     true ->
                         true
                 end
@@ -167,7 +167,7 @@ edge_prob(GatewayScoreMap, Vars) ->
             ProbEdges =
                 maps:map(
                   fun(_Addr, {Gateway, _Score}) ->
-                          Loc = blockchain_ledger_gateway_v2:location(Gateway),
+                          Loc = blockchain_ledger_gateway_v3:location(Gateway),
                           GatewayParent = h3:parent(Loc, ParentRes),
                           PopCt = maps:get(GatewayParent, Locations),
                           ?normalize_float((1 - ?normalize_float(PopCt/LocSz, Vars)), Vars)
@@ -220,7 +220,7 @@ scaled_prob(PTarget, Vars) ->
 locations(GatewayScoreMap, Vars) ->
     %% Get all locations from score map
     Res = parent_res(Vars),
-    AllRes = [h3:parent(blockchain_ledger_gateway_v2:location(G), Res) || {G, _S} <- maps:values(GatewayScoreMap)],
+    AllRes = [h3:parent(blockchain_ledger_gateway_v3:location(G), Res) || {G, _S} <- maps:values(GatewayScoreMap)],
     lists:foldl(fun(R, M) ->
                         maps:update_with(R, fun(V) -> V + 1 end, 1, M)
                 end,

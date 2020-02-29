@@ -263,7 +263,7 @@ calculate_dc_amount(PubKeyBin, OUI, Payload) ->
             lager:error("failed to find gateway ~p: ~p", [PubKeyBin, _Reason]),
             Price;
         {ok, GWInfo} ->
-            case blockchain_ledger_gateway_v2:oui(GWInfo) of
+            case blockchain_ledger_gateway_v3:oui(GWInfo) of
                 OUI -> 0;
                 _ -> Price
             end

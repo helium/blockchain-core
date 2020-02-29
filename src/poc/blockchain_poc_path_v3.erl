@@ -57,7 +57,7 @@
             Vars :: map()) -> path().
 build(TargetPubkeyBin, Ledger, HeadBlockTime, Hash, Vars) ->
     TargetGw = find(TargetPubkeyBin, Ledger),
-    TargetGwLoc = blockchain_ledger_gateway_v2:location(TargetGw),
+    TargetGwLoc = blockchain_ledger_gateway_v3:location(TargetGw),
     RandState = blockchain_utils:rand_state(Hash),
     build_(TargetPubkeyBin,
            Ledger,
@@ -92,7 +92,7 @@ build_(TargetPubkeyBin,
         {ok, WitnessPubkeyBin} ->
             %% Try the next hop in the new path, continue building forward
             NextHopGw = find(WitnessPubkeyBin, Ledger),
-            Index = blockchain_ledger_gateway_v2:location(NextHopGw),
+            Index = blockchain_ledger_gateway_v3:location(NextHopGw),
             NewPath = [WitnessPubkeyBin | Path],
             build_(WitnessPubkeyBin,
                    Ledger,
@@ -105,7 +105,7 @@ build_(TargetPubkeyBin,
 build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, Path) ->
     lists:reverse(Path).
 
--spec next_hop(GatewayBin :: blockchain_ledger_gateway_v2:gateway(),
+-spec next_hop(GatewayBin :: blockchain_ledger_gateway_v3:gateway(),
                Ledger :: blockchain:ledger(),
                HeadBlockTime :: pos_integer(),
                Vars :: map(),
@@ -114,12 +114,12 @@ build_(_TargetPubkeyBin, _Ledger, _HeadBlockTime, _Vars, _RandState, _Indices, P
 next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandVal, Indices) ->
     %% Get gateway
     Gateway = find(GatewayBin, Ledger),
-    case blockchain_ledger_gateway_v2:witnesses(Gateway) of
+    case blockchain_ledger_gateway_v3:witnesses(Gateway) of
         W when map_size(W) == 0 ->
             {error, no_witness};
         Witnesses ->
             %% If this gateway has witnesses, it is implied that it's location cannot be undefined
-            GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
+            GatewayLoc = blockchain_ledger_gateway_v3:location(Gateway),
             %% Filter witnesses
             FilteredWitnesses = filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars),
             %% Assign probabilities to filtered witnesses
@@ -162,7 +162,7 @@ witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount) ->
                      ?normalize_float((randomness_wt(Vars) * 1.0), Vars)
              end, PWitnessTime).
 
--spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+-spec rssi_probs(Witnesses :: blockchain_ledger_gateway_v3:witnesses(),
                  Vars :: map()) -> prob_map().
 rssi_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1
@@ -171,7 +171,7 @@ rssi_probs(Witnesses, Vars) ->
     WitnessList = maps:to_list(Witnesses),
     lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
                         try
-                            blockchain_ledger_gateway_v2:witness_hist(Witness)
+                            blockchain_ledger_gateway_v3:witness_hist(Witness)
                         of
                             RSSIs ->
                                 SumRSSI = lists:sum(maps:values(RSSIs)),
@@ -201,14 +201,14 @@ rssi_probs(Witnesses, Vars) ->
 
 
 -spec time_probs(HeadBlockTime :: pos_integer(),
-                 Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                 Witnesses :: blockchain_ledger_gateway_v3:witnesses(),
                  Vars :: map()) -> prob_map().
 time_probs(_, Witnesses, _Vars) when map_size(Witnesses) == 1 ->
     %% There is only a single witness, probabilitiy of picking it is 1.0
     maps:map(fun(_, _) -> 1.0 end, Witnesses);
 time_probs(HeadBlockTime, Witnesses, Vars) ->
     Deltas = lists:foldl(fun({WitnessPubkeyBin, Witness}, Acc) ->
-                                 case blockchain_ledger_gateway_v2:witness_recent_time(Witness) of
+                                 case blockchain_ledger_gateway_v3:witness_recent_time(Witness) of
                                      undefined ->
                                          maps:put(WitnessPubkeyBin, nanosecond_time(HeadBlockTime), Acc);
                                      T ->
@@ -230,14 +230,14 @@ time_probs(HeadBlockTime, Witnesses, Vars) ->
                      end
              end, Deltas).
 
--spec witness_count_probs(Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+-spec witness_count_probs(Witnesses :: blockchain_ledger_gateway_v3:witnesses(),
                           Vars :: map()) -> prob_map().
 witness_count_probs(Witnesses, _Vars) when map_size(Witnesses) == 1 ->
     %% only a single witness, probability = 1.0
     maps:map(fun(_, _) -> 1.0 end, Witnesses);
 witness_count_probs(Witnesses, Vars) ->
     TotalRSSIs = maps:map(fun(_WitnessPubkeyBin, Witness) ->
-                                  RSSIs = blockchain_ledger_gateway_v2:witness_hist(Witness),
+                                  RSSIs = blockchain_ledger_gateway_v3:witness_hist(Witness),
                                   lists:sum(maps:values(RSSIs))
                           end,
                           Witnesses),
@@ -265,9 +265,9 @@ select_witness([{_WitnessPubkeyBin, Prob} | Tail], Rnd, Vars) ->
 
 -spec filter_witnesses(GatewayLoc :: h3:h3_index(),
                        Indices :: [h3:h3_index()],
-                       Witnesses :: blockchain_ledger_gateway_v2:witnesses(),
+                       Witnesses :: blockchain_ledger_gateway_v3:witnesses(),
                        Ledger :: blockchain:ledger(),
-                       Vars :: map()) -> blockchain_ledger_gateway_v2:witnesses().
+                       Vars :: map()) -> blockchain_ledger_gateway_v3:witnesses().
 filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     ParentRes = parent_res(Vars),
@@ -280,7 +280,7 @@ filter_witnesses(GatewayLoc, Indices, Witnesses, Ledger, Vars) ->
                             true ->
                                 false;
                             false ->
-                                WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                WitnessLoc = blockchain_ledger_gateway_v3:location(WitnessGw),
                                 WitnessParent = h3:parent(WitnessLoc, ParentRes),
                                 %% Dont include any witnesses in any parent cell we've already visited
                                 not(lists:member(WitnessLoc, Indices)) andalso
@@ -309,13 +309,13 @@ check_witness_distance(WitnessParent, ParentIndices, ExclusionCells) ->
                           end
                   end, ParentIndices)).
 
--spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v2:gateway_witness(),
+-spec check_witness_bad_rssi(Witness :: blockchain_ledger_gateway_v3:gateway_witness(),
                              Vars :: map()) -> boolean().
 check_witness_bad_rssi(Witness, Vars) ->
     case poc_version(Vars) of
         V when is_integer(V), V > 4 ->
             try
-                blockchain_ledger_gateway_v2:witness_hist(Witness)
+                blockchain_ledger_gateway_v3:witness_hist(Witness)
             of
                 Hist ->
                     case maps:get(28, Hist, 0) of
@@ -343,11 +343,11 @@ check_witness_bad_rssi(Witness, Vars) ->
             true
     end.
 
--spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v2:gateway(),
+-spec is_witness_stale(Gateway :: blockchain_ledger_gateway_v3:gateway(),
                        Height :: pos_integer(),
                        Vars :: map()) -> boolean().
 is_witness_stale(Gateway, Height, Vars) ->
-    case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
+    case blockchain_ledger_gateway_v3:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include
             true;

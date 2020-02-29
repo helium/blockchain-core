@@ -168,7 +168,7 @@ is_valid(Txn, Chain) ->
                                                         [Challenger, Reason]),
                                             Error;
                                         {ok, GwInfo} ->
-                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                                            LastChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo),
                                             case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, Reason}=Error ->
                                                     lager:error([{poc_id, HexPOCID}],
@@ -252,7 +252,7 @@ is_valid(Txn, Chain) ->
 
                                                                                    Time = blockchain_block:time(Block1),
                                                                                    {ChallengerGw, _} = maps:get(Challenger, GatewayScoreMap),
-                                                                                   ChallengerLoc = blockchain_ledger_gateway_v2:location(ChallengerGw),
+                                                                                   ChallengerLoc = blockchain_ledger_gateway_v3:location(ChallengerGw),
                                                                                    {ok, OldHeight} = blockchain_ledger_v1:current_height(OldLedger),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, OldHeight, Vars),
@@ -505,14 +505,14 @@ good_quality_witnesses(Element, Ledger) ->
     {ok, ExclusionCells} = blockchain_ledger_v1:config(?poc_v4_exclusion_cells, Ledger),
 
     {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
-    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+    ChallengeeLoc = blockchain_ledger_gateway_v3:location(ChallengeeGw),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
     %% Good quality witnesses
     lists:filter(fun(Witness) ->
                                  WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                                  {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(WitnessPubkeyBin, Ledger),
-                                 WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
+                                 WitnessGwLoc = blockchain_ledger_gateway_v3:location(WitnessGw),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
                                  FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
@@ -549,7 +549,7 @@ absorb(Txn, Chain) ->
         {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
         {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
         {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Challenger, Ledger),
-        LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+        LastChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
             false ->
@@ -617,7 +617,7 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                             lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
                             Error2;
                         {ok, GwInfo} ->
-                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                            LastChallenge = blockchain_ledger_gateway_v3:last_poc_challenge(GwInfo),
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
                                     lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
@@ -854,7 +854,7 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
                       {ok, _} when Gateway == WitnessGateway ->
                           false;
                       {ok, GWInfo} ->
-                          blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
+                          blockchain_ledger_gateway_v3:location(GWInfo) /= undefined andalso
                           blockchain_poc_witness_v1:is_valid(Witness) andalso
                           blockchain_poc_witness_v1:packet_hash(Witness) == LayerHash
                   end

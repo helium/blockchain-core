@@ -123,14 +123,14 @@ is_valid(Txn, Chain) ->
         {_, {error, _}=Err} ->
             Err;
         {ok, {ok, GWInfo}} ->
-            LedgerNonce = blockchain_ledger_gateway_v2:nonce(GWInfo),
+            LedgerNonce = blockchain_ledger_gateway_v3:nonce(GWInfo),
             Nonce = ?MODULE:nonce(Txn),
             case Nonce =:= LedgerNonce + 1 of
                 false ->
                     {error, {bad_nonce, {update_gateway_oui, Nonce, LedgerNonce}}};
                 true ->
                     Fee = ?MODULE:fee(Txn),
-                    GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
+                    GatewayOwner = blockchain_ledger_gateway_v3:owner_address(GWInfo),
                     blockchain_ledger_v1:check_dc_balance(GatewayOwner, Fee, Ledger)
             end
     end.
@@ -144,7 +144,7 @@ absorb(Txn, Chain) ->
             Error;
         {ok, GWInfo} ->
             Fee = ?MODULE:fee(Txn),
-            GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
+            GatewayOwner = blockchain_ledger_gateway_v3:owner_address(GWInfo),
             case blockchain_ledger_v1:debit_fee(GatewayOwner, Fee, Ledger) of
                 {error, _}=Error ->
                     Error;
@@ -187,7 +187,7 @@ validate_gateway(Txn, Ledger) ->
         {error, _Reason}=Error ->
             Error;
         {ok, GWInfo} ->
-            GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
+            GatewayOwner = blockchain_ledger_gateway_v3:owner_address(GWInfo),
             case ?MODULE:is_valid_gateway_owner(GatewayOwner, Txn) of
                 false -> {error, invalid_gateway_onwer_signature};
                 true -> {ok, GWInfo}

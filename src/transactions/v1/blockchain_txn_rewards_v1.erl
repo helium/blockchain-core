@@ -610,7 +610,7 @@ get_gateway_owner(Address, Ledger) ->
             lager:error("failed to get gateway owner for ~p: ~p", [Address, _Reason]),
             Error;
         {ok, GwInfo} ->
-            {ok, blockchain_ledger_gateway_v2:owner_address(GwInfo)}
+            {ok, blockchain_ledger_gateway_v3:owner_address(GwInfo)}
     end.
 
 
