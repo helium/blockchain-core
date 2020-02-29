@@ -175,7 +175,7 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
                     case LengthPayments > MaxPayments of
                         %% Check that we don't exceed max payments
                         true ->
-                            {error, {exceeded_max_payouts, LengthPayments, MaxPayments}};
+                            {error, {exceeded_max_payments, LengthPayments, MaxPayments}};
                         false ->
                             case lists:member(Payer, ?MODULE:payees(Txn)) of
                                 false ->

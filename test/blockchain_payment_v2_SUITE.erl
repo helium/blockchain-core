@@ -13,7 +13,8 @@
          empty_payees_test/1,
          zero_payment_test/1,
          negative_payment_test/1,
-         self_payment_test/1
+         self_payment_test/1,
+         max_payments_test/1
         ]).
 
 all() ->
@@ -24,8 +25,11 @@ all() ->
      empty_payees_test,
      zero_payment_test,
      negative_payment_test,
-     self_payment_test
+     self_payment_test,
+     max_payments_test
     ].
+
+-define(MAX_PAYMENTS, 20).
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -36,7 +40,7 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    ExtraVars = #{?max_payments => 20},
+    ExtraVars = #{?max_payments => ?MAX_PAYMENTS},
 
     {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
 
@@ -293,5 +297,32 @@ self_payment_test(Config) ->
 
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
     ?assertEqual({error, self_payment}, blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
+
+    ok.
+
+max_payments_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+
+    %% Create 1+max_payments
+    Payees = [P || {P, _} <- test_utils:generate_keys(?MAX_PAYMENTS + 1, ed25519)],
+
+    Payments = lists:foldl(fun(PayeePubkeyBin, Acc) ->
+                                   Amount = rand:uniform(100),
+                                   [blockchain_payment_v2:new(PayeePubkeyBin, Amount) | Acc]
+                           end,
+                           [],
+                           Payees),
+
+    Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1, 0),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    ?assertEqual({error, {exceeded_max_payments, length(Payments), ?MAX_PAYMENTS}},
+                 blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
 
     ok.
