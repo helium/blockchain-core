@@ -70,7 +70,7 @@
     check_security_balance/3,
 
     find_htlc/2,
-    add_htlc/7,
+    add_htlc/8,
     redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/2,
@@ -1641,14 +1641,14 @@ find_htlc(Address, Ledger) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_htlc(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-               non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_htlc(Address, Payer, Payee, Amount, Hashlock, Timelock, Ledger) ->
+               non_neg_integer(), non_neg_integer(),  binary(), non_neg_integer(), ledger()) -> ok | {error, any()}.
+add_htlc(Address, Payer, Payee, Amount, Nonce, Hashlock, Timelock, Ledger) ->
     HTLCsCF = htlcs_cf(Ledger),
     case ?MODULE:find_htlc(Address, Ledger) of
         {ok, _} ->
             {error, address_already_exists};
         {error, _} ->
-            HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Hashlock, Timelock),
+            HTLC = blockchain_ledger_htlc_v1:new(Payer, Payee, Amount, Nonce, Hashlock, Timelock),
             Bin = blockchain_ledger_htlc_v1:serialize(HTLC),
             cache_put(Ledger, HTLCsCF, Address, Bin)
     end.

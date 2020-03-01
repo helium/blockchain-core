@@ -300,9 +300,13 @@ htlc_payee_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
+
+    %% confirm the txns passes validations
+    ?assertEqual(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+
     % send some money to the payee so they have enough to pay the fee for redeeming
     Tx = blockchain_txn_payment_v1:new(Payer, Payee, 100, 0, 2),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -346,6 +350,9 @@ htlc_payee_redeem_test(Config) ->
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payee, blockchain:ledger(Chain)),
     ?assertEqual(2600, blockchain_ledger_entry_v1:balance(NewEntry1)),
 
+    % confirm the replay of the previously absorbed txn fails validations
+    % as we are reusing the same nonce
+    ?assertEqual({error,{bad_nonce,{create_htlc,1,3}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
     ok.
 
 htlc_payer_redeem_test(Config) ->
@@ -365,9 +372,13 @@ htlc_payer_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(32),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
+
+    %% confirm the txns passes validations
+    ?assertEqual(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
+
     Block = test_utils:create_block(ConsensusMembers, [SignedCreateTx]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
@@ -412,6 +423,10 @@ htlc_payer_redeem_test(Config) ->
     % Check that the Payer now owns 5000 again
     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, blockchain:ledger(Chain)),
     ?assertEqual(5000, blockchain_ledger_entry_v1:balance(NewEntry1)),
+
+    % confirm the replay of the previously absorbed txn fails validations
+    % as we are reusing the same nonce
+    ?assertEqual({error,{bad_nonce,{create_htlc,1,2}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
 
     ok.
 
