@@ -179,21 +179,27 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
                         false ->
                             case lists:member(Payer, ?MODULE:payees(Txn)) of
                                 false ->
-                                    TotAmount = ?MODULE:total_amount(Txn),
-                                    Fee = ?MODULE:fee(Txn),
-                                    case blockchain_ledger_v1:transaction_fee(Ledger) of
-                                        {error, _}=Error0 ->
-                                            Error0;
-                                        {ok, MinerFee} ->
-                                            case (TotAmount >= 0) andalso (Fee >= MinerFee) of
-                                                false ->
-                                                    {error, invalid_transaction};
-                                                true ->
-                                                    case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
-                                                        {error, _}=Error1 ->
-                                                            Error1;
-                                                        ok ->
-                                                            blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger)
+                                    %% check that every payee is unique
+                                    case has_unique_payees(Payments) of
+                                        false ->
+                                            {error, duplicate_payees};
+                                        true ->
+                                            TotAmount = ?MODULE:total_amount(Txn),
+                                            Fee = ?MODULE:fee(Txn),
+                                            case blockchain_ledger_v1:transaction_fee(Ledger) of
+                                                {error, _}=Error0 ->
+                                                    Error0;
+                                                {ok, MinerFee} ->
+                                                    case (TotAmount >= 0) andalso (Fee >= MinerFee) of
+                                                        false ->
+                                                            {error, invalid_transaction};
+                                                        true ->
+                                                            case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
+                                                                {error, _}=Error1 ->
+                                                                    Error1;
+                                                                ok ->
+                                                                    blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger)
+                                                            end
                                                     end
                                             end
                                     end;
@@ -204,6 +210,14 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
             end
     end.
 
+%% ------------------------------------------------------------------
+%% Internal functions
+%% ------------------------------------------------------------------
+
+-spec has_unique_payees(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_unique_payees(Payments) ->
+    Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
+    length(lists:usort(Payees)) == length(Payees).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
