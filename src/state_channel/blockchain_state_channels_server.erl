@@ -194,7 +194,8 @@ handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=
             LedgerSCs = convert_to_state_channels(blockchain_ledger_v1:find_all_state_channels_by_owner(Ledger, Owner)),
             {noreply, State#state{chain=Chain, state_channels=maps:merge(LedgerSCs, SCs)}}
     end;
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain, owner={Owner, OwnerSigFun}, state_channels=SCs}=State0) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
+            #state{chain=Chain, owner={Owner, OwnerSigFun}, state_channels=SCs}=State0) ->
     {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
     BlockHeight = blockchain_block:height(Block),
     State1 = lists:foldl(
@@ -205,10 +206,9 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                         Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
                         Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
                         ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-                        SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                        SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                        SC2 = blockchain_state_channel_v1:expire_at_block(BlockHeight + ExpireWithin, SC1),
-                        State#state{state_channels=maps:put(ID, SC2, SCs0)};
+                        SC0 = blockchain_state_channel_v1:new(ID, Owner, Amount, BlockHeight + ExpireWithin),
+                        SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                        State#state{state_channels=maps:put(ID, SC1, SCs0)};
                     blockchain_txn_state_channel_close_v1 ->
                         SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
                         ID = blockchain_state_channel_v1:id(SC),
