@@ -6,7 +6,7 @@
 -module(blockchain_state_channel_v1).
 
 -export([
-    new/2,
+    new/2, new/4,
     zero_id/0, id/1,
     owner/1,
     credits/1, credits/2,
@@ -48,6 +48,22 @@ new(ID, Owner) ->
         root_hash= <<>>,
         state=open,
         expire_at_block=0
+    }.
+
+-spec new(ID :: binary(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Credits :: non_neg_integer(),
+          ExpireAtBlock :: pos_integer()) -> state_channel().
+new(ID, Owner, Credits, ExpireAtBlock) ->
+    #blockchain_state_channel_v1_pb{
+        id=ID,
+        owner=Owner,
+        credits=Credits,
+        nonce=0,
+        balances=[],
+        root_hash= <<>>,
+        state=open,
+        expire_at_block=ExpireAtBlock
     }.
 
 -spec zero_id() -> binary().
@@ -180,7 +196,7 @@ validate_request(Request, SC) ->
     case ReqAmount > CalcAmount of
         true ->
             {error, wrong_amount};
-        false -> 
+        false ->
             SCCredits = ?MODULE:credits(SC),
             State = ?MODULE:state(SC),
             case State of
