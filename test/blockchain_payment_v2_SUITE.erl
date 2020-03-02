@@ -14,7 +14,8 @@
          zero_payment_test/1,
          negative_payment_test/1,
          self_payment_test/1,
-         max_payments_test/1
+         max_payments_test/1,
+         signature_test/1
         ]).
 
 all() ->
@@ -26,7 +27,8 @@ all() ->
      zero_payment_test,
      negative_payment_test,
      self_payment_test,
-     max_payments_test
+     max_payments_test,
+     signature_test
     ].
 
 -define(MAX_PAYMENTS, 20).
@@ -325,4 +327,31 @@ max_payments_test(Config) ->
     ?assertEqual({error, {exceeded_max_payments, length(Payments), ?MAX_PAYMENTS}},
                  blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
 
+    ok.
+
+signature_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    _Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    _Swarm = ?config(swarm, Config),
+
+    %% Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, _PayerPrivKey, _}}, {_Other, {_, OtherPrivKey, _}} |_] = ConsensusMembers,
+
+    %% Create a payment to a single payee
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Amount = 2500,
+    Payment1 = blockchain_payment_v2:new(Recipient, Amount),
+
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1, 0),
+
+    %% Use someone elses' signature
+    SigFun = libp2p_crypto:mk_sig_fun(OtherPrivKey),
+    SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
+
+    ct:pal("~s", [blockchain_txn:print(SignedTx)]),
+
+    ?assertEqual({error, bad_signature}, blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
     ok.
