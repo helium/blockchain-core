@@ -72,7 +72,8 @@
 %% not run their code later.
 -define(upgrades,
         [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
-         {<<"hex_targets">>, fun bootstrap_hexes/1}]).
+         {<<"hex_targets">>, fun bootstrap_hexes/1},
+         {<<"gateway_oui">>, fun upgrade_gateways_oui/1}]).
 %% NB: we need to keep this in sync with the filter in the fingerprints
 
 
@@ -218,6 +219,26 @@ bootstrap_hexes_(Ledger) ->
           fun(Hex, Addresses) ->
                   blockchain_ledger_v1:set_hex(Hex, Addresses, Ledger)
           end, Hexes),
+    ok.
+
+upgrade_gateways_oui(Ledger) ->
+    upgrade_gateways_oui_(Ledger),
+    Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+    Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+    upgrade_gateways_oui_(Ledger2),
+    blockchain_ledger_v1:commit_context(Ledger2).
+
+upgrade_gateways_oui_(Ledger) ->
+    %% the initial load here will automatically convert these into
+    %% records with oui slots
+    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+    %% find all neighbors for everyone
+    maps:map(
+      fun(A, G) ->
+              %% since we're here
+              G1 = blockchain_ledger_gateway_v2:neighbors([], G),
+              blockchain_ledger_v1:update_gateway(G1, A, Ledger)
+      end, Gateways),
     ok.
 
 %%--------------------------------------------------------------------
