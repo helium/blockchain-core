@@ -5,7 +5,8 @@
 -include("blockchain_vars.hrl").
 
 -export([
-    init/1, init_chain/2, init_chain/3,
+    init/1,
+    init_chain/2, init_chain/3, init_chain/4,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
     create_block/2,
@@ -35,9 +36,12 @@ init(BaseDir) ->
     {ok, Sup, {PrivKey, PubKey}, Opts}.
 
 init_chain(Balance, Keys) ->
-    init_chain(Balance, Keys, true).
+    init_chain(Balance, Keys, true, #{}).
 
-init_chain(Balance, {PrivKey, PubKey}, InConsensus) ->
+init_chain(Balance, Keys, InConsensus) ->
+    init_chain(Balance, Keys, InConsensus, #{}).
+
+init_chain(Balance, {PrivKey, PubKey}, InConsensus, ExtraVars) ->
     % Generate fake blockchains (just the keys)
     GenesisMembers = case InConsensus of
                          true ->
@@ -51,7 +55,7 @@ init_chain(Balance, {PrivKey, PubKey}, InConsensus) ->
                      end,
 
     % Create genesis block
-    {InitialVars, Keys} = blockchain_ct_utils:create_vars(#{}),
+    {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance)
                      || {Addr, _} <- GenesisMembers],

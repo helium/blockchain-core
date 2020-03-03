@@ -734,6 +734,10 @@ validate_var(?reward_version, Value) ->
 validate_var(?max_bundle_size, Value) ->
     validate_int(Value, "max_bundle_size", 5, 100, false);
 
+%% txn payment_v2 vars
+validate_var(?max_payments, Value) ->
+    validate_int(Value, "max_payments", 5, 50, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
