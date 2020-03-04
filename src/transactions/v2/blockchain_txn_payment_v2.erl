@@ -98,13 +98,7 @@ sign(Txn, SigFun) ->
 -spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain:config(?max_payments, Ledger) of
-        {ok, M} when is_integer(M) ->
-            do_is_valid_checks(Txn, Ledger, M);
-        _ ->
-            {error, {invalid, max_payments_not_set}}
-    end.
-
+    is_valid_(Txn, Ledger).
 
 -spec absorb(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -151,73 +145,142 @@ print_payments(Payments) ->
 %% ------------------------------------------------------------------
 %% Internal Functions
 %% ------------------------------------------------------------------
--spec do_is_valid_checks(Txn :: txn_payment_v2(),
-                         Ledger :: blockchain_ledger_v1:ledger(),
-                         MaxPayments :: pos_integer()) -> ok | {error, any()}.
-do_is_valid_checks(Txn, Ledger, MaxPayments) ->
+
+-spec is_valid_(Txn :: txn_payment_v2(),
+                Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
+is_valid_(Txn, Ledger) ->
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     Payments = ?MODULE:payments(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v2_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v2_pb:encode_msg(BaseTxn),
+    Payees = ?MODULE:payees(Txn),
+    Fee = ?MODULE:fee(Txn),
+    TotAmount = ?MODULE:total_amount(Txn),
 
+    %% Initial Data to be supplied to railway validation
+    Data = #{ledger => Ledger,
+             payer => Payer,
+             payees => Payees,
+             signature => Signature,
+             payments => Payments,
+             len_payments => length(Payments),
+             pubkey => PubKey,
+             base_txn => BaseTxn,
+             encoded_txn => EncodedTxn,
+             fee => Fee,
+             tot_amt => TotAmount
+            },
+
+    %% NOTE: The order of the validity steps matters!
+    %% Because we modify the initial data supplied at some of the intermediate steps.
+    ValiditySteps = [
+                     {check_chain_var, fun check_chain_var/1},
+                     {check_signature, fun check_signature/1},
+                     {check_self_payment, fun check_self_payment/1},
+                     {check_empty_payments, fun check_empty_payments/1},
+                     {check_max_payments, fun check_max_payments/1},
+                     {check_unique_payees, fun check_unique_payees/1},
+                     {check_txn_fee, fun check_txn_fee/1},
+                     {check_amount, fun check_amount/1},
+                     {check_dc_balance, fun check_dc_balance/1},
+                     {check_balance, fun check_balance/1}
+                    ],
+
+    case blockchain_utils:railway(ValiditySteps, Data) of
+        {error, Step, Reason, _Data} ->
+            lager:error("Step: ~p, Reason: ~p", [Step, Reason]),
+            {error, Reason};
+        {ok, _Data} ->
+            %% We don't really care about the eventual data
+            ok
+    end.
+
+check_chain_var(#{ledger := Ledger}=Data) ->
+    case blockchain:config(?max_payments, Ledger) of
+        {ok, M} when is_integer(M) ->
+            %% We insert the chain var in Data
+            {ok, maps:put(max_payments, M, Data)};
+        _ ->
+            {error, {invalid, max_payments_not_set}}
+    end.
+
+check_signature(#{encoded_txn := EncodedTxn, signature := Signature, pubkey := PubKey}=Data) ->
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
         true ->
-            LengthPayments = length(Payments),
-            case LengthPayments == 0 of
-                true ->
-                    %% Check that there are payments
-                    {error, zero_payees};
-                false ->
-                    case LengthPayments > MaxPayments of
-                        %% Check that we don't exceed max payments
-                        true ->
-                            {error, {exceeded_max_payments, LengthPayments, MaxPayments}};
-                        false ->
-                            case lists:member(Payer, ?MODULE:payees(Txn)) of
-                                false ->
-                                    %% check that every payee is unique
-                                    case has_unique_payees(Payments) of
-                                        false ->
-                                            {error, duplicate_payees};
-                                        true ->
-                                            TotAmount = ?MODULE:total_amount(Txn),
-                                            Fee = ?MODULE:fee(Txn),
-                                            case blockchain_ledger_v1:transaction_fee(Ledger) of
-                                                {error, _}=Error0 ->
-                                                    Error0;
-                                                {ok, MinerFee} ->
-                                                    case (TotAmount >= 0) andalso (Fee >= MinerFee) of
-                                                        false ->
-                                                            {error, invalid_transaction};
-                                                        true ->
-                                                            case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
-                                                                {error, _}=Error1 ->
-                                                                    Error1;
-                                                                ok ->
-                                                                    blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger)
-                                                            end
-                                                    end
-                                            end
-                                    end;
-                                true ->
-                                    {error, self_payment}
-                            end
-                    end
-            end
+            {ok, Data}
     end.
 
-%% ------------------------------------------------------------------
-%% Internal functions
-%% ------------------------------------------------------------------
+check_self_payment(#{payer := Payer, payees := Payees}=Data) ->
+    case lists:member(Payer, Payees) of
+        true ->
+            {error, self_payment};
+        false ->
+            {ok, Data}
+    end.
 
--spec has_unique_payees(Payments :: blockchain_payment_v2:payments()) -> boolean().
-has_unique_payees(Payments) ->
+check_empty_payments(#{len_payments := LenPayments}=Data) ->
+    case LenPayments == 0 of
+        true ->
+            %% Check that there are payments
+            {error, zero_payees};
+        false ->
+            {ok, Data}
+    end.
+
+check_max_payments(#{len_payments := LenPayments, max_payments := MaxPayments}=Data) ->
+    case LenPayments > MaxPayments of
+        %% Check that we don't exceed max payments
+        true ->
+            {error, {exceeded_max_payments, LenPayments, MaxPayments}};
+        false ->
+            {ok, Data}
+    end.
+
+check_unique_payees(#{payments := Payments}=Data) ->
     Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
-    length(lists:usort(Payees)) == length(Payees).
+    case length(lists:usort(Payees)) == length(Payees) of
+        false ->
+            {error, duplicate_payees};
+        true ->
+            {ok, Data}
+    end.
+
+check_txn_fee(#{ledger := Ledger}=Data) ->
+    case blockchain_ledger_v1:transaction_fee(Ledger) of
+        {error, _}=Error0 ->
+            Error0;
+        {ok, MinerFee} ->
+            %% We put the miner_fee in the data
+            {ok, maps:put(miner_fee, MinerFee, Data)}
+    end.
+
+check_amount(#{fee := Fee, miner_fee := MinerFee, tot_amt := TotAmount}=Data) ->
+    case (TotAmount >= 0) andalso (Fee >= MinerFee) of
+        false ->
+            {error, invalid_transaction};
+        true ->
+            {ok, Data}
+    end.
+
+check_dc_balance(#{payer := Payer, fee := Fee, ledger := Ledger}=Data) ->
+    case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            {ok, Data}
+    end.
+
+check_balance(#{payer := Payer, ledger := Ledger, tot_amt := TotAmount}=Data) ->
+    case blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            {ok, Data}
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

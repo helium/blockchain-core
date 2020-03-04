@@ -19,7 +19,8 @@
     score_gateways/1,
     free_space_path_loss/2,
     vars_binary_keys_to_atoms/1,
-    icdf_select/2
+    icdf_select/2,
+    railway/2
 ]).
 
 -ifdef(TEST).
@@ -212,6 +213,19 @@ vars_binary_keys_to_atoms(Vars) ->
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+
+-spec railway([{term(), fun()}], term()) -> {ok, term()} | {error, term(), term(), term()}.
+railway([], Data) ->
+    {ok, Data};
+railway([{Tag, Fun} | Rest], Data) ->
+    case Fun(Data) of
+        {ok, NewData} ->
+            railway(Rest, NewData);
+        {error, Reason} ->
+            {error, Tag, Reason, Data};
+        {error, Reason, NewData} ->
+            {error, Tag, Reason, NewData}
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
