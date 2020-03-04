@@ -214,6 +214,23 @@ icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% This allows one to do "railway" oriented programming, instead of having
+%% deeply nested case statements, one can, pass in a list of steps, each
+%% step is processed only if the previous step outputs an {ok, NewData}.
+%%
+%% The job of this function is to process a list of "steps", where each
+%% step is a tuple like so: {tag, fun fun_name/1} and some initial data.
+%%
+%% Each function in each step operates on the initial data, and if successful
+%% is supposed to return an ok tuple, along with newdata (if it was changed).
+%%
+%% Not that the arity of the step functions is always 1.
+%%
+%% Refer to the eunit below to get a better understanding.
+%% @end
+%%-------------------------------------------------------------------
 -spec railway([{term(), fun()}], term()) -> {ok, term()} | {error, term(), term(), term()}.
 railway([], Data) ->
     {ok, Data};
@@ -257,5 +274,29 @@ pmap_test() ->
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
     ?assertEqual(Input, Results).
+
+railway_success_test() ->
+    Fun1 = fun(Val) -> {ok, Val * 10} end,
+    Fun2 = fun(Val) -> {ok, Val * 20} end,
+    Fun3 = fun(Val) -> {ok, Val * 30} end,
+
+    %% The expected result is 10 * 20 * 30 = 6000
+    Res = ?MODULE:railway([{step1, Fun1}, {step2, Fun2}, {step3, Fun3}], 1),
+    ?assertEqual({ok, 6000}, Res).
+
+railway_fail_test() ->
+    %% We create three functions, responsbile for simple multiplcation
+    Fun1 = fun(Val) -> {ok, Val * 10} end,
+    Fun2 = fun(Val) -> {ok, Val * 20} end,
+    Fun3 = fun(_Val) -> {error, blew_up} end,
+    Fun4 = fun(Val) -> {ok, Val * 40} end,
+
+    %% Define the steps
+    Steps = [{step1, Fun1}, {step2, Fun2}, {step3, Fun3}, {step4, Fun4}],
+
+    %% Step 4 will not get executed, but since step1 and step2 went ok,
+    %% we will get 200 as the intermediate result.
+    Res = ?MODULE:railway(Steps, 1),
+    ?assertEqual({error, step3, blew_up, 200}, Res).
 
 -endif.
