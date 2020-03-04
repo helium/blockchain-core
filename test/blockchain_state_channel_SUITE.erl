@@ -36,9 +36,9 @@ init_per_testcase(basic_test, Config) ->
     [{base_dir, BaseDir} |Config];
 init_per_testcase(Test, Config) ->
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, Config),
-    Nodes = proplists:get_value(nodes, InitConfig),
+    Nodes = ?config(nodes, InitConfig),
     Balance = 5000,
-    NumConsensusMembers = proplists:get_value(num_consensus_members, InitConfig),
+    NumConsensusMembers = ?config(num_consensus_members, InitConfig),
 
     %% accumulate the address of each node
     Addrs = lists:foldl(fun(Node, Acc) ->
@@ -94,7 +94,7 @@ end_per_testcase(Test, Config) ->
 basic_test(Config) ->
     application:ensure_all_started(throttle),
     application:ensure_all_started(lager),
-    BaseDir = proplists:get_value(base_dir, Config),
+    BaseDir = ?config(base_dir, Config),
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
         {base_dir, BaseDir}
@@ -147,8 +147,8 @@ basic_test(Config) ->
     ok.
 
 zero_test(Config) ->
-    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
     % Step 1: Create OUI txn
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
@@ -232,8 +232,8 @@ zero_test(Config) ->
     ok.
 
 full_test(Config) ->
-    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
@@ -352,8 +352,8 @@ full_test(Config) ->
     ok.
 
 expired_test(Config) ->
-    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
@@ -466,8 +466,8 @@ expired_test(Config) ->
     ok.
 
 replay_test(Config) ->
-    [RouterNode, GatewayNode1|_] = proplists:get_value(nodes, Config, []),
-    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
@@ -609,7 +609,7 @@ replay_test(Config) ->
 %% ------------------------------------------------------------------
 
 check_genesis_block(Config, GenesisBlock) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     lists:foreach(fun(Node) ->
                           Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                           {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
@@ -621,7 +621,7 @@ check_genesis_block(Config, GenesisBlock) ->
                   end, Nodes).
 
 get_consensus_members(Config, ConsensusAddrs) ->
-    Nodes = proplists:get_value(nodes, Config),
+    Nodes = ?config(nodes, Config),
     lists:keysort(1, lists:foldl(fun(Node, Acc) ->
                                          Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
                                          case lists:member(Addr, ConsensusAddrs) of
