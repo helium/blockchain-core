@@ -285,7 +285,6 @@ railway_success_test() ->
     ?assertEqual({ok, 6000}, Res).
 
 railway_fail_test() ->
-    %% We create three functions, responsbile for simple multiplcation
     Fun1 = fun(Val) -> {ok, Val * 10} end,
     Fun2 = fun(Val) -> {ok, Val * 20} end,
     Fun3 = fun(_Val) -> {error, blew_up} end,
