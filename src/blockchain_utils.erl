@@ -236,6 +236,8 @@ railway([], Data) ->
     {ok, Data};
 railway([{Tag, Fun} | Rest], Data) ->
     case Fun(Data) of
+        ok ->
+            railway(Rest, Data);
         {ok, NewData} ->
             railway(Rest, NewData);
         {error, Reason} ->

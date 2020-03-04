@@ -206,47 +206,47 @@ check_chain_var(#{ledger := Ledger}=Data) ->
             {error, {invalid, max_payments_not_set}}
     end.
 
-check_signature(#{encoded_txn := EncodedTxn, signature := Signature, pubkey := PubKey}=Data) ->
+check_signature(#{encoded_txn := EncodedTxn, signature := Signature, pubkey := PubKey}) ->
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
             {error, bad_signature};
         true ->
-            {ok, Data}
+            ok
     end.
 
-check_self_payment(#{payer := Payer, payees := Payees}=Data) ->
+check_self_payment(#{payer := Payer, payees := Payees}) ->
     case lists:member(Payer, Payees) of
         true ->
             {error, self_payment};
         false ->
-            {ok, Data}
+            ok
     end.
 
-check_empty_payments(#{len_payments := LenPayments}=Data) ->
+check_empty_payments(#{len_payments := LenPayments}) ->
     case LenPayments == 0 of
         true ->
             %% Check that there are payments
             {error, zero_payees};
         false ->
-            {ok, Data}
+            ok
     end.
 
-check_max_payments(#{len_payments := LenPayments, max_payments := MaxPayments}=Data) ->
+check_max_payments(#{len_payments := LenPayments, max_payments := MaxPayments}) ->
     case LenPayments > MaxPayments of
         %% Check that we don't exceed max payments
         true ->
             {error, {exceeded_max_payments, LenPayments, MaxPayments}};
         false ->
-            {ok, Data}
+            ok
     end.
 
-check_unique_payees(#{payments := Payments}=Data) ->
+check_unique_payees(#{payments := Payments}) ->
     Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
     case length(lists:usort(Payees)) == length(Payees) of
         false ->
             {error, duplicate_payees};
         true ->
-            {ok, Data}
+            ok
     end.
 
 check_txn_fee(#{ledger := Ledger}=Data) ->
@@ -258,28 +258,28 @@ check_txn_fee(#{ledger := Ledger}=Data) ->
             {ok, maps:put(miner_fee, MinerFee, Data)}
     end.
 
-check_amount(#{fee := Fee, miner_fee := MinerFee, tot_amt := TotAmount}=Data) ->
+check_amount(#{fee := Fee, miner_fee := MinerFee, tot_amt := TotAmount}) ->
     case (TotAmount >= 0) andalso (Fee >= MinerFee) of
         false ->
             {error, invalid_transaction};
         true ->
-            {ok, Data}
+            ok
     end.
 
-check_dc_balance(#{payer := Payer, fee := Fee, ledger := Ledger}=Data) ->
+check_dc_balance(#{payer := Payer, fee := Fee, ledger := Ledger}) ->
     case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
-            {ok, Data}
+            ok
     end.
 
-check_balance(#{payer := Payer, ledger := Ledger, tot_amt := TotAmount}=Data) ->
+check_balance(#{payer := Payer, ledger := Ledger, tot_amt := TotAmount}) ->
     case blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
-            {ok, Data}
+            ok
     end.
 
 %% ------------------------------------------------------------------
