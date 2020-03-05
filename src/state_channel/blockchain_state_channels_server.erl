@@ -221,8 +221,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
         State0,
         Txns
     ),
-    ok = close_expired_state_channels(BlockHeight, Owner, OwnerSigFun, maps:values(State1#state.state_channels)),
-    {noreply, State1};
+    SCs1 = check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, State1#state.state_channels),
+    {noreply, State1#state{state_channels=SCs1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -242,21 +242,25 @@ terminate(_Reason, _state) ->
 %% Close expired state channels
 %% @end
 %%--------------------------------------------------------------------
--spec close_expired_state_channels(BlockHeight :: pos_integer(),
-                                   Owner :: libp2p_crypto:pubkey_bin(),
-                                   OwnerSigFun :: function(),
-                                   [blockchain_state_channel_v1:state_channel()]) -> ok.
-close_expired_state_channels(_BlockHeight, _, _, []) ->
-    ok;
-close_expired_state_channels(BlockHeight, Owner, OwnerSigFun, [SC|SCs]) ->
-    ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-    case ExpireAt =< BlockHeight of
-        false ->
-            close_expired_state_channels(BlockHeight, Owner, OwnerSigFun, SCs);
-        true ->
-            ok = close_state_channel(SC, Owner, OwnerSigFun),
-            close_expired_state_channels(BlockHeight, Owner, OwnerSigFun, SCs)
-    end.
+-spec check_state_channel_expiration(BlockHeight :: pos_integer(),
+                                     Owner :: libp2p_crypto:pubkey_bin(),
+                                     OwnerSigFun :: function(),
+                                     SCs :: state_channels()) -> state_channels().
+check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, SCs) ->
+    maps:map(
+        fun(_ID, SC) ->
+            ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+            case ExpireAt =< BlockHeight of
+                false ->
+                    SC;
+                true ->
+                    SC1 = blockchain_state_channel_v1:state(closed, SC),
+                    ok = close_state_channel(SC1, Owner, OwnerSigFun),
+                    SC1
+            end
+        end,
+        SCs
+    ).
 
 %%--------------------------------------------------------------------
 %% @doc
