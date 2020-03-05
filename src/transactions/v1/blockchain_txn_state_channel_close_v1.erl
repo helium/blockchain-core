@@ -81,19 +81,24 @@ is_valid(Txn, Chain) ->
         {true, {error, _}} ->
             {error, bad_state_channel_signature};
         {true, ok} ->
-            ID = blockchain_state_channel_v1:id(SC),
-            Owner = blockchain_state_channel_v1:owner(SC),
-            case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                {error, _Reason} ->
-                    {error, state_channel_not_open};
-                {ok, _} ->
-                    case Owner == Closer of
-                        true ->
-                            ok;
-                        false ->
-                            case blockchain_state_channel_v1:balance(Closer, SC) of
-                                {error, _} -> {error, closer_not_included};
-                                {ok, _} -> ok
+            case blockchain_state_channel_v1:state(SC) of
+                open ->
+                    {error, state_channel_state_open};
+                closed ->
+                    ID = blockchain_state_channel_v1:id(SC),
+                    Owner = blockchain_state_channel_v1:owner(SC),
+                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+                        {error, _Reason} ->
+                            {error, state_channel_not_open};
+                        {ok, _} ->
+                            case Owner == Closer of
+                                true ->
+                                    ok;
+                                false ->
+                                    case blockchain_state_channel_v1:balance(Closer, SC) of
+                                        {error, _} -> {error, closer_not_included};
+                                        {ok, _} -> ok
+                                    end
                             end
                     end
             end
