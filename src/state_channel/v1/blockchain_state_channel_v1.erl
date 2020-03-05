@@ -134,8 +134,10 @@ state(#blockchain_state_channel_v1_pb{state=State}) ->
     State.
 
 -spec state(state(), state_channel()) -> state_channel().
-state(State, SC) ->
-    SC#blockchain_state_channel_v1_pb{state=State}.
+state(closed, SC) ->
+    SC#blockchain_state_channel_v1_pb{state=closed};
+state(open, SC) ->
+    SC#blockchain_state_channel_v1_pb{state=open}.
 
 -spec expire_at_block(state_channel()) -> pos_integer().
 expire_at_block(#blockchain_state_channel_v1_pb{expire_at_block=ExpireAt}) ->
