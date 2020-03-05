@@ -1527,6 +1527,20 @@ maybe_continue_resync(Blockchain, Blocking) ->
 resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
     blockchain_lock:acquire(),
     case get_block(LedgerHeight, Blockchain) of
+        {error, _} when LedgerHeight == 0 ->
+            %% reload the genesis block
+            {ok, GenesisBlock} = blockchain:genesis_block(Blockchain),
+            ok = blockchain_txn:unvalidated_absorb_and_commit(GenesisBlock, Blockchain, fun() -> ok end, false),
+            {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
+            ok = blockchain_worker:notify({integrate_genesis_block, GenesisHash}),
+            case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
+                {error, Reason}=Error ->
+                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                    Error;
+                {ok, NewLedger} ->
+                    ok = blockchain_worker:notify({add_block, GenesisHash, true, NewLedger})
+            end,
+            resync_fun(ChainHeight, LedgerHeight + 1, Blockchain);
         {error, _} ->
             %% chain is missing the block the ledger is stuck at
             %% it is unclear what we should do here.
@@ -1558,14 +1572,20 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                         lists:foreach(fun(Hash) ->
                                               {ok, Block} = get_block(Hash, Blockchain),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
-                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
+                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
+                                              case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
+                                                  {error, Reason}=Error ->
+                                                      lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                                      Error;
+                                                  {ok, NewLedger} ->
+                                                      ok = blockchain_worker:notify({add_block, Hash, true, NewLedger})
+                                              end
                                       end, HashChain)
                     after
                         blockchain_lock:release()
                     end
             end
     end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

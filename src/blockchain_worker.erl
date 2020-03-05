@@ -306,16 +306,9 @@ init(Args) ->
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
                 R;
-            {ok, Chain0} ->
-                Chain =
-                    case blockchain:config(?num_consensus_members, blockchain:ledger(Chain0)) of
-                        {ok, _N} ->
-                            Chain0;
-                        {error, not_found} ->
-                            lager:warning("attempting to reset ledger and apply existing blocks"),
-                            C = blockchain:reset_ledger(Chain0),
-                            C
-                    end,
+            {ok, Chain} ->
+                %% blockchain:new will take care of any repairs needed, possibly asynchronously
+                %%
                 %% do ledger upgrade
                 ok = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
@@ -376,9 +369,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
                                 || T <- blockchain_block:transactions(GenesisBlock),
                                    blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
-            ok = notify({integrate_genesis_block, blockchain:genesis_hash(Blockchain)}),
-            ok = add_handlers(Swarm, Blockchain),
             {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
+            ok = notify({integrate_genesis_block, GenesisHash}),
+            ok = add_handlers(Swarm, Blockchain),
             ok = blockchain_txn_mgr:set_chain(Blockchain),
             true = libp2p_swarm:network_id(Swarm, GenesisHash),
             self() ! maybe_sync,

@@ -96,13 +96,16 @@ init(_Args) ->
 
     case application:get_env(blockchain, disable_score_cache, false) of
         false ->
-            case  blockchain_worker:blockchain() of
+            try blockchain_worker:blockchain() of
                 undefined ->
                     erlang:send_after(500, self(), chain_init),
                     {ok, #state{cache=Cache}};
                 Chain ->
                     ok = blockchain_event:add_handler(self()),
                     {ok, #state{chain=Chain, cache=Cache}}
+            catch _:_ ->
+                      erlang:send_after(500, self(), chain_init),
+                      {ok, #state{cache=Cache}}
             end;
         _ ->
             {ok, #state{cache=Cache}}
@@ -131,13 +134,16 @@ handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{chain = NC}};
 handle_info(chain_init, State) ->
-    case  blockchain_worker:blockchain() of
+    try blockchain_worker:blockchain() of
         undefined ->
             erlang:send_after(500, self(), chain_init),
             {noreply, State};
         Chain ->
             ok = blockchain_event:add_handler(self()),
             {noreply, State#state{chain=Chain}}
+    catch _:_ ->
+              erlang:send_after(500, self(), chain_init),
+              {noreply, State}
     end;
 handle_info(_Msg, State) ->
     {noreply, State}.
