@@ -553,8 +553,10 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% ------------------------------------------------------------------
 
 maybe_sync(#state{sync_paused = true} = State) ->
+    lager:info("Sync paused"),
     State;
 maybe_sync(#state{sync_pid = Pid} = State) when Pid /= undefined ->
+    lager:info("Sync running under ~p ~p", [Pid, is_process_alive(Pid)]),
     State;
 maybe_sync(#state{blockchain = Chain} = State) ->
     erlang:cancel_timer(State#state.sync_timer),
@@ -562,8 +564,10 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     %% clock mostly increments this will eventually be true on a stuck node
     case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
         X when X > 300 ->
+            lager:info("starting sync"),
             start_sync(State);
         _ ->
+            lager:info("waiting to sync"),
             %% no need to sync now, check again later
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
             State#state{sync_timer=Ref}
@@ -581,13 +585,14 @@ start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
                          end, Peers0),
     case Peers of
         [] ->
+            lager:info("no peers found in ~p", [Peers0]),
             %% try again later when there's peers
             Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
             State#state{sync_timer=Ref};
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
             {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
-            lager:info("unknown starting ~p ~p", [Pid, Ref]),
+            lager:info("sync with ~p starting ~p ~p", [RandomPeer, Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
 
