@@ -884,11 +884,11 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% @end
-%%--------------------------------------------------------------------
-%% NOTE: This should only be allowed when adding a gateway which was
+%% This should only be allowed when adding a gateway which was
 %% added in an old blockchain and is being added via a special
 %% genesis block transaction to a new chain.
+%% @end
+%%--------------------------------------------------------------------
 -spec add_gateway(OwnerAddress :: libp2p_crypto:pubkey_bin(),
                   GatewayAddress :: libp2p_crypto:pubkey_bin(),
                   Location :: undefined | pos_integer(),
@@ -908,29 +908,12 @@ add_gateway(OwnerAddr,
 
             NewGw0 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gateway),
 
-            NewGw =
-                case ?MODULE:config(?poc_version, Ledger) of
-                    {ok, V} when V > 6 ->
-                        {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-                        Hex = h3:parent(Location, Res),
-                        add_to_hex(Hex, GatewayAddress, Ledger),
+            Gateways = active_gateways(Ledger),
+            Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
+            NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
+            fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
 
-                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
-                    {ok, V} when V > 3 ->
-                        Gateways = active_gateways(Ledger),
-                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
-                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
-                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
-                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw1);
-                    _ ->
-                        Gateways = active_gateways(Ledger),
-                        Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
-                        NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
-                        fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
-                        NewGw1
-                end,
-
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
+            Bin = blockchain_ledger_gateway_v2:serialize(NewGw1),
             AGwsCF = active_gateways_cf(Ledger),
             ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
     end.
