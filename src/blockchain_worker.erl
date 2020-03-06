@@ -500,7 +500,8 @@ handle_info({blockchain_event, {add_block, Hash, Sync, _Ledger}}, #state{swarm=S
     end,
     {noreply, State};
 handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
-            #state{sync_ref = SyncRef, blockchain = Chain} = State) ->
+            #state{sync_ref = SyncRef, blockchain = Chain} = State0) ->
+    State = State0#state{sync_pid = undefined},
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
@@ -517,7 +518,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
                       false ->
                           erlang:send_after(?SYNC_TIME, self(), maybe_sync)
                   end,
-            {noreply, State#state{sync_pid = undefined, sync_timer = Ref}};
+            {noreply, State#state{sync_timer = Ref}};
         N when N < 60 * 60 ->
             %% relatively recent
             Ref = case State#state.sync_paused of
@@ -526,7 +527,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
                       false ->
                           erlang:send_after(?SYNC_TIME, self(), maybe_sync)
                   end,
-            {noreply, State#state{sync_pid = undefined, sync_timer = Ref}};
+            {noreply, State#state{sync_timer = Ref}};
         _ ->
             %% we're deep in the past here, so just start the next sync
             {noreply, start_sync(State)}
