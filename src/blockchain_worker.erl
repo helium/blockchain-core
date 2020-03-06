@@ -529,7 +529,7 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             {noreply, State#state{sync_pid = undefined, sync_timer = Ref}};
         _ ->
             %% we're deep in the past here, so just start the next sync
-            {noreply, start_sync(State)}
+            {noreply, start_sync(State#state{sync_pid = undefined})}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
