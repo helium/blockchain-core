@@ -914,14 +914,13 @@ add_gateway(OwnerAddr,
                         {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
                         Hex = h3:parent(Location, Res),
                         add_to_hex(Hex, GatewayAddress, Ledger),
-
-                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw0);
+                        NewGw0;
                     {ok, V} when V > 3 ->
                         Gateways = active_gateways(Ledger),
                         Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
                         NewGw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, NewGw0),
                         fixup_neighbors(GatewayAddress, Gateways, Neighbors, Ledger),
-                        blockchain_ledger_gateway_v2:last_poc_challenge(Height, NewGw1);
+                        NewGw1;
                     _ ->
                         Gateways = active_gateways(Ledger),
                         Neighbors = blockchain_poc_path:neighbors(NewGw0, Gateways, Ledger),
