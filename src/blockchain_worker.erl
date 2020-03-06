@@ -562,8 +562,9 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     erlang:cancel_timer(State#state.sync_timer),
     %% last block add time is relative to the system clock so as long as the local
     %% clock mostly increments this will eventually be true on a stuck node
+    {ok, Height} = blockchain:height(Chain),
     case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
-        X when X > 300 ->
+        X when X > 300 andalso Height > 1 ->
             lager:info("starting sync"),
             start_sync(State);
         _ ->
