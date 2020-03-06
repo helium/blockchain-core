@@ -26,12 +26,15 @@
     absorb_failed_test/1,
     epoch_reward_test/1,
     election_test/1,
+    election_v3_test/1,
     chain_vars_test/1,
     chain_vars_set_unset_test/1,
     token_burn_test/1,
     payer_test/1,
     poc_sync_interval_test/1
 ]).
+
+-import(blockchain_utils, [normalize_float/1]).
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -62,6 +65,7 @@ all() ->
         absorb_failed_test,
         epoch_reward_test,
         election_test,
+        election_v3_test,
         chain_vars_test,
         chain_vars_set_unset_test,
         token_burn_test,
@@ -78,7 +82,18 @@ init_per_testcase(TestCase, Config) ->
     Balance = 5000,
     {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
     %% two tests rely on the swarm not being in the consensus group, so exclude them here
-    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test])),
+    ExtraVars = case TestCase of
+                    election_v3_test ->
+                        #{election_version => 3,
+                          election_bba_penalty => 0.01,
+                          election_seen_penalty => 0.03};
+                    _ -> #{}
+                end,
+    {ok, GenesisMembers, ConsensusMembers, Keys} =
+        test_utils:init_chain(Balance,
+                              {PrivKey, PubKey},
+                              not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
+                              ExtraVars),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),
@@ -1252,6 +1267,145 @@ election_test(Config) ->
     ?assertEqual(1, length(New -- OldGroup)),
 
     ok.
+
+election_v3_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    GenesisMembers = ?config(genesis_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    %% Chain = ?config(chain, Config),
+    Chain = blockchain_worker:blockchain(),
+    Swarm = ?config(swarm, Config),
+    N = 7,
+
+    %% make sure our generated alpha & beta values are the same each time
+    rand:seed(exs1024s, {1, 2, 234098723564079}),
+    Ledger = blockchain:ledger(Chain),
+
+    %% add random alpha and beta to gateways
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    %% give good, equal scores to everyone
+    [begin
+         {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger1),
+         Alpha = 20.0,
+         Beta = 1.0,
+         I2 = blockchain_ledger_gateway_v2:set_alpha_beta_delta(Alpha, Beta, 1, I),
+         blockchain_ledger_v1:update_gateway(I2, Addr, Ledger1)
+     end
+     || {Addr, _} <- GenesisMembers],
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% we need to add some blocks here.   they have to have seen
+    %% values and bbas.
+    %% index 5 will be entirely absent
+    %% index 6 will be talking (seen) but missing from bbas (maybe
+    %% byzantine, maybe just missing/slow on too many packets to
+    %% finish anything)
+    %% index 7 will be bba-present, but only partially seen, and
+    %% should not be penalized
+
+    %% it's possible to test unseen but bba-present here, but that seems impossible?
+
+    SeenA = maps:from_list([{I, case I of 5 -> false; 7 -> true; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    SeenB = maps:from_list([{I, case I of 5 -> false; 7 -> false; _ -> true end}
+                            || I <- lists:seq(1, N)]),
+    Seen0 = lists:duplicate(4, SeenA) ++ lists:duplicate(2, SeenB),
+
+    BBA0 = maps:from_list([{I, case I of 5 -> false; 6 -> false; _ -> true end}
+                          || I <- lists:seq(1, N)]),
+
+    {_, Seen} =
+        lists:foldl(fun(S, {I, Acc})->
+                            V = blockchain_utils:map_to_bitvector(S),
+                            {I + 1, [{I, V} | Acc]}
+                    end,
+                    {1, []},
+                    Seen0),
+    BBA = blockchain_utils:map_to_bitvector(BBA0),
+
+    %% maybe these should vary more?
+
+    BlockCt = 50,
+
+    lists:foreach(
+      fun(_) ->
+              Block = test_utils:create_block(ConsensusMembers, [], #{seen_votes => Seen,
+                                                                      bba_completion => BBA}),
+              _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self())
+      end,
+      lists:seq(1, BlockCt)
+    ),
+
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    ct:pal("old ~p", [OldGroup]),
+
+    %% generate new group of the same length
+    New = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 0),
+    New1 = blockchain_election:new_group(Ledger, crypto:hash(sha256, "foo"), N, 1000),
+
+    ct:pal("new ~p new1 ~p", [New, New1]),
+
+    ?assertEqual(N, length(New)),
+    ?assertEqual(N, length(New1)),
+
+    ?assertNotEqual(OldGroup, New),
+    ?assertNotEqual(OldGroup, New1),
+    ?assertNotEqual(New, New1),
+
+    %% confirm that they're sorted by score
+    Scored =
+        [begin
+             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {Score, Addr}
+         end
+         || Addr <- New],
+
+    ScoredOldGroup =
+        [begin
+             {ok, I} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+             %% this is at the wrong res but it shouldn't matter?
+             Loc = blockchain_ledger_gateway_v2:location(I),
+             {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, I, 1, Ledger),
+             {Score, Loc, Addr}
+         end
+         || Addr <- OldGroup],
+
+
+    ct:pal("scored ~p", [Scored]),
+
+    %% no dupes
+    ?assertEqual(lists:usort(Scored), lists:sort(Scored)),
+
+    ?assertEqual(1, length(New -- OldGroup)),
+
+    Adjusted = blockchain_election:adjust_old_group(ScoredOldGroup, Ledger),
+
+    ct:pal("adjusted ~p", [Adjusted]),
+
+    {ControlScore, _, _} = lists:nth(1, Adjusted),
+    {FiveScore, _, _} = lists:nth(5, Adjusted),
+    {SixScore, _, _} = lists:nth(6, Adjusted),
+    {SevenScore, _, _} = lists:nth(7, Adjusted),
+
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+
+    %% five should have taken both hits
+    FiveTarget = normalize_float(ControlScore - normalize_float((BlockCt * BBAPenalty + BlockCt * SeenPenalty))),
+    ?assertEqual(FiveTarget, FiveScore),
+
+    %% six should have taken only the BBA hit
+    SixTarget = normalize_float(ControlScore - (BlockCt * BBAPenalty)),
+    ?assertEqual(SixTarget, SixScore),
+
+    %% seven should not have been penalized
+    ?assertEqual(ControlScore, SevenScore),
+    ok.
+
 
 chain_vars_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),

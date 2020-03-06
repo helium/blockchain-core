@@ -37,6 +37,14 @@
 %% number of blocks before a running dkg is canceled and a new one is initiated
 -define(election_restart_interval, election_restart_interval).
 
+%% per-block penalty for consensus nodes that don't finish a
+%% particular bba for a round.
+-define(election_bba_penalty, election_bba_penalty).
+
+%% per-block penalty for consensus nodes aren't seen by their peers in
+%% a round
+-define(election_seen_penalty, election_seen_penalty).
+
 %%%
 %%% ledger vars
 %%%

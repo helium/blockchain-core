@@ -20,7 +20,9 @@
     free_space_path_loss/2,
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
-    find_txn/2
+    find_txn/2,
+    map_to_bitvector/1,
+    bitvector_to_map/2
 ]).
 
 -ifdef(TEST).
@@ -232,6 +234,42 @@ icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
 icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
     icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
 
+
+
+-spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
+map_to_bitvector(Map) ->
+    Sz = maps:size(Map),
+    Int = lists:foldl(
+            fun({ID, true}, Acc) ->
+                    Acc bor (1 bsl (ID - 1));
+               (_, Acc) ->
+                    Acc
+            end,
+            0,
+            maps:to_list(Map)),
+    BitSz = nearest_byte(Sz),
+    <<Int:BitSz/little-unsigned-integer>>.
+
+-spec bitvector_to_map(pos_integer(), binary()) -> #{pos_integer() => boolean()}.
+bitvector_to_map(Count, Vector) ->
+    Sz = 8 * size(Vector),
+    <<Int:Sz/little-unsigned-integer>> = Vector,
+    L = [begin
+             B = case Int band (1 bsl (ID - 1)) of
+                     0 ->
+                         false;
+                     _ ->
+                         true
+                 end,
+             {ID, B}
+         end
+          || ID <- lists:seq(1, Count)],
+    maps:from_list(L).
+
+nearest_byte(X) ->
+    (X div 8 + case X rem 8 of 0 -> 0; _ -> 1 end) * 8.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -250,5 +288,22 @@ pmap_test() ->
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
     ?assertEqual(Input, Results).
+
+bitvector_roundtrip_test() ->
+    L1 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 16)],
+    L2 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 19)],
+    L3 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 64)],
+    L4 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 122)],
+
+    M1 = maps:from_list(L1),
+    M2 = maps:from_list(L2),
+    M3 = maps:from_list(L3),
+    M4 = maps:from_list(L4),
+
+    ?assertEqual(M1, bitvector_to_map(16, map_to_bitvector(M1))),
+    ?assertEqual(M2, bitvector_to_map(19, map_to_bitvector(M2))),
+    ?assertEqual(M3, bitvector_to_map(64, map_to_bitvector(M3))),
+    ?assertEqual(M4, bitvector_to_map(122, map_to_bitvector(M4))),
+    ok.
 
 -endif.
