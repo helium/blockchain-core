@@ -231,8 +231,9 @@ retry(Txn, Chain, SubmitF) ->
 resubmit(Chain, CurBlockHeight, SubmitF)->
     %% get a sorted list of the cached txns
     CachedTxns = sorted_cached_txns(),
+    {Txns, _} = lists:unzip(CachedTxns),
     %% validate the cached txns
-    {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(CachedTxns, Chain),
+    {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
         fun({Txn, {Callback, RecvBlockHeight, _Acceptions, _Rejections, Dialers}}) ->
             %% stop all existing dialers for the txn
