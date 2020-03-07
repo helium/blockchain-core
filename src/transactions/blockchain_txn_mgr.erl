@@ -199,7 +199,7 @@ invoke_callback(Callback, Msg) ->
 signatory_rand_members(Chain, SubmitF, Acceptions, Rejections) ->
     {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock),
-        not Signer =:= blockchain_swarm:pubkey_bin()],
+        not (Signer =:= blockchain_swarm:pubkey_bin())],
     case Signatories of
         [] ->
             %% rescue block! no signatures we can use
