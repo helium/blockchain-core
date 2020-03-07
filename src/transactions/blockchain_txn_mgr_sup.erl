@@ -44,5 +44,5 @@ stop_dialer(Pid) ->
     supervisor:terminate_child(?MODULE, Pid).
 
 stop_dialers(Pids) ->
-    [supervisor:terminate_child(?MODULE, Pid) || Pid <- Pids],
+    [catch supervisor:terminate_child(?MODULE, Pid) || Pid <- Pids],
     ok.
