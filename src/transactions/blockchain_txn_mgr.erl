@@ -138,7 +138,7 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, NewState};
 
 handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#state{chain = Chain0, submit_f = SubmitF}) ->
-    case Chain0 of
+    Chain = case Chain0 of
         undefined ->
             blockchain_worker:blockchain();
         _ ->
