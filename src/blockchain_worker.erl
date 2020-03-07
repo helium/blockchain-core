@@ -370,6 +370,7 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
                                    blockchain_txn:type(T) == blockchain_txn_consensus_group_v1],
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
+            ok = notify({new_chain, Blockchain}),
             ok = notify({integrate_genesis_block, GenesisHash}),
             ok = add_handlers(Swarm, Blockchain),
             ok = blockchain_txn_mgr:set_chain(Blockchain),
