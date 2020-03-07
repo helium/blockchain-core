@@ -137,13 +137,15 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     NewState = initialize_with_chain(State, NC),
     {noreply, NewState};
 
-handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State=#state{chain = Chain0, submit_f = SubmitF}) ->
-    Chain = case Chain0 of
+handle_info({blockchain_event, {add_block, BlockHash, _Sync, _Ledger}}, State0=#state{chain = Chain0}) ->
+    State = case Chain0 of
         undefined ->
-            blockchain_worker:blockchain();
+            NC = blockchain_worker:blockchain(),
+            initialize_with_chain(State0, NC);
         _ ->
-            Chain0
+            State0
     end,
+    #state{submit_f = SubmitF, chain = Chain} = State,
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
             BlockHeight = blockchain_block:height(Block),
