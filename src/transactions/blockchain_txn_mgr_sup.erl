@@ -12,7 +12,8 @@
 %% ------------------------------------------------------------------
 -export([start_link/1,
          start_dialer/1,
-         stop_dialer/1]).
+         stop_dialer/1,
+         stop_dialers/1]).
 
 -export([init/1]).
 
@@ -41,3 +42,7 @@ start_dialer([Parent, Txn, ConsensusMember]) ->
 
 stop_dialer(Pid) ->
     supervisor:terminate_child(?MODULE, Pid).
+
+stop_dialers(Pids) ->
+    [catch supervisor:terminate_child(?MODULE, Pid) || Pid <- Pids],
+    ok.
