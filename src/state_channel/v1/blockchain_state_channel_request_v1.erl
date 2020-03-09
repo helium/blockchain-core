@@ -25,7 +25,7 @@
 -export_type([request/0]).
 
 -spec new(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> request().
-new(Payee, Amount, PayloadSize) -> 
+new(Payee, Amount, PayloadSize) ->
     #blockchain_state_channel_request_v1_pb{
         payee=Payee,
         amount=Amount,
