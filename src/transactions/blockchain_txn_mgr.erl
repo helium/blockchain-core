@@ -214,12 +214,12 @@ signatory_rand_members(Chain, SubmitF, Acceptions, Rejections) ->
             %% so use a random consensus member
             Ledger = blockchain:ledger(Chain),
             {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
-            Members = Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions -- Rejections,
+            Members = (Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions) -- Rejections,
             RandomMembers = blockchain_utils:shuffle(Members),
             {ok, lists:sublist(RandomMembers, SubmitF)};
         _ ->
             %% we have signatories
-            RandomSignatories = blockchain_utils:shuffle(Signatories) -- Acceptions -- Rejections,
+            RandomSignatories = (blockchain_utils:shuffle(Signatories) -- Acceptions) -- Rejections,
             {ok, lists:sublist(RandomSignatories, SubmitF)}
     end.
 
@@ -315,12 +315,12 @@ reject_actions(_Chain,
 %% the txn has been rejected but has not yet exceeded the max number of rejections,
 %% so resend to another CG member
 reject_actions(Chain,
-                {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}},
+                {Txn, {Callback, RecvBlockHeight, Acceptions, _Rejections, Dialers}},
                 NewRejections,
                 RejectF,
                 _CurBlockHeight)
     when length(NewRejections) < RejectF ->
-    NewDialer = submit_txn_to_cg(Chain, Txn, 1, Acceptions, Rejections),
+    NewDialer = submit_txn_to_cg(Chain, Txn, 1, Acceptions, NewRejections),
     cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, NewRejections, [NewDialer | Dialers]);
 %% the txn has been rejected but has exceeded the max number of rejections for this block epoch
 %% only need to update the cache
