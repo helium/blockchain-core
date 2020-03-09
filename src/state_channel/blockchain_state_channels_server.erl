@@ -206,9 +206,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
                         Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
                         Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
                         ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-                        SC0 = blockchain_state_channel_v1:new(ID, Owner, Amount, BlockHeight + ExpireWithin),
-                        SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
-                        State#state{state_channels=maps:put(ID, SC1, SCs0)};
+                        SC = blockchain_state_channel_v1:new(ID, Owner, Amount, BlockHeight + ExpireWithin),
+                        State#state{state_channels=maps:put(ID, SC, SCs0)};
                     blockchain_txn_state_channel_close_v1 ->
                         SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
                         ID = blockchain_state_channel_v1:id(SC),
@@ -254,7 +253,8 @@ check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, SCs) ->
                 false ->
                     SC;
                 true ->
-                    SC1 = blockchain_state_channel_v1:state(closed, SC),
+                    SC0 = blockchain_state_channel_v1:state(closed, SC),
+                    SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
                     ok = close_state_channel(SC1, Owner, OwnerSigFun),
                     SC1
             end
