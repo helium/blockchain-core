@@ -193,12 +193,15 @@ handle_info({blockchain_event, {add_block, BlockHash, Sync, _Ledger}}, State0=#s
 
             %% check if a new election occurred in this block
             %% If so we will only keep existing acceptions/rejections for rolled over members
-            {IsNewElection, NewCGMembers} =
-                case lists:keyfind(blockchain_txn_consensus_group_v1_pb, 1, MinedTxns) of
-                    false -> {false, []};
-                    NewGroupTxn ->
-                        {true, blockchain_txn_consensus_group_v1:members(NewGroupTxn)}
-                end,
+            HasElectionFun = fun(T) -> blockchain_txn:type(T) == blockchain_txn_consensus_group_v1 end,
+            {IsNewElection, NewCGMembers} = case blockchain_utils:find_txn(Block, HasElectionFun) of
+                                                [] ->
+                                                    {false, []};
+                                                %% There can only be one election in a block
+                                                [NewGroupTxn] ->
+                                                    {true, blockchain_txn_consensus_group_v1:members(NewGroupTxn)}
+                                            end,
+
             %% maybe resubmit the txns remaining in cache
             ok = resubmit(Chain, BlockHeight, SubmitF, Sync, IsNewElection, NewCGMembers),
             %% only update the current block height if its not a sync block

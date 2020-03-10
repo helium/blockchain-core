@@ -19,7 +19,8 @@
     score_gateways/1,
     free_space_path_loss/2,
     vars_binary_keys_to_atoms/1,
-    icdf_select/2
+    icdf_select/2,
+    find_txn/2
 ]).
 
 -ifdef(TEST).
@@ -212,6 +213,12 @@ vars_binary_keys_to_atoms(Vars) ->
 icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
+
+-spec find_txn(Block :: blockchain_block:block(),
+               PredFun :: fun()) -> [blockchain_txn:txn()].
+find_txn(Block, PredFun) ->
+    Txns = blockchain_block:transactions(Block),
+    lists:filter(fun(T) -> PredFun(T) end, Txns).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
