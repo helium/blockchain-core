@@ -105,7 +105,7 @@ balances(#blockchain_state_channel_v1_pb{balances=Balances}) ->
 
 -spec balances(balances(), state_channel()) -> state_channel().
 balances(Balances, SC) ->
-    SC#blockchain_state_channel_v1_pb{balances=Balances}.
+    SC#blockchain_state_channel_v1_pb{balances=lists:sort(Balances)}.
 
 -spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
