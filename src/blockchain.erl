@@ -521,10 +521,10 @@ add_blocks(Blocks, Chain) ->
 
 add_blocks_([], _Chain) ->  ok;
 add_blocks_([LastBlock | []], Chain) ->
-    ?MODULE:add_block(LastBlock, Chain, false);
+    ?MODULE:add_block(LastBlock, Chain, true);
 add_blocks_([Block | Blocks], Chain) ->
     case ?MODULE:add_block(Block, Chain, true) of
-        ok -> add_blocks(Blocks, Chain);
+        ok -> add_blocks_(Blocks, Chain);
         Error ->
             Error
     end.
