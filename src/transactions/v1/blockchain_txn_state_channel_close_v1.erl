@@ -62,7 +62,7 @@ signature(Txn) ->
 
 -spec sign(txn_state_channel_close(), libp2p_crypto:sig_fun()) -> txn_state_channel_close().
 sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(Txn),
+    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>}),
     Txn#blockchain_txn_state_channel_close_v1_pb{signature=SigFun(EncodedTxn)}.
 
 -spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.
