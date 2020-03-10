@@ -324,7 +324,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     ok = invoke_callback(Callback, {error, invalid}),
                     delete_cached_txn(Txn);
                 {_, true} ->
-                    case IsNewElection orelse length(Dialers) < SubmitF of
+                    case IsNewElection orelse length(Dialers) < (SubmitF - length(Acceptions)) of
                         true ->
                             %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
                             %% keep any existing acceptions/rejections from the previous round
