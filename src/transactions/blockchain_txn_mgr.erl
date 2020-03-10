@@ -317,15 +317,20 @@ resubmit(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGroupMembers)-
                     ok = invoke_callback(Callback, {error, invalid}),
                     delete_cached_txn(Txn);
                 {_, true} ->
-                    %% the txn is valid, so keep in cache and resubmit
-                    %% stop all existing dialers for the txn
-                    %% and then resubmit to a max of SubmitF minus acceptions and the rejections
-                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
-                    RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
-                    lager:info("Resubmitting txn: ~p", [blockchain_txn:hash(Txn)]),
-                    {NewAcceptions, NewRejections} = maybe_purge_rotated_members(IsNewElection, Acceptions, Rejections, NewGroupMembers),
-                    NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections),
-                    cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers)
+                    case IsNewElection of
+                        true ->
+                            %% the txn is valid, so keep in cache and resubmit
+                            %% stop all existing dialers for the txn
+                            %% and then resubmit to a max of SubmitF minus acceptions and the rejections
+                            ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+                            RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
+                            lager:info("Resubmitting txn: ~p", [blockchain_txn:hash(Txn)]),
+                            {NewAcceptions, NewRejections} = maybe_purge_rotated_members(IsNewElection, Acceptions, Rejections, NewGroupMembers),
+                            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections),
+                            cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers);
+                        false ->
+                            ok
+                    end
             end
         end, CachedTxns).
 
