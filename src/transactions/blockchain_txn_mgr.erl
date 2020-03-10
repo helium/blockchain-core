@@ -443,5 +443,5 @@ submit_f(NumMembers)->
     %% F/2+1
     trunc(((NumMembers - 1) div 3 ) / 2) + 1.
 reject_f(NumMembers)->
-    %% F+1
-    trunc((NumMembers) div 3) + 1.
+    %% 2F+1
+    (trunc((NumMembers) div 3) * 2) + 1.
