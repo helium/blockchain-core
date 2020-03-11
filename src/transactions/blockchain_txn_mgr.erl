@@ -324,7 +324,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                             RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
                             lager:info("Resubmitting txn: ~p", [blockchain_txn:hash(Txn)]),
-                            {NewAcceptions, NewRejections} = purge_old_cg_members(IsNewElection, Acceptions, Rejections, NewGroupMembers),
+                            {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
                             NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections),
                             cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers);
                         false ->
@@ -333,14 +333,12 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
             end
         end, CachedTxns).
 
--spec purge_old_cg_members(boolean(),[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()],
+-spec purge_old_cg_members([libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()],
                                   [libp2p_crypto:pubkey_bin()]) -> {[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}.
-purge_old_cg_members(true = _IsNewElection, Acceptions0, Rejections0, NewGroupMembers) ->
+purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers) ->
     Acceptions = [ M || M <- NewGroupMembers, lists:member(M,Acceptions0) == true ],
     Rejections = [ M || M <- NewGroupMembers, lists:member(M,Rejections0) == true ],
-    {Acceptions, Rejections};
-purge_old_cg_members(_IsNewElection, Acceptions0, Rejections0, _NewGroupMembers)->
-    {Acceptions0, Rejections0}.
+    {Acceptions, Rejections}.
 
 -spec accepted(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid()) -> ok.
 accepted(Txn, Member, Dialer) ->
@@ -365,7 +363,7 @@ rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF) ->
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
             %% add the member to the rejections list, so we avoid resubmitting to one which already rejected
-            UpdatedTxnPayload = {Callback, RecvBlockHeight, Acceptions, lists:usort([Member|Rejections]), Dialers -- Dialer},
+            UpdatedTxnPayload = {Txn, {Callback, RecvBlockHeight, Acceptions, lists:usort([Member|Rejections]), Dialers -- Dialer}},
             reject_actions(Chain, UpdatedTxnPayload, RejectF, CurBlockHeight)
     end.
 
