@@ -161,7 +161,7 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, NewState};
 
 handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger}}, State=#state{chain = undefined}) ->
-    %% ignore any add block events until after we receive the `new_chain` event and our chain is initialized
+    %% ignore any add block events until after we receive the `set_chain` cast or the `new_chain` event and our chain is initialized
     lager:debug("received add block event whilst no chain, ignoring block with hash ~p",[_BlockHash]),
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, Sync, _Ledger}}, State=#state{chain = Chain,
