@@ -112,8 +112,8 @@ balance(Payee, SC) ->
 
 -spec balance(libp2p_crypto:pubkey_bin(), non_neg_integer(), state_channel()) -> state_channel().
 balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances}=SC) ->
-    B = blockchain_state_channel_balance_v1:new(Payee, Balance),
-    ?MODULE:balances(blockchain_state_channel_balance_v1:update(B, Balances) , SC).
+    NewBalances = blockchain_state_channel_balance_v1:update(Payee, Balance, Balances),
+    ?MODULE:balances(NewBalances, SC).
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
