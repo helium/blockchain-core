@@ -9,7 +9,7 @@
     new/2,
     payee/1,
     balance/1,
-    update/2
+    update/3
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -18,8 +18,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
-
 -type balance() :: #blockchain_state_channel_balance_v1_pb{}.
+-type balances() :: [balance()].
 
 -export_type([balance/0]).
 
@@ -38,11 +38,12 @@ payee(#blockchain_state_channel_balance_v1_pb{payee=Payee}) ->
 balance(#blockchain_state_channel_balance_v1_pb{balance=Balance}) ->
     Balance.
 
--spec update(balance(), [balance()]) -> [balance(),...].
-update(NewBalance, Balances) ->
-    lists:keystore(NewBalance#blockchain_state_channel_balance_v1_pb.payee,
-                   #blockchain_state_channel_balance_v1_pb.payee,
-                   Balances, NewBalance).
+-spec update(Payee :: libp2p_crypto:pubkey_bin(),
+             Balance :: non_neg_integer(),
+             Balances :: balances()) -> balances().
+update(Payee, Balance, Balances) ->
+    NewBalance = ?MODULE:new(Payee, Balance),
+    lists:keystore(Payee, 2, Balances, NewBalance).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -61,21 +62,26 @@ new_test() ->
     ?assertEqual(Balance, new(<<"1">>, 1)).
 
 payee_test() ->
-    SC = new(<<"1">>, 1),
-    ?assertEqual(<<"1">>, payee(SC)).
+    Balance = new(<<"1">>, 1),
+    ?assertEqual(<<"1">>, payee(Balance)).
 
 balance_test() ->
-    SC = new(<<"1">>, 1),
-    ?assertEqual(1, balance(SC)).
+    Balance = new(<<"1">>, 1),
+    ?assertEqual(1, balance(Balance)).
 
 update_test() ->
-    SC1 = new(<<"1">>, 1),
-    SC2 = new(<<"2">>, 1),
-    SC3 = new(<<"1">>, 1),
-    SC4 = new(<<"3">>, 1),
-    ?assertEqual([SC3, SC2], update(SC3, [SC1, SC2])),
-    ?assertEqual([SC1, SC2, SC4], update(SC4, [SC1, SC2])),
-    ?assertEqual([SC3, SC2, SC4], update(SC3, update(SC4, [SC1, SC2]))),
+    %% Initial balances
+    B1 = new(<<"1">>, 1),
+    B2 = new(<<"2">>, 1),
+
+    %% New balance for "1"
+    B3 = new(<<"1">>, 2),
+
+    OldBalances = [B1, B2],
+    NewBalances = update(<<"1">>, 2, OldBalances),
+    Expected = [B3, B2],
+    ?assertEqual(Expected, NewBalances),
+    ?assertEqual(2, length(NewBalances)),
     ok.
 
 -endif.
