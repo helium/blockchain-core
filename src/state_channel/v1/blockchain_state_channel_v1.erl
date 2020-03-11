@@ -31,7 +31,7 @@
 -define(ZERO_SC_ID, <<0>>).
 
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
--type balances() :: [{libp2p_crypto:pubkey_bin(), non_neg_integer()}].
+-type balances() :: [blockchain_state_channel_balance_v1:balance()].
 -type id() :: binary().
 -type state() :: open | closed.
 
@@ -96,12 +96,7 @@ nonce(Nonce, SC) ->
 
 -spec balances(state_channel()) -> balances().
 balances(#blockchain_state_channel_v1_pb{balances=Balances}) ->
-    lists:map(
-        fun({PayeeB58, Balance}) ->
-            {libp2p_crypto:b58_to_bin(PayeeB58), Balance}
-        end,
-        Balances
-    ).
+    Balances.
 
 -spec balances(balances(), state_channel()) -> state_channel().
 balances(Balances, SC) ->
@@ -110,16 +105,15 @@ balances(Balances, SC) ->
 -spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
     Balances = ?MODULE:balances(SC),
-    case lists:keyfind(Payee, 1, Balances) of
-        {Payee, Balance} -> {ok, Balance};
+    case lists:keyfind(Payee, 2, Balances) of
+        {_, Payee, Balance} -> {ok, Balance};
         false -> {error, not_found}
     end.
 
 -spec balance(libp2p_crypto:pubkey_bin(), non_neg_integer(), state_channel()) -> state_channel().
-balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances0}=SC) ->
-    PayeeB58 = libp2p_crypto:bin_to_b58(Payee),
-    Balances1 = lists:keystore(PayeeB58, 1, Balances0, {PayeeB58, Balance}),
-    ?MODULE:balances(Balances1, SC).
+balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances}=SC) ->
+    B = blockchain_state_channel_balance_v1:new(Payee, Balance),
+    ?MODULE:balances(blockchain_state_channel_balance_v1:update(B, Balances) , SC).
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
@@ -288,7 +282,8 @@ balances_test() ->
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual([], balances(SC)),
-    ?assertEqual([{PubKeyBin, 2}], balances(balances([{libp2p_crypto:bin_to_b58(PubKeyBin), 2}], SC))).
+    Balance = blockchain_state_channel_balance_v1:new(PubKeyBin, 1),
+    ?assertEqual([Balance], balances(balances([Balance], SC))).
 
 balance_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -315,8 +310,16 @@ expire_at_block_test() ->
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>),
     ?assertEqual(SC0, decode(encode(SC0))),
-    SC1 = balances([{"ReqID", 12}], SC0),
-    ?assertEqual(SC1, decode(encode(SC1))).
+    #{public := PubKey0} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    Balance0 = blockchain_state_channel_balance_v1:new(PubKeyBin0, 1),
+    Balance1 = blockchain_state_channel_balance_v1:new(PubKeyBin1, 1),
+    SC1 = balances([Balance1, Balance0], SC0),
+    SC2 = balances([Balance0, Balance1], SC0),
+    ?assertEqual(SC1, decode(encode(SC1))),
+    ?assertEqual(SC2, decode(encode(SC2))).
 
 save_get_test() ->
     BaseDir = test_utils:tmp_dir("save_get_test"),

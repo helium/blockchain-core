@@ -447,7 +447,8 @@ load_state(DB) ->
                     ID = blockchain_state_channel_v1:id(SC),
                     Balances = blockchain_state_channel_v1:balances(SC),
                     Payees = lists:foldl(
-                        fun({Payee, _}, Acc1) ->
+                        fun(Balance, Acc1) ->
+                            Payee = blockchain_state_channel_balance_v1:payee(Balance),
                             case lists:member(Payee, Acc1) of
                                 true -> Acc1;
                                 false -> [Payee|Acc1]
