@@ -31,7 +31,6 @@
 -define(ZERO_SC_ID, <<0>>).
 
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
--type balances() :: [blockchain_state_channel_balance_v1:balance()].
 -type id() :: binary().
 -type state() :: open | closed.
 
@@ -94,23 +93,24 @@ nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
 
--spec balances(state_channel()) -> balances().
+-spec balances(state_channel()) -> blockchain_state_channel_balance_v1:balances().
 balances(#blockchain_state_channel_v1_pb{balances=Balances}) ->
     Balances.
 
--spec balances(balances(), state_channel()) -> state_channel().
+-spec balances(Balances :: blockchain_state_channel_balance_v1:balances(),
+               SC :: state_channel()) -> state_channel().
 balances(Balances, SC) ->
     SC#blockchain_state_channel_v1_pb{balances=lists:sort(Balances)}.
 
--spec balance(libp2p_crypto:pubkey_bin(), state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
+-spec balance(Payee :: libp2p_crypto:pubkey_bin(),
+              SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 balance(Payee, SC) ->
     Balances = ?MODULE:balances(SC),
-    case lists:keyfind(Payee, 2, Balances) of
-        {_, Payee, Balance} -> {ok, Balance};
-        false -> {error, not_found}
-    end.
+    blockchain_state_channel_balance_v1:get_balance(Payee, Balances).
 
--spec balance(libp2p_crypto:pubkey_bin(), non_neg_integer(), state_channel()) -> state_channel().
+-spec balance(Payee :: libp2p_crypto:pubkey_bin(),
+              Balance :: non_neg_integer(),
+              SC :: state_channel()) -> state_channel().
 balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances}=SC) ->
     NewBalances = blockchain_state_channel_balance_v1:update(Payee, Balance, Balances),
     ?MODULE:balances(NewBalances, SC).
