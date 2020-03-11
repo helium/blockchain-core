@@ -160,13 +160,50 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     NewState = initialize_with_chain(State, NC),
     {noreply, NewState};
 
-handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger}}, State=#state{chain = undefined}) ->
-    %% ignore any add block events until after we receive the `set_chain` cast or the `new_chain` event and our chain is initialized
-    lager:debug("received add block event whilst no chain, ignoring block with hash ~p",[_BlockHash]),
-    {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, Sync, _Ledger}}, State=#state{chain = Chain,
-                                                                                    cur_block_height = CurBlockHeight}) ->
+handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event}, State0=#state{chain = undefined}) ->
+    lager:debug("received add block event whilst no chain and sync ~p.  Initializing chain and then handling block",[_Sync]),
+    NC = blockchain_worker:blockchain(),
+    State = initialize_with_chain(State0, NC),
+    handle_add_block_event(Event, State#state{chain = NC});
+
+handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
+     handle_add_block_event(Event, State);
+
+handle_info(_Msg, State) ->
+    lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    lager:debug("terminating with reason ~p", [_Reason]),
+    %% stop dialers of cached txns
+    catch [blockchain_txn_mgr_sup:stop_dialers(Dialers) || {_Txn, {_, _, _, _, Dialers}} <- cached_txns()],
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%% ------------------------------------------------------------------
+%% Internal functions
+%% ------------------------------------------------------------------
+
+-spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
+initialize_with_chain(State, Chain)->
+    {ok, Height} = blockchain:height(Chain),
+    {ok, PrevBlock} = blockchain:head_block(Chain),
+    Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock)],
+    SubmitF = submit_f(length(Signatories)),
+    RejectF = reject_f(length(Signatories)),
+    %% process any cached txn from before we had a chain, none of these will have been submitted as yet
+    F = fun({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, Dialers}}) ->
+            Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
+            ok = cache_txn(Txn, Callback, Height, [], [], Dialers)
+        end,
+    lists:foreach(F, cached_txns()),
+    State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
+
+handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
+                                                                           cur_block_height = CurBlockHeight})->
     #state{submit_f = SubmitF, chain = Chain} = State,
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
@@ -185,24 +222,8 @@ handle_info({blockchain_event, {add_block, BlockHash, Sync, _Ledger}}, State=#st
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
-    end;
+    end.
 
-handle_info(_Msg, State) ->
-    lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    lager:debug("terminating with reason ~p", [_Reason]),
-    %% stop dialers of cached txns
-    catch [blockchain_txn_mgr_sup:stop_dialers(Dialers) || {_Txn, {_, _, _, _, Dialers}} <- cached_txns()],
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%% ------------------------------------------------------------------
-%% Internal functions
-%% ------------------------------------------------------------------
 -spec purge_block_txns_from_cache(blockchain_block:block()) -> ok.
 purge_block_txns_from_cache(Block)->
     MinedTxns = blockchain_block:transactions(Block),
@@ -235,21 +256,6 @@ maybe_update_block_height(CurBlockHeight, _BlockHeight, true = _Sync) ->
     CurBlockHeight;
 maybe_update_block_height(_CurBlockHeight, BlockHeight, _Sync) ->
     BlockHeight.
-
--spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
-initialize_with_chain(State, Chain)->
-    {ok, Height} = blockchain:height(Chain),
-    {ok, PrevBlock} = blockchain:head_block(Chain),
-    Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock)],
-    SubmitF = submit_f(length(Signatories)),
-    RejectF = reject_f(length(Signatories)),
-    %% process any cached txn from before we had a chain, none of these will have been submitted as yet
-    F = fun({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, Dialers}}) ->
-            Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
-            ok = cache_txn(Txn, Callback, Height, [], [], Dialers)
-        end,
-    lists:foreach(F, cached_txns()),
-    State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
 
 -spec invoke_callback(fun(), ok | {error, invalid} | {error, rejected}) -> ok.
 invoke_callback(Callback, Msg) ->
