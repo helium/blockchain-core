@@ -165,7 +165,6 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event},
     NC = blockchain_worker:blockchain(),
     State = initialize_with_chain(State0, NC),
     handle_add_block_event(Event, State#state{chain = NC});
-
 handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
      handle_add_block_event(Event, State);
@@ -202,6 +201,8 @@ initialize_with_chain(State, Chain)->
     lists:foreach(F, cached_txns()),
     State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
 
+-spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
+                                blockchain_ledger_v1:ledger()}, #state{}) -> {noreply, #state{}}.
 handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
                                                                            cur_block_height = CurBlockHeight})->
     #state{submit_f = SubmitF, chain = Chain} = State,
@@ -444,9 +445,12 @@ normalise_block_height(CurBlockHeight, undefined)->
 normalise_block_height(_CurBlockHeight, RecvBlockHeight)->
     RecvBlockHeight.
 
+-spec submit_f(integer()) -> integer().
 submit_f(NumMembers)->
     %% F/2+1
     trunc(((NumMembers - 1) div 3 ) / 2) + 1.
+
+-spec reject_f(integer()) -> integer().
 reject_f(NumMembers)->
     %% 2F+1
     (trunc((NumMembers) div 3) * 2) + 1.
