@@ -9,6 +9,7 @@
     new/2,
     payee/1,
     balance/1,
+    get_balance/2,
     update/3
 ]).
 
@@ -37,6 +38,16 @@ payee(#blockchain_state_channel_balance_v1_pb{payee=Payee}) ->
 -spec balance(balance()) -> non_neg_integer().
 balance(#blockchain_state_channel_balance_v1_pb{balance=Balance}) ->
     Balance.
+
+-spec get_balance(Payee :: libp2p_crypto:pubkey_bin(),
+                  Balances :: balances()) -> {error, not_found} | {ok, non_neg_integer()}.
+get_balance(Payee, Balances) ->
+    case lists:keyfind(Payee, 2, Balances) of
+        false ->
+            {error, not_found};
+        Bal ->
+            {ok, ?MODULE:balance(Bal)}
+    end.
 
 -spec update(Payee :: libp2p_crypto:pubkey_bin(),
              Balance :: non_neg_integer(),
@@ -83,5 +94,18 @@ update_test() ->
     ?assertEqual(Expected, NewBalances),
     ?assertEqual(2, length(NewBalances)),
     ok.
+
+get_balance_test() ->
+    B1 = new(<<"1">>, 1),
+    B2 = new(<<"2">>, 1),
+
+    NewBalances = update(<<"1">>, 2, [B1, B2]),
+
+    {ok, Balance} = get_balance(<<"1">>, NewBalances),
+
+    NotFound = get_balance(<<"3">>, NewBalances),
+    ?assertEqual(2, Balance),
+    ?assertEqual({error, not_found}, NotFound).
+
 
 -endif.
