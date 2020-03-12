@@ -274,10 +274,6 @@ check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, SCs) ->
 close_state_channel(SC, Owner, OwnerSigFun) ->
     Txn = blockchain_txn_state_channel_close_v1:new(SC, Owner),
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
-    BaseTxn = SignedTxn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
-    EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
-    true = libp2p_crypto:verify(EncodedTxn, blockchain_txn_state_channel_close_v1:signature(SignedTxn), libp2p_crypto:bin_to_pubkey(Owner)),
-    true = libp2p_crypto:verify(EncodedTxn, blockchain_txn_state_channel_close_v1:signature(SignedTxn), libp2p_crypto:bin_to_pubkey(blockchain_txn_state_channel_close_v1:closer(SignedTxn))),
     ok = blockchain_worker:submit_txn(SignedTxn),
     lager:info("closing state channel ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]),
     ok.
