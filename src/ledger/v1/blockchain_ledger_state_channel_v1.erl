@@ -36,11 +36,7 @@
           Amount :: non_neg_integer(),
           ExpireAtBlock :: pos_integer(),
           Nonce :: non_neg_integer()) -> state_channel().
-new(ID, Owner, Amount, ExpireAtBlock, Nonce) when ID /= undefined andalso
-                                                  Owner /= undefined andalso
-                                                  Amount /= undefined andalso
-                                                  ExpireAtBlock /= undefined andalso
-                                                  Nonce /= undefined ->
+new(ID, Owner, Amount, ExpireAtBlock, Nonce) ->
     #ledger_state_channel_v1{
        id=ID,
        owner=Owner,
@@ -101,11 +97,11 @@ serialize(SC) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Later _ could becomre 1, 2, 3 for different versions.
+%% Deserialize for v1
 %% @end
 %%--------------------------------------------------------------------
 -spec deserialize(binary()) -> state_channel().
-deserialize(<<_:1/binary, Bin/binary>>) ->
+deserialize(<<1, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
 
 %% ------------------------------------------------------------------
