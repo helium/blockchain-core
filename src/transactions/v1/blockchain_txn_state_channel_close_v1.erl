@@ -77,7 +77,6 @@ is_valid(Txn, Chain) ->
     case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
           blockchain_state_channel_v1:validate(SC)} of
         {false, _} ->
-            lager:debug("bad_closer_signature ~p", [Txn]),
             {error, bad_closer_signature};
         {true, {error, _}} ->
             {error, bad_state_channel_signature};
