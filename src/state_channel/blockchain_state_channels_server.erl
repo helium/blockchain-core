@@ -36,7 +36,6 @@
 ]).
 
 -include("blockchain.hrl").
--include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
