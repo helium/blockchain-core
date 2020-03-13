@@ -161,7 +161,7 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, NewState};
 
 handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event}, State0=#state{chain = undefined}) ->
-    lager:debug("received add block event whilst no chain and sync ~p.  Initializing chain and then handling block",[_Sync]),
+    lager:info("received add block event whilst no chain and sync ~p.  Initializing chain and then handling block",[_Sync]),
     NC = blockchain_worker:blockchain(),
     State = initialize_with_chain(State0, NC),
     handle_add_block_event(Event, State#state{chain = NC});
@@ -194,9 +194,9 @@ initialize_with_chain(State, Chain)->
     SubmitF = submit_f(length(Signatories)),
     RejectF = reject_f(length(Signatories)),
     %% process any cached txn from before we had a chain, none of these will have been submitted as yet
-    F = fun({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, Dialers}}) ->
-            Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
-            ok = cache_txn(Txn, Callback, Height, [], [], Dialers)
+    F = fun({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, _Dialers}}) ->
+            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
+            ok = cache_txn(Txn, Callback, Height, [], [], NewDialers)
         end,
     lists:foreach(F, cached_txns()),
     State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
