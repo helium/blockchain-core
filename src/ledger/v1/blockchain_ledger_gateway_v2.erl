@@ -59,7 +59,8 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  witnesses()
+    witnesses = #{} ::  witnesses(),
+    oui = undefined :: undefined | pos_integer()
 }).
 
 -type gateway() :: #gateway_v2{}.
@@ -443,7 +444,8 @@ deserialize(<<2, Bin/binary>>) ->
                 L = tuple_to_list(Gw),
                 %% add an undefined OUI slot
                 L1 = lists:append(L, [undefined]),
-                list_to_tuple(L1);
+                G1 = list_to_tuple(L1),
+                neighbors([], G1);
             13 ->
                 Gw
         end,
