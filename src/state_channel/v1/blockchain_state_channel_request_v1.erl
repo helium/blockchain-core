@@ -13,7 +13,9 @@
     devaddr/1,
     seqnum/1,
     mic/1,
-    validate/1,
+    sign/2,
+    signature/1,
+    is_valid/1,
     encode/1, decode/1,
     hash/1
 ]).
@@ -69,9 +71,23 @@ seqnum(#blockchain_state_channel_request_v1_pb{seqnum=SeqNum}) ->
 mic(#blockchain_state_channel_request_v1_pb{mic=MIC}) ->
     MIC.
 
--spec validate(request()) -> true.
-validate(_Req) ->
-    true.
+-spec sign(request(), libp2p_crypto:sig_fun()) -> request().
+sign(Req, SigFun) ->
+    EncodedReq = blockchain_state_channel_request_v1_pb:encode_msg(Req),
+    Req#blockchain_state_channel_request_v1_pb{signature=SigFun(EncodedReq)}.
+
+-spec signature(request()) -> binary().
+signature(Req) ->
+    Req#blockchain_state_channel_request_v1_pb.signature.
+
+-spec is_valid(request()) -> boolean().
+is_valid(Req) ->
+    Payee = ?MODULE:payee(Req),
+    Signature = ?MODULE:signature(Req),
+    PubKey = libp2p_crypto:bin_to_pubkey(Payee),
+    BaseReq = Req#blockchain_state_channel_request_v1_pb{signature = <<>>},
+    EncodedReq = blockchain_state_channel_request_v1_pb:encode_msg(BaseReq),
+    libp2p_crypto:verify(EncodedReq, Signature, PubKey).
 
 -spec encode(request()) -> binary().
 encode(#blockchain_state_channel_request_v1_pb{}=Req) ->
@@ -130,11 +146,11 @@ seqnum_test() ->
     Req = ?MODULE:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     ?assertEqual(1, seqnum(Req)).
 
-validate_test() ->
+is_valid_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     Req = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
-    ?assertEqual(true, validate(Req)).
+    ?assertEqual(true, is_valid(Req)).
 
 encode_decode_test() ->
     Req = ?MODULE:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),

@@ -3,7 +3,7 @@
 1. `blockchain_state_channels_client` receives a packet via `packet/1`
 2. `blockchain_state_channels_client` find routing information via `oui`
 3. `blockchain_state_channels_client` crafts and send payment request to server via `blockchain_state_channel_handler`
-4. `blockchain_state_channels_server` validate the request via `blockchain_state_channel_request_v1:validate` (this should validate the packets validity)
+4. `blockchain_state_channels_server` validate the request via `blockchain_state_channel_request_v1:is_valid`
 5. `blockchain_state_channels_server` selects a proper state channel
 6. `blockchain_state_channels_server` updates, saves state channel
 7. `blockchain_state_channels_server` sends updated state channels
