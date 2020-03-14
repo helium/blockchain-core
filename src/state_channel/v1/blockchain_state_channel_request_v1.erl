@@ -147,9 +147,11 @@ seqnum_test() ->
     ?assertEqual(1, seqnum(Req)).
 
 is_valid_test() ->
-    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Req0 = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req = ?MODULE:sign(Req0, SigFun),
     ?assertEqual(true, is_valid(Req)).
 
 encode_decode_test() ->
