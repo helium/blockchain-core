@@ -73,7 +73,7 @@ mic(#blockchain_state_channel_request_v1_pb{mic=MIC}) ->
 
 -spec sign(request(), libp2p_crypto:sig_fun()) -> request().
 sign(Req, SigFun) ->
-    EncodedReq = blockchain_state_channel_request_v1_pb:encode_msg(Req),
+    EncodedReq = ?MODULE:encode(Req),
     Req#blockchain_state_channel_request_v1_pb{signature=SigFun(EncodedReq)}.
 
 -spec signature(request()) -> binary().
@@ -86,7 +86,7 @@ is_valid(Req) ->
     Signature = ?MODULE:signature(Req),
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
     BaseReq = Req#blockchain_state_channel_request_v1_pb{signature = <<>>},
-    EncodedReq = blockchain_state_channel_request_v1_pb:encode_msg(BaseReq),
+    EncodedReq = ?MODULE:encode(BaseReq),
     libp2p_crypto:verify(EncodedReq, Signature, PubKey).
 
 -spec encode(request()) -> binary().
