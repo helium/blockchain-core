@@ -15,7 +15,7 @@
     mic/1,
     sign/2,
     signature/1,
-    is_valid/1,
+    is_valid/2,
     encode/1, decode/1,
     hash/1
 ]).
@@ -80,14 +80,21 @@ sign(Req, SigFun) ->
 signature(Req) ->
     Req#blockchain_state_channel_request_v1_pb.signature.
 
--spec is_valid(request()) -> boolean().
-is_valid(Req) ->
+-spec is_valid(request(), blockchain_ledger_v1:ledger()) -> boolean().
+is_valid(Req, Ledger) ->
     Payee = ?MODULE:payee(Req),
     Signature = ?MODULE:signature(Req),
     PubKey = libp2p_crypto:bin_to_pubkey(Payee),
     BaseReq = Req#blockchain_state_channel_request_v1_pb{signature = <<>>},
     EncodedReq = ?MODULE:encode(BaseReq),
-    libp2p_crypto:verify(EncodedReq, Signature, PubKey).
+    CheckSignature = libp2p_crypto:verify(EncodedReq, Signature, PubKey),
+    case CheckSignature of
+        false ->
+            false;
+        true ->
+            AG = maps:keys(blockchain_ledger_v1:active_gateways(Ledger)),
+            lists:member(Payee, AG)
+    end.
 
 -spec encode(request()) -> binary().
 encode(#blockchain_state_channel_request_v1_pb{}=Req) ->
