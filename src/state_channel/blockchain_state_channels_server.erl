@@ -138,8 +138,9 @@ handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=Sta
             SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
             {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
     end;
-handle_cast({request, Req}, #state{db=DB, owner={Owner, OwnerSigFun}}=State0) ->
-    case blockchain_state_channel_request_v1:is_valid(Req) of
+handle_cast({request, Req}, #state{db=DB, chain=Chain, owner={Owner, OwnerSigFun}}=State0) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_state_channel_request_v1:is_valid(Req, Ledger) of
         false ->
             lager:error("invalid sc request"),
             {noreply, State0};
