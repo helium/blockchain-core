@@ -154,12 +154,23 @@ seqnum_test() ->
     ?assertEqual(1, seqnum(Req)).
 
 is_valid_test() ->
+    BaseDir = test_utils:tmp_dir("request_is_valid_test"),
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+
+    %% create a yolo ledger
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    %% Add this gateway to ledger
+    ok = blockchain_ledger_v1:add_gateway(<<"some_owner">>, PubKeyBin, Ledger1),
+    ok = blockchain_ledger_v1:commit_context(Ledger1),
+
+    %% create and sign request
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Req0 = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     Req = ?MODULE:sign(Req0, SigFun),
-    ?assertEqual(true, is_valid(Req)).
+
+    ?assertEqual(true, is_valid(Req, Ledger)).
 
 encode_decode_test() ->
     Req = ?MODULE:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
