@@ -62,7 +62,8 @@
          sync_timer = make_ref() :: reference(),
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
-         sync_paused = false :: boolean()
+         sync_paused = false :: boolean(),
+         gossip_ref = make_ref() :: reference()
         }).
 
 %% ------------------------------------------------------------------
@@ -301,25 +302,25 @@ init(Args) ->
                                             undefined
                                     end
                             end,
-    Blockchain =
+    {Blockchain, Ref} =
         case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
             {no_genesis, _Chain}=R ->
                 %% mark all upgrades done
-                R;
+                {R, make_ref()};
             {ok, Chain} ->
                 %% blockchain:new will take care of any repairs needed, possibly asynchronously
                 %%
                 %% do ledger upgrade
-                ok = add_handlers(Swarm, Chain),
+                {ok, GossipRef} = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
                 ok = blockchain_txn_mgr:set_chain(Chain),
                 true = libp2p_swarm:network_id(Swarm, GenesisHash),
-                Chain
+                {Chain, GossipRef}
         end,
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
-    {ok, #state{swarm=Swarm, blockchain=Blockchain}}.
+    {ok, #state{swarm=Swarm, blockchain=Blockchain, gossip_ref = Ref}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
@@ -333,8 +334,8 @@ handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
 handle_call({blockchain, NewChain}, _From, #state{swarm = Swarm} = State) ->
     notify({new_chain, NewChain}),
     remove_handlers(Swarm),
-    ok = add_handlers(Swarm, NewChain),
-    {reply, ok, State#state{blockchain = NewChain}};
+    {ok, GossipRef} = add_handlers(Swarm, NewChain),
+    {reply, ok, State#state{blockchain = NewChain, gossip_ref = GossipRef}};
 handle_call({new_ledger, Dir}, _From, State) ->
     %% We do this here so the same process that normally owns the ledger
     %% will own it when we do a reset ledger or whatever. Otherwise the
@@ -532,6 +533,14 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             %% we're deep in the past here, so just start the next sync
             {noreply, start_sync(State)}
     end;
+handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
+            #state{gossip_ref = GossipRef, blockchain = Blockchain} = State) ->
+    Swarm = blockchain_swarm:swarm(),
+    Gossip = libp2p_swarm:gossip_group(Swarm),
+    libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
+                                    {blockchain_gossip_handler, [Swarm, Blockchain]}),
+    NewGossipRef = erlang:monitor(process, Gossip),
+    {noreply, State#state{gossip_ref = NewGossipRef}};
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
@@ -613,10 +622,12 @@ pause_sync(State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_handlers(pid(), blockchain:blockchain()) -> ok.
+-spec add_handlers(pid(), blockchain:blockchain()) -> {ok, reference()}.
 add_handlers(Swarm, Blockchain) ->
-    libp2p_group_gossip:add_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL,
+    Gossip = libp2p_swarm:gossip_group(Swarm),
+    libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
+    Ref = erlang:monitor(process, Gossip),
     ok = libp2p_swarm:add_stream_handler(
         Swarm,
         ?SYNC_PROTOCOL,
@@ -626,7 +637,8 @@ add_handlers(Swarm, Blockchain) ->
         Swarm,
         ?FASTFORWARD_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, Blockchain]}
-    ).
+    ),
+    {ok, Ref}.
 
 -spec remove_handlers(pid()) -> ok.
 remove_handlers(Swarm) ->
