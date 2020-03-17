@@ -161,6 +161,7 @@ is_valid_test() ->
     %% create a yolo ledger
     Ledger = blockchain_ledger_v1:new(BaseDir),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
     %% Add this gateway to ledger
     ok = blockchain_ledger_v1:add_gateway(<<"some_owner">>, PubKeyBin, Ledger1),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
@@ -168,9 +169,25 @@ is_valid_test() ->
     %% create and sign request
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Req0 = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
-    Req = ?MODULE:sign(Req0, SigFun),
+    Req1 = ?MODULE:sign(Req0, SigFun),
+    ?assertEqual(true, is_valid(Req1, Ledger)),
 
-    ?assertEqual(true, is_valid(Req, Ledger)).
+    %% create a second gateway, but don't add to the ledger
+    #{public := PubKey2, secret := PrivKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin2 = libp2p_crypto:pubkey_to_bin(PubKey2),
+    SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
+
+    %% create request with first pubkey_bin, but signed by the other guy
+    Req2 = ?MODULE:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req3 = ?MODULE:sign(Req2, SigFun2),
+    ?assertEqual(false, is_valid(Req3, Ledger)),
+
+    %% create request with second pubkey_bin, signed by the second guy
+    Req4 = ?MODULE:new(PubKeyBin2, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req5 = ?MODULE:sign(Req4, SigFun2),
+    %% this should stil fail because second guy is not in active_gateways
+    ?assertEqual(false, is_valid(Req5, Ledger)).
+
 
 encode_decode_test() ->
     Req = ?MODULE:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
