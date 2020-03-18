@@ -247,13 +247,17 @@ full_test(Config) ->
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
-    ok = ct_rpc:call(RouterNode, meck, new, [blockchain_worker, [passthrough]]),
+    ok = ct_rpc:call(RouterNode, meck_test_util, new, [[blockchain_worker, passthrough]]),
     timer:sleep(10),
-    ok = ct_rpc:call(RouterNode, meck, expect, [blockchain_worker, submit_txn, fun(T) ->
-        Self ! {txn, T},
-        ok
-    end]),
+
+    F = fun(T) ->
+                Self ! {txn, T},
+                ok
+        end,
+
+    ok = ct_rpc:call(RouterNode, meck_test_util, expect, [[blockchain_worker, submit_txn, F]]),
     ok = ct_rpc:call(RouterNode, blockchain_worker, submit_txn, [test]),
+
     receive
         {txn, test} -> ok
     after 1000 ->
