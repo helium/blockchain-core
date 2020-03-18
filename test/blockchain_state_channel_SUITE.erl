@@ -128,7 +128,7 @@ basic_test(Config) ->
 
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24),
+    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),

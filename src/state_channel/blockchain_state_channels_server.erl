@@ -138,11 +138,12 @@ handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=Sta
             SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
             {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
     end;
-handle_cast({request, Req}, #state{db=DB, owner={Owner, OwnerSigFun}}=State0) ->
-    case blockchain_state_channel_request_v1:validate(Req) of
-        % {error, _Reason} ->
-        %     lager:warning("got invalid req ~p: ~p", [Req, _Reason]),
-        %     {noreply, State0};
+handle_cast({request, Req}, #state{db=DB, chain=Chain, owner={Owner, OwnerSigFun}}=State0) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_state_channel_request_v1:is_valid(Req, Ledger) of
+        false ->
+            lager:error("invalid sc request"),
+            {noreply, State0};
         true ->
             case select_state_channel(Req, State0) of
                 {error, _Reason} ->
@@ -516,23 +517,23 @@ convert_to_state_channels(LedgerSCs) ->
 -ifdef(TEST).
 
 select_state_channel_test() ->
-    Req0 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24),
+    Req0 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     State0 = #state{state_channels= #{}, payees_to_sc= #{}},
     ?assertEqual({error, no_state_channel}, select_state_channel(Req0, State0)),
 
-    Req1 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24),
+    Req1 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     ID1 = <<"1">>,
     SC1 =blockchain_state_channel_v1:new(ID1, <<"owner">>),
     State1 = #state{state_channels= #{ID1 => SC1}, payees_to_sc= #{<<"payee">> => ID1}},
     ?assertEqual({error, not_enough_credits}, select_state_channel(Req1, State1)),
 
-    Req2 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24),
+    Req2 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     ID2 = <<"2">>,
     SC2 = blockchain_state_channel_v1:credits(10, blockchain_state_channel_v1:new(ID2, <<"owner">>)),
     State2 = #state{state_channels= #{ID2 => SC2}, payees_to_sc= #{<<"payee">> => ID2}},
     ?assertEqual({ok, SC2}, select_state_channel(Req2, State2)),
 
-    Req4 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24),
+    Req4 = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     ID3 = <<"3">>,
     SC3 = blockchain_state_channel_v1:new(ID3, <<"owner">>),
     ID4 = <<"4">>,
@@ -540,7 +541,7 @@ select_state_channel_test() ->
     State4 = #state{state_channels= #{ID3 => SC3, ID4 => SC4}, payees_to_sc= #{<<"payee">> => ID3}},
     ?assertEqual({ok, SC4}, select_state_channel(Req4, State4)),
 
-    Req5 = blockchain_state_channel_request_v1:new(<<"payee">>, 0, 24),
+    Req5 = blockchain_state_channel_request_v1:new(<<"payee">>, 0, 24, <<"devaddr">>, 1, <<"mic">>),
     ?assertEqual({ok, SC3}, select_state_channel(Req5, State4)),
 
     ID5 = <<"5">>,
@@ -583,7 +584,7 @@ update_state_test() ->
     ID = <<"1">>,
     SC = blockchain_state_channel_v1:new(ID, PubKeyBin),
     Payee = <<"payee">>,
-    Req = blockchain_state_channel_request_v1:new(Payee, 1, 24),
+    Req = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
     State0 = #state{db=DB, swarm=Swarm, state_channels=#{}, payees_to_sc=#{}},
     State1 = State0#state{state_channels=#{ID => SC}, payees_to_sc=#{Payee => ID}, clients=#{ID => [Payee]}},
 
