@@ -106,6 +106,8 @@ basic_test(Config) ->
     meck:unload(),
     meck:new(blockchain_swarm, [passthrough]),
     meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
+    meck:new(blockchain_state_channel_request_v1, [passthrough]),
+    meck:expect(blockchain_state_channel_request_v1, is_valid, fun(_, _) -> true end),
     meck:new(blockchain_event, [passthrough]),
     meck:expect(blockchain_event, add_handler, fun(_) -> ok end),
     meck:new(blockchain_worker, [passthrough]),
@@ -126,9 +128,11 @@ basic_test(Config) ->
     ?assertEqual({ok, 10}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
 
-    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Req0 = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req = blockchain_state_channel_request_v1:sign(Req0, SigFun),
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
@@ -146,6 +150,8 @@ basic_test(Config) ->
     meck:unload(blockchain),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
+    ?assert(meck:validate(blockchain_state_channel_request_v1)),
+    meck:unload(blockchain_state_channel_request_v1),
     ok.
 
 zero_test(Config) ->
@@ -202,7 +208,8 @@ zero_test(Config) ->
 
     % Step 6: Sending packet with same OUI
     Packet0 = blockchain_helium_packet_v1:new(1, <<"sup">>),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
+    PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
 
     % Step 7: Checking state channel on server/client (balance did not update but nonce did)
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -216,9 +223,10 @@ zero_test(Config) ->
     end, 30, timer:seconds(1)),
 
      % Step 8: Sending packet with same OUI and a payload
-    Payload1 = crypto:strong_rand_bytes(120),
+    Payload1 = crypto:strong_rand_bytes(24),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
+    PacketInfo1 = {Packet1, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo1]),
 
     % Step 9: Checking state channel on server/client (balance did not update but nonce did)
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -262,7 +270,7 @@ full_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID = crypto:strong_rand_bytes(32),
+    ID = crypto:strong_rand_bytes(24),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
@@ -291,9 +299,10 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(120),
+    Payload0 = crypto:strong_rand_bytes(24),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
+    PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -317,9 +326,10 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
-    Payload1 = crypto:strong_rand_bytes(120),
+    Payload1 = crypto:strong_rand_bytes(24),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
+    PacketInfo1 = {Packet1, <<"devaddr">>, 2, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo1]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -382,7 +392,7 @@ expired_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID = crypto:strong_rand_bytes(32),
+    ID = crypto:strong_rand_bytes(24),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 20, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
@@ -408,9 +418,10 @@ expired_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(120),
+    Payload0 = crypto:strong_rand_bytes(24),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
+    PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -499,7 +510,7 @@ replay_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID = crypto:strong_rand_bytes(32),
+    ID = crypto:strong_rand_bytes(24),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
@@ -528,9 +539,10 @@ replay_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(120),
+    Payload0 = crypto:strong_rand_bytes(24),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
+    PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -554,9 +566,10 @@ replay_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
-    Payload1 = crypto:strong_rand_bytes(120),
+    Payload1 = crypto:strong_rand_bytes(24),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
+    PacketInfo1 = {Packet1, <<"devaddr">>, 1, <<"mic1">>},
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo1]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -594,7 +607,7 @@ replay_test(Config) ->
     ct:pal("DCEntry: ~p", [ct_rpc:call(RouterNode, blockchain_ledger_v1, find_dc_entry, [RouterPubkeyBin, RouterLedger2])]),
 
     ReplayTotalDC = 20,
-    ReplayID = crypto:strong_rand_bytes(32),
+    ReplayID = crypto:strong_rand_bytes(24),
     ReplaySCOpenTxn = blockchain_txn_state_channel_open_v1:new(ReplayID, RouterPubkeyBin, ReplayTotalDC, 100, 1),
     ReplaySignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(ReplaySCOpenTxn, RouterSigFun),
     ct:pal("ReplaySignedSCOpenTxn: ~p", [ReplaySignedSCOpenTxn]),
@@ -638,7 +651,7 @@ multiple_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID1 = crypto:strong_rand_bytes(32),
+    ID1 = crypto:strong_rand_bytes(24),
     SCOpenTxn1 = blockchain_txn_state_channel_open_v1:new(ID1, RouterPubkeyBin, TotalDC, 20, 1),
     SignedSCOpenTxn1 = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn1, RouterSigFun),
 
@@ -701,7 +714,7 @@ multiple_test(Config) ->
 
 
     % Step 10: Create another state channel
-    ID2 = crypto:strong_rand_bytes(32),
+    ID2 = crypto:strong_rand_bytes(24),
     SCOpenTxn2 = blockchain_txn_state_channel_open_v1:new(ID2, RouterPubkeyBin, TotalDC, 20, 2),
     SignedSCOpenTxn2 = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn2, RouterSigFun),
 
