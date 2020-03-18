@@ -33,52 +33,39 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
-init_per_testcase(basic_test, Config) ->
-    BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
-    [{base_dir, BaseDir} |Config];
-init_per_testcase(Test, Config) ->
-    InitConfig = blockchain_ct_utils:init_per_testcase(Test, Config),
-    Nodes = ?config(nodes, InitConfig),
+init_per_testcase(TestCase, Config) ->
+    Config0 = blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config),
     Balance = 5000,
-    NumConsensusMembers = ?config(num_consensus_members, InitConfig),
+    {ok, Sup, {PrivKey, PubKey}, Opts} = test_utils:init(?config(base_dir, Config0)),
 
-    %% accumulate the address of each node
-    Addrs = lists:foldl(fun(Node, Acc) ->
-                                Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                [Addr | Acc]
-                        end, [], Nodes),
+    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, true),
 
-    ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
+    Chain = blockchain_worker:blockchain(),
+    Swarm = blockchain_swarm:swarm(),
+    N = length(ConsensusMembers),
 
-    {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => NumConsensusMembers}),
+    % Check ledger to make sure everyone has the right balance
+    Ledger = blockchain:ledger(Chain),
+    Entries = blockchain_ledger_v1:entries(Ledger),
+    ok = lists:foreach(fun(Entry) ->
+                               Balance = blockchain_ledger_entry_v1:balance(Entry),
+                               0 = blockchain_ledger_entry_v1:nonce(Entry)
+                       end, maps:values(Entries)),
 
-    % Create genesis block
-    GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
-    GenDCsTxs = [blockchain_txn_dc_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
-    GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
-    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ [GenConsensusGroupTx],
-    GenesisBlock = blockchain_block:new_genesis_block(Txs),
-
-    %% tell each node to integrate the genesis block
-    lists:foreach(fun(Node) ->
-                          ?assertMatch(ok, ct_rpc:call(Node, blockchain_worker, integrate_genesis_block, [GenesisBlock]))
-                  end, Nodes),
-
-    %% wait till each worker gets the gensis block
-    ok = lists:foreach(
-           fun(Node) ->
-                   ok = blockchain_ct_utils:wait_until(
-                          fun() ->
-                                  C0 = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                                  {ok, Height} = ct_rpc:call(Node, blockchain, height, [C0]),
-                                  ct:pal("node ~p height ~p", [Node, Height]),
-                                  Height == 1
-                          end, 100, 100)
-           end, Nodes),
-
-    ok = check_genesis_block(InitConfig, GenesisBlock),
-    ConsensusMembers = get_consensus_members(InitConfig, ConsensusAddrs),
-    [{consensus_members, ConsensusMembers} | InitConfig].
+    [
+     {balance, Balance},
+     {sup, Sup},
+     {pubkey, PubKey},
+     {privkey, PrivKey},
+     {opts, Opts},
+     {chain, Chain},
+     {swarm, Swarm},
+     {n, N},
+     {consensus_members, ConsensusMembers},
+     {genesis_members, GenesisMembers},
+     Keys
+     | Config0
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
@@ -92,33 +79,13 @@ end_per_testcase(Test, Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
-
 basic_test(Config) ->
-    application:ensure_all_started(throttle),
-    application:ensure_all_started(lager),
-    BaseDir = ?config(base_dir, Config),
-    SwarmOpts = [
-        {libp2p_nat, [{enabled, false}]},
-        {base_dir, BaseDir}
-    ],
-    {ok, Swarm} = libp2p_swarm:start(basic_test, SwarmOpts),
 
-    meck:unload(),
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain_swarm, swarm, fun() -> Swarm end),
-    meck:new(blockchain_event, [passthrough]),
-    meck:expect(blockchain_event, add_handler, fun(_) -> ok end),
-    meck:new(blockchain_worker, [passthrough]),
-    meck:expect(blockchain_worker, blockchain, fun() -> blockchain end),
-    meck:new(blockchain, [passthrough]),
-    meck:expect(blockchain, ledger, fun(_) -> ledger end),
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, find_state_channels_by_owner, fun(_, _) -> {error, meck} end),
+    [{Addr, {PubKey, PrivKey, SigFun}} | _] = ?config(genesis_members, Config),
+    ct:pal("Addr: ~p, Pubkey: ~p, PrivKey: ~p, SigFun: ~p", [Addr, PubKey, PrivKey, SigFun]),
 
-    {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
     ID = <<"ID1">>,
 
-    ?assert(erlang:is_process_alive(Sup)),
     ?assertEqual({error, not_found}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({error, not_found}, blockchain_state_channels_server:nonce(ID)),
 
@@ -126,26 +93,14 @@ basic_test(Config) ->
     ?assertEqual({ok, 10}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 0}, blockchain_state_channels_server:nonce(ID)),
 
-    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    Req = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req0 = blockchain_state_channel_request_v1:new(PubKeyBin, 1, 24, <<"devaddr">>, 1, <<"mic">>),
+    Req = blockchain_state_channel_request_v1:sign(Req0, SigFun),
     ok = blockchain_state_channels_server:request(Req),
 
     ?assertEqual({ok, 9}, blockchain_state_channels_server:credits(ID)),
     ?assertEqual({ok, 1}, blockchain_state_channels_server:nonce(ID)),
 
-    true = erlang:exit(Sup, normal),
-    ok = libp2p_swarm:stop(Swarm),
-    ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm),
-    ?assert(meck:validate(blockchain_event)),
-    meck:unload(blockchain_event),
-    ?assert(meck:validate(blockchain_worker)),
-    meck:unload(blockchain_worker),
-    ?assert(meck:validate(blockchain)),
-    meck:unload(blockchain),
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
     ok.
 
 zero_test(Config) ->
@@ -764,31 +719,3 @@ multiple_test(Config) ->
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
-
-%% ------------------------------------------------------------------
-%% Helper functions
-%% ------------------------------------------------------------------
-
-check_genesis_block(Config, GenesisBlock) ->
-    Nodes = ?config(nodes, Config),
-    lists:foreach(fun(Node) ->
-                          Blockchain = ct_rpc:call(Node, blockchain_worker, blockchain, []),
-                          {ok, HeadBlock} = ct_rpc:call(Node, blockchain, head_block, [Blockchain]),
-                          {ok, WorkerGenesisBlock} = ct_rpc:call(Node, blockchain, genesis_block, [Blockchain]),
-                          {ok, Height} = ct_rpc:call(Node, blockchain, height, [Blockchain]),
-                          ?assertEqual(GenesisBlock, HeadBlock),
-                          ?assertEqual(GenesisBlock, WorkerGenesisBlock),
-                          ?assertEqual(1, Height)
-                  end, Nodes).
-
-get_consensus_members(Config, ConsensusAddrs) ->
-    Nodes = ?config(nodes, Config),
-    lists:keysort(1, lists:foldl(fun(Node, Acc) ->
-                                         Addr = ct_rpc:call(Node, blockchain_swarm, pubkey_bin, []),
-                                         case lists:member(Addr, ConsensusAddrs) of
-                                             false -> Acc;
-                                             true ->
-                                                 {ok, Pubkey, SigFun, _ECDHFun} = ct_rpc:call(Node, blockchain_swarm, keys, []),
-                                                 [{Addr, Pubkey, SigFun} | Acc]
-                                         end
-                                 end, [], Nodes)).
