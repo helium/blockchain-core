@@ -18,9 +18,11 @@
     state_channels/0
 ]).
 
+%% Exported for testing
 -export([
     burn/2,
-    packet_forward/1
+    packet_forward/1,
+    state/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -96,6 +98,11 @@ burn(ID, Amount) ->
 packet_forward(Pid) ->
     gen_server:cast(?SERVER, {packet_forward, Pid}).
 
+%% Helper function for tests (remove)
+-spec state() -> state().
+state() ->
+    gen_server:call(?SERVER, state).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -124,6 +131,8 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     {reply, Reply, State};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
+handle_call(state, _From, State) ->
+    {reply, State, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
