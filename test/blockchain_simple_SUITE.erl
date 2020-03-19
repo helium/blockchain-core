@@ -595,26 +595,17 @@ poc_request_test(Config) ->
 
 bogus_coinbase_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
-    Balance = ?config(balance, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
     Chain = ?config(chain, Config),
-    Swarm = ?config(swarm, Config),
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
-    {ok, Block2} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
-    timer:sleep(500),
 
-    %% None of the balances should have changed
-    lists:all(fun(Entry) ->
-                      blockchain_ledger_entry_v1:balance(Entry) == Balance
-              end,
-              maps:values(blockchain_ledger_v1:entries(blockchain:ledger(Chain)))),
+    %% This should error out cuz this is an invalid txn
+    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
 
-    %% Check that the chain didn't grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
     ok.
@@ -623,7 +614,6 @@ bogus_coinbase_with_good_payment_test(Config) ->
     ConsensusMembers = ?config(consensus_members, Config),
     [{FirstMemberAddr, _} | _] = ConsensusMembers,
     Chain = ?config(chain, Config),
-    Swarm = ?config(swarm, Config),
 
     %% Lets give the first member a bunch of coinbase tokens
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
@@ -635,10 +625,9 @@ bogus_coinbase_with_good_payment_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
-    {ok, Block2} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
-    timer:sleep(500),
-
+    %% This should error out cuz this is an invalid txn
+    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers,
+                                                                          [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
     %% Check that the chain didnt' grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
 
@@ -1504,8 +1493,7 @@ token_burn_test(Config) ->
     % Step 2: Token burn txn (without a rate) should fail and stay at same block
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 2),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
-    {ok, FailedBlock} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
-    _ = blockchain_gossip_handler:add_block(Swarm, FailedBlock, Chain, self()),
+    {error, {invalid_txns, [SignedBurnTx0]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
