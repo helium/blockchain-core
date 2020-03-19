@@ -177,11 +177,8 @@ zero_test(Config) ->
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Create add gateway txn (making Gateqay node a gateway and router 1 its owner)
-    {ok, GatewayPubkey, GatewaySigFun, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
+    {ok, GatewayPubkey, _GatewaySigFun, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
     GatewayPubkeyBin = libp2p_crypto:pubkey_to_bin(GatewayPubkey),
-    AddGatewayTxn = blockchain_txn_add_gateway_v1:new(RouterPubkeyBin, GatewayPubkeyBin, 1, 1),
-    SignedAddGatewayTxn0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, RouterSigFun),
-    SignedAddGatewayTxn1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTxn0, GatewaySigFun),
 
     UpdateGWOuiTxn = blockchain_txn_update_gateway_oui_v1:new(GatewayPubkeyBin, OUI, 1, 1),
     SignedUpdateGWOuiTxn0 = blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGWOuiTxn, RouterSigFun),
@@ -191,7 +188,7 @@ zero_test(Config) ->
     Block0 = ct_rpc:call(RouterNode,
                          test_utils,
                          create_block,
-                         [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedAddGatewayTxn1, SignedUpdateGWOuiTxn1]]),
+                         [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn, SignedUpdateGWOuiTxn1]]),
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, self()]),
 
