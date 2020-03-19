@@ -28,7 +28,7 @@
     print/1
 ]).
 
--define(TO_ANIMAL_NAME(X), element(2, libp2p_crypto:bin_to_b58(erl_angry_purple_tiger:animal_name(X)))).
+-include("blockchain_utils.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
