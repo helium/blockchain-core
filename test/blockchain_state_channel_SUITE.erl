@@ -56,7 +56,11 @@ init_per_testcase(Test, Config) ->
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
     GenDCsTxs = [blockchain_txn_dc_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
     GenConsensusGroupTx = blockchain_txn_consensus_group_v1:new(ConsensusAddrs, <<"proof">>, 1, 0),
-    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ [GenConsensusGroupTx],
+
+    GenGwTxns = [blockchain_txn_gen_gateway_v1:new(Addr, Addr, h3:from_geo({37.780586, -122.469470}, 13), 0)
+                 || Addr <- Addrs],
+
+    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ GenGwTxns ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
     %% tell each node to integrate the genesis block
@@ -247,19 +251,15 @@ full_test(Config) ->
 
     % Some madness to make submit txn work and "create a block"
     Self = self(),
-    ok = ct_rpc:call(RouterNode, meck_test_util, new, [[blockchain_worker, passthrough]]),
-    timer:sleep(10),
+    ok = ct_rpc:call(RouterNode, meck_test_util, forward_submit_txn, [Self]),
 
-    F = fun(T) ->
-                Self ! {txn, T},
-                ok
-        end,
-
-    ok = ct_rpc:call(RouterNode, meck_test_util, expect, [[blockchain_worker, submit_txn, F]]),
+    %% ok = ct_rpc:call(RouterNode, meck_test_util, expect, [[blockchain_worker, submit_txn, F]]),
     ok = ct_rpc:call(RouterNode, blockchain_worker, submit_txn, [test]),
 
     receive
-        {txn, test} -> ok
+        {txn, test} ->
+            ct:pal("Got txn test"),
+            ok
     after 1000 ->
         ct:fail("txn test timeout")
     end,
@@ -303,10 +303,13 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(24),
+    Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
+
+    {ok, State} = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, state, []),
+    ok = ct:pal("state: ~p", [State]),
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -330,7 +333,7 @@ full_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
-    Payload1 = crypto:strong_rand_bytes(24),
+    Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     PacketInfo1 = {Packet1, <<"devaddr">>, 2, <<"mic1">>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo1]),
