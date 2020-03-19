@@ -1019,7 +1019,9 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
                                                    transactions => [],
                                                    signatures => [],
                                                    election_epoch => 1,
-                                                   epoch_start => 1})}
+                                                   epoch_start => 1,
+                                                   seen_votes => [],
+                                                   bba_completion => <<>>})}
                 end),
     meck:expect(blockchain_swarm,
                 pubkey_bin,

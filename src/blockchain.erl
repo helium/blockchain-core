@@ -1656,7 +1656,9 @@ blocks_test() ->
                                       time => 1,
                                       hbbft_round => 1,
                                       election_epoch => 1,
-                                      epoch_start => 0
+                                      epoch_start => 0,
+                                      seen_votes => [],
+                                      bba_completion => <<>>
                                      }),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),
@@ -1728,7 +1730,9 @@ get_block_test() ->
                                       time => 1,
                                       hbbft_round => 1,
                                       election_epoch => 1,
-                                      epoch_start => 0
+                                      epoch_start => 0,
+                                      seen_votes => [],
+                                      bba_completion => <<>>
                                      }),
     Hash = blockchain_block:hash_block(Block),
     ok = add_block(Block, Chain),

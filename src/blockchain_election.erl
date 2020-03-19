@@ -8,12 +8,22 @@
 
 -include("blockchain_vars.hrl").
 
+-import(blockchain_utils, [normalize_float/1]).
+
+-ifdef(TEST).
+-export([
+         adjust_old_group/2
+        ]).
+-endif.
+
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 3 ->
+            new_group_v3(Ledger, Hash, Size, Delay);
+        {ok, N} when N == 2 ->
+            new_group_v2(Ledger, Hash, Size, Delay);
         {error, not_found} ->
-            new_group_v1(Ledger, Hash, Size, Delay);
-        {ok, N} when N >= 2 ->
-            new_group_v2(Ledger, Hash, Size, Delay)
+            new_group_v1(Ledger, Hash, Size, Delay)
     end.
 
 new_group_v1(Ledger, Hash, Size, Delay) ->
@@ -73,6 +83,168 @@ new_group_v2(Ledger, Hash, Size, Delay) ->
     OldGroup = lists:sort(OldGroupScored),
     Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
     Rem ++ New.
+
+new_group_v3(Ledger, Hash, Size, Delay) ->
+    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
+
+    {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+
+    %% annotate with score while removing dupes
+    {OldGroupScored0, GatewaysScored} = score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger),
+
+    OldGroupScored = adjust_old_group(OldGroupScored0, Ledger),
+
+    lager:debug("scored old group: ~p scored gateways: ~p",
+                [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
+
+    %% get the locations of the current consensus group at a particular h3 resolution
+    Locations = locations(ClusterRes, OldGroup0, Gateways0),
+
+    %% sort high to low to prioritize high-scoring gateways for selection
+    Gateways = lists:reverse(lists:sort(GatewaysScored)),
+    blockchain_utils:rand_from_hash(Hash),
+    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, [], Locations),
+
+    %% sort low to high to prioritize low scoring and down gateways
+    %% for removal from the group
+    OldGroup = lists:sort(OldGroupScored),
+    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
+    Rem ++ New.
+
+%% all blocks other than the first block in an election epoch contain
+%% information about the nodes that consensus members saw during the
+%% course of the block, and also information about which BBAs were
+%% driven to completion.  Here, we iterate through all of the blocks
+%% to gather that information, then summarize it, then apply penalties
+%% to the nodes that have not been seen or that are failing to drive
+%% their BBA executions to completion.
+adjust_old_group(Group, Ledger) ->
+    {ok, BBAPenalty} = blockchain_ledger_v1:config(?election_bba_penalty, Ledger),
+    {ok, SeenPenalty} = blockchain_ledger_v1:config(?election_seen_penalty, Ledger),
+
+    Sz = length(Group),
+    %% ideally would not have to do this but don't want to change the
+    %% interface.
+    Chain = blockchain_worker:blockchain(),
+    #{start_height := Start,
+      curr_height := End} = election_info(Ledger, Chain),
+    %% annotate the ledger group (which is ordered properly), with each one's index.
+    {ok, OldGroup} = blockchain_ledger_v1:consensus_members(Ledger),
+    {_, Addrs} =
+        lists:foldl(
+          fun(Addr, {Index, Acc}) ->
+                  {Index + 1, Acc#{Addr => Index}}
+          end,
+          {1, #{}},
+          OldGroup),
+
+    Blocks = [begin {ok, Block} = blockchain:get_block(Ht, Chain), Block end
+              || Ht <- lists:seq(Start + 1, End)],
+
+    BBAs = [begin
+                BBA0 = blockchain_block_v1:bba_completion(Block),
+                blockchain_utils:bitvector_to_map(Sz, BBA0)
+            end || Block <- Blocks],
+
+    Seens = [begin
+                 Seen0 = blockchain_block_v1:seen_votes(Block),
+                 %% votes here are lists of per-participant seen
+                 %% information. condense here summarizes them, and a
+                 %% node is only voted against if there are 2f+1
+                 %% votes against it.
+                 condense_votes(Sz, Seen0)
+             end || Block <- Blocks],
+
+    lager:info("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+
+    Penalties0 =
+        lists:foldl(
+          fun(BBA, Acc) ->
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> X + BBAPenalty end,
+                                             BBAPenalty, A);
+                       (_, _, A) ->
+                            A
+                    end,
+                    Acc, BBA)
+          end,
+          #{},
+          BBAs),
+
+    lager:info("penalties0 ~p", [Penalties0]),
+
+    Penalties =
+        lists:foldl(
+          fun(Seen, Acc) ->
+                  maps:fold(
+                    fun(Idx, false, A) ->
+                            maps:update_with(Idx, fun(X) -> X + SeenPenalty end,
+                                             SeenPenalty, A);
+                       (_, _, A) ->
+                            A
+                    end,
+                    Acc, Seen)
+          end,
+          Penalties0,
+          Seens),
+    %% now that we've accumulated all of the penalties, apply them to
+    %% adjust the score for this group generation
+
+    lager:info("penalties ~p", [Penalties]),
+
+    lists:map(
+      fun({Score, Loc, Addr}) ->
+              Index = maps:get(Addr, Addrs),
+              Penalty = maps:get(Index, Penalties, 0.0),
+              lager:info("~s ~p ~p", [blockchain_utils:addr2name(Addr), Score, Penalty]),
+              {normalize_float(Score - Penalty), Loc, Addr}
+      end,
+      Group).
+
+condense_votes(Sz, Seen0) ->
+    SeenMaps = [blockchain_utils:bitvector_to_map(Sz, S)
+                || {_Idx, S} <- Seen0],
+    %% 2f + 1 = N - ((N - 1) div 3)
+    Threshold = Sz - ((Sz - 1) div 3),
+    %% for seen we count `false` votes, which means that if enough other consensus members
+    %% report us as not voting, we accrue a per round penalty.
+    Counts =
+        lists:foldl(
+          %% Map here is a per-peer list of whether or not it saw a peer at Idx
+          %% participating.  We accumulate these votes in Acc.
+          fun(Map, Acc) ->
+                  %% the inner fold updates the accumulator with each vote in the map
+                  lists:foldl(
+                    fun(Idx, A) ->
+                            case Map of
+                                %% false means we didn't see this peer.
+                                #{Idx := false} ->
+                                    maps:update_with(Idx, fun(X) -> X + 1 end, 1, A);
+                                _ ->
+                                    A
+                            end
+                    end,
+                    Acc,
+                    lists:seq(1, Sz))
+          end,
+          #{},
+          SeenMaps),
+    lager:info("counts ~p", [Counts]),
+    maps:map(fun(_Idx, Ct) ->
+                     %% we do the opposite of the intuitive check here, because when we
+                     %% use the condensed votes, true is good and false is bad, so we want
+                     %% to return false when we have enough votes against a peer
+                     Ct < Threshold
+             end,
+             Counts).
 
 determine_sizes(Size, OldLen, Delay, Ledger) ->
     {ok, ReplacementFactor} = blockchain_ledger_v1:config(?election_replacement_factor, Ledger),
@@ -249,6 +421,7 @@ election_info(Ledger, Chain) ->
 
     #{
       epoch => Epoch,
+      curr_height => Height,
       start_height => StartHeight,
       election_height => ElectionHeight,
       election_delay => ElectionDelay

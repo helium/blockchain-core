@@ -22,6 +22,8 @@
     is_genesis/1,
     hash_block/1,
     rescue_signature/1,
+    seen_votes/1,
+    bba_completion/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1
 ]).
@@ -42,7 +44,9 @@
                        signatures => [blockchain_block:signature()],
                        election_epoch => non_neg_integer(),
                        epoch_start => non_neg_integer(),
-                       rescue_signature => binary()
+                       rescue_signature => binary(),
+                       seen_votes => [{pos_integer(), binary()}],
+                       bba_completion => binary()
                       }.
 
 -export_type([block/0, block_map/0]).
@@ -59,7 +63,9 @@ new(#{prev_hash := PrevHash,
       transactions := Transactions,
       signatures := Signatures,
       election_epoch := ElectionEpoch,
-      epoch_start := EpochStart}) ->
+      epoch_start := EpochStart,
+      seen_votes := Votes,
+      bba_completion := Completion}) ->
     #blockchain_block_v1_pb{
        prev_hash = PrevHash,
        height = Height,
@@ -68,7 +74,9 @@ new(#{prev_hash := PrevHash,
        time = Time,
        hbbft_round=HBBFTRound,
        election_epoch = ElectionEpoch,
-       epoch_start = EpochStart
+       epoch_start = EpochStart,
+       seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
+       bba_completion = Completion
       }.
 
 -spec rescue(block_map())-> block().
@@ -138,6 +146,14 @@ signatures(Block) ->
 rescue_signature(Block) ->
     Block#blockchain_block_v1_pb.rescue_signature.
 
+-spec seen_votes(block()) -> [{pos_integer(), binary()}].
+seen_votes(Block) ->
+    [unwrap_vote(V) || V <- Block#blockchain_block_v1_pb.seen_votes].
+
+-spec bba_completion(block()) -> binary().
+bba_completion(Block) ->
+    Block#blockchain_block_v1_pb.bba_completion.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -174,7 +190,9 @@ new_genesis_block(Transactions) ->
                   signatures => [],
                   hbbft_round => 0,
                   election_epoch => 1,
-                  epoch_start => 0}).
+                  epoch_start => 0,
+                  seen_votes => [],
+                  bba_completion => <<>>}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -305,6 +323,14 @@ wrap_signature({Signer, Signature}) ->
 unwrap_signature(#blockchain_signature_v1_pb{signer=Signer, signature=Sig}) ->
     {Signer, Sig}.
 
+-spec wrap_vote({pos_integer(), binary()}) -> #blockchain_seen_vote_v1_pb{}.
+wrap_vote({Idx, Vector}) ->
+    #blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}.
+
+-spec unwrap_vote(#blockchain_seen_vote_v1_pb{}) -> {pos_integer(), binary()}.
+unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
+    {Idx, Vector}.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -320,7 +346,9 @@ new_merge(Overrides) ->
              hbbft_round => 0,
              time => 0,
              election_epoch => 0,
-             epoch_start => 0
+             epoch_start => 0,
+             seen_votes => [],
+             bba_completion => <<>>
            },
           Overrides)).
 
