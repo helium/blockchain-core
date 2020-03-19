@@ -16,7 +16,8 @@
          packet/1,
          packet_details/0,
          response/1,
-         state_channel_update/1
+         state_channel_update/1,
+         state/0
         ]).
 
 %% ------------------------------------------------------------------
@@ -73,6 +74,10 @@ packet(PacketInfo) ->
 -spec packet_details() -> packet_details().
 packet_details() ->
     gen_server:call(?SERVER, packet_details).
+
+-spec state() -> state().
+state() ->
+    gen_server:call(?SERVER, state).
 
 -spec response(Resp :: blockchain_state_channel_response_v1:reponse()) -> ok.
 response(Resp) ->
@@ -157,6 +162,8 @@ handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     {reply, Reply, State};
 handle_call(packet_details, _From, #state{packet_details=PacketDetails}=State) ->
     {reply, PacketDetails, State};
+handle_call(state, _From, State) ->
+    {reply, {ok, State}, State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 

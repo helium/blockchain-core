@@ -90,10 +90,13 @@ is_valid(Req, Ledger) ->
     CheckSignature = libp2p_crypto:verify(EncodedReq, Signature, PubKey),
     case CheckSignature of
         false ->
+            lager:error("checksignature: false"),
             false;
         true ->
             AG = maps:keys(blockchain_ledger_v1:active_gateways(Ledger)),
-            lists:member(Payee, AG)
+            GwMembership = lists:member(Payee, AG),
+            lager:error("gw_membership: ~p", [GwMembership]),
+            GwMembership
     end.
 
 -spec encode(request()) -> binary().
