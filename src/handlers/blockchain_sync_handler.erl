@@ -88,7 +88,7 @@ dial(Swarm, Chain, Peer, ProtocolVersion)->
 init(client, _Conn, [Path, Blockchain]) ->
     case blockchain_worker:sync_paused() of
         true ->
-            {stop, sync_paused};
+            {stop, normal};
         false ->
             BatchSize = application:get_env(blockchain, block_sync_batch_size, 5),
             BatchLimit = application:get_env(blockchain, block_sync_batch_limit, 40),

@@ -259,9 +259,9 @@
 -define(max_payments, max_payments).
 %% Var to switch off legacy payment txn
 -define(deprecate_payment_v1, deprecate_payment_v1).
+
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
-
 
 %% ------------------------------------------------------------------
 %% State channel related vars
@@ -284,3 +284,12 @@
 -define(sc_grace_blocks, sc_grace_blocks).
 %% DC Payload size, set to 24
 -define(dc_payload_size, dc_payload_size).
+
+%% ------------------------------------------------------------------
+%% snapshot vars
+
+%% snapshot version, presence indicates if snapshots are enabled or not.
+-define(snapshot_version, snapshot_version).
+
+%% how often we attempt to take a snapshot of the ledger
+-define(snapshot_interval, snapshot_interval).

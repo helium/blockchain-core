@@ -638,7 +638,7 @@ rewards_test() ->
 consensus_members_rewards_test() ->
     BaseDir = test_utils:tmp_dir("consensus_members_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
     Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,
@@ -662,7 +662,7 @@ consensus_members_rewards_test() ->
 securities_rewards_test() ->
     BaseDir = test_utils:tmp_dir("securities_rewards_test"),
     Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
     Ledger = blockchain:ledger(Chain),
     Vars = #{
         epoch_reward => 1000,

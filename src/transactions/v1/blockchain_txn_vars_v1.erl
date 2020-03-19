@@ -52,6 +52,12 @@
 
 -endif.
 
+-ifdef(TEST).
+-define(min_snap_interval, 1).
+-else.
+-define(min_snap_interval, 720).
+-endif.
+
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
 -export_type([txn_vars/0]).
 
@@ -781,6 +787,23 @@ validate_var(?sc_grace_blocks, Value) ->
     validate_int(Value, "sc_grace_blocks", 1, 100, false);
 validate_var(?dc_payload_size, Value) ->
     validate_int(Value, "dc_payload_size", 1, 32, false);
+
+%% txn snapshot vars
+validate_var(?snapshot_version, Value) ->
+    case Value of
+        N when is_integer(N), N == 1 ->
+            ok;
+        _ ->
+            throw({error, {invalid_snapshot_version, Value}})
+    end;
+%% this is a copy of the lines at the top for informational value
+%% -ifdef(TEST).
+%% -define(min_snap_interval, 1).
+%% -else.
+%% -define(min_snap_interval, 720).
+%% -endif.
+validate_var(?snapshot_interval, Value) -> % half day to two weeks
+    validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

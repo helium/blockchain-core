@@ -226,10 +226,10 @@ ledger_variables(Cmd, [], Flags) ->
                         [clique_status:text("variable not found")]
                 end;
             [_, _] when Flags == [{all, undefined}] ->
-                Vars = blockchain_ledger_v1:all_vars(Ledger),
+                Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
                 [clique_status:text(
                    [io_lib:format("~s: ~p~n", [N, V])
-                    || {N, V} <- lists:sort(maps:to_list(Vars))])];
+                    || {N, V} <- lists:sort(Vars)])];
             _ ->
                 usage
         end

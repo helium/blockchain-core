@@ -114,7 +114,7 @@ init_per_testcase(TestCase, Config) ->
                           max_subnet_num => 20}
                 end,
 
-    {ok, GenesisMembers, ConsensusMembers, Keys} =
+    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance,
                               {PrivKey, PubKey},
                               not lists:member(TestCase, [bogus_coinbase_test, bogus_coinbase_with_good_payment_test]),
@@ -217,8 +217,15 @@ reload_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    true = erlang:exit(Sup, normal),
+    OldSwarm = blockchain_swarm:swarm(),
+    Worker = whereis(blockchain_worker),
+    ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm) end),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Worker) end),
+
+    %% TODO: why is this required?
+    blockchain:close(Chain0),
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(#{num_consensus_members => N0}),
 
@@ -231,6 +238,8 @@ reload_test(Config) ->
     GenDir = BaseDir ++ "2",  %% create a second/alternative base dir
     File = filename:join(GenDir, "genesis"),
     ok = test_utils:atomic_save(File, blockchain_block:serialize(NewGenBlock)),
+
+    ct:pal("new start"),
 
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
     ?assert(erlang:is_pid(blockchain_swarm:swarm())),
@@ -270,8 +279,13 @@ restart_test(Config) ->
     ?assertEqual({ok, 11}, blockchain:height(Chain0)),
 
     %% Kill this blockchain sup
-    true = erlang:exit(Sup, normal),
+    OldSwarm = blockchain_swarm:swarm(),
+    ok = gen_server:stop(Sup),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup) end),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm) end),
+
+    %% TODO: why is this required?
+    blockchain:close(Chain0),
 
     % Restart with an empty 'GenDir'
     {ok, Sup1} = blockchain_sup:start_link([{update_dir, GenDir}|Opts]),
@@ -285,8 +299,13 @@ restart_test(Config) ->
     ?assertEqual({ok, GenBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 11}, blockchain:height(Chain)),
 
-    true = erlang:exit(Sup1, normal),
+   %% Kill this blockchain sup
+    OldSwarm2 = blockchain_swarm:swarm(),
+    ok = gen_server:stop(Sup1),
     ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(Sup1) end),
+    ok = test_utils:wait_until(fun() -> not erlang:is_process_alive(OldSwarm2) end),
+
+    blockchain:close(Chain),
 
     % Restart with the existing genesis block in 'GenDir'
     ok = filelib:ensure_dir(filename:join([GenDir, "genesis"])),

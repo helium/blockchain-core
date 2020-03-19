@@ -99,7 +99,7 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:genesis_block(Chain)),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    {ok, GenesisMembers, ConsensusMembers, Keys}.
+    {ok, GenesisMembers, GenesisBlock, ConsensusMembers, Keys}.
 
 generate_keys(N) ->
     generate_keys(N, ecc_compact).

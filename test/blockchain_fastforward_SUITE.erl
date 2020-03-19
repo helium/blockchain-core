@@ -103,12 +103,12 @@ basic(Version, Sup, {PrivKey, PubKey}, Config) ->
     Balance = 5000,
     BlocksN = 100,
     %% create a chain
-    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     %% create a second chain
-    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
+    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
 
     % Add some blocks to the first chain
     Blocks = lists:reverse(lists:foldl(
