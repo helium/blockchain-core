@@ -68,7 +68,7 @@ basic(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -105,7 +105,7 @@ wrong_height(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -143,7 +143,7 @@ blockchain_restart(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -182,7 +182,7 @@ blockchain_almost_synced(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -222,7 +222,7 @@ blockchain_crash_while_absorbing(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -287,7 +287,7 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -297,7 +297,7 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
     LastBlock = lists:last(Blocks),
     ExplodeBlock = lists:nth(50, Blocks),
 
-    FinalLastBlock = test_utils:create_block(ConsensusMembers, []),
+    {ok, FinalLastBlock} = test_utils:create_block(ConsensusMembers, []),
     blockchain:add_block(FinalLastBlock, Chain0),
 
     {ok, Chain} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(LastBlock), blockchain_block:height(LastBlock)}),
@@ -351,7 +351,7 @@ overlapping_streams(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
