@@ -172,7 +172,7 @@ validate_oui(Txn, Ledger) ->
                 {ok, Routing} ->
                     OUIOwner = blockchain_ledger_routing_v1:owner(Routing),
                     case ?MODULE:is_valid_oui_owner(OUIOwner, Txn) of
-                        false -> {error, invalid_oui_onwer_signature};
+                        false -> {error, invalid_oui_owner_signature};
                         true -> ok
                     end
             end
@@ -189,7 +189,7 @@ validate_gateway(Txn, Ledger) ->
         {ok, GWInfo} ->
             GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
             case ?MODULE:is_valid_gateway_owner(GatewayOwner, Txn) of
-                false -> {error, invalid_gateway_onwer_signature};
+                false -> {error, invalid_gateway_owner_signature};
                 true -> {ok, GWInfo}
             end
     end.

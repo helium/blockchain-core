@@ -177,11 +177,11 @@ zero_test(Config) ->
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Create add gateway txn (making Gateqay node a gateway and router 1 its owner)
-    {ok, GatewayPubkey, _GatewaySigFun, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
+    {ok, GatewayPubkey, GatewaySigFun, _} = ct_rpc:call(GatewayNode1, blockchain_swarm, keys, []),
     GatewayPubkeyBin = libp2p_crypto:pubkey_to_bin(GatewayPubkey),
 
     UpdateGWOuiTxn = blockchain_txn_update_gateway_oui_v1:new(GatewayPubkeyBin, OUI, 1, 1),
-    SignedUpdateGWOuiTxn0 = blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGWOuiTxn, RouterSigFun),
+    SignedUpdateGWOuiTxn0 = blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGWOuiTxn, GatewaySigFun),
     SignedUpdateGWOuiTxn1 = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(SignedUpdateGWOuiTxn0, RouterSigFun),
 
     % Step 4: Adding block
