@@ -198,7 +198,7 @@ zero_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
         {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
-    end, 30, timer:seconds(1)),
+    end, 60, timer:seconds(2)),
 
     % Step 5: Checking that state channel got created properly
     RouterLedger = blockchain:ledger(RouterChain),
@@ -374,17 +374,17 @@ expired_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
-    % Some madness to make submit txn work and "create a block"
+    %% Forward this process's submit_txn to meck_test_util which
+    %% sends this process a msg reply back which we later handle
     Self = self(),
-    ok = ct_rpc:call(RouterNode, meck, new, [blockchain_worker, [passthrough]]),
-    timer:sleep(10),
-    ok = ct_rpc:call(RouterNode, meck, expect, [blockchain_worker, submit_txn, fun(T) ->
-        Self ! {txn, T},
-        ok
-    end]),
+    ok = ct_rpc:call(RouterNode, meck_test_util, forward_submit_txn, [Self]),
+
+    %% Check that this works
     ok = ct_rpc:call(RouterNode, blockchain_worker, submit_txn, [test]),
     receive
-        {txn, test} -> ok
+        {txn, test} ->
+            ct:pal("Got txn test"),
+            ok
     after 1000 ->
         ct:fail("txn test timeout")
     end,
@@ -399,7 +399,7 @@ expired_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(32),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 20, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
@@ -425,7 +425,7 @@ expired_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(24),
+    Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
@@ -492,17 +492,17 @@ replay_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
-    % Some madness to make submit txn work and "create a block"
+    %% Forward this process's submit_txn to meck_test_util which
+    %% sends this process a msg reply back which we later handle
     Self = self(),
-    ok = ct_rpc:call(RouterNode, meck, new, [blockchain_worker, [passthrough]]),
-    timer:sleep(10),
-    ok = ct_rpc:call(RouterNode, meck, expect, [blockchain_worker, submit_txn, fun(T) ->
-        Self ! {txn, T},
-        ok
-    end]),
+    ok = ct_rpc:call(RouterNode, meck_test_util, forward_submit_txn, [Self]),
+
+    %% Check that this works
     ok = ct_rpc:call(RouterNode, blockchain_worker, submit_txn, [test]),
     receive
-        {txn, test} -> ok
+        {txn, test} ->
+            ct:pal("Got txn test"),
+            ok
     after 1000 ->
         ct:fail("txn test timeout")
     end,
@@ -517,7 +517,7 @@ replay_test(Config) ->
 
     % Step 2: Create state channel open txn
     TotalDC = 10,
-    ID = crypto:strong_rand_bytes(24),
+    ID = crypto:strong_rand_bytes(120),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, 100, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
@@ -546,7 +546,7 @@ replay_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [Self]),
-    Payload0 = crypto:strong_rand_bytes(24),
+    Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
     PacketInfo0 = {Packet0, <<"devaddr">>, 1, <<"mic1">>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo0]),
@@ -573,7 +573,7 @@ replay_test(Config) ->
 
     % Step 5: Sending 1 packet
     ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, packet_forward, [undefined]),
-    Payload1 = crypto:strong_rand_bytes(24),
+    Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     PacketInfo1 = {Packet1, <<"devaddr">>, 1, <<"mic1">>},
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [PacketInfo1]),
@@ -633,17 +633,17 @@ multiple_test(Config) ->
     [RouterNode, GatewayNode1|_] = ?config(nodes, Config),
     ConsensusMembers = ?config(consensus_members, Config),
 
-    % Some madness to make submit txn work and "create a block"
+    %% Forward this process's submit_txn to meck_test_util which
+    %% sends this process a msg reply back which we later handle
     Self = self(),
-    ok = ct_rpc:call(RouterNode, meck, new, [blockchain_worker, [passthrough]]),
-    timer:sleep(10),
-    ok = ct_rpc:call(RouterNode, meck, expect, [blockchain_worker, submit_txn, fun(T) ->
-        Self ! {txn, T},
-        ok
-    end]),
+    ok = ct_rpc:call(RouterNode, meck_test_util, forward_submit_txn, [Self]),
+
+    %% Check that this works
     ok = ct_rpc:call(RouterNode, blockchain_worker, submit_txn, [test]),
     receive
-        {txn, test} -> ok
+        {txn, test} ->
+            ct:pal("Got txn test"),
+            ok
     after 1000 ->
         ct:fail("txn test timeout")
     end,
