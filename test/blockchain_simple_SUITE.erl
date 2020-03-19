@@ -1879,7 +1879,6 @@ update_gateway_oui_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 25} == blockchain:height(Chain) end),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
-    
     ok.
 
 create_gateway() ->

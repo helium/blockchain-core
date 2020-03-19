@@ -37,7 +37,10 @@
 -type txn_update_gateway_oui() :: #blockchain_txn_update_gateway_oui_v1_pb{}.
 -export_type([txn_update_gateway_oui/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer() | undefined, non_neg_integer(), non_neg_integer()) -> txn_update_gateway_oui().
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          OUI :: pos_integer(),
+          Nonce :: non_neg_integer(),
+          Fee :: non_neg_integer()) -> txn_update_gateway_oui().
 new(Gateway, OUI, Nonce, Fee) ->
     #blockchain_txn_update_gateway_oui_v1_pb{
         gateway=Gateway,
@@ -58,7 +61,7 @@ hash(Txn) ->
 gateway(Txn) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb.gateway.
 
--spec oui(txn_update_gateway_oui()) -> non_neg_integer() | undefined.
+-spec oui(txn_update_gateway_oui()) -> pos_integer().
 oui(Txn) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb.oui.
 
@@ -160,21 +163,17 @@ absorb(Txn, Chain) ->
 
 -spec validate_oui(txn_update_gateway_oui(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 validate_oui(Txn, Ledger) ->
-    case ?MODULE:oui(Txn) of
-        undefined ->
-            ok;
-        OUI ->
-            case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-                {error, not_found} ->
-                    {error, oui_not_found};
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, Routing} ->
-                    OUIOwner = blockchain_ledger_routing_v1:owner(Routing),
-                    case ?MODULE:is_valid_oui_owner(OUIOwner, Txn) of
-                        false -> {error, invalid_oui_owner_signature};
-                        true -> ok
-                    end
+    OUI = ?MODULE:oui(Txn),
+    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+        {error, not_found} ->
+            {error, oui_not_found};
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Routing} ->
+            OUIOwner = blockchain_ledger_routing_v1:owner(Routing),
+            case ?MODULE:is_valid_oui_owner(OUIOwner, Txn) of
+                false -> {error, invalid_oui_owner_signature};
+                true -> ok
             end
     end.
 
