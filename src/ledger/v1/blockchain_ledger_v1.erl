@@ -1318,7 +1318,7 @@ debit_dc(Address, Fee, Nonce, Ledger) ->
         {ok, Entry} ->
             case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
                 false ->
-                    {error, {bad_dc_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
+                    {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
                 true ->
                     Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
                     case (Balance - Fee) >= 0 of
