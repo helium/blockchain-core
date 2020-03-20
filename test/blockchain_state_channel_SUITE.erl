@@ -119,7 +119,7 @@ basic_test(Config) ->
     meck:new(blockchain, [passthrough]),
     meck:expect(blockchain, ledger, fun(_) -> ledger end),
     meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, find_scs_by_owner, fun(_, _) -> #{} end),
+    meck:expect(blockchain_ledger_v1, find_scs_by_owner, fun(_, _) -> {ok, #{}} end),
 
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
     ID = <<"ID1">>,
