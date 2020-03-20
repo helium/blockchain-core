@@ -27,6 +27,8 @@
     period => 5
 }).
 
+-define(DB_FILE, "state_channels.db").
+
 -include("blockchain.hrl").
 
 %% ------------------------------------------------------------------
@@ -46,11 +48,10 @@ init([BaseDir]) ->
         ?STATE_CHANNEL_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_state_channel_handler]}
     ),
-    DBOpts = [BaseDir],
-    ServerOpts = #{swarm => Swarm},
-    ClientOpts = #{swarm => Swarm},
+    {ok, DB} = open_db(BaseDir),
+    ServerOpts = #{swarm => Swarm, db => DB},
+    ClientOpts = #{swarm => Swarm, db => DB},
     ChildSpecs = [
-        ?WORKER(blockchain_state_channel_db, [DBOpts]),
         ?WORKER(blockchain_state_channels_server, [ServerOpts]),
         ?WORKER(blockchain_state_channels_client, [ClientOpts])
     ],
@@ -59,3 +60,11 @@ init([BaseDir]) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle()}.
+open_db(Dir) ->
+    DBDir = filename:join(Dir, ?DB_FILE),
+    ok = filelib:ensure_dir(DBDir),
+    GlobalOpts = application:get_env(rocksdb, global_opts, []),
+    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
+    rocksdb:open(DBDir, DBOptions).

@@ -93,7 +93,7 @@ state_channel_update(SCUpdate) ->
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
-    {ok, DB} = blockchain_state_channel_db:get(),
+    DB = maps:get(db, Args),
     State = #state{db=DB, swarm=Swarm},
     schedule_packet_handling(),
     {ok, State}.

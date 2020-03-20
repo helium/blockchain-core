@@ -102,9 +102,9 @@ packet_forward(Pid) ->
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
+    DB = maps:get(db, Args),
     Pid = maps:get(packet_forward, Args, undefined),
     ok = blockchain_event:add_handler(self()),
-    {ok, DB} = blockchain_state_channel_db:get(),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     {ok, State} = load_state(DB),
     self() ! post_init,
