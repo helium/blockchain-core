@@ -119,7 +119,7 @@ basic_test(Config) ->
     meck:new(blockchain, [passthrough]),
     meck:expect(blockchain, ledger, fun(_) -> ledger end),
     meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, find_state_channels_by_owner, fun(_, _) -> {error, meck} end),
+    meck:expect(blockchain_ledger_v1, find_scs_by_owner, fun(_, _) -> {ok, #{}} end),
 
     {ok, Sup} = blockchain_state_channel_sup:start_link([BaseDir]),
     ID = <<"ID1">>,
@@ -479,7 +479,7 @@ expired_test(Config) ->
     end, 10, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channels_by_owner, [RouterPubkeyBin, RouterLedger])
+        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
@@ -713,7 +713,7 @@ multiple_test(Config) ->
     end, 10, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channels_by_owner, [RouterPubkeyBin, RouterLedger])
+        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
 
 
@@ -776,7 +776,7 @@ multiple_test(Config) ->
     end, 10, timer:seconds(1)),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channels_by_owner, [RouterPubkeyBin, RouterLedger])
+        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),

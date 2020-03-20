@@ -192,8 +192,9 @@ handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=
             {noreply, State};
         Chain ->
             Ledger = blockchain:ledger(Chain),
-            LedgerSCs = convert_to_state_channels(blockchain_ledger_v1:find_all_state_channels_by_owner(Ledger, Owner)),
-            {noreply, State#state{chain=Chain, state_channels=maps:merge(LedgerSCs, SCs)}}
+            {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
+            ConvertedSCs = convert_to_state_channels(LedgerSCs),
+            {noreply, State#state{chain=Chain, state_channels=maps:merge(ConvertedSCs, SCs)}}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
             #state{chain=Chain, owner={Owner, OwnerSigFun}, state_channels=SCs}=State0) ->
