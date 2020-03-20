@@ -1328,7 +1328,7 @@ debit_dc(Address, Fee, Nonce, Ledger) ->
                             EntriesCF = dc_entries_cf(Ledger),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, Fee, Balance}}
+                            {error, {insufficient_dc_balance, Fee, Balance}}
                     end
             end
     end.
