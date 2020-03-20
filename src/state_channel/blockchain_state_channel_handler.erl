@@ -85,7 +85,7 @@ handle_data(client, Data, State) ->
         {state_channel_update, SCUpdate} ->
            blockchain_state_channels_client:state_channel_update(SCUpdate);
         _ ->
-            ingore
+            ignore
     end,
     {noreply, State};
 handle_data(server, Data, State) ->
