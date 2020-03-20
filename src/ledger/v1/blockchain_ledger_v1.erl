@@ -79,8 +79,7 @@
     find_ouis/2, add_oui/4,
     find_routing/2,  add_routing/5,
 
-    find_state_channel/3, find_state_channels_by_owner/2,
-    find_all_state_channels_by_owner/2,
+    find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/6,
     delete_state_channel/3,
 
@@ -1591,7 +1590,9 @@ add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
     Bin = blockchain_ledger_routing_v1:serialize(Routing),
     cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin).
 
--spec find_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
+-spec find_state_channel(ID :: binary(),
+                         Owner :: libp2p_crypto:pubkey_bin(),
+                         Ledger :: ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
@@ -1604,8 +1605,9 @@ find_state_channel(ID, Owner, Ledger) ->
             Error
     end.
 
--spec find_state_channels_by_owner(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, [binary()]}.
-find_state_channels_by_owner(Owner, Ledger) ->
+-spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
+                           Leger :: ledger()) -> {ok, [binary()]}.
+find_sc_ids_by_owner(Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     OwnerLength = byte_size(Owner),
     %% find all the state channels where the key begins with the owner
@@ -1615,17 +1617,18 @@ find_state_channels_by_owner(Owner, Ledger) ->
                        [binary:part(K, OwnerLength, byte_size(K) - OwnerLength)|Acc]
                end, [], [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
 
--spec find_all_state_channels_by_owner(Ledger :: blockchain_ledger_v1:ledger(), Owner :: libp2p_crypto:pubkey_bin()) -> state_channel_map().
-find_all_state_channels_by_owner(Ledger, Owner) ->
+-spec find_scs_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
+                        Ledger :: blockchain_ledger_v1:ledger()) -> {ok, state_channel_map()}.
+find_scs_by_owner(Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     OwnerLength = byte_size(Owner),
     %% find all the state channels where the key begins with the owner,
     %% extract the ID from the second half of the key and deserialize the value
-    cache_fold(Ledger, SCsCF,
+    {ok, cache_fold(Ledger, SCsCF,
                fun({K, V}, Acc) when erlang:binary_part(K, {0, OwnerLength}) == Owner ->
                        ID = binary:part(K, OwnerLength, byte_size(K) - OwnerLength),
                        maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc)
-               end, #{}, [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}]).
+               end, #{}, [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
 
 
 -spec add_state_channel(ID :: binary(),
@@ -1790,11 +1793,14 @@ cache_delete(Ledger, CF, Key) ->
     true = ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
     ok.
 
--spec cache_fold(ledger(), rocksdb:cf_handle(), fun(({Key::binary(), Value::binary()}, Acc::any()) -> NewAcc::any()), OriginalAcc::any()) -> FinalAcc::any().
-cache_fold(Ledger, CF, Fun0, Acc) ->
-    cache_fold(Ledger, CF, Fun0, Acc, []).
+-spec cache_fold(Ledger :: ledger(),
+                 CF :: rocksdb:cf_handle(),
+                 Fun0 :: fun(({Key::binary(), Value::binary()}, Acc::any()) -> NewAcc::any()),
+                 OriginalAcc :: any()) -> FinalAcc::any().
+cache_fold(Ledger, CF, Fun0, OriginalAcc) ->
+    cache_fold(Ledger, CF, Fun0, OriginalAcc, []).
 
-cache_fold(Ledger, CF, Fun0, Acc, Opts) ->
+cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
     Start0 = proplists:get_value(start, Opts, first),
     Start =
         case Start0 of
@@ -1807,12 +1813,12 @@ cache_fold(Ledger, CF, Fun0, Acc, Opts) ->
     case context_cache(Ledger) of
         undefined ->
             %% fold rocks directly
-            rocks_fold(Ledger, CF, Opts, Fun0, Acc);
+            rocks_fold(Ledger, CF, Opts, Fun0, OriginalAcc);
         Cache ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
             Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
-            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, Acc}),
+            {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, OriginalAcc}),
             process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
     end.
 
@@ -2450,7 +2456,7 @@ state_channels_test() ->
     Nonce = 1,
 
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
-    ?assertEqual({ok, []}, find_state_channels_by_owner(Owner, Ledger1)),
+    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
     ok = add_state_channel(ID, Owner, 12, 10, Nonce, Ledger2),
@@ -2460,18 +2466,46 @@ state_channels_test() ->
     ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(Nonce, blockchain_ledger_state_channel_v1:nonce(SC)),
     ?assertEqual(12, blockchain_ledger_state_channel_v1:amount(SC)),
-    ?assertEqual({ok, [ID]}, find_state_channels_by_owner(Owner, Ledger)),
+    ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
     ok = delete_state_channel(ID, Owner, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
-    ?assertEqual({ok, []}, find_state_channels_by_owner(Owner, Ledger)),
+    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),
 
     ok.
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),
     ?assertEqual(<<1, 0>>, increment_bin(<<255>>)).
+
+find_scs_by_owner_test() ->
+    BaseDir = test_utils:tmp_dir("find_scs_by_owner_test"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ID1 = crypto:strong_rand_bytes(32),
+    ID2 = crypto:strong_rand_bytes(32),
+    IDs = [ID1, ID2],
+    Owner = <<"owner">>,
+    Nonce = 1,
+
+    ?assertEqual({error, not_found}, find_state_channel(ID1, Owner, Ledger1)),
+    ?assertEqual({error, not_found}, find_state_channel(ID2, Owner, Ledger1)),
+    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
+    ?assertEqual({ok, #{}}, find_scs_by_owner(Owner, Ledger1)),
+
+    Ledger2 = new_context(Ledger),
+    %% Add two state channels for this owner
+    ok = add_state_channel(ID1, Owner, 12, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID2, Owner, 12, 10, Nonce, Ledger2),
+    ok = commit_context(Ledger2),
+
+    {ok, FoundIDs} = find_sc_ids_by_owner(Owner, Ledger),
+    ?assertEqual(lists:sort(FoundIDs), lists:sort(IDs)),
+
+    {ok, SCs} = find_scs_by_owner(Owner, Ledger),
+    ?assertEqual(lists:sort(maps:keys(SCs)), lists:sort(IDs)),
+    ok.
 
 -endif.
