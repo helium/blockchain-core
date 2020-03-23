@@ -807,182 +807,152 @@ multi_owner_multi_sc_test(Config) ->
         ct:fail("txn test timeout")
     end,
 
-    % Step 1: Create OUI txn for RouterNode1 and RouterNode2
+    %% Create OUI txn for RouterNode1
     SignedOUITxn1 = create_oui_txn(RouterNode1, 1),
-    SignedOUITxn2 = create_oui_txn(RouterNode2, 2),
 
-    % Step 2: Create 3 SCs for RouterNode1 and 3 SCs for RouterNode2
+    %% Create 3 SCs for RouterNode1
     TotalDC = 10,
     Expiry = 20,
-    ID1 = crypto:strong_rand_bytes(24),
-    ID2 = crypto:strong_rand_bytes(24),
-    ID3 = crypto:strong_rand_bytes(24),
-    ID4 = crypto:strong_rand_bytes(24),
-    ID5 = crypto:strong_rand_bytes(24),
-    ID6 = crypto:strong_rand_bytes(24),
+    ID11 = crypto:strong_rand_bytes(24),
+    ID12 = crypto:strong_rand_bytes(24),
+    ID13 = crypto:strong_rand_bytes(24),
+    SignedSCOpenTxn11 = create_sc_open_txn(RouterNode1, TotalDC, ID11, Expiry, 1),
+    SignedSCOpenTxn12 = create_sc_open_txn(RouterNode1, TotalDC, ID12, Expiry, 2),
+    SignedSCOpenTxn13 = create_sc_open_txn(RouterNode1, TotalDC, ID13, Expiry, 3),
 
-    SignedSCOpenTxn11 = create_sc_open_txn(RouterNode1, TotalDC, ID1, Expiry, 1),
-    SignedSCOpenTxn12 = create_sc_open_txn(RouterNode1, TotalDC, ID2, Expiry, 2),
-    SignedSCOpenTxn13 = create_sc_open_txn(RouterNode1, TotalDC, ID3, Expiry, 3),
-    SignedSCOpenTxn21 = create_sc_open_txn(RouterNode2, TotalDC, ID4, Expiry, 1),
-    SignedSCOpenTxn22 = create_sc_open_txn(RouterNode2, TotalDC, ID5, Expiry, 2),
-    SignedSCOpenTxn23 = create_sc_open_txn(RouterNode2, TotalDC, ID6, Expiry, 3),
-
-    % Step 3: Adding block with all these txns
-    Txns = [SignedOUITxn1,
-            SignedOUITxn2,
-            SignedSCOpenTxn11,
-            SignedSCOpenTxn12,
-            SignedSCOpenTxn13,
-            SignedSCOpenTxn21,
-            SignedSCOpenTxn22,
-            SignedSCOpenTxn23],
+    % Adding block with first set of txns
+    Txns1 = [SignedOUITxn1,
+             SignedSCOpenTxn11,
+             SignedSCOpenTxn12,
+             SignedSCOpenTxn13],
     RouterChain1 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
     RouterSwarm1 = ct_rpc:call(RouterNode1, blockchain_swarm, swarm, []),
-    {ok, Block1} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, Txns]),
-    ct:pal("Block1: ~p", [Block1]),
-    _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, Block1, RouterChain1, Self]),
+    {ok, Block2} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, Txns1]),
+    _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, Block2, RouterChain1, Self]),
+    ct:pal("Block2: ~p", [Block2]),
 
+    %% Wait till the block is propagated
     ok = blockchain_ct_utils:wait_until(fun() ->
-        C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
-        {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
+        C1 = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        C2 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        C3 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+        {ok, 2} == ct_rpc:call(GatewayNode1, blockchain, height, [C1]) andalso
+        {ok, 2} == ct_rpc:call(RouterNode1, blockchain, height, [C2]) andalso
+        {ok, 2} == ct_rpc:call(RouterNode2, blockchain, height, [C3])
     end, 10, timer:seconds(1)),
 
-    % Step 4: Checking that state channels got created properly
-    RouterLedger1 = blockchain:ledger(RouterChain1),
-    {ok, SC11} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
-                             [ID1, RouterPubkeyBin1, RouterLedger1]),
-    {ok, SC12} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
-                             [ID2, RouterPubkeyBin1, RouterLedger1]),
-    {ok, SC13} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
-                             [ID3, RouterPubkeyBin1, RouterLedger1]),
-    {ok, SC21} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
-                             [ID4, RouterPubkeyBin2, RouterLedger1]),
-    {ok, SC22} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
-                             [ID5, RouterPubkeyBin2, RouterLedger1]),
-    {ok, SC23} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
-                             [ID6, RouterPubkeyBin2, RouterLedger1]),
+    %% Create OUI txn for RouterNode2
+    SignedOUITxn2 = create_oui_txn(RouterNode2, 2),
+    ID21 = crypto:strong_rand_bytes(24),
+    ID22 = crypto:strong_rand_bytes(24),
+    ID23 = crypto:strong_rand_bytes(24),
 
-    ?assertEqual(ID1, blockchain_ledger_state_channel_v1:id(SC11)),
+    %% Create OUI txn for RouterNode2
+    SignedSCOpenTxn21 = create_sc_open_txn(RouterNode2, TotalDC, ID21, Expiry, 1),
+    SignedSCOpenTxn22 = create_sc_open_txn(RouterNode2, TotalDC, ID22, Expiry, 2),
+    SignedSCOpenTxn23 = create_sc_open_txn(RouterNode2, TotalDC, ID23, Expiry, 3),
+
+    %% Create second set of txns
+    Txns2 = [SignedOUITxn2,
+             SignedSCOpenTxn21,
+             SignedSCOpenTxn22,
+             SignedSCOpenTxn23],
+
+    %% Adding block with second set of txns
+    RouterChain2 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+    {ok, Block3} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, Txns2]),
+    ct:pal("Block3: ~p", [Block3]),
+    _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, Block3, RouterChain2, Self]),
+
+    %% Wait till the block is propagated
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C1 = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        C2 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        C3 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+        {ok, 3} == ct_rpc:call(GatewayNode1, blockchain, height, [C1]) andalso
+        {ok, 3} == ct_rpc:call(RouterNode1, blockchain, height, [C2]) andalso
+        {ok, 3} == ct_rpc:call(RouterNode2, blockchain, height, [C3])
+    end, 10, timer:seconds(1)),
+
+    %% Checking that state channels got created properly
+    RouterChain3 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+    RouterLedger1 = ct_rpc:call(RouterNode1, blockchain, ledger, [RouterChain3]),
+
+    RouterChain4 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+    RouterLedger2 = ct_rpc:call(RouterNode2, blockchain, ledger, [RouterChain4]),
+    {ok, SC11} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
+                             [ID11, RouterPubkeyBin1, RouterLedger1]),
+    {ok, SC12} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
+                             [ID12, RouterPubkeyBin1, RouterLedger1]),
+    {ok, SC13} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_state_channel,
+                             [ID13, RouterPubkeyBin1, RouterLedger1]),
+    {ok, SC21} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
+                             [ID21, RouterPubkeyBin2, RouterLedger2]),
+    {ok, SC22} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
+                             [ID22, RouterPubkeyBin2, RouterLedger2]),
+    {ok, SC23} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
+                             [ID23, RouterPubkeyBin2, RouterLedger2]),
+
+    %% Check that the state channels being created are legit
+    ?assertEqual(ID11, blockchain_ledger_state_channel_v1:id(SC11)),
     ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC11)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC11)),
-    ?assertEqual(ID2, blockchain_ledger_state_channel_v1:id(SC11)),
+    ?assertEqual(ID12, blockchain_ledger_state_channel_v1:id(SC12)),
     ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC12)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC12)),
-    ?assertEqual(ID3, blockchain_ledger_state_channel_v1:id(SC12)),
+    ?assertEqual(ID13, blockchain_ledger_state_channel_v1:id(SC13)),
     ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC13)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC13)),
-    ?assertEqual(ID4, blockchain_ledger_state_channel_v1:id(SC21)),
+    ?assertEqual(ID21, blockchain_ledger_state_channel_v1:id(SC21)),
     ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC21)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC21)),
-    ?assertEqual(ID5, blockchain_ledger_state_channel_v1:id(SC22)),
+    ?assertEqual(ID22, blockchain_ledger_state_channel_v1:id(SC22)),
     ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC22)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC22)),
-    ?assertEqual(ID6, blockchain_ledger_state_channel_v1:id(SC23)),
+    ?assertEqual(ID23, blockchain_ledger_state_channel_v1:id(SC23)),
     ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC23)),
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC23)),
 
-    %% % Step 5: Adding some blocks to get the state channel to expire
-    %% lists:foreach(
-    %%     fun(_) ->
-    %%         {ok, B} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, []]),
-    %%         _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B, RouterChain, Self])
-    %%     end,
-    %%     lists:seq(1, 20)
-    %% ),
+    %% Add 20 more blocks to get the state channel to expire
+    lists:foreach(
+        fun(_) ->
+            {ok, B} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, []]),
+            _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, B, RouterChain3, Self])
+        end,
+        lists:seq(1, 20)
+    ),
 
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    %%     {ok, 22} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
+    %% At this point we should be at genesis (1) + block2 + block3 + 20 more blocks
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        {ok, 23} == ct_rpc:call(RouterNode1, blockchain, height, [C])
+    end, 10, timer:seconds(1)),
 
-    %% % Step 8: Adding close txn to blockchain
-    %% receive
-    %%     {txn, Txn1} ->
-    %%         {ok, B1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn1]]),
-    %%         _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B1, RouterChain, Self])
-    %% after 10000 ->
-    %%     ct:fail("txn timeout")
-    %% end,
+    %% At this point, we know that Block2's sc open txns must have expired
+    %% So we do the dumbest possible thing and match each one
+    %% Checking that the IDs are atleast coherent
+    receive
+        {txn, Txn1} ->
+            Check = check_sc_close(Txn1, [ID11, ID12, ID13]),
+            ?assertEqual(true, Check)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn1")
+    end,
+    receive
+        {txn, Txn2} ->
+            Check2 = check_sc_close(Txn2, [ID11, ID12, ID13]),
+            ?assertEqual(true, Check2)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn2")
+    end,
+    receive
+        {txn, Txn3} ->
+            Check3 = check_sc_close(Txn3, [ID11, ID12, ID13]),
+            ?assertEqual(true, Check3)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn3")
+    end,
 
-    %% % Step 9: Waiting for close txn to be mine
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    %%     {ok, 23} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
-
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     {error, not_found} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID1])
-    %% end, 10, timer:seconds(1)),
-
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
-    %% end, 10, timer:seconds(1)),
-
-
-    %% % Step 10: Create another state channel
-    %% ID2 = crypto:strong_rand_bytes(24),
-    %% SCOpenTxn2 = blockchain_txn_state_channel_open_v1:new(ID2, RouterPubkeyBin, TotalDC, 20, 2),
-    %% SignedSCOpenTxn2 = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn2, RouterSigFun),
-
-    %% {ok, Block2} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedSCOpenTxn2]]),
-    %% _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block2, RouterChain, Self]),
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
-    %%     {ok, 24} == ct_rpc:call(GatewayNode1, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    %%     {ok, 24} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
-
-    %% % Step 11: Checking that state channel got created properly
-    %% {ok, SC2} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID2, RouterPubkeyBin, RouterLedger]),
-    %% ?assertEqual(ID2, blockchain_ledger_state_channel_v1:id(SC2)),
-    %% ?assertEqual(RouterPubkeyBin, blockchain_ledger_state_channel_v1:owner(SC2)),
-    %% ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC2)),
-
-    %% ?assertEqual({ok, TotalDC}, ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID2])),
-    %% ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])),
-
-    %% % Step 12: Adding some blocks to get the state channel to expire
-    %% lists:foreach(
-    %%     fun(_) ->
-    %%         {ok, B} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, []]),
-    %%         _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B, RouterChain, Self])
-    %%     end,
-    %%     lists:seq(1, 20)
-    %% ),
-
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    %%     {ok, 44} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
-
-    %% % Step 13: Adding close txn to blockchain
-    %% receive
-    %%     {txn, Txn2} ->
-    %%         {ok, B2} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
-    %%         _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B2, RouterChain, Self])
-    %% after 10000 ->
-    %%     ct:fail("txn timeout")
-    %% end,
-
-    %% % Step 14: Waiting for close txn to be mine
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-    %%     {ok, 45} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    %% end, 10, timer:seconds(1)),
-
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     {error, not_found} == ct_rpc:call(RouterNode, blockchain_state_channels_server, credits, [ID2])
-    %% end, 10, timer:seconds(1)),
-
-    %% ok = blockchain_ct_utils:wait_until(fun() ->
-    %%     {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
-    %% end, 10, timer:seconds(1)),
-
-    %% ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
 
 
@@ -1027,3 +997,9 @@ create_sc_open_txn(RouterNode, TotalDC, ID, Expiry, Nonce) ->
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, Expiry, Nonce),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
+
+check_sc_close(Txn, IDs) ->
+    SCCloseStateChannel = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+    SCCloseID = blockchain_state_channel_v1:id(SCCloseStateChannel),
+    Cond = fun(ID) ->  ID == SCCloseID end,
+    lists:any(Cond, IDs).
