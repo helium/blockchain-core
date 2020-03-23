@@ -924,8 +924,12 @@ multi_owner_multi_sc_test(Config) ->
 
     %% At this point we should be at genesis (1) + block2 + block3 + 20 more blocks
     ok = blockchain_ct_utils:wait_until(fun() ->
-        C = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
-        {ok, 23} == ct_rpc:call(RouterNode1, blockchain, height, [C])
+        C1 = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        C2 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        C3 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+        {ok, 23} == ct_rpc:call(GatewayNode1, blockchain, height, [C1]) andalso
+        {ok, 23} == ct_rpc:call(RouterNode1, blockchain, height, [C2]) andalso
+        {ok, 23} == ct_rpc:call(RouterNode2, blockchain, height, [C3])
     end, 10, timer:seconds(1)),
 
     %% At this point, we know that Block2's sc open txns must have expired
@@ -965,11 +969,23 @@ multi_owner_multi_sc_test(Config) ->
            lists:seq(1, 3)
           ),
 
-    %% At this point we should be at Block25
+    %% At this point we should be at Block26
     ok = blockchain_ct_utils:wait_until(fun() ->
-        C = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
-        {ok, 26} == ct_rpc:call(RouterNode1, blockchain, height, [C])
+        C1 = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+        C2 = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        C3 = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+        {ok, 26} == ct_rpc:call(GatewayNode1, blockchain, height, [C1]) andalso
+        {ok, 26} == ct_rpc:call(RouterNode1, blockchain, height, [C2]) andalso
+        {ok, 26} == ct_rpc:call(RouterNode2, blockchain, height, [C3])
     end, 10, timer:seconds(1)),
+
+    RouterNode1Chain = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+    RouterNode1Height = ct_rpc:call(RouterNode1, blockchain, height, [RouterNode1Chain]),
+    RouterNode2Chain = ct_rpc:call(RouterNode2, blockchain_worker, blockchain, []),
+    RouterNode2Height = ct_rpc:call(RouterNode2, blockchain, height, [RouterNode2Chain]),
+
+    ct:pal("Routernode1, height: ~p", [RouterNode1Height]),
+    ct:pal("Routernode2, height: ~p", [RouterNode2Height]),
 
     %% And the related sc_close for sc_open in Block3 must have fired
     receive
