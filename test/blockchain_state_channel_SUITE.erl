@@ -914,13 +914,13 @@ multi_owner_multi_sc_test(Config) ->
     ?assertEqual(TotalDC, blockchain_ledger_state_channel_v1:amount(SC23)),
 
     %% Add 20 more blocks to get the state channel to expire
-    lists:foreach(
-        fun(_) ->
-            {ok, B} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, []]),
-            _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, B, RouterChain3, Self])
-        end,
-        lists:seq(1, 20)
-    ),
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, B} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, []]),
+                   _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, B, RouterChain3, Self])
+           end,
+           lists:seq(1, 20)
+          ),
 
     %% At this point we should be at genesis (1) + block2 + block3 + 20 more blocks
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -933,6 +933,7 @@ multi_owner_multi_sc_test(Config) ->
     %% Checking that the IDs are atleast coherent
     receive
         {txn, Txn1} ->
+            ct:pal("Txn1: ~p", [Txn1]),
             Check = check_sc_close(Txn1, [ID11, ID12, ID13]),
             ?assertEqual(true, Check)
     after 1000 ->
@@ -940,6 +941,7 @@ multi_owner_multi_sc_test(Config) ->
     end,
     receive
         {txn, Txn2} ->
+            ct:pal("Txn2: ~p", [Txn2]),
             Check2 = check_sc_close(Txn2, [ID11, ID12, ID13]),
             ?assertEqual(true, Check2)
     after 1000 ->
@@ -947,8 +949,50 @@ multi_owner_multi_sc_test(Config) ->
     end,
     receive
         {txn, Txn3} ->
+            ct:pal("Txn3: ~p", [Txn3]),
             Check3 = check_sc_close(Txn3, [ID11, ID12, ID13]),
             ?assertEqual(true, Check3)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn3")
+    end,
+
+    %% Add 3 more blocks to trigger sc close for sc open in Block3
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, B} = ct_rpc:call(RouterNode1, test_utils, create_block, [ConsensusMembers, []]),
+                   _ = ct_rpc:call(RouterNode1, blockchain_gossip_handler, add_block, [RouterSwarm1, B, RouterChain3, Self])
+           end,
+           lists:seq(1, 3)
+          ),
+
+    %% At this point we should be at Block25
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(RouterNode1, blockchain_worker, blockchain, []),
+        {ok, 26} == ct_rpc:call(RouterNode1, blockchain, height, [C])
+    end, 10, timer:seconds(1)),
+
+    %% And the related sc_close for sc_open in Block3 must have fired
+    receive
+        {txn, Txn4} ->
+            ct:pal("Txn4: ~p", [Txn4]),
+            Check4 = check_sc_close(Txn4, [ID21, ID22, ID23]),
+            ?assertEqual(true, Check4)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn1")
+    end,
+    receive
+        {txn, Txn5} ->
+            ct:pal("Txn5: ~p", [Txn5]),
+            Check5 = check_sc_close(Txn5, [ID21, ID22, ID23]),
+            ?assertEqual(true, Check5)
+    after 1000 ->
+        ct:fail("txn timeout, no Txn2")
+    end,
+    receive
+        {txn, Txn6} ->
+            ct:pal("Txn6: ~p", [Txn6]),
+            Check6 = check_sc_close(Txn6, [ID21, ID22, ID23]),
+            ?assertEqual(true, Check6)
     after 1000 ->
         ct:fail("txn timeout, no Txn3")
     end,
