@@ -1047,5 +1047,5 @@ check_all_closed(IDs) ->
         {txn, Txn} ->
             check_all_closed([ ID || ID <- IDs, ID /= blockchain_state_channel_v1:id(blockchain_txn_state_channel_close_v1:state_channel(Txn)) ])
     after 1000 ->
-              ct:error("still unclosed ~p", [IDs])
+              ct:fail("still unclosed ~p", [IDs])
     end.
