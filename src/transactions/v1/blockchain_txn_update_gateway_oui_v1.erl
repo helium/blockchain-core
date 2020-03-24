@@ -142,7 +142,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),
-    case  blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+    case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
         {error, _Reason}=Error ->
             Error;
         {ok, GWInfo} ->
