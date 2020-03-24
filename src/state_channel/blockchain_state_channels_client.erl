@@ -42,7 +42,7 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-          db :: rocksdb:db_handle() | undefined,
+          db :: rocksdb:db_handle(),
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
           packet_details = [] :: packet_details()
