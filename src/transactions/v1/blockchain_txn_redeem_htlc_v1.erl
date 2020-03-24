@@ -114,9 +114,9 @@ sign(Txn, SigFun) ->
 -spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    Payee = ?MODULE:payee(Txn),
+    Redeemer = ?MODULE:payee(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = libp2p_crypto:bin_to_pubkey(Payee),
+    PubKey = libp2p_crypto:bin_to_pubkey(Redeemer),
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -133,7 +133,6 @@ is_valid(Txn, Chain) ->
                             {error, insufficient_fee};
                         true ->
                             Address = ?MODULE:address(Txn),
-                            Redeemer = ?MODULE:payee(Txn),
                             case blockchain_ledger_v1:find_htlc(Address, Ledger) of
                                 {error, _}=Error ->
                                     Error;
@@ -142,7 +141,7 @@ is_valid(Txn, Chain) ->
                                         {error, _Reason}=Error ->
                                             Error;
                                         ok ->
-                                                Payer = blockchain_ledger_htlc_v1:payer(HTLC),
+                                            Payer = blockchain_ledger_htlc_v1:payer(HTLC),
                                             Payee = blockchain_ledger_htlc_v1:payee(HTLC),
                                             %% if the Creator of the HTLC is not the redeemer, continue to check for pre-image
                                             %% otherwise check that the timelock has expired which allows the Creator to redeem
