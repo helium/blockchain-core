@@ -893,6 +893,20 @@ multi_owner_multi_sc_test(Config) ->
     {ok, SC23} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_state_channel,
                              [ID23, RouterPubkeyBin2, RouterLedger2]),
 
+    {ok, R1} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_scs_by_owner,
+                             [RouterPubkeyBin1, RouterLedger1]),
+
+    3 = maps:size(R1),
+    true = lists:usort([ID11, ID12, ID13]) == lists:usort(maps:keys(R1)),
+
+    {ok, R2} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_scs_by_owner,
+                             [RouterPubkeyBin2, RouterLedger2]),
+
+    3 = maps:size(R2),
+    true = lists:usort([ID21, ID22, ID23]) == lists:usort(maps:keys(R2)),
+
+    6 = length(lists:usort([SC11, SC12, SC13, SC21, SC22, SC23])),
+
     %% Check that the state channels being created are legit
     ?assertEqual(ID11, blockchain_ledger_state_channel_v1:id(SC11)),
     ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC11)),
@@ -932,33 +946,12 @@ multi_owner_multi_sc_test(Config) ->
         {ok, 23} == ct_rpc:call(RouterNode2, blockchain, height, [C3])
     end, 10, timer:seconds(1)),
 
+
     %% At this point, we know that Block2's sc open txns must have expired
     %% So we do the dumbest possible thing and match each one
     %% Checking that the IDs are atleast coherent
-    receive
-        {txn, Txn1} ->
-            ct:pal("Txn1: ~p", [Txn1]),
-            Check = check_sc_close(Txn1, [ID11, ID12, ID13]),
-            ?assertEqual(true, Check)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn1")
-    end,
-    receive
-        {txn, Txn2} ->
-            ct:pal("Txn2: ~p", [Txn2]),
-            Check2 = check_sc_close(Txn2, [ID11, ID12, ID13]),
-            ?assertEqual(true, Check2)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn2")
-    end,
-    receive
-        {txn, Txn3} ->
-            ct:pal("Txn3: ~p", [Txn3]),
-            Check3 = check_sc_close(Txn3, [ID11, ID12, ID13]),
-            ?assertEqual(true, Check3)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn3")
-    end,
+
+    ok = check_all_closed([ID11, ID12, ID13]),
 
     %% Add 3 more blocks to trigger sc close for sc open in Block3
     ok = lists:foreach(
@@ -968,6 +961,18 @@ multi_owner_multi_sc_test(Config) ->
            end,
            lists:seq(1, 3)
           ),
+
+
+    {ok, R11} = ct_rpc:call(RouterNode1, blockchain_ledger_v1, find_scs_by_owner,
+                             [RouterPubkeyBin1, RouterLedger1]),
+
+    3 = maps:size(R11),
+
+    {ok, R22} = ct_rpc:call(RouterNode2, blockchain_ledger_v1, find_scs_by_owner,
+                             [RouterPubkeyBin2, RouterLedger2]),
+
+    3 = maps:size(R22),
+
 
     %% At this point we should be at Block26
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -988,31 +993,8 @@ multi_owner_multi_sc_test(Config) ->
     ct:pal("Routernode2, height: ~p", [RouterNode2Height]),
 
     %% And the related sc_close for sc_open in Block3 must have fired
-    receive
-        {txn, Txn4} ->
-            ct:pal("Txn4: ~p", [Txn4]),
-            Check4 = check_sc_close(Txn4, [ID21, ID22, ID23]),
-            ?assertEqual(true, Check4)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn1")
-    end,
-    receive
-        {txn, Txn5} ->
-            ct:pal("Txn5: ~p", [Txn5]),
-            Check5 = check_sc_close(Txn5, [ID21, ID22, ID23]),
-            ?assertEqual(true, Check5)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn2")
-    end,
-    receive
-        {txn, Txn6} ->
-            ct:pal("Txn6: ~p", [Txn6]),
-            Check6 = check_sc_close(Txn6, [ID21, ID22, ID23]),
-            ?assertEqual(true, Check6)
-    after 1000 ->
-        ct:fail("txn timeout, no Txn3")
-    end,
 
+    ok = check_all_closed([ID21, ID22, ID23]),
     ok.
 
 
@@ -1058,8 +1040,12 @@ create_sc_open_txn(RouterNode, TotalDC, ID, Expiry, Nonce) ->
     SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, TotalDC, Expiry, Nonce),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
-check_sc_close(Txn, IDs) ->
-    SCCloseStateChannel = blockchain_txn_state_channel_close_v1:state_channel(Txn),
-    SCCloseID = blockchain_state_channel_v1:id(SCCloseStateChannel),
-    Cond = fun(ID) ->  ID == SCCloseID end,
-    lists:any(Cond, IDs).
+check_all_closed([]) ->
+    ok;
+check_all_closed(IDs) ->
+    receive
+        {txn, Txn} ->
+            check_all_closed([ ID || ID <- IDs, ID /= blockchain_state_channel_v1:id(blockchain_txn_state_channel_close_v1:state_channel(Txn)) ])
+    after 1000 ->
+              ct:error("still unclosed ~p", [IDs])
+    end.
