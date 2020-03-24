@@ -16,12 +16,7 @@
 calculate_dc_amount(PayloadSize) when PayloadSize =< 24 ->
     1;
 calculate_dc_amount(PayloadSize) ->
-    Float = PayloadSize/24,
-    Truncated = erlang:trunc(Float),
-    case Float > Truncated of
-        true -> Truncated+1;
-        false -> Truncated
-    end.
+    erlang:ceil(PayloadSize/24).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
