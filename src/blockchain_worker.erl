@@ -669,9 +669,9 @@ sync(Swarm, Chain, Peer) ->
                     {'DOWN', Ref1, process, Stream, _} ->
                         %% we're done, nothing to do here.
                         ok
-                        %% do we want an after clause here?  is there
-                        %% some way to measure stuckness vs just
-                        %% taking a long time?
+                after timer:minutes(application:get_env(blockchain, sync_timeout_mins, 10)) ->
+                        libp2p_framed_stream:close(Stream),
+                        ok
                 end;
             _ ->
                 ok
