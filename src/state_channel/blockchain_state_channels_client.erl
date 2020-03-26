@@ -15,7 +15,6 @@
          credits/1,
          packet/1,
          packet_details/0,
-         response/1,
          state_channel_update/1,
          state/0
         ]).
@@ -79,10 +78,6 @@ packet_details() ->
 state() ->
     gen_server:call(?SERVER, state).
 
--spec response(Resp :: blockchain_state_channel_response_v1:reponse()) -> ok.
-response(Resp) ->
-    gen_server:cast(?SERVER, {response, Resp}).
-
 -spec state_channel_update(SCUpdate :: blockchain_state_channel_update_v1:state_channel_update()) -> ok.
 state_channel_update(SCUpdate) ->
     gen_server:cast(?SERVER, {state_channel_update, SCUpdate}).
@@ -136,16 +131,6 @@ handle_cast({packet, PacketInfo}, #state{packet_details=PacketDetails}=State) ->
     schedule_packet_handling(),
     NewPacketDetails = PacketDetails ++ [{PacketInfo, undefined}],
     {noreply, State#state{packet_details=NewPacketDetails}};
-handle_cast({response, Resp}, #state{packet_details=[]}=State) ->
-    %% Got a response when there are no packets
-    lager:debug("dropping response: ~p, no packets...", [Resp]),
-    {noreply, State};
-handle_cast({response, Resp}, #state{db=DB, swarm=Swarm}=State) when DB /= undefined andalso Swarm /= undefined ->
-    %% Got a response when there are packets
-    %% Check if any of the pending request match this resp hash
-    lager:debug("got response: ~p", [Resp]),
-    NewState = handle_response(Resp, State),
-    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     schedule_packet_handling(),
@@ -247,6 +232,7 @@ handle_packet({Packet, DevAddr, SeqNum, MIC}=PacketInfo, Swarm) ->
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Payload = blockchain_helium_packet_v1:payload(Packet),
                     Amount = calculate_dc_amount(PubkeyBin, OUI, Payload),
+                    %% TODO: This needs to go away...
                     Req0 = blockchain_state_channel_request_v1:new(PubkeyBin,
                                                                    Amount,
                                                                    erlang:byte_size(Payload),
@@ -294,129 +280,12 @@ calculate_dc_amount(PubkeyBin, OUI, Payload) ->
             end
     end.
 
--spec check_pending_request(SC :: blockchain_state_channel_v1:state_channel() | undefined,
-                            SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
-                            Packet :: blockchain_helium_packet_v1:packet(),
-                            Req :: blockchain_state_channel_request_v1:request(),
-                            PubkeyBin :: libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
-check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    case {check_root_hash(Packet, SCUpdate, PubkeyBin), check_balance(Req, SC, UpdatedSC)} of
-        {false, _} -> {error, bad_root_hash};
-        {_, false} -> {error, wrong_balance};
-        {true, true} -> ok
-    end.
-
--spec check_root_hash(Packet :: blockchain_helium_packet_v1:packet(),
-                      SCUpdate :: blockchain_state_channel_update_v1:state_channel_update(),
-                      PubkeyBin :: libp2p_crypto:pubkey_bin()) -> boolean().
-check_root_hash(Packet, SCUpdate, PubkeyBin) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    RootHash = blockchain_state_channel_v1:root_hash(UpdatedSC),
-    Hash = blockchain_state_channel_update_v1:previous_hash(SCUpdate),
-    PayloadSize = erlang:byte_size(blockchain_helium_packet_v1:payload(Packet)),
-    % TODO
-    Value = <<PubkeyBin/binary, PayloadSize>>,
-    skewed:verify(skewed:hash_value(Value), [Hash], RootHash).
-
--spec check_balance(Req :: blockchain_state_channel_request_v1:request(),
-                    SC :: blockchain_state_channel_v1:state_channel() | undefined,
-                    UpdateSC :: blockchain_state_channel_v1:state_channel()) -> boolean().
-check_balance(Req, SC, UpdateSC) ->
-    ReqPayee = blockchain_state_channel_request_v1:payee(Req),
-    ReqPayloadSize = blockchain_state_channel_request_v1:payload_size(Req),
-    case blockchain_state_channel_v1:balance(ReqPayee, UpdateSC) of
-        {error, _} ->
-            false;
-        {ok, 0} ->
-            ReqPayloadSize == 0;
-        {ok, NewBalance} ->
-            OldBalance = case SC == undefined of
-                             false ->
-                                 case blockchain_state_channel_v1:balance(ReqPayee, SC) of
-                                     {ok, B} -> B;
-                                     _ -> 0
-                                 end;
-                             true -> 0
-                         end,
-            NewBalance-OldBalance >= ReqPayloadSize
-    end.
-
--spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
-                  Stream :: pid(),
-                  PubkeyBin :: libp2p_crypto:pubkey_bin(),
-                  SigFun :: function()) -> ok.
-send_packet(Packet, Stream, PubkeyBin, SigFun) ->
-    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
-    PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
-    blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
-
--spec handle_response(Resp :: blockchain_state_channel_response_v1:response(),
-                      State :: state()) -> state().
-handle_response(Resp, #state{packet_details=PacketDetails, state_channels=SCs, db=DB, swarm=Swarm}=State) ->
-    Filtered = lists:filter(fun({_PacketInfo, undefined}) ->
-                                    false;
-                               ({_PacketInfo, {_Stream, Req, _TimeRef}}) ->
-                                    blockchain_state_channel_response_v1:req_hash(Resp) ==
-                                    blockchain_state_channel_request_v1:hash(Req)
-                            end,
-                            PacketDetails),
-
-    case Filtered of
-        [] ->
-            State;
-        [{PacketInfo, {Stream, Req, TimeRef}}] ->
-            erlang:cancel_timer(TimeRef),
-            case do_response(Resp, Req, PacketInfo, SCs, Stream, DB, Swarm) of
-                {error, _} ->
-                    State;
-                {ok, NewStateChannels} ->
-                    State#state{state_channels=NewStateChannels,
-                                packet_details=lists:keydelete(PacketInfo, 1, PacketDetails)}
-            end;
-        _ ->
-            State
-    end.
-
-
--spec do_response(Resp :: blockchain_state_channel_response_v1:response(),
-                  Req :: blockchain_state_channel_request_v1:request(),
-                  PacketInfo :: packet_info(),
-                  SCs :: state_channels(),
-                  Stream :: pid(),
-                  DB :: rocksdb:handle(),
-                  Swarm :: pid()) -> {error, any()} | {ok, state_channels()}.
-do_response(Resp, Req, {Packet, _, _, _}, SCs, Stream, DB, Swarm) ->
-    case blockchain_state_channel_response_v1:accepted(Resp) of
-        false ->
-            lager:error("request ~p got rejected, next...", [Req]),
-            {error, request_rejected};
-        true ->
-            SCUpdate = blockchain_state_channel_response_v1:state_channel_update(Resp),
-            UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-            ID = blockchain_state_channel_v1:id(UpdatedSC),
-            case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
-                {error, _Reason}=E0 ->
-                    lager:error("state channel ~p is invalid ~p droping req", [UpdatedSC, _Reason]),
-                    E0;
-                ok ->
-                    ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-                    SC = maps:get(ID, SCs, undefined),
-                    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    case check_pending_request(SC, SCUpdate, Packet, Req, PubkeyBin) of
-                        {error, _Reason}=E1 ->
-                            lager:error("state channel update did not match pending req ~p, dropping req", [_Reason]),
-                            E1;
-                        ok ->
-                            ok = send_packet(Packet, Stream, PubkeyBin, SigFun),
-                            {ok, maps:put(ID, UpdatedSC, SCs)}
-                    end
-            end
-    end.
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 
 -ifdef(TEST).
+
+%% TODO: Add some eunits here...
+
 -endif.
