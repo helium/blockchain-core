@@ -142,42 +142,49 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_request_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_request_v1_pb:encode_msg(BaseTxn),
-    case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
-        false ->
-            {error, bad_signature};
-        true ->
-            case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
-                {ok, Info} ->
-                    case blockchain_ledger_gateway_v2:location(Info) of
-                        undefined ->
-                            {error, no_gateway_location};
-                        _Location ->
-                            {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
-                            PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                            case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
-                                false ->
-                                    {error, too_many_challenges};
-                                true ->
-                                    BlockHash = ?MODULE:block_hash(Txn),
-                                    case blockchain:get_block(BlockHash, Chain) of
-                                        {error, _}=Error ->
-                                            Error;
-                                        {ok, Block1} ->
-                                            case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
-                                                false ->
-                                                    {error, replaying_request};
-                                                true ->
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = blockchain_ledger_gateway_v2:owner_address(Info),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+
+    case blockchain_txn:validate_fields([{{secret_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
+                                         {{onion_key_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}},
+                                         {{block_hash, ?MODULE:secret_hash(Txn)}, {binary, 32}}]) of
+        ok ->
+            case libp2p_crypto:verify(EncodedTxn, ChallengerSignature, PubKey) of
+                false ->
+                    {error, bad_signature};
+                true ->
+                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        {ok, Info} ->
+                            case blockchain_ledger_gateway_v2:location(Info) of
+                                undefined ->
+                                    {error, no_gateway_location};
+                                _Location ->
+                                    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                                    LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(Info),
+                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                                    case LastChallenge == undefined orelse LastChallenge =< (Height+1  - PoCInterval) of
+                                        false ->
+                                            {error, too_many_challenges};
+                                        true ->
+                                            BlockHash = ?MODULE:block_hash(Txn),
+                                            case blockchain:get_block(BlockHash, Chain) of
+                                                {error, _}=Error ->
+                                                    Error;
+                                                {ok, Block1} ->
+                                                    case (blockchain_block:height(Block1) + PoCInterval) > (Height+1) of
+                                                        false ->
+                                                            {error, replaying_request};
+                                                        true ->
+                                                            Fee = ?MODULE:fee(Txn),
+                                                            Owner = blockchain_ledger_gateway_v2:owner_address(Info),
+                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+                                                    end
                                             end
                                     end
                             end
                     end
-            end
+            end;
+        Error -> Error
     end.
 
 %%--------------------------------------------------------------------

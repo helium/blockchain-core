@@ -312,7 +312,7 @@ htlc_payee_redeem_test(Config) ->
     #{public := PayeePubKey, secret := PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
     % Generate a random address
-    HTLCAddress = crypto:strong_rand_bytes(32),
+    HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0, 1),
@@ -384,7 +384,7 @@ htlc_payer_redeem_test(Config) ->
     % Create a Payer
     Payer = libp2p_crypto:pubkey_to_bin(PubKey),
     % Generate a random address
-    HTLCAddress = crypto:strong_rand_bytes(32),
+    HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0, 1),

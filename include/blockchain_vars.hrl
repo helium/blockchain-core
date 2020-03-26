@@ -251,3 +251,5 @@
 %%
 %% Max payments allowed within a single payment_v2 transaction
 -define(max_payments, max_payments).
+%% Var to switch off legacy payment txn
+-define(deprecate_payment_v1, deprecate_payment_v1).

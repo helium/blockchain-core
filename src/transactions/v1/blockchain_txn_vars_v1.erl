@@ -743,6 +743,13 @@ validate_var(?max_bundle_size, Value) ->
 validate_var(?max_payments, Value) ->
     validate_int(Value, "max_payments", 5, 50, false);
 
+validate_var(?deprecate_payment_v1, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
 -export([
@@ -130,32 +131,42 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
-    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-        false ->
-            {error, bad_signature};
-        true ->
-            case Payer == Payee of
-                false ->
-                    Amount = ?MODULE:amount(Txn),
-                    Fee = ?MODULE:fee(Txn),
-                    case blockchain_ledger_v1:transaction_fee(Ledger) of
-                        {error, _}=Error0 ->
-                            Error0;
-                        {ok, MinerFee} ->
-                            case (Amount >= 0) andalso (Fee >= MinerFee) of
+    case blockchain:config(?deprecate_payment_v1, Ledger) of
+        {ok, true} ->
+            {error, payment_v1_deprecated};
+        _ ->
+            case blockchain_txn:validate_fields([{{payee, Payee}, {binary, 20, 33}}]) of
+                ok ->
+                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                        false ->
+                            {error, bad_signature};
+                        true ->
+                            case Payer == Payee of
                                 false ->
-                                    {error, invalid_transaction};
+                                    Amount = ?MODULE:amount(Txn),
+                                    Fee = ?MODULE:fee(Txn),
+                                    case blockchain_ledger_v1:transaction_fee(Ledger) of
+                                        {error, _}=Error0 ->
+                                            Error0;
+                                        {ok, MinerFee} ->
+                                            case (Amount >= 0) andalso (Fee >= MinerFee) of
+                                                false ->
+                                                    {error, invalid_transaction};
+                                                true ->
+                                                    case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
+                                                        {error, _}=Error1 ->
+                                                            Error1;
+                                                        ok ->
+                                                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                                                    end
+                                            end
+                                    end;
                                 true ->
-                                    case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
-                                        {error, _}=Error1 ->
-                                            Error1;
-                                        ok ->
-                                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
-                                    end
+                                    {error, invalid_transaction_self_payment}
                             end
                     end;
-                true ->
-                    {error, invalid_transaction_self_payment}
+                Error ->
+                    Error
             end
     end.
 

@@ -65,7 +65,8 @@
     deserialize/1,
     wrap_txn/1,
     unwrap_txn/1,
-    is_valid/2
+    is_valid/2,
+    validate_fields/1
 ]).
 
 -ifdef(TEST).
@@ -479,6 +480,36 @@ type(#blockchain_txn_bundle_v1_pb{}) ->
 type(#blockchain_txn_payment_v2_pb{}) ->
     blockchain_txn_payment_v2.
 
+-spec validate_fields([{{atom(), iodata() | undefined}, {binary, pos_integer()} | {binary, pos_integer(), pos_integer()} |
+                        {address, libp2p}}]) -> ok | {error, any()}.
+validate_fields([]) ->
+    ok;
+validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) ->
+    case byte_size(Field) == Length of
+        true ->
+            validate_fields(Tail);
+        false ->
+            {error, {field_wrong_size, Name, Length, byte_size(Field)}}
+    end;
+validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field) ->
+    case byte_size(Field) =< Max andalso byte_size(Field) >= Min of
+        true ->
+            validate_fields(Tail);
+        false ->
+            {error, {field_wrong_size, Name, {Min, Max}, byte_size(Field)}}
+    end;
+validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
+    try libp2p_crypto:bin_to_pubkey(Field) of
+        _ ->
+            validate_fields(Tail)
+    catch
+        _:_ ->
+            {error, {invalid_address, Name}}
+    end;
+validate_fields([{{Name, undefined}, _}|_Tail]) ->
+    {error, {missing_field, Name}};
+validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
+    {error, {malformed_field, Name}}.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
