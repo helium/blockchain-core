@@ -7,6 +7,7 @@
 
 -behavior(blockchain_txn).
 
+-include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
@@ -25,8 +26,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
 
 -type txn_state_channel_close() :: #blockchain_txn_state_channel_close_v1_pb{}.
 -export_type([txn_state_channel_close/0]).

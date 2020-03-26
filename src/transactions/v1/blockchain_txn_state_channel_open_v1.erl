@@ -7,6 +7,7 @@
 
 -behavior(blockchain_txn).
 
+-include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
@@ -29,7 +30,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(TO_B58(X), libp2p_crypto:bin_to_b58(X)).
 -define(APPROX_BLOCKS_IN_WEEK, 10080).
 -define(MIN_EXPIRE_WITHIN, 10).
 
