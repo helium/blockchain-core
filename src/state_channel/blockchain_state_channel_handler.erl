@@ -15,10 +15,7 @@
     server/4,
     client/2,
     dial/3,
-    send_request/2,
-    send_packet/2,
-    broadcast/2,
-    send_response/2
+    send_packet/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -50,24 +47,10 @@ dial(Swarm, Peer, Opts) ->
                                     ?MODULE,
                                     Opts).
 
--spec send_request(pid(), blockchain_state_channel_request_v1:request()) -> ok.
-send_request(Pid, Req) ->
-    Pid ! {send_request, Req},
-    ok.
 
 -spec send_packet(pid(), blockchain_state_channel_packet_v1:packet()) -> ok.
 send_packet(Pid, Packet) ->
     Pid ! {send_packet, Packet},
-    ok.
-
--spec broadcast(pid(), blockchain_state_channel_update_v1:state_channel_update()) -> ok.
-broadcast(Pid, SCUpdate) ->
-    Pid ! {broadcast, SCUpdate},
-    ok.
-
--spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
-send_response(Pid, Resp) ->
-    Pid ! {send_response, Resp},
     ok.
 
 %% ------------------------------------------------------------------
@@ -80,8 +63,6 @@ init(server, _Conn, _) ->
 
 handle_data(client, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
-        {response, Resp} ->
-           blockchain_state_channels_client:response(Resp);
         {state_channel_update, SCUpdate} ->
            blockchain_state_channels_client:state_channel_update(SCUpdate);
         _ ->
@@ -90,10 +71,6 @@ handle_data(client, Data, State) ->
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
-        {request, Req} ->
-            blockchain_state_channels_server:request(Req);
-        {response, Resp} ->
-           blockchain_state_channels_client:response(Resp);
         {state_channel_update, SCUpdate} ->
            blockchain_state_channels_client:state_channel_update(SCUpdate);
         {packet, Packet} ->
@@ -101,17 +78,8 @@ handle_data(server, Data, State) ->
     end,
     {noreply, State}.
 
-handle_info(client, {send_request, Req}, State) ->
-    Data = blockchain_state_channel_message_v1:encode(Req),
-    {noreply, State, Data};
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
-    {noreply, State, Data};
-handle_info(client, {broadcast, SCUpdate}, State) ->
-    Data = blockchain_state_channel_message_v1:encode(SCUpdate),
-    {noreply, State, Data};
-handle_info(client, {send_response, Resp}, State) ->
-    Data = blockchain_state_channel_message_v1:encode(Resp),
     {noreply, State, Data};
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),

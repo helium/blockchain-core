@@ -15,9 +15,7 @@
 -endif.
 
 -type message() :: #blockchain_state_channel_message_v1_pb{}.
--type oneof() :: blockchain_state_channel_request_v1:request() |
-                 blockchain_state_channel_response_v1:response() |
-                 blockchain_state_channel_update_v1:state_channel_update() |
+-type oneof() :: blockchain_state_channel_update_v1:state_channel_update() |
                  blockchain_state_channel_packet_v1:packet().
 
 -export_type([message/0]).
@@ -35,10 +33,6 @@ decode(Bin) ->
 %% ------------------------------------------------------------------
 
 -spec wrap_msg(oneof()) -> message().
-wrap_msg(#blockchain_state_channel_request_v1_pb{}=Req) ->
-    #blockchain_state_channel_message_v1_pb{msg={request, Req}};
-wrap_msg(#blockchain_state_channel_response_v1_pb{}=Packet) ->
-    #blockchain_state_channel_message_v1_pb{msg={response, Packet}};
 wrap_msg(#blockchain_state_channel_update_v1_pb{}=SC) ->
     #blockchain_state_channel_message_v1_pb{msg={state_channel_update, SC}};
 wrap_msg(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
@@ -53,8 +47,6 @@ unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-encode_decode_test() ->
-    Req = blockchain_state_channel_request_v1:new(<<"payee">>, 1, 24, <<"devaddr">>, 1, <<"mic">>),
-    ?assertEqual({request, Req}, decode(encode(Req))).
+%% TODO: Add something here...
 
 -endif.
