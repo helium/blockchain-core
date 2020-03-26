@@ -17,9 +17,7 @@
     expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
-    save/2, get/2,
-    validate_request/2,
-    add_request/3
+    save/2, get/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -184,62 +182,9 @@ get(DB, ID) ->
         Error -> Error
     end.
 
--spec validate_request(blockchain_state_channel_request_v1:request(), state_channel()) -> ok | {error, any()}.
-validate_request(Request, SC) ->
-    ReqAmount = blockchain_state_channel_request_v1:amount(Request),
-    PayloadSize = blockchain_state_channel_request_v1:payload_size(Request),
-    CalcAmount = blockchain_state_channel_utils:calculate_dc_amount(PayloadSize),
-    case ReqAmount > CalcAmount of
-        true ->
-            {error, wrong_amount};
-        false ->
-            SCCredits = ?MODULE:credits(SC),
-            State = ?MODULE:state(SC),
-            case State of
-                open ->
-                    case SCCredits-ReqAmount >= 0 of
-                        false -> {error, not_enough_credits};
-                        true -> ok
-                    end;
-                OtherState ->
-                    {error, OtherState}
-            end
-    end.
-
--spec add_request(blockchain_state_channel_request_v1:request(), function(), state_channel()) -> state_channel().
-add_request(Request, SigFun, SC0) ->
-    Credits = ?MODULE:credits(SC0),
-    Nonce = ?MODULE:nonce(SC0),
-    Amount = blockchain_state_channel_request_v1:amount(Request),
-    PayloadSize = blockchain_state_channel_request_v1:payload_size(Request),
-    Payee = blockchain_state_channel_request_v1:payee(Request),
-    Balance = case ?MODULE:balance(Payee, SC0) of
-        {error, not_found} -> 0;
-        {ok, B} -> B
-    end,
-    RootHash = ?MODULE:root_hash(SC0),
-    Value = <<Payee/binary, PayloadSize>>,
-    UpdatedRooHash = recalculate_root_hash(RootHash, Value),
-    SC1 = ?MODULE:credits(Credits-Amount, SC0),
-    SC2 = ?MODULE:nonce(Nonce+1, SC1),
-    SC3 = ?MODULE:balance(Payee, Balance+PayloadSize, SC2),
-    SC4 = case Credits-Amount == 0 andalso ?MODULE:id(SC0) =/= ?MODULE:zero_id() of
-        true -> ?MODULE:state(closed, SC3);
-        false -> SC3
-    end,
-    SC5 = ?MODULE:root_hash(UpdatedRooHash, SC4),
-    ?MODULE:sign(SC5, SigFun).
-
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec recalculate_root_hash(skewed:hash(), any()) -> skewed:hash().
-recalculate_root_hash(RootHash, Value) ->
-    Tree0 = skewed:new(RootHash),
-    Tree1 = skewed:add(Value, fun skewed:hash_value/1, Tree0),
-    skewed:root_hash(Tree1).
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -214,9 +214,9 @@ vars_binary_keys_to_atoms(Vars) ->
 
 -spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
 get_pubkeybin_sigfun(Swarm) ->
-    {ok, PubKey, PayerSigFun, _} = libp2p_swarm:keys(Swarm),
+    {ok, PubKey, SigFun, _} = libp2p_swarm:keys(Swarm),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    {PubKeyBin, PayerSigFun}.
+    {PubKeyBin, SigFun}.
 
 -spec icdf_select([{any(), float()}, ...], float()) -> {ok, any()} | {error, zero_weight}.
 icdf_select(PopulationList, Rnd) ->
