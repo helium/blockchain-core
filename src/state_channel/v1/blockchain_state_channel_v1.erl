@@ -7,17 +7,17 @@
 
 -export([
     new/2, new/4,
-    zero_id/0, id/1,
+    id/1,
     owner/1,
     credits/1, credits/2,
     nonce/1, nonce/2,
-    balances/1, balances/2, balance/2, balance/3,
     root_hash/1, root_hash/2,
     state/1, state/2,
     expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
-    save/2, get/2
+    save/2, get/2,
+    summary/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -25,8 +25,6 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
-
--define(ZERO_SC_ID, <<0>>).
 
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
 -type id() :: binary().
@@ -41,7 +39,7 @@ new(ID, Owner) ->
         owner=Owner,
         credits=0,
         nonce=0,
-        balances=[],
+        summary=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=0
@@ -57,15 +55,11 @@ new(ID, Owner, Credits, ExpireAtBlock) ->
         owner=Owner,
         credits=Credits,
         nonce=0,
-        balances=[],
+        summary=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=ExpireAtBlock
     }.
-
--spec zero_id() -> binary().
-zero_id() ->
-    ?ZERO_SC_ID.
 
 -spec id(state_channel()) -> binary().
 id(#blockchain_state_channel_v1_pb{id=ID}) ->
@@ -91,27 +85,9 @@ nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
 
--spec balances(state_channel()) -> blockchain_state_channel_balance_v1:balances().
-balances(#blockchain_state_channel_v1_pb{balances=Balances}) ->
-    Balances.
-
--spec balances(Balances :: blockchain_state_channel_balance_v1:balances(),
-               SC :: state_channel()) -> state_channel().
-balances(Balances, SC) ->
-    SC#blockchain_state_channel_v1_pb{balances=Balances}.
-
--spec balance(Payee :: libp2p_crypto:pubkey_bin(),
-              SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
-balance(Payee, SC) ->
-    Balances = ?MODULE:balances(SC),
-    blockchain_state_channel_balance_v1:get_balance(Payee, Balances).
-
--spec balance(Payee :: libp2p_crypto:pubkey_bin(),
-              Balance :: non_neg_integer(),
-              SC :: state_channel()) -> state_channel().
-balance(Payee, Balance, #blockchain_state_channel_v1_pb{balances=Balances}=SC) ->
-    NewBalances = blockchain_state_channel_balance_v1:update(Payee, Balance, Balances),
-    ?MODULE:balances(NewBalances, SC).
+-spec summary(state_channel()) -> blockchain_state_channel_summary_v1:summary().
+summary(#blockchain_state_channel_v1_pb{summary=Summary}) ->
+    Summary.
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->

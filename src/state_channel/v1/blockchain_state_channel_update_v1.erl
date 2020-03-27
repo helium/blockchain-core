@@ -21,7 +21,8 @@
 -type state_channel_update() :: #blockchain_state_channel_update_v1_pb{}.
 -export_type([state_channel_update/0]).
 
--spec new(blockchain_state_channel_v1:state_channel(), skewed:hash()) -> state_channel_update().
+-spec new(SC :: blockchain_state_channel_v1:state_channel(),
+          Hash :: skewed:hash()) -> state_channel_update().
 new(SC, Hash) ->
     #blockchain_state_channel_update_v1_pb{
         state_channel=SC,
@@ -35,9 +36,6 @@ state_channel(#blockchain_state_channel_update_v1_pb{state_channel=SC}) ->
 -spec previous_hash(state_channel_update()) -> skewed:hash().
 previous_hash(#blockchain_state_channel_update_v1_pb{previous_hash=Hash}) ->
     Hash.
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -164,8 +164,7 @@ handle_info(process_packet, #state{swarm=Swarm, packets=[PacketInfo | Remaining]
                        %% XXX: Could also drop it probably?
                        State#state{packets=Remaining ++ [PacketInfo]};
                    {ok, PacketKey} ->
-                       %% This packet got processed, wait for a response, whenever
-                       %% that happens, put it at the back of the queue
+                       %% This packet got processed, remove it from state
                        State#state{packets=lists:keydelete(PacketKey, 1, Packets)}
                end,
     schedule_packet_handling(),

@@ -91,7 +91,7 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_state_channel_open_v1_pb{signature=SigFun(EncodedTxn)}.
 
-% TODO: Make timer limits chain vars
+%% TODO: Make timer limits chain vars
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
@@ -116,8 +116,8 @@ is_valid(Txn, Chain) ->
                             Amount = ?MODULE:amount(Txn),
                             case Amount of
                                 A when A < 0 ->
-                                    {error, bad_amount};
-                                A when A > 0 ->
+                                    {error, negative_amount};
+                                A ->
                                     case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
                                         {error, _}=Err0 ->
                                             Err0;
@@ -128,13 +128,8 @@ is_valid(Txn, Chain) ->
                                                 false ->
                                                     {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
                                                 true ->
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Amount, Ledger)
+                                                    blockchain_ledger_v1:check_dc_balance(Owner, A, Ledger)
                                             end
-                                    end;
-                                0 ->
-                                    case blockchain_state_channel_v1:zero_id() == ID of
-                                        false -> {error, mistmaching_id};
-                                        true -> ok
                                     end
                             end;
                         {ok, _} ->
@@ -154,16 +149,11 @@ absorb(Txn, Chain) ->
     Amount = ?MODULE:amount(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_state_channel_v1:zero_id() == ID andalso Amount == 0 of
-        true ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger);
-        false ->
-            case blockchain_ledger_v1:debit_dc(Owner, Amount, Nonce, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                ok ->
-                    blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger)
-            end
+    case blockchain_ledger_v1:debit_dc(Owner, Amount, Nonce, Ledger) of
+        {error, _}=Error ->
+            Error;
+        ok ->
+            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger)
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
