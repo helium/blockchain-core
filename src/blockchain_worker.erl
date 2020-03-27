@@ -53,7 +53,7 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
--define(SYNC_TIME, 60000).
+-define(SYNC_TIME, 75000).
 
 -record(state,
         {
@@ -570,10 +570,23 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     erlang:cancel_timer(State#state.sync_timer),
     %% last block add time is relative to the system clock so as long as the local
     %% clock mostly increments this will eventually be true on a stuck node
-    {ok, Height} = blockchain:height(Chain),
-    SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 300),
-    case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
-        X when X > SyncCooldownTime orelse Height == 1  ->
+    SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 75),
+    SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
+    {ok, HeadBlock} = blockchain:head_block(Chain),
+    Height = blockchain_block:height(HeadBlock),
+    case erlang:system_time(seconds) - blockchain_block:time(HeadBlock) of
+        %% negative time means we're skewed, so rely on last add time
+        %% until ntp fixes us.
+        T when T < 0 ->
+            case erlang:system_time(seconds) - blockchain:last_block_add_time(Chain) of
+                X when X > SkewedSyncCooldownTime orelse Height == 1  ->
+                    start_sync(State);
+                _ ->
+                    %% no need to sync now, check again later
+                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+                    State#state{sync_timer=Ref}
+            end;
+        T when T > SyncCooldownTime orelse Height == 1 ->
             start_sync(State);
         _ ->
             %% no need to sync now, check again later

@@ -53,9 +53,11 @@ add_block(_Swarm, Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
+            lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
             ok;
         {error, disjoint_chain} ->
-            lager:warning("gossipped block doesn't fit with our chain, will start sync if not already active"),
+            lager:warning("gossipped block ~p doesn't fit with our chain,"
+                          " will start sync if not already active", [blockchain_block:height(Block)]),
             blockchain_worker:maybe_sync(),
             ok;
         Error ->
