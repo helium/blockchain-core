@@ -166,25 +166,31 @@ handle_packet(Packet, #state{swarm=Swarm}=State) ->
                     case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
                         {error, _Reason} ->
                             lager:error("failed to dial ~p:~p", [Peer, _Reason]),
-                            %% TODO: add retry?
+                            %% TODO: retry?
                             State;
                         {ok, NewStream} ->
-                            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                            PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
-                            PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
-                            ok = blockchain_state_channel_handler:send_packet(NewStream, PacketMsg1),
+                            ok = send_packet(Packet, Swarm, NewStream),
                             add_stream(OUI, NewStream, State)
                     end;
                 Stream ->
                     %% Found an existing stream for this oui, use that to send packet
-                    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-                    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
-                    PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
-                    ok = blockchain_state_channel_handler:send_packet(Stream, PacketMsg1),
+                    ok = send_packet(Packet, Swarm, Stream),
                     State
             end
     end.
 
+%% ------------------------------------------------------------------
+%% Internal functions
+%% ------------------------------------------------------------------
+
+-spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
+                  Swarm :: pid(),
+                  Stream :: pid()) -> ok.
+send_packet(Packet, Swarm, Stream) ->
+    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
+    PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
+    blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
 -spec find_stream(OUI :: non_neg_integer(), State :: state()) -> undefined | pid().
 find_stream(OUI, #state{streams=Streams}) ->
