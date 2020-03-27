@@ -9,7 +9,7 @@
     new/1,
     client_pubkeybin/1,
     summary_for/2,
-    num_bytes/1, num_bytes/2,
+    num_dcs/1, num_dcs/2,
     num_packets/1, num_packets/2
 ]).
 
@@ -26,7 +26,7 @@
 new(ClientPubkeyBin) ->
     #blockchain_state_channel_summary_v1_pb{
         client_pubkeybin=ClientPubkeyBin,
-        num_bytes=0,
+        num_dcs=0,
         num_packets=0
     }.
 
@@ -38,9 +38,9 @@ client_pubkeybin(#blockchain_state_channel_summary_v1_pb{client_pubkeybin=Client
 num_packets(#blockchain_state_channel_summary_v1_pb{num_packets=NumPackets}) ->
     NumPackets.
 
--spec num_bytes(Summary :: summary()) -> non_neg_integer().
-num_bytes(#blockchain_state_channel_summary_v1_pb{num_bytes=NumBytes}) ->
-    NumBytes.
+-spec num_dcs(Summary :: summary()) -> non_neg_integer().
+num_dcs(#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs}) ->
+    NumDCs.
 
 -spec summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                   Summaries :: summaries()) -> {ok, summary()} | {error, not_found}.
@@ -66,14 +66,14 @@ num_packets(ClientPubkeyBin, Summaries) ->
             {error, not_found}
     end.
 
--spec num_bytes(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+-spec num_dcs(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                 Summaries :: summaries()) -> {ok, non_neg_integer()} | {error, not_found}.
-num_bytes(ClientPubkeyBin, Summaries) ->
+num_dcs(ClientPubkeyBin, Summaries) ->
     Filter = fun(Summary) -> ?MODULE:client_pubkeybin(Summary) == ClientPubkeyBin end,
     case lists:filter(Filter, Summaries) of
         L when L /= [] ->
             Summary = hd(L),
-            {ok, ?MODULE:num_bytes(Summary)};
+            {ok, ?MODULE:num_dcs(Summary)};
         [] ->
             {error, not_found}
     end.
