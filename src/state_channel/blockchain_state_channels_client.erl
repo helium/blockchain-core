@@ -14,7 +14,6 @@
          start_link/1,
          credits/1,
          packet/1,
-         packets/0,
          state_channel_update/1,
          state/0
         ]).
@@ -44,14 +43,12 @@
           db :: rocksdb:db_handle(),
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
-          packets = [] :: packets()
+          streams = #{} :: streams()
          }).
 
 -type state() :: #state{}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
--type packet_key() :: {DevAddr :: binary(), SeqNum :: pos_integer(), MIC :: binary()}.
--type packet_info() :: {Key :: packet_key(), Packet :: blockchain_helium_packet_v1:packet()}.
--type packets() :: [packet_info()].
+-type streams() :: #{non_neg_integer() => pid()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -63,13 +60,9 @@ start_link(Args) ->
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}, infinity).
 
--spec packet(packet_info()) -> ok.
-packet(PacketInfo) ->
-    gen_server:cast(?SERVER, {packet, PacketInfo}).
-
--spec packets() -> packets().
-packets() ->
-    gen_server:call(?SERVER, packets).
+-spec packet(blockchain_helium_packet_v1:packet()) -> ok.
+packet(Packet) ->
+    gen_server:cast(?SERVER, {packet, Packet}).
 
 -spec state() -> state().
 state() ->
@@ -87,7 +80,6 @@ init(Args) ->
     Swarm = maps:get(swarm, Args),
     DB = maps:get(db, Args),
     State = #state{db=DB, swarm=Swarm},
-    schedule_packet_handling(),
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -113,27 +105,12 @@ handle_cast({state_channel_update, SCUpdate}, #state{db=DB, state_channels=SCs}=
                        State#state{state_channels=maps:put(ID, UpdatedSC, SCs)}
                end,
     {noreply, NewState};
-handle_cast({packet, PacketInfo}, #state{packets=[], swarm=Swarm}=State) ->
-    %% process this packet immediately
-    NewState = case handle_packet(PacketInfo, Swarm) of
-                   {error, _} ->
-                       State#state{packets=[PacketInfo]};
-                   {ok, _PacketKey} ->
-                       %% Already done processing this packet
-                       State
-               end,
+handle_cast({packet, Packet}, State) ->
+    NewState = handle_packet(Packet, State),
     {noreply, NewState};
-handle_cast({packet, PacketInfo}, #state{packets=Packets}=State) ->
-    %% got a packet while still processing packets
-    %% add this packet at the end and continue packet handling
-    schedule_packet_handling(),
-    NewPackets = Packets ++ [PacketInfo],
-    {noreply, State#state{packets=NewPackets}};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
-    schedule_packet_handling(),
     {noreply, State}.
-
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -143,39 +120,18 @@ handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
                     {ok, blockchain_state_channel_v1:credits(SC)}
             end,
     {reply, Reply, State};
-handle_call(packets, _From, #state{packets=Packets}=State) ->
-    {reply, Packets, State};
 handle_call(state, _From, State) ->
     {reply, {ok, State}, State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_info(process_packet, #state{packets=[]}=State) ->
-    %% Don't have any packets to process, reschedule
-    lager:debug("got process_packet, no packets to process"),
-    {noreply, State};
-handle_info(process_packet, #state{swarm=Swarm, packets=[PacketInfo | Remaining]=Packets}=State) ->
-    %% Processing the first packet in queue
-    %% It has no pending request, try it
-    lager:debug("got process_packet, processing, packets: ~p", [PacketInfo]),
-    NewState = case handle_packet(PacketInfo, Swarm) of
-                   {error, _} ->
-                       %% Send this packet to the back of the queue,
-                       %% XXX: Could also drop it probably?
-                       State#state{packets=Remaining ++ [PacketInfo]};
-                   {ok, PacketKey} ->
-                       %% This packet got processed, remove it from state
-                       State#state{packets=lists:keydelete(PacketKey, 1, Packets)}
-               end,
-    schedule_packet_handling(),
-    {noreply, NewState}.
+handle_info(_Msg, State) ->
+    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
+    {noreply, State}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-schedule_packet_handling() ->
-    erlang:send_after(timer:seconds(1), self(), process_packet).
 
 -spec validate_state_channel_update(OldStateChannel :: blockchain_state_channel_v1:state_channel() | undefined,
                                     NewStateChannel :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
@@ -194,26 +150,49 @@ validate_state_channel_update(OldStateChannel, NewStateChannel) ->
             end
     end.
 
--spec handle_packet(PacketInfo :: packet_info(), Swarm :: pid()) -> {ok, packet_key()} | {error, any()}.
-handle_packet({PacketKey, Packet}, Swarm) ->
+-spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
+                    State :: state()) -> state().
+handle_packet(Packet, #state{swarm=Swarm}=State) ->
     OUI = blockchain_helium_packet_v1:oui(Packet),
     case find_routing(OUI) of
         {error, _Reason} ->
             lager:error("failed to find router for oui ~p:~p", [OUI, _Reason]),
-            {error, _Reason};
+            State;
         {ok, Peer} ->
-            case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
-                {error, _Reason} ->
-                    lager:error("failed to dial ~p:~p", [Peer, _Reason]),
-                    {error, _Reason};
-                {ok, Stream} ->
+            case find_stream(OUI, State) of
+                undefined ->
+                    %% Do not have a stream open for this oui
+                    %% Create one and add to state
+                    case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
+                        {error, _Reason} ->
+                            lager:error("failed to dial ~p:~p", [Peer, _Reason]),
+                            %% TODO: add retry?
+                            State;
+                        {ok, NewStream} ->
+                            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+                            PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
+                            PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
+                            ok = blockchain_state_channel_handler:send_packet(NewStream, PacketMsg1),
+                            add_stream(OUI, NewStream, State)
+                    end;
+                Stream ->
+                    %% Found an existing stream for this oui, use that to send packet
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
                     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
                     ok = blockchain_state_channel_handler:send_packet(Stream, PacketMsg1),
-                    {ok, PacketKey}
+                    State
             end
     end.
+
+
+-spec find_stream(OUI :: non_neg_integer(), State :: state()) -> undefined | pid().
+find_stream(OUI, #state{streams=Streams}) ->
+    maps:get(OUI, Streams, undefined).
+
+-spec add_stream(OUI :: non_neg_integer(), Stream :: pid(), State :: state()) -> state().
+add_stream(OUI, Stream, #state{streams=Streams}=State) ->
+    State#state{streams=maps:put(OUI, Stream, Streams)}.
 
 -spec find_routing(OUI :: non_neg_integer()) -> {ok, string()} | {error, any()}.
 find_routing(OUI) ->
