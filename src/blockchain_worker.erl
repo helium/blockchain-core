@@ -570,7 +570,7 @@ maybe_sync(#state{blockchain = Chain} = State) ->
     erlang:cancel_timer(State#state.sync_timer),
     %% last block add time is relative to the system clock so as long as the local
     %% clock mostly increments this will eventually be true on a stuck node
-    SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 75),
+    SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
     SkewedSyncCooldownTime = application:get_env(blockchain, skewed_sync_cooldown_time, 300),
     {ok, HeadBlock} = blockchain:head_block(Chain),
     Height = blockchain_block:height(HeadBlock),
