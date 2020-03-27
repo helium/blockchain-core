@@ -1308,8 +1308,6 @@ credit_dc(Address, Amount, Ledger) ->
                Fee :: non_neg_integer(),
                Nonce :: non_neg_integer(),
                Ledger :: ledger()) -> ok | {error, any()}.
-debit_dc(_Address, 0, _Nonce, _Ledger) ->
-    ok;
 debit_dc(Address, Fee, Nonce, Ledger) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, _}=Error ->
@@ -1320,6 +1318,7 @@ debit_dc(Address, Fee, Nonce, Ledger) ->
                     {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
                 true ->
                     Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+                    %% NOTE: If fee = 0, this should still work..
                     case (Balance - Fee) >= 0 of
                         true ->
                             Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
