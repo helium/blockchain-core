@@ -61,13 +61,8 @@ init(client, _Conn, _) ->
 init(server, _Conn, _) ->
     {ok, #state{}}.
 
-handle_data(client, Data, State) ->
-    case blockchain_state_channel_message_v1:decode(Data) of
-        {state_channel_update, SCUpdate} ->
-           blockchain_state_channels_client:state_channel_update(SCUpdate);
-        _ ->
-            ignore
-    end,
+handle_data(client, _Data, State) ->
+    %% TODO...
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of

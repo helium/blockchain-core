@@ -14,7 +14,7 @@
          start_link/1,
          credits/1,
          packet/1,
-         state_channel_update/1,
+         update_sc/1,
          state/0
         ]).
 
@@ -68,9 +68,9 @@ packet(Packet) ->
 state() ->
     gen_server:call(?SERVER, state).
 
--spec state_channel_update(SCUpdate :: blockchain_state_channel_update_v1:state_channel_update()) -> ok.
-state_channel_update(SCUpdate) ->
-    gen_server:cast(?SERVER, {state_channel_update, SCUpdate}).
+-spec update_sc(NewSC :: blockchain_state_channel_v1:state_channel()) -> ok.
+update_sc(NewSC) ->
+    gen_server:cast(?SERVER, {update_sc, NewSC}).
 
 %% ------------------------------------------------------------------
 %% init, terminate and code_change
@@ -92,17 +92,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% gen_server message handling
 %% ------------------------------------------------------------------
 
-handle_cast({state_channel_update, SCUpdate}, #state{db=DB, state_channels=SCs}=State) ->
-    UpdatedSC = blockchain_state_channel_update_v1:state_channel(SCUpdate),
-    ID = blockchain_state_channel_v1:id(UpdatedSC),
+handle_cast({update_sc, NewSC}, #state{db=DB, state_channels=SCs}=State) ->
+    ID = blockchain_state_channel_v1:id(NewSC),
     lager:debug("received state channel update for ~p", [ID]),
-    NewState = case validate_state_channel_update(maps:get(ID, SCs, undefined), UpdatedSC) of
+    NewState = case validate_state_channel_update(maps:get(ID, SCs, undefined), NewSC) of
                    {error, _Reason} ->
-                       lager:warning("state channel ~p is invalid ~p", [UpdatedSC, _Reason]),
+                       lager:warning("state channel ~p is invalid ~p", [NewSC, _Reason]),
                        State;
                    ok ->
-                       ok = blockchain_state_channel_v1:save(DB, UpdatedSC),
-                       State#state{state_channels=maps:put(ID, UpdatedSC, SCs)}
+                       ok = blockchain_state_channel_v1:save(DB, NewSC),
+                       State#state{state_channels=maps:put(ID, NewSC, SCs)}
                end,
     {noreply, NewState};
 handle_cast({packet, Packet}, State) ->

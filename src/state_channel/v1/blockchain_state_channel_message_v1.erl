@@ -15,7 +15,7 @@
 -endif.
 
 -type message() :: #blockchain_state_channel_message_v1_pb{}.
--type oneof() :: blockchain_state_channel_update_v1:state_channel_update() |
+-type oneof() :: blockchain_state_channel_response_v1:response() |
                  blockchain_state_channel_packet_v1:packet().
 
 -export_type([message/0]).
