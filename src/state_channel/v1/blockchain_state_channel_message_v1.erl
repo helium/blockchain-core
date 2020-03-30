@@ -33,8 +33,8 @@ decode(Bin) ->
 %% ------------------------------------------------------------------
 
 -spec wrap_msg(oneof()) -> message().
-wrap_msg(#blockchain_state_channel_update_v1_pb{}=SC) ->
-    #blockchain_state_channel_message_v1_pb{msg={state_channel_update, SC}};
+wrap_msg(#blockchain_state_channel_response_v1_pb{}=Packet) ->
+    #blockchain_state_channel_message_v1_pb{msg={response, Packet}};
 wrap_msg(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
     #blockchain_state_channel_message_v1_pb{msg={packet, Packet}}.
 
