@@ -15,7 +15,8 @@
          credits/1,
          packet/1,
          update_sc/1,
-         state/0
+         state/0,
+         response/1
         ]).
 
 %% ------------------------------------------------------------------
@@ -56,6 +57,15 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
+-spec response(blockchain_state_channel_response_v1:response()) -> any().
+response(Resp) ->
+    case application:get_env(blockchain, sc_client_handler, undefined) of
+        undefined ->
+            ok;
+        Mod when is_atom(Mod) ->
+            Mod:handle_response(Resp)
+    end.
+
 -spec credits(ID :: blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 credits(ID) ->
     gen_server:call(?SERVER, {credits, ID}, infinity).
@@ -71,6 +81,7 @@ state() ->
 -spec update_sc(NewSC :: blockchain_state_channel_v1:state_channel()) -> ok.
 update_sc(NewSC) ->
     gen_server:cast(?SERVER, {update_sc, NewSC}).
+
 
 %% ------------------------------------------------------------------
 %% init, terminate and code_change

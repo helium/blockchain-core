@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     credits/1, nonce/1,
-    packet/1,
+    packet/1, packet/2,
     state_channels/0
 ]).
 
@@ -52,7 +52,7 @@
     state_channels = #{} :: state_channels(),
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
-    packet_forward = undefined :: undefined | pid()
+    mod = undefined :: undefined | atom()
 }).
 
 -type state() :: #state{}.
@@ -74,8 +74,12 @@ nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
 -spec packet(blockchain_state_channel_packet_v1:packet()) -> ok.
-packet(Req) ->
-    gen_server:cast(?SERVER, {packet, Req}).
+packet(Packet) ->
+    gen_server:cast(?SERVER, {packet, Packet}).
+
+-spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
+packet(Packet, HandlerPid) ->
+    gen_server:cast(?SERVER, {packet, Packet, HandlerPid}).
 
 -spec state_channels() -> state_channels().
 state_channels() ->
@@ -98,12 +102,12 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = maps:get(db, Args),
-    Pid = maps:get(packet_forward, Args, undefined),
+    Mod = maps:get(mod, Args),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     {ok, State} = load_state(DB),
     self() ! post_init,
-    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, packet_forward=Pid}}.
+    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, mod=Mod}}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -133,14 +137,12 @@ handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=Sta
             SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
             {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
     end;
-handle_cast({packet_forward, Pid}, State) ->
-    {noreply, State#state{packet_forward=Pid}};
-handle_cast({packet, Packet}, #state{packet_forward=Pid}=State) when is_pid(Pid) ->
+handle_cast({packet, Packet, HandlerPid}, #state{mod=Mod}=State) when is_pid(HandlerPid) ->
     case blockchain_state_channel_packet_v1:validate(Packet) of
         {error, _Reason} ->
             lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
         true ->
-            Pid ! {packet, blockchain_state_channel_packet_v1:packet(Packet)}
+            Mod:handle_packet(Packet, HandlerPid)
     end,
     {noreply, State};
 handle_cast(_Msg, State) ->

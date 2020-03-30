@@ -15,7 +15,8 @@
     server/4,
     client/2,
     dial/3,
-    send_packet/2
+    send_packet/2,
+    send_response/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -53,6 +54,11 @@ send_packet(Pid, Packet) ->
     Pid ! {send_packet, Packet},
     ok.
 
+-spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
+send_response(Pid, Resp) ->
+    Pid ! {send_response, Resp},
+    ok.
+
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
@@ -61,8 +67,12 @@ init(client, _Conn, _) ->
 init(server, _Conn, _) ->
     {ok, #state{}}.
 
-handle_data(client, _Data, State) ->
+handle_data(client, Data, State) ->
     %% TODO...
+    case blockchain_state_channel_message_v1:decode(Data) of
+        {response, Resp} ->
+            blockchain_state_channels_client:response(Resp)
+    end,
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
@@ -73,6 +83,9 @@ handle_data(server, Data, State) ->
 
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
+    {noreply, State, Data};
+handle_info(server, {send_response, Resp}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Resp),
     {noreply, State, Data};
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),
