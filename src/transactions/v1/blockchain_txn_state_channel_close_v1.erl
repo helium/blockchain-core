@@ -94,9 +94,12 @@ is_valid(Txn, Chain) ->
                                 true ->
                                     ok;
                                 false ->
-                                    case blockchain_state_channel_v1:balance(Closer, SC) of
-                                        {error, _} -> {error, closer_not_included};
-                                        {ok, _} -> ok
+                                    Summaries = blockchain_state_channel_v1:summaries(SC),
+                                    case blockchain_state_channel_summary_v1:summary_for(Closer, Summaries) of
+                                        {error, _Reason}=E ->
+                                            E;
+                                        {ok, _} ->
+                                            ok
                                     end
                             end
                     end

@@ -293,28 +293,30 @@ load_state(DB) ->
                 maps:new(),
                 SCIDs
             ),
-            Clients = lists:foldl(
-                fun(SC, Acc0) ->
-                    ID = blockchain_state_channel_v1:id(SC),
-                    Balances = blockchain_state_channel_v1:balances(SC),
-                    Payees = lists:foldl(
-                        fun(Balance, Acc1) ->
-                            Payee = blockchain_state_channel_balance_v1:payee(Balance),
-                            case lists:member(Payee, Acc1) of
-                                true -> Acc1;
-                                false -> [Payee|Acc1]
-                            end
-                        end,
-                        [],
-                        Balances
-                    ),
-                    maps:put(ID, Payees, Acc0)
-                end,
-                maps:new(),
-                maps:values(SCs)
-            ),
-            {ok, #state{db=DB, state_channels=SCs, clients=Clients}}
+            SCClients = lists:foldl(fun(SC, Acc0) ->
+                                            ID = blockchain_state_channel_v1:id(SC),
+                                            Summaries = blockchain_state_channel_v1:summaries(SC),
+                                            Clients = acc_clients(Summaries),
+                                            maps:put(ID, Clients, Acc0)
+                                    end,
+                                    maps:new(),
+                                    maps:values(SCs)),
+
+            {ok, #state{db=DB, state_channels=SCs, clients=SCClients}}
     end.
+
+-spec acc_clients(Summaries :: blockchain_state_channel_summary_v1:summaries()) -> [libp2p_crypto:pubkey_bin()].
+acc_clients(Summaries) ->
+    lists:foldl(fun(Summary, Acc) ->
+                        ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                        case lists:member(ClientPubkeyBin, Acc) of
+                            false -> [ClientPubkeyBin | Acc];
+                            true -> Acc
+                        end
+                end,
+                [],
+                Summaries).
+
 
 -spec get_state_channels(rocksdb:db_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
 get_state_channels(DB) ->

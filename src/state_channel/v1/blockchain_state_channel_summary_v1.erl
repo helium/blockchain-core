@@ -67,7 +67,7 @@ num_packets(ClientPubkeyBin, Summaries) ->
     end.
 
 -spec num_dcs(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                Summaries :: summaries()) -> {ok, non_neg_integer()} | {error, not_found}.
+              Summaries :: summaries()) -> {ok, non_neg_integer()} | {error, not_found}.
 num_dcs(ClientPubkeyBin, Summaries) ->
     Filter = fun(Summary) -> ?MODULE:client_pubkeybin(Summary) == ClientPubkeyBin end,
     case lists:filter(Filter, Summaries) of

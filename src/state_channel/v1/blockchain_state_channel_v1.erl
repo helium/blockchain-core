@@ -17,7 +17,7 @@
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
-    summary/1
+    summaries/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -39,7 +39,7 @@ new(ID, Owner) ->
         owner=Owner,
         credits=0,
         nonce=0,
-        summary=[],
+        summaries=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=0
@@ -55,7 +55,7 @@ new(ID, Owner, Credits, ExpireAtBlock) ->
         owner=Owner,
         credits=Credits,
         nonce=0,
-        summary=[],
+        summaries=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=ExpireAtBlock
@@ -85,9 +85,9 @@ nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
 
--spec summary(state_channel()) -> blockchain_state_channel_summary_v1:summary().
-summary(#blockchain_state_channel_v1_pb{summary=Summary}) ->
-    Summary.
+-spec summaries(state_channel()) -> blockchain_state_channel_summary_v1:summaries().
+summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
+    Summaries.
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
