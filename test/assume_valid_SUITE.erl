@@ -45,6 +45,7 @@ init_per_testcase(TestCase, Config) ->
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
+    catch gen_server:stop(blockchain_sup),
     ok.
 
 

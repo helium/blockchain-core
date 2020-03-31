@@ -38,7 +38,7 @@
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([save_block/2, bootstrap_hexes/1]).
+-export([save_block/2, bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -624,7 +624,8 @@ can_add_block(Block, Blockchain) ->
                                     %% don't error here incase there's more blocks coming that *are* valid
                                     ok;
                                 _ ->
-                                    case Height > ChainHeight of
+                                    %% check the block is not contiguous
+                                    case Height > (ChainHeight + 1) of
                                         true ->
                                             lager:warning("block doesn't fit with our chain,
                                                 block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
@@ -1682,8 +1683,7 @@ save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}
 
 check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
     true = blockchain_lock:check(), %% we need the lock for this
-    {ok, Itr} = rocksdb:iterator(DB, CF, []),
-    Blocks = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
+    Blocks = get_plausible_blocks(Chain),
     SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
     {ok, Batch} = rocksdb:batch(),
     lists:foreach(fun(Block) ->
@@ -1705,6 +1705,12 @@ check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
                           end
                   end, SortedBlocks),
     rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
+    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+    Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
+    catch rocksdb:iterator_close(Itr),
+    Res.
 
 get_plausible_blocks(_Itr, {error, _}, Acc) ->
     Acc;
