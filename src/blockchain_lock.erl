@@ -5,7 +5,7 @@
 
 -behaviour(gen_server).
 
--export([acquire/0, release/0, force_release/0]).
+-export([acquire/0, release/0, force_release/0, check/0]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
@@ -40,6 +40,9 @@ release() ->
 force_release()  ->
     erase(?holding_lock),
     ?MODULE ! release.
+
+check() ->
+    get(?holding_lock) /= undefined.
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
