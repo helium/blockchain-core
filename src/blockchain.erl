@@ -580,7 +580,7 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
         blockchain_lock:release()
     end.
 
-add_block_(Block, Blockchain, Syncing) ->
+can_add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
@@ -595,23 +595,20 @@ add_block_(Block, Blockchain, Syncing) ->
                     Error;
                 {ok, HeadBlock} ->
                     HeadHash = blockchain_block:hash_block(HeadBlock),
-                    Ledger = blockchain:ledger(Blockchain),
-                    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-                    {ok, BlockchainHeight} = blockchain:height(Blockchain),
                     Height = blockchain_block:height(Block),
+                    {ok, ChainHeight} = blockchain:height(Blockchain),
+                    %% compute the ledger at the height of the chain in case we're
+                    %% re-adding a missing block (that was absorbed into the ledger)
+                    %% that's on the wrong side of an election or a chain var
+                    {ok, Ledger} = blockchain:ledger_at(ChainHeight, Blockchain),
                     case
-                        {blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         Height =:= blockchain_block:height(HeadBlock) + 1,
-                         BlockchainHeight =:= LedgerHeight}
+                        blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                         Height =:= blockchain_block:height(HeadBlock) + 1
                     of
-                        {_, false} when BlockchainHeight =:= (LedgerHeight + 1) ->
-                            lager:warning("ledger and chain height don't match (L:~p, C:~p)", [LedgerHeight, BlockchainHeight]),
-                            ok = blockchain_worker:mismatch(),
-                            {error, mismatch_ledger_chain};
-                        {false, _} when HeadHash =:= Hash ->
+                        false when HeadHash =:= Hash ->
                             lager:debug("Already have this block"),
                             ok;
-                        {false, _} ->
+                        false ->
                             case ?MODULE:get_block(Hash, Blockchain) of
                                 {ok, Block} ->
                                     %% we already have this, thanks
@@ -623,9 +620,8 @@ add_block_(Block, Blockchain, Syncing) ->
                                                                                      blockchain_block:height(HeadBlock)]),
                                     {error, disjoint_chain}
                             end;
-                        {true, true} ->
+                        true ->
                             lager:debug("prev hash matches the gossiped block"),
-                            MyAddress = blockchain_swarm:pubkey_bin(),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
                                     lager:error("could not get consensus_members ~p", [_Reason]),
@@ -644,48 +640,83 @@ add_block_(Block, Blockchain, Syncing) ->
                                     of
                                         false ->
                                             {error, failed_verify_signatures};
-                                        {true, _, Rescue} ->
+                                        {true, _, IsRescue} ->
                                             SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
                                             case Txns == SortedTxns of
                                                 false ->
                                                     {error, wrong_txn_order};
                                                 true ->
-                                                    BeforeCommit = fun() ->
-                                                        lager:info("adding block ~p", [Height]),
-                                                        ok = ?save_block(Block, Blockchain)
-                                                    end,
-                                                    {Signers, _Signatures} = lists:unzip(Sigs),
-                                                    Fun = case lists:member(MyAddress, Signers) of
-                                                              true -> unvalidated_absorb_and_commit;
-                                                              _ -> absorb_and_commit
-                                                          end,
-                                                    case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, Rescue) of
-                                                        {error, Reason}=Error ->
-                                                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                                                            Error;
-                                                        ok ->
-                                                            try
-                                                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
-                                                            catch C:E ->
-                                                                    lager:info("poc gc failed with ~p:~p", [C,E]),
-                                                                    ok
-                                                            end,
-                                                            Ledger = blockchain:ledger(Blockchain),
-                                                            case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                                                {error, Reason}=Error ->
-                                                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                                                    Error;
-                                                                {ok, NewLedger} ->
-                                                                    lager:info("Notifying new block ~p", [Height]),
-                                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
-                                                            end
-                                                    end
+                                                    {true, IsRescue}
                                             end
                                     end
                             end
                     end
             end
     end.
+
+add_block_(Block, Blockchain, Syncing) ->
+    Ledger = blockchain:ledger(Blockchain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, BlockchainHeight} = blockchain:height(Blockchain),
+    case LedgerHeight == BlockchainHeight of
+        true ->
+            case can_add_block(Block, Blockchain) of
+                {true, IsRescue} ->
+                    Height = blockchain_block:height(Block),
+                    Hash = blockchain_block:hash_block(Block),
+                    Sigs = blockchain_block:signatures(Block),
+                    MyAddress = blockchain_swarm:pubkey_bin(),
+                    BeforeCommit = fun() ->
+                                           lager:info("adding block ~p", [Height]),
+                                           ok = ?save_block(Block, Blockchain)
+                                   end,
+                    {Signers, _Signatures} = lists:unzip(Sigs),
+                    Fun = case lists:member(MyAddress, Signers) of
+                              true -> unvalidated_absorb_and_commit;
+                              _ -> absorb_and_commit
+                          end,
+                    case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
+                        {error, Reason}=Error ->
+                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                            Error;
+                        ok ->
+                            try
+                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
+                            catch C:E ->
+                                      lager:info("poc gc failed with ~p:~p", [C,E]),
+                                      ok
+                            end,
+                            case blockchain_ledger_v1:new_snapshot(Ledger) of
+                                {error, Reason}=Error ->
+                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                    Error;
+                                {ok, NewLedger} ->
+                                    lager:info("Notifying new block ~p", [Height]),
+                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                            end
+                    end;
+                Other ->
+                    %% this can either be an error tuple or `ok' when its the genesis block we already have
+                    Other
+            end;
+        false when BlockchainHeight < LedgerHeight ->
+            %% ledger is higher than blockchain, try to validate this block
+            %% and see if we can save it
+            case can_add_block(Block, Blockchain) of
+                {true, _IsRescue} ->
+                    ?save_block(Block, Blockchain);
+                Other ->
+                    Other
+            end;
+        false ->
+            %% blockchain is higher than ledger, try to play the chain forwards
+            lists:foldl(fun(H, ok) ->
+                                  {ok, B} = get_block(H, Blockchain),
+                                  blockchain_txn:absorb_and_commit(B, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(B));
+                           (_, Error) -> Error
+                          end, ok, lists:seq(LedgerHeight+1, BlockchainHeight))
+    end.
+
 
 add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchain=#blockchain{db=DB, blocks=BlocksCF, temp_blocks=TempBlocksCF}, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
