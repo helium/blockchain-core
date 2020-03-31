@@ -49,10 +49,20 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
     end,
     noreply.
 
-add_block(_Swarm, Block, Chain, Sender) ->
+add_block(Swarm, Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     case blockchain:add_block(Block, Chain) of
         ok ->
+            %% if we added it properly the add_block event will trigger gossip
+            ok;
+        plausible ->
+            lager:warning("plausuble gossipped block doesn't fit with our chain, will start sync if not already active"),
+            blockchain_worker:maybe_sync(),
+            libp2p_group_gossip:send(
+              libp2p_swarm:gossip_group(Swarm),
+              ?GOSSIP_PROTOCOL,
+              blockchain_gossip_handler:gossip_data(Swarm, Block)
+             ),
             ok;
         {error, disjoint_chain} ->
             lager:warning("gossipped block doesn't fit with our chain, will start sync if not already active"),

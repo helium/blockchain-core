@@ -53,6 +53,7 @@
     blocks :: rocksdb:cf_handle(),
     heights :: rocksdb:cf_handle(),
     temp_blocks :: rocksdb:cf_handle(),
+    plausible_blocks :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
@@ -511,7 +512,9 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 add_blocks(Blocks, Chain) ->
     blockchain_lock:acquire(),
     try
-        add_blocks_(Blocks, Chain)
+        Res = add_blocks_(Blocks, Chain),
+        check_plausible_blocks(Chain),
+        Res
     catch C:E:S ->
             lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
             {error, add_blocks_error}
@@ -524,7 +527,8 @@ add_blocks_([LastBlock | []], Chain) ->
     ?MODULE:add_block(LastBlock, Chain, true);
 add_blocks_([Block | Blocks], Chain) ->
     case ?MODULE:add_block(Block, Chain, true) of
-        ok -> add_blocks_(Blocks, Chain);
+        Res when Res == ok; Res == plausible ->
+            add_blocks_(Blocks, Chain);
         Error ->
             Error
     end.
@@ -533,11 +537,11 @@ add_blocks_([Block | Blocks], Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | plausible | {error, any()}.
 add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
 
--spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | plausible | {error, any()}.
 add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing) ->
     blockchain_lock:acquire(),
     try
@@ -568,7 +572,12 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
             _ ->
                 case persistent_term:get(?ASSUMED_VALID, undefined) of
                     undefined ->
-                        add_block_(Block, Blockchain, Syncing);
+                        case add_block_(Block, Blockchain, Syncing) of
+                            ok ->
+                                check_plausible_blocks(Blockchain),
+                                ok;
+                            Res ->  Res
+                        end;
                     AssumedValidHashAndHeight ->
                         add_assumed_valid_block(AssumedValidHashAndHeight, Block, Blockchain, Syncing)
                 end
@@ -615,10 +624,19 @@ can_add_block(Block, Blockchain) ->
                                     %% don't error here incase there's more blocks coming that *are* valid
                                     ok;
                                 _ ->
-                                    lager:warning("block doesn't fit with our chain,
-                                          block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                     blockchain_block:height(HeadBlock)]),
-                                    {error, disjoint_chain}
+                                    case Height > ChainHeight of
+                                        true ->
+                                            lager:warning("block doesn't fit with our chain,
+                                                block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                            blockchain_block:height(HeadBlock)]),
+                                            case is_block_plausible(Block, Blockchain) of
+                                                true -> plausible;
+                                                false -> {error, disjoint_chain}
+                                            end;
+                                        false ->
+                                            %% if the block height is lower we probably don't care about it
+                                            {error, disjoint_chain}
+                                    end
                             end;
                         true ->
                             lager:info("prev hash matches the gossiped block"),
@@ -694,6 +712,11 @@ add_block_(Block, Blockchain, Syncing) ->
                                     lager:info("Notifying new block ~p", [Height]),
                                     ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
                             end
+                    end;
+                plausible ->
+                    case save_plausible_block(Block, Blockchain) of
+                        exists -> ok; %% already have it
+                        ok -> plausible %% tell the gossip handler
                     end;
                 Other ->
                     %% this can either be an error tuple or `ok' when its the genesis block we already have
@@ -1330,7 +1353,7 @@ load(Dir) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF]} ->
             Ledger = blockchain_ledger_v1:new(Dir),
             Blockchain = #blockchain{
                 dir=Dir,
@@ -1339,6 +1362,7 @@ load(Dir) ->
                 blocks=BlocksCF,
                 heights=HeightsCF,
                 temp_blocks=TempBlocksCF,
+                plausible_blocks=PlausibleBlocksCF,
                 ledger=Ledger
             },
             compact(Blockchain),
@@ -1370,7 +1394,7 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", "plausible_blocks"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -1617,6 +1641,84 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                     end
             end
     end.
+
+%% check if this block looks plausible
+%% if we can validate f+1 of the signatures against our consensus group
+%% that means it's probably not wildly impossible
+is_block_plausible(Block, Chain) ->
+    Ledger = ledger(Chain),
+    case blockchain_ledger_v1:consensus_members(Ledger) of
+        {error, _Reason} ->
+            false;
+        {ok, ConsensusAddrs} ->
+            N = length(ConsensusAddrs),
+            F = (N-1) div 3,
+            {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+            Sigs = blockchain_block:signatures(Block),
+            case blockchain_block:verify_signatures(Block,
+                                                    ConsensusAddrs,
+                                                    Sigs,
+                                                    F + 1,
+                                                    MasterKey)
+            of
+                false ->
+                    %% phwit
+                    false;
+                {true, _, _} ->
+                    true
+            end
+    end.
+
+save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
+    true = blockchain_lock:check(), %% we need the lock for this
+    Hash = blockchain_block:hash_block(Block),
+    case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
+        {ok, _} ->
+            %% already got it, thanks
+            exists;
+        _ ->
+            rocksdb:put(DB, PlausibleBlocks, Hash, blockchain_block:serialize(Block), [{sync, true}])
+    end.
+
+check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
+    true = blockchain_lock:check(), %% we need the lock for this
+    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+    Blocks = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
+    SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(fun(Block) ->
+                          case can_add_block(Block, Chain) of
+                              {true, _IsRescue} ->
+                                  %% set the sync flag to true as we've already gossiped these blocks on
+                                  case add_block_(Block, Chain, true) of
+                                      ok ->
+                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
+                                      _ ->
+                                          %% block has become invalid, delete it
+                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                                  end;
+                              plausible ->
+                                  %% still plausible, leave it alone
+                                  ok;
+                              _Error ->
+                                  rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                          end
+                  end, SortedBlocks),
+    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+get_plausible_blocks(_Itr, {error, _}, Acc) ->
+    Acc;
+get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
+    NewAcc = try blockchain_block:deserialize(BinBlock) of
+                 Block ->
+                     [Block|Acc]
+             catch
+                 What:Why ->
+                     lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [_Key, What, Why]),
+                     Acc
+             end,
+    get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
