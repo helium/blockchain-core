@@ -17,7 +17,7 @@
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
-    summaries/1
+    summaries/1, summaries/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -88,6 +88,11 @@ nonce(Nonce, SC) ->
 -spec summaries(state_channel()) -> blockchain_state_channel_summary_v1:summaries().
 summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
     Summaries.
+
+-spec summaries(Summaries :: blockchain_state_channel_summary_v1:summaries(),
+                SC :: state_channel()) -> state_channel().
+summaries(Summaries, SC) ->
+    SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
@@ -173,7 +178,7 @@ new_test() ->
         owner= <<"owner">>,
         credits=0,
         nonce=0,
-        balances=[],
+        summaries=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=0
@@ -198,20 +203,22 @@ nonce_test() ->
     ?assertEqual(0, nonce(SC)),
     ?assertEqual(1, nonce(nonce(1, SC))).
 
-balances_test() ->
+summaries_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual([], balances(SC)),
-    Balance = blockchain_state_channel_balance_v1:new(PubKeyBin, 1),
-    ?assertEqual([Balance], balances(balances([Balance], SC))).
+    ?assertEqual([], summaries(SC)),
+    Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
+    ExpectedSummaries = [Summary],
+    NewSC = blockchain_state_channel_v1:summaries(ExpectedSummaries, SC),
+    ?assertEqual({ok, Summary}, blockchain_state_channel_summary_v1:summary_for(PubKeyBin, ExpectedSummaries)),
+    ?assertEqual(ExpectedSummaries, blockchain_state_channel_v1:summaries(NewSC)).
 
-balance_test() ->
+summaries_not_found_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual({error, not_found}, balance(PubKeyBin, SC)),
-    ?assertEqual({ok, 2}, balance(PubKeyBin, balance(PubKeyBin, 2, SC))).
+    ?assertEqual({error, not_found}, blockchain_state_channel_summary_v1:summary_for(PubKeyBin, summaries(SC))).
 
 root_hash_test() ->
     SC = new(<<"1">>, <<"owner">>),
@@ -235,10 +242,10 @@ encode_decode_test() ->
     PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
-    Balance0 = blockchain_state_channel_balance_v1:new(PubKeyBin0, 1),
-    Balance1 = blockchain_state_channel_balance_v1:new(PubKeyBin1, 1),
-    SC1 = balances([Balance1, Balance0], SC0),
-    SC2 = balances([Balance0, Balance1], SC0),
+    Summary0 = blockchain_state_channel_summary_v1:new(PubKeyBin0),
+    Summary1 = blockchain_state_channel_summary_v1:new(PubKeyBin1),
+    SC1 = summaries([Summary1, Summary0], SC0),
+    SC2 = summaries([Summary0, Summary1], SC0),
     ?assertEqual(SC1, decode(encode(SC1))),
     ?assertEqual(SC2, decode(encode(SC2))).
 
