@@ -24,6 +24,7 @@
     routing_test/1,
     block_save_failed_test/1,
     absorb_failed_test/1,
+    missing_last_block_test/1,
     epoch_reward_test/1,
     election_test/1,
     election_v3_test/1,
@@ -63,6 +64,7 @@ all() ->
         routing_test,
         block_save_failed_test,
         absorb_failed_test,
+        missing_last_block_test,
         epoch_reward_test,
         election_test,
         election_v3_test,
@@ -1106,18 +1108,74 @@ absorb_failed_test(Config) ->
     end),
     blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
     meck:unload(blockchain),
+    Ledger = blockchain:ledger(Chain),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(Ledger)),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+
+    ct:pal("Try to re-add block 1 will cause the mismatch"),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain_ledger_v1:current_height(Ledger) end),
+
+    ct:pal("Try to re-add block 2"),
+    ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain_ledger_v1:current_height(Ledger) end),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
+    ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
+
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
+    ok.
+
+missing_last_block_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    Balance = ?config(balance, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+    Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, save_block, fun(_B, _C) ->
+            %% just don't save it
+            ok
+    end),
+    blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+    meck:unload(blockchain),
+    Ledger = blockchain:ledger(Chain),
+    {ok, GenesisBlock} = blockchain:genesis_block(Chain),
+
+    ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
+    ?assertEqual({ok, 2}, blockchain_ledger_v1:current_height(Ledger)),
+    ?assertEqual({error, not_found}, blockchain:get_block(2, Chain)),
+
     ct:pal("Try to re-add block 1 will cause the mismatch"),
     ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
 
-    Ledger = blockchain:ledger(Chain),
-    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
-    ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain_ledger_v1:current_height(Ledger) end),
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain:height(Chain) end),
+    ok = test_utils:wait_until(fun() -> {ok, 2} =:= blockchain_ledger_v1:current_height(Ledger) end),
 
     ct:pal("Try to re-add block 2"),
     ok = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
