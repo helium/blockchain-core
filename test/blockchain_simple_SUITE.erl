@@ -1137,6 +1137,7 @@ absorb_failed_test(Config) ->
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
