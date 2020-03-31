@@ -624,7 +624,7 @@ add_block_(Block, Blockchain, Syncing) ->
                                     {error, disjoint_chain}
                             end;
                         {true, true} ->
-                            lager:info("prev hash matches the gossiped block"),
+                            lager:debug("prev hash matches the gossiped block"),
                             MyAddress = blockchain_swarm:pubkey_bin(),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
