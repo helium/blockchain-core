@@ -52,7 +52,7 @@
     state_channels = #{} :: state_channels(),
     clients = #{} :: clients(),
     payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
-    mod = undefined :: undefined | atom()
+    sc_server_mod = undefined :: undefined | atom()
 }).
 
 -type state() :: #state{}.
@@ -102,12 +102,12 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = maps:get(db, Args),
-    Mod = maps:get(mod, Args),
+    SCServerMod = maps:get(sc_server_mod, Args, undefined),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     {ok, State} = load_state(DB),
     self() ! post_init,
-    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, mod=Mod}}.
+    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, sc_server_mod=SCServerMod}}.
 
 handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -137,12 +137,12 @@ handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=Sta
             SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
             {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
     end;
-handle_cast({packet, Packet, HandlerPid}, #state{mod=Mod}=State) when is_pid(HandlerPid) ->
+handle_cast({packet, Packet, HandlerPid}, #state{sc_server_mod=SCServerMod}=State) when is_pid(HandlerPid) ->
     case blockchain_state_channel_packet_v1:validate(Packet) of
         {error, _Reason} ->
             lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
         true ->
-            Mod:handle_packet(Packet, HandlerPid)
+            SCServerMod:handle_packet(Packet, HandlerPid)
     end,
     {noreply, State};
 handle_cast(_Msg, State) ->
