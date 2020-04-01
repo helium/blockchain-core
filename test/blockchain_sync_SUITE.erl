@@ -30,12 +30,16 @@ all() ->
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
-    blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config).
+    {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
+    ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
+    blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, [{swarm, SimSwarm}|Config]).
 
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(_, _Config) ->
+end_per_testcase(_, Config) ->
+    SimSwarm = ?config(swarm, Config),
+    libp2p_swarm:stop(SimSwarm),
     ok.
 
 %%--------------------------------------------------------------------
@@ -50,6 +54,7 @@ end_per_testcase(_, _Config) ->
 basic(Config) ->
     BaseDir = ?config(base_dir, Config),
     SimDir = ?config(sim_dir, Config),
+    SimSwarm = ?config(swarm, Config),
 
     Balance = 5000,
     BlocksN = 100,
@@ -59,8 +64,6 @@ basic(Config) ->
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Simulate other chain with sync handler only
-    {ok, SimSwarm} = libp2p_swarm:start(sync_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
-    ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     Chain = blockchain:new(SimDir, Genesis, undefined),
 
     % Add some blocks
