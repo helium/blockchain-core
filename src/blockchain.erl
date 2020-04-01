@@ -38,7 +38,7 @@
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([save_block/2, bootstrap_hexes/1]).
+-export([save_block/2, bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -53,6 +53,7 @@
     blocks :: rocksdb:cf_handle(),
     heights :: rocksdb:cf_handle(),
     temp_blocks :: rocksdb:cf_handle(),
+    plausible_blocks :: rocksdb:cf_handle(),
     ledger :: blockchain_ledger_v1:ledger()
 }).
 
@@ -511,7 +512,9 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
 add_blocks(Blocks, Chain) ->
     blockchain_lock:acquire(),
     try
-        add_blocks_(Blocks, Chain)
+        Res = add_blocks_(Blocks, Chain),
+        check_plausible_blocks(Chain),
+        Res
     catch C:E:S ->
             lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
             {error, add_blocks_error}
@@ -524,7 +527,8 @@ add_blocks_([LastBlock | []], Chain) ->
     ?MODULE:add_block(LastBlock, Chain, true);
 add_blocks_([Block | Blocks], Chain) ->
     case ?MODULE:add_block(Block, Chain, true) of
-        ok -> add_blocks_(Blocks, Chain);
+        Res when Res == ok; Res == plausible ->
+            add_blocks_(Blocks, Chain);
         Error ->
             Error
     end.
@@ -533,11 +537,11 @@ add_blocks_([Block | Blocks], Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | plausible | {error, any()}.
 add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
 
--spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | plausible | {error, any()}.
 add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing) ->
     blockchain_lock:acquire(),
     try
@@ -568,7 +572,12 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
             _ ->
                 case persistent_term:get(?ASSUMED_VALID, undefined) of
                     undefined ->
-                        add_block_(Block, Blockchain, Syncing);
+                        case add_block_(Block, Blockchain, Syncing) of
+                            ok ->
+                                check_plausible_blocks(Blockchain),
+                                ok;
+                            Res ->  Res
+                        end;
                     AssumedValidHashAndHeight ->
                         add_assumed_valid_block(AssumedValidHashAndHeight, Block, Blockchain, Syncing)
                 end
@@ -580,7 +589,7 @@ add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=
         blockchain_lock:release()
     end.
 
-add_block_(Block, Blockchain, Syncing) ->
+can_add_block(Block, Blockchain) ->
     Hash = blockchain_block:hash_block(Block),
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
@@ -595,37 +604,43 @@ add_block_(Block, Blockchain, Syncing) ->
                     Error;
                 {ok, HeadBlock} ->
                     HeadHash = blockchain_block:hash_block(HeadBlock),
-                    Ledger = blockchain:ledger(Blockchain),
-                    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
-                    {ok, BlockchainHeight} = blockchain:height(Blockchain),
                     Height = blockchain_block:height(Block),
+                    {ok, ChainHeight} = blockchain:height(Blockchain),
+                    %% compute the ledger at the height of the chain in case we're
+                    %% re-adding a missing block (that was absorbed into the ledger)
+                    %% that's on the wrong side of an election or a chain var
+                    {ok, Ledger} = blockchain:ledger_at(ChainHeight, Blockchain),
                     case
-                        {blockchain_block:prev_hash(Block) =:= HeadHash andalso
-                         Height =:= blockchain_block:height(HeadBlock) + 1,
-                         BlockchainHeight =:= LedgerHeight}
+                        blockchain_block:prev_hash(Block) =:= HeadHash andalso
+                         Height =:= blockchain_block:height(HeadBlock) + 1
                     of
-                        {_, false} when BlockchainHeight =:= (LedgerHeight + 1) ->
-                            lager:warning("ledger and chain height don't match (L:~p, C:~p)", [LedgerHeight, BlockchainHeight]),
-                            ok = blockchain_worker:mismatch(),
-                            {error, mismatch_ledger_chain};
-                        {false, _} when HeadHash =:= Hash ->
+                        false when HeadHash =:= Hash ->
                             lager:debug("Already have this block"),
                             ok;
-                        {false, _} ->
+                        false ->
                             case ?MODULE:get_block(Hash, Blockchain) of
                                 {ok, Block} ->
                                     %% we already have this, thanks
                                     %% don't error here incase there's more blocks coming that *are* valid
                                     ok;
                                 _ ->
-                                    lager:warning("block doesn't fit with our chain,
-                                          block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
-                                                                                     blockchain_block:height(HeadBlock)]),
-                                    {error, disjoint_chain}
+                                    %% check the block is not contiguous
+                                    case Height > (ChainHeight + 1) of
+                                        true ->
+                                            lager:warning("block doesn't fit with our chain,
+                                                block_height: ~p, head_block_height: ~p", [blockchain_block:height(Block),
+                                                                                            blockchain_block:height(HeadBlock)]),
+                                            case is_block_plausible(Block, Blockchain) of
+                                                true -> plausible;
+                                                false -> {error, disjoint_chain}
+                                            end;
+                                        false ->
+                                            %% if the block height is lower we probably don't care about it
+                                            {error, disjoint_chain}
+                                    end
                             end;
-                        {true, true} ->
+                        true ->
                             lager:debug("prev hash matches the gossiped block"),
-                            MyAddress = blockchain_swarm:pubkey_bin(),
                             case blockchain_ledger_v1:consensus_members(Ledger) of
                                 {error, _Reason}=Error ->
                                     lager:error("could not get consensus_members ~p", [_Reason]),
@@ -644,48 +659,88 @@ add_block_(Block, Blockchain, Syncing) ->
                                     of
                                         false ->
                                             {error, failed_verify_signatures};
-                                        {true, _, Rescue} ->
+                                        {true, _, IsRescue} ->
                                             SortedTxns = lists:sort(fun blockchain_txn:sort/2, Txns),
                                             case Txns == SortedTxns of
                                                 false ->
                                                     {error, wrong_txn_order};
                                                 true ->
-                                                    BeforeCommit = fun() ->
-                                                        lager:info("adding block ~p", [Height]),
-                                                        ok = ?save_block(Block, Blockchain)
-                                                    end,
-                                                    {Signers, _Signatures} = lists:unzip(Sigs),
-                                                    Fun = case lists:member(MyAddress, Signers) of
-                                                              true -> unvalidated_absorb_and_commit;
-                                                              _ -> absorb_and_commit
-                                                          end,
-                                                    case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, Rescue) of
-                                                        {error, Reason}=Error ->
-                                                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
-                                                            Error;
-                                                        ok ->
-                                                            try
-                                                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
-                                                            catch C:E ->
-                                                                    lager:info("poc gc failed with ~p:~p", [C,E]),
-                                                                    ok
-                                                            end,
-                                                            Ledger = blockchain:ledger(Blockchain),
-                                                            case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                                                {error, Reason}=Error ->
-                                                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                                                    Error;
-                                                                {ok, NewLedger} ->
-                                                                    lager:info("Notifying new block ~p", [Height]),
-                                                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
-                                                            end
-                                                    end
+                                                    {true, IsRescue}
                                             end
                                     end
                             end
                     end
             end
     end.
+
+add_block_(Block, Blockchain, Syncing) ->
+    Ledger = blockchain:ledger(Blockchain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, BlockchainHeight} = blockchain:height(Blockchain),
+    case LedgerHeight == BlockchainHeight of
+        true ->
+            case can_add_block(Block, Blockchain) of
+                {true, IsRescue} ->
+                    Height = blockchain_block:height(Block),
+                    Hash = blockchain_block:hash_block(Block),
+                    Sigs = blockchain_block:signatures(Block),
+                    MyAddress = blockchain_swarm:pubkey_bin(),
+                    BeforeCommit = fun() ->
+                                           lager:info("adding block ~p", [Height]),
+                                           ok = ?save_block(Block, Blockchain)
+                                   end,
+                    {Signers, _Signatures} = lists:unzip(Sigs),
+                    Fun = case lists:member(MyAddress, Signers) of
+                              true -> unvalidated_absorb_and_commit;
+                              _ -> absorb_and_commit
+                          end,
+                    case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
+                        {error, Reason}=Error ->
+                            lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
+                            Error;
+                        ok ->
+                            try
+                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
+                            catch C:E ->
+                                      lager:info("poc gc failed with ~p:~p", [C,E]),
+                                      ok
+                            end,
+                            case blockchain_ledger_v1:new_snapshot(Ledger) of
+                                {error, Reason}=Error ->
+                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                    Error;
+                                {ok, NewLedger} ->
+                                    lager:info("Notifying new block ~p", [Height]),
+                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                            end
+                    end;
+                plausible ->
+                    case save_plausible_block(Block, Blockchain) of
+                        exists -> ok; %% already have it
+                        ok -> plausible %% tell the gossip handler
+                    end;
+                Other ->
+                    %% this can either be an error tuple or `ok' when its the genesis block we already have
+                    Other
+            end;
+        false when BlockchainHeight < LedgerHeight ->
+            %% ledger is higher than blockchain, try to validate this block
+            %% and see if we can save it
+            case can_add_block(Block, Blockchain) of
+                {true, _IsRescue} ->
+                    ?save_block(Block, Blockchain);
+                Other ->
+                    Other
+            end;
+        false ->
+            %% blockchain is higher than ledger, try to play the chain forwards
+            lists:foldl(fun(H, ok) ->
+                                  {ok, B} = get_block(H, Blockchain),
+                                  blockchain_txn:absorb_and_commit(B, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(B));
+                           (_, Error) -> Error
+                          end, ok, lists:seq(LedgerHeight+1, BlockchainHeight))
+    end.
+
 
 add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchain=#blockchain{db=DB, blocks=BlocksCF, temp_blocks=TempBlocksCF}, Syncing) ->
     Hash = blockchain_block:hash_block(Block),
@@ -1299,7 +1354,7 @@ load(Dir) ->
     case open_db(Dir) of
         {error, _Reason}=Error ->
             Error;
-        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF]} ->
+        {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF]} ->
             Ledger = blockchain_ledger_v1:new(Dir),
             Blockchain = #blockchain{
                 dir=Dir,
@@ -1308,6 +1363,7 @@ load(Dir) ->
                 blocks=BlocksCF,
                 heights=HeightsCF,
                 temp_blocks=TempBlocksCF,
+                plausible_blocks=PlausibleBlocksCF,
                 ledger=Ledger
             },
             compact(Blockchain),
@@ -1339,7 +1395,7 @@ open_db(Dir) ->
     ok = filelib:ensure_dir(DBDir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
-    DefaultCFs = ["default", "blocks", "heights", "temp_blocks"],
+    DefaultCFs = ["default", "blocks", "heights", "temp_blocks", "plausible_blocks"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -1586,6 +1642,89 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                     end
             end
     end.
+
+%% check if this block looks plausible
+%% if we can validate f+1 of the signatures against our consensus group
+%% that means it's probably not wildly impossible
+is_block_plausible(Block, Chain) ->
+    Ledger = ledger(Chain),
+    case blockchain_ledger_v1:consensus_members(Ledger) of
+        {error, _Reason} ->
+            false;
+        {ok, ConsensusAddrs} ->
+            N = length(ConsensusAddrs),
+            F = (N-1) div 3,
+            {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+            Sigs = blockchain_block:signatures(Block),
+            case blockchain_block:verify_signatures(Block,
+                                                    ConsensusAddrs,
+                                                    Sigs,
+                                                    F + 1,
+                                                    MasterKey)
+            of
+                false ->
+                    %% phwit
+                    false;
+                {true, _, _} ->
+                    true
+            end
+    end.
+
+save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->
+    true = blockchain_lock:check(), %% we need the lock for this
+    Hash = blockchain_block:hash_block(Block),
+    case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
+        {ok, _} ->
+            %% already got it, thanks
+            exists;
+        _ ->
+            rocksdb:put(DB, PlausibleBlocks, Hash, blockchain_block:serialize(Block), [{sync, true}])
+    end.
+
+check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
+    true = blockchain_lock:check(), %% we need the lock for this
+    Blocks = get_plausible_blocks(Chain),
+    SortedBlocks = lists:sort(fun(A, B) -> blockchain_block:height(A) =< blockchain_block:height(B) end, Blocks),
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(fun(Block) ->
+                          case can_add_block(Block, Chain) of
+                              {true, _IsRescue} ->
+                                  %% set the sync flag to true as we've already gossiped these blocks on
+                                  case add_block_(Block, Chain, true) of
+                                      ok ->
+                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
+                                      _ ->
+                                          %% block has become invalid, delete it
+                                          rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                                  end;
+                              plausible ->
+                                  %% still plausible, leave it alone
+                                  ok;
+                              _Error ->
+                                  rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
+                          end
+                  end, SortedBlocks),
+    rocksdb:write_batch(DB, Batch, [{sync, true}]).
+
+get_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}) ->
+    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+    Res = get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, first), []),
+    catch rocksdb:iterator_close(Itr),
+    Res.
+
+get_plausible_blocks(_Itr, {error, _}, Acc) ->
+    Acc;
+get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
+    NewAcc = try blockchain_block:deserialize(BinBlock) of
+                 Block ->
+                     [Block|Acc]
+             catch
+                 What:Why ->
+                     lager:warning("error when deserializing plausible block at key ~p: ~p ~p", [_Key, What, Why]),
+                     Acc
+             end,
+    get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

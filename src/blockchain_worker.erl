@@ -470,14 +470,6 @@ handle_cast({peer_height, Height, Head, Sender}, #state{blockchain=Chain, swarm=
             end
     end,
     {noreply, State};
-handle_cast(mismatch, #state{blockchain=Chain}=State) ->
-    lager:warning("got mismatch message, deleting last block"),
-    blockchain_lock:acquire(),
-    {ok, ChainHeight} = blockchain:height(Chain),
-    {ok, Block} = blockchain:get_block(ChainHeight, Chain),
-    ok = blockchain:delete_block(Block, Chain),
-    blockchain_lock:release(),
-    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

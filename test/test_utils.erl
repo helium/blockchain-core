@@ -5,7 +5,7 @@
 -include("blockchain_vars.hrl").
 
 -export([
-    init/1,
+    init/1, init/2,
     init_chain/2, init_chain/3, init_chain/4,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
@@ -19,9 +19,11 @@
 
 -define(BASE_TMP_DIR, "./_build/test/tmp").
 -define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
-
 init(BaseDir) ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    init(BaseDir, {PrivKey, PubKey}).
+
+init(BaseDir, {PrivKey, PubKey}) ->
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     ECDHFun = libp2p_crypto:mk_ecdh_fun(PrivKey),
     Opts = [
@@ -38,8 +40,6 @@ init(BaseDir) ->
 init_chain(Balance, Keys) ->
     init_chain(Balance, Keys, true, #{}).
 
-init_chain(Balance, Keys, InConsensus) ->
-    init_chain(Balance, Keys, InConsensus, #{}).
 
 init_chain(Balance, {PrivKey, PubKey}, InConsensus, ExtraVars) ->
     % Generate fake blockchains (just the keys)
@@ -53,7 +53,11 @@ init_chain(Balance, {PrivKey, PubKey}, InConsensus, ExtraVars) ->
                          false ->
                              test_utils:generate_keys(11)
                      end,
+    init_chain(Balance, GenesisMembers, ExtraVars).
 
+init_chain(Balance, Keys, InConsensus) when is_tuple(Keys), is_boolean(InConsensus) ->
+    init_chain(Balance, Keys, InConsensus, #{});
+init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_map(ExtraVars) ->
     % Create genesis block
     {InitialVars, Keys} = blockchain_ct_utils:create_vars(ExtraVars),
 
