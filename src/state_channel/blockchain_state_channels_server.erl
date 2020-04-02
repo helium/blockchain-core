@@ -129,15 +129,19 @@ handle_cast({packet, SCPacket, HandlerPid},
 
                                NewSC = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
                                            {error, not_found} ->
-                                               %% TODO: Fix dc calculation here...
-                                               NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, 0),
+                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
+                                               NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
                                                %% Add this to summaries
                                                blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
                                            {ok, ExistingSummary} ->
                                                %% Update packet count for this client
                                                ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-                                               NewSummary = blockchain_state_channel_summary_v1:num_packets(ExistingNumPackets + 1,
-                                                                                                            ExistingSummary),
+                                               %% Update DC count for this client
+                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
+                                               ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
+                                               NewSummary = blockchain_state_channel_summary_v1:num_dcs(ExistingNumDCs + NumDCs,
+                                                              blockchain_state_channel_summary_v1:num_packets(ExistingNumPackets + 1,
+                                                                                                              ExistingSummary)),
                                                %% Update summaries
                                                blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
                                        end,
