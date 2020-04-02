@@ -36,31 +36,30 @@
 
 -type skewed_pb() :: #skewed_pb{}.
 
--spec serialize(skewed:skewed()) -> skewed_pb().
+-spec serialize(skewed:skewed() | undefined) -> skewed_pb().
+serialize(undefined) -> undefined;
 serialize(Skewed) ->
     build_proto(Skewed).
 
 -spec deserialize(skewed_pb()) -> skewed:skewed().
+deserialize(undefined) -> undefined;
 deserialize(Skewed) ->
     build_skewed(Skewed).
 
 build_proto(#skewed{root=Root, count=Count}) ->
     #skewed_pb{root=build_proto(Root), count=Count};
-build_proto(#node{hash=Hash, height=Height, left=Left, right=Right}) ->
-    {node, #node_pb{hash=Hash, height=Height, left=build_proto(Left), right=build_proto(Right)}};
-build_proto(#leaf{hash=Hash, value=Value}) ->
-    {leaf, #leaf_pb{hash=Hash, value=Value}};
+build_proto(#node{hash=Hash, height=Height, left=Left, right=#leaf{hash=LeafHash, value=Value}}) ->
+    {node, #node_pb{hash=Hash, height=Height, left=build_proto(Left), right=#leaf_pb{hash=LeafHash, value=Value}}};
 build_proto(#empty{hash=Hash}) ->
     {empty, #empty_pb{hash=Hash}}.
 
 build_skewed(#skewed_pb{root=Node, count=Count}) ->
     #skewed{root=build_skewed(Node), count=Count};
-build_skewed({node, #node_pb{hash=Hash, height=Height, left=Left, right=Right}}) ->
-    #node{hash=Hash, height=Height, left=build_skewed(Left), right=build_skewed(Right)};
-build_skewed({leaf, #leaf_pb{hash=Hash, value=Value}}) ->
-    #leaf{hash=Hash, value=Value};
+build_skewed({node, #node_pb{hash=Hash, height=Height, left=Left, right=#leaf_pb{hash=LeafHash, value=Value}}}) ->
+    #node{hash=Hash, height=Height, left=build_skewed(Left), right=#leaf{hash=LeafHash, value=Value}};
 build_skewed({empty, #empty_pb{hash=Hash}}) ->
     #empty{hash=Hash}.
+
 
 -ifdef(TEST).
 
