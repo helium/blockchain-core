@@ -71,13 +71,15 @@ handle_data(client, Data, State) ->
     %% TODO...
     case blockchain_state_channel_message_v1:decode(Data) of
         {response, Resp} ->
+            lager:info("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
     end,
     {noreply, State};
 handle_data(server, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
         {packet, Packet} ->
-            blockchain_state_channels_server:packet(Packet)
+            lager:info("sc_handler server got packet: ~p", [Packet]),
+            blockchain_state_channels_server:packet(Packet, self())
     end,
     {noreply, State}.
 

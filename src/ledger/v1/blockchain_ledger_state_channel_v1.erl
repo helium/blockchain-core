@@ -6,10 +6,9 @@
 -module(blockchain_ledger_state_channel_v1).
 
 -export([
-    new/5,
+    new/4,
     id/1, id/2,
     owner/1, owner/2,
-    amount/1, amount/2,
     nonce/1, nonce/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1
@@ -22,7 +21,6 @@
 -record(ledger_state_channel_v1, {
     id :: binary(),
     owner :: binary(),
-    amount :: non_neg_integer(),
     expire_at_block :: pos_integer(),
     nonce :: non_neg_integer()
 }).
@@ -33,14 +31,12 @@
 
 -spec new(ID :: binary(),
           Owner :: binary(),
-          Amount :: non_neg_integer(),
           ExpireAtBlock :: pos_integer(),
           Nonce :: non_neg_integer()) -> state_channel().
-new(ID, Owner, Amount, ExpireAtBlock, Nonce) ->
+new(ID, Owner, ExpireAtBlock, Nonce) ->
     #ledger_state_channel_v1{
        id=ID,
        owner=Owner,
-       amount=Amount,
        expire_at_block=ExpireAtBlock,
        nonce=Nonce
       }.
@@ -60,14 +56,6 @@ owner(#ledger_state_channel_v1{owner=Owner}) ->
 -spec owner(Owner :: binary(), SC :: state_channel()) -> state_channel().
 owner(Owner, SC) ->
     SC#ledger_state_channel_v1{owner=Owner}.
-
--spec amount(state_channel()) -> non_neg_integer().
-amount(#ledger_state_channel_v1{amount=Amount}) ->
-    Amount.
-
--spec amount(Amount :: non_neg_integer(), SC :: state_channel()) -> state_channel().
-amount(Amount, SC) ->
-    SC#ledger_state_channel_v1{amount=Amount}.
 
 -spec expire_at_block(state_channel()) -> pos_integer().
 expire_at_block(#ledger_state_channel_v1{expire_at_block=ExpireAtBlock}) ->
@@ -117,34 +105,28 @@ new_test() ->
     SC = #ledger_state_channel_v1{
         id = <<"id">>,
         owner = <<"owner">>,
-        amount = 1,
         expire_at_block = 10,
         nonce = 1
     },
-    ?assertEqual(SC, new(<<"id">>, <<"owner">>, 1, 10, 1)).
+    ?assertEqual(SC, new(<<"id">>, <<"owner">>, 10, 1)).
 
 id_test() ->
-    SC = new(<<"id">>, <<"owner">>, 1, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(<<"id">>, id(SC)),
     ?assertEqual(<<"id2">>, id(id(<<"id2">>, SC))).
 
 owner_test() ->
-    SC = new(<<"id">>, <<"owner">>, 1, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(<<"owner">>, owner(SC)),
     ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, SC))).
 
-amount_test() ->
-    SC = new(<<"id">>, <<"owner">>, 1, 10, 1),
-    ?assertEqual(1, amount(SC)),
-    ?assertEqual(2, amount(amount(2, SC))).
-
 expire_at_block_test() ->
-    SC = new(<<"id">>, <<"owner">>, 1, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(10, expire_at_block(SC)),
     ?assertEqual(20, expire_at_block(expire_at_block(20, SC))).
 
 nonce_test() ->
-    SC = new(<<"id">>, <<"owner">>, 1, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(1, nonce(SC)),
     ?assertEqual(2, nonce(nonce(2, SC))).
 

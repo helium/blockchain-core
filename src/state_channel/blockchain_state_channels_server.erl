@@ -12,14 +12,10 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
-    credits/1, nonce/1,
-    packet/1, packet/2,
-    state_channels/0
-]).
-
--export([
-    burn/2,
-    packet_forward/1
+    nonce/1,
+    packet/2,
+    state_channels/0,
+    active/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -43,16 +39,15 @@
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
-
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
     chain = undefined :: blockchain:blockchain() | undefined,
     swarm = undefined :: pid() | undefined,
     owner = undefined :: {libp2p_crypto:pubkey_bin(), function()} | undefined,
     state_channels = #{} :: state_channels(),
+    active = undefined :: undefined | blockchain_state_channel_v1:id(),
     clients = #{} :: clients(),
-    payees_to_sc = #{} :: #{libp2p_crypto:pubkey_bin() => blockchain_state_channel_v1:id()},
-    sc_server_mod = undefined :: undefined | atom()
+    sc_packet_handler = undefined :: undefined | atom()
 }).
 
 -type state() :: #state{}.
@@ -65,17 +60,9 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
--spec credits(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
-credits(ID) ->
-    gen_server:call(?SERVER, {credits, ID}).
-
 -spec nonce(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
-
--spec packet(blockchain_state_channel_packet_v1:packet()) -> ok.
-packet(Packet) ->
-    gen_server:cast(?SERVER, {packet, Packet}).
 
 -spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
 packet(Packet, HandlerPid) ->
@@ -85,15 +72,9 @@ packet(Packet, HandlerPid) ->
 state_channels() ->
     gen_server:call(?SERVER, state_channels, infinity).
 
-%% Helper function for tests (remove)
--spec burn(blockchain_state_channel_v1:id(), non_neg_integer()) -> ok.
-burn(ID, Amount) ->
-    gen_server:cast(?SERVER, {burn, ID, Amount}).
-
-%% Helper function for tests (remove)
--spec packet_forward(pid() | undefined) -> ok.
-packet_forward(Pid) ->
-    gen_server:cast(?SERVER, {packet_forward, Pid}).
+-spec active() -> undefined | blockchain_state_channel_v1:id().
+active() ->
+    gen_server:call(?SERVER, active, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -102,19 +83,13 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = maps:get(db, Args),
-    SCServerMod = maps:get(sc_server_mod, Args, undefined),
+    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     {ok, State} = load_state(DB),
     self() ! post_init,
-    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, sc_server_mod=SCServerMod}}.
+    {ok, State#state{swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
 
-handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
-    Reply = case maps:get(ID, SCs, undefined) of
-        undefined -> {error, not_found};
-        SC -> {ok, blockchain_state_channel_v1:credits(SC)}
-    end,
-    {reply, Reply, State};
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
         undefined -> {error, not_found};
@@ -123,28 +98,41 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     {reply, Reply, State};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
+handle_call(active, _From, #state{active=Active}=State) ->
+    {reply, Active, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-%% Helper function for tests (remove)
-handle_cast({burn, ID, Amount}, #state{owner={Owner, _}, state_channels=SCs}=State) ->
-    case maps:is_key(ID, SCs) of
-        true ->
-            {noreply, State};
-        false ->
-            SC0 = blockchain_state_channel_v1:new(ID, Owner),
-            SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-            {noreply, State#state{state_channels=maps:put(ID, SC1, SCs)}}
-    end;
-handle_cast({packet, Packet, HandlerPid}, #state{sc_server_mod=SCServerMod}=State) when is_pid(HandlerPid) ->
-    case blockchain_state_channel_packet_v1:validate(Packet) of
-        {error, _Reason} ->
-            lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
-        true ->
-            SCServerMod:handle_packet(Packet, HandlerPid)
-    end,
+handle_cast({packet, Packet, _HandlerPid}, #state{active=undefined}=State) ->
+    %% We can't do anything with this packet because we have no active state_channel
+    lager:warning("Got packet: ~p when no sc is active", [Packet]),
     {noreply, State};
+handle_cast({packet, SCPacket, HandlerPid},
+            #state{sc_packet_handler=SCPacketHandler, active=Active, state_channels=SCs}=State) ->
+    NewState = case blockchain_state_channel_packet_v1:validate(SCPacket) of
+                   {error, _Reason} ->
+                       lager:warning("packet failed to validate ~p ~p", [_Reason, SCPacket]),
+                       State;
+                   true ->
+                       case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
+                           ok ->
+                               %% If this call blows up, we fucked up.
+                               %% Active should ALWAYS be in our state_channels map.
+                               _SC = maps:get(Active, SCs),
+                               Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
+                               _Payload = blockchain_helium_packet_v1:payload(Packet),
+
+                               %% if the packet hash is not in merkle, update merkle
+                               %% update sc, num_packets, num_dcs
+                               %% some new state
+                               ok;
+                           {error, Why} ->
+                               lager:error("handle_packet failed: ~p", [Why]),
+                               State
+                       end
+               end,
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -161,33 +149,60 @@ handle_info(post_init, #state{chain=undefined, owner={Owner, _}, state_channels=
             {noreply, State#state{chain=Chain, state_channels=maps:merge(ConvertedSCs, SCs)}}
     end;
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
-            #state{chain=Chain, owner={Owner, OwnerSigFun}, state_channels=SCs}=State0) ->
+            #state{chain=Chain, owner={Owner, _}, state_channels=SCs, active=Active}=State0) ->
     {Block, Txns} = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
     BlockHeight = blockchain_block:height(Block),
     State1 = lists:foldl(
-        fun(Txn, #state{state_channels=SCs0, clients=Clients0, payees_to_sc=Payees0}=State) ->
+        fun(Txn, #state{state_channels=SCs0, clients=Clients0}=State) ->
                 case blockchain_txn:type(Txn) of
                     blockchain_txn_state_channel_open_v1 ->
-                        ID = blockchain_txn_state_channel_open_v1:id(Txn),
-                        Owner = blockchain_txn_state_channel_open_v1:owner(Txn),
-                        Amount = blockchain_txn_state_channel_open_v1:amount(Txn),
-                        ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-                        SC = blockchain_state_channel_v1:new(ID, Owner, Amount, BlockHeight + ExpireWithin),
-                        State#state{state_channels=maps:put(ID, SC, SCs0)};
+                        case blockchain_txn_state_channel_open_v1:owner(Txn) of
+                            %% Do the map put when we are the owner of the state_channel
+                            Owner ->
+                                ID = blockchain_txn_state_channel_open_v1:id(Txn),
+                                ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
+                                SC = blockchain_state_channel_v1:new(ID, Owner, BlockHeight + ExpireWithin),
+
+                                case Active of
+                                    undefined ->
+                                        %% Don't have any active state channel
+                                        %% Set this one to active
+                                        State#state{state_channels=maps:put(ID, SC, SCs0), active=ID};
+                                    _A ->
+                                        State#state{state_channels=maps:put(ID, SC, SCs0)}
+                                end;
+                            _ ->
+                                %% Don't do anything cuz we're not the owner
+                                State
+                        end;
                     blockchain_txn_state_channel_close_v1 ->
                         SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
                         ID = blockchain_state_channel_v1:id(SC),
-                        Payees1 = maps:filter(fun(_, V) -> V =/= ID end, Payees0),
+
+                        NewActive = case Active of
+                                        undefined ->
+                                            %% No sc was active
+                                            undefined;
+                                        ID ->
+                                            %% Our active state channel got closed,
+                                            %% set active to undefined
+                                            ExcludedActiveSCs = maps:without([ID], SCs),
+                                            maybe_get_new_active(ExcludedActiveSCs);
+                                        A ->
+                                            %% Some other sc was active, let it remain active
+                                            A
+                                    end,
+
                         State#state{state_channels=maps:remove(ID, SCs0),
                                     clients=maps:remove(ID, Clients0),
-                                    payees_to_sc=Payees1}
+                                    active=NewActive}
                 end
         end,
         State0,
         Txns
     ),
-    SCs1 = check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, State1#state.state_channels),
-    {noreply, State1#state{state_channels=SCs1}};
+    NewState = check_state_channel_expiration(BlockHeight, State1),
+    {noreply, NewState};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -208,25 +223,40 @@ terminate(_Reason, _state) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec check_state_channel_expiration(BlockHeight :: pos_integer(),
-                                     Owner :: libp2p_crypto:pubkey_bin(),
-                                     OwnerSigFun :: function(),
-                                     SCs :: state_channels()) -> state_channels().
-check_state_channel_expiration(BlockHeight, Owner, OwnerSigFun, SCs) ->
-    maps:map(
-        fun(_ID, SC) ->
-            ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-            case ExpireAt =< BlockHeight of
-                false ->
-                    SC;
-                true ->
-                    SC0 = blockchain_state_channel_v1:state(closed, SC),
-                    SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
-                    ok = close_state_channel(SC1, Owner, OwnerSigFun),
-                    SC1
-            end
-        end,
-        SCs
-    ).
+                                     State :: state()) -> state().
+check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
+                                                   active=Active,
+                                                   state_channels=SCs}=State) ->
+    NewStateChannels = maps:map(
+                        fun(_ID, SC) ->
+                                ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                                case ExpireAt =< BlockHeight of
+                                    false ->
+                                        SC;
+                                    true ->
+                                        SC0 = blockchain_state_channel_v1:state(closed, SC),
+                                        SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                                        ok = close_state_channel(SC1, Owner, OwnerSigFun),
+                                        SC1
+                                end
+                        end,
+                        SCs
+                       ),
+
+    NewActive = case Active of
+                    undefined ->
+                        undefined;
+                    _ ->
+                        ActiveSC = maps:get(Active, NewStateChannels),
+                        case blockchain_state_channel_v1:state(ActiveSC) of
+                            closed ->
+                                maybe_get_new_active(maps:without([Active], NewStateChannels));
+                            _ ->
+                                Active
+                        end
+                end,
+
+    State#state{active=NewActive, state_channels=NewStateChannels}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -332,15 +362,22 @@ get_state_channels(DB) ->
 convert_to_state_channels(LedgerSCs) ->
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
-                     Amount = blockchain_ledger_state_channel_v1:amount(LedgerStateChannel),
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
                      Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                     SC1 = blockchain_state_channel_v1:credits(Amount, SC0),
-                     SC2 = blockchain_state_channel_v1:nonce(Nonce, SC1),
-                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC2)
+                     SC1 = blockchain_state_channel_v1:nonce(Nonce, SC0),
+                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1)
              end,
              LedgerSCs).
+
+-spec maybe_get_new_active(state_channels()) -> undefined | blockchain_state_channel_v1:id().
+maybe_get_new_active(SCs) ->
+    case maps:keys(SCs) of
+        [] ->
+            undefined;
+        L ->
+            hd(blockchain_utils:shuffle(L))
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

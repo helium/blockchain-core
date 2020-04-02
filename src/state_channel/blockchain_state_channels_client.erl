@@ -12,7 +12,6 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         credits/1,
          packet/1,
          update_sc/1,
          state/0,
@@ -66,10 +65,6 @@ response(Resp) ->
             Mod:handle_response(Resp)
     end.
 
--spec credits(ID :: blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
-credits(ID) ->
-    gen_server:call(?SERVER, {credits, ID}, infinity).
-
 -spec packet(blockchain_helium_packet_v1:packet()) -> ok.
 packet(Packet) ->
     gen_server:cast(?SERVER, {packet, Packet}).
@@ -122,14 +117,6 @@ handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call({credits, ID}, _From, #state{state_channels=SCs}=State) ->
-    Reply = case maps:get(ID, SCs, undefined) of
-                undefined ->
-                    {error, not_found};
-                SC ->
-                    {ok, blockchain_state_channel_v1:credits(SC)}
-            end,
-    {reply, Reply, State};
 handle_call(state, _From, State) ->
     {reply, {ok, State}, State};
 handle_call(_, _, State) ->

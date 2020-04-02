@@ -112,12 +112,7 @@ absorb(Txn, Chain) ->
     SC = ?MODULE:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
     Owner = blockchain_state_channel_v1:owner(SC),
-    ok = blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger),
-    case blockchain_state_channel_v1:credits(SC) of
-        Credits when Credits > 0 ->
-            blockchain_ledger_v1:credit_dc(Owner, Credits, Ledger);
-        _ -> ok
-    end.
+    blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger).
 
 -spec print(txn_state_channel_close()) -> iodata().
 print(undefined) -> <<"type=state_channel_close, undefined">>;

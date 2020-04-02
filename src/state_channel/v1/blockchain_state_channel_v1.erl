@@ -6,10 +6,9 @@
 -module(blockchain_state_channel_v1).
 
 -export([
-    new/2, new/4,
+    new/2, new/3,
     id/1,
     owner/1,
-    credits/1, credits/2,
     nonce/1, nonce/2,
     root_hash/1, root_hash/2,
     state/1, state/2,
@@ -37,26 +36,21 @@ new(ID, Owner) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
         owner=Owner,
-        credits=0,
         nonce=0,
         summaries=[],
-        root_hash= <<>>,
         state=open,
         expire_at_block=0
     }.
 
 -spec new(ID :: binary(),
           Owner :: libp2p_crypto:pubkey_bin(),
-          Credits :: non_neg_integer(),
           ExpireAtBlock :: pos_integer()) -> state_channel().
-new(ID, Owner, Credits, ExpireAtBlock) ->
+new(ID, Owner, ExpireAtBlock) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
         owner=Owner,
-        credits=Credits,
         nonce=0,
         summaries=[],
-        root_hash= <<>>,
         state=open,
         expire_at_block=ExpireAtBlock
     }.
@@ -68,14 +62,6 @@ id(#blockchain_state_channel_v1_pb{id=ID}) ->
 -spec owner(state_channel()) -> libp2p_crypto:pubkey_bin().
 owner(#blockchain_state_channel_v1_pb{owner=Owner}) ->
     Owner.
-
--spec credits(state_channel()) -> non_neg_integer().
-credits(#blockchain_state_channel_v1_pb{credits=Credits}) ->
-    Credits.
-
--spec credits(non_neg_integer(), state_channel()) -> state_channel().
-credits(Credits, SC) ->
-    SC#blockchain_state_channel_v1_pb{credits=Credits}.
 
 -spec nonce(state_channel()) -> non_neg_integer().
 nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
@@ -176,10 +162,9 @@ new_test() ->
     SC = #blockchain_state_channel_v1_pb{
         id= <<"1">>,
         owner= <<"owner">>,
-        credits=0,
         nonce=0,
         summaries=[],
-        root_hash= <<>>,
+        %% root_hash= <<>>,
         state=open,
         expire_at_block=0
     },
@@ -192,11 +177,6 @@ id_test() ->
 owner_test() ->
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual(<<"owner">>, owner(SC)).
-
-credits_test() ->
-    SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual(0, credits(SC)),
-    ?assertEqual(10, credits(credits(10, SC))).
 
 nonce_test() ->
     SC = new(<<"1">>, <<"owner">>),

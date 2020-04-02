@@ -59,7 +59,7 @@
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
-    debit_dc/4,
+    debit_dc/3,
     debit_fee/3,
     check_dc_balance/3,
 
@@ -80,7 +80,7 @@
     find_routing/2,  add_routing/5,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
-    add_state_channel/6,
+    add_state_channel/5,
     delete_state_channel/3,
 
     delay_vars/3,
@@ -1305,10 +1305,10 @@ credit_dc(Address, Amount, Ledger) ->
     end.
 
 -spec debit_dc(Address :: libp2p_crypto:pubkey_bin(),
-               Fee :: non_neg_integer(),
                Nonce :: non_neg_integer(),
                Ledger :: ledger()) -> ok | {error, any()}.
-debit_dc(Address, Fee, Nonce, Ledger) ->
+debit_dc(Address, Nonce, Ledger) ->
+    {ok, Fee} = ?MODULE:transaction_fee(Ledger),
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, _}=Error ->
             Error;
@@ -1632,14 +1632,13 @@ find_scs_by_owner(Owner, Ledger) ->
 
 -spec add_state_channel(ID :: binary(),
                         Owner :: libp2p_crypto:pubkey_bin(),
-                        Amount :: non_neg_integer(),
                         ExpireWithin :: pos_integer(),
                         Nonce :: non_neg_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
-add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger) ->
+add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
-    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, Amount, CurrHeight+ExpireWithin, Nonce),
+    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, CurrHeight+ExpireWithin, Nonce),
     Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
@@ -2458,7 +2457,7 @@ state_channels_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 12, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID, Owner, 10, Nonce, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
@@ -2496,8 +2495,8 @@ find_scs_by_owner_test() ->
 
     Ledger2 = new_context(Ledger),
     %% Add two state channels for this owner
-    ok = add_state_channel(ID1, Owner, 12, 10, Nonce, Ledger2),
-    ok = add_state_channel(ID2, Owner, 12, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID1, Owner, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID2, Owner, 10, Nonce, Ledger2),
     ok = commit_context(Ledger2),
 
     {ok, FoundIDs} = find_sc_ids_by_owner(Owner, Ledger),

@@ -11,11 +11,10 @@
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/4,
     hash/1,
     id/1,
     owner/1,
-    amount/1,
     nonce/1,
     expire_within/1,
     fee/1,
@@ -38,14 +37,12 @@
 
 -spec new(ID :: binary(),
           Owner :: libp2p_crypto:pubkey_bin(),
-          Amount :: non_neg_integer(),
           ExpireWithin :: pos_integer(),
           Nonce :: non_neg_integer()) -> txn_state_channel_open().
-new(ID, Owner, Amount, ExpireWithin, Nonce) ->
+new(ID, Owner, ExpireWithin, Nonce) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
-        amount=Amount,
         expire_within=ExpireWithin,
         nonce=Nonce,
         signature = <<>>
@@ -64,10 +61,6 @@ id(Txn) ->
 -spec owner(Txn :: txn_state_channel_open()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.owner.
-
--spec amount(Txn :: txn_state_channel_open()) -> integer().
-amount(Txn) ->
-    Txn#blockchain_txn_state_channel_open_v1_pb.amount.
 
 -spec nonce(Txn :: txn_state_channel_open()) -> non_neg_integer().
 nonce(Txn) ->
@@ -113,23 +106,17 @@ is_valid(Txn, Chain) ->
                     ID = ?MODULE:id(Txn),
                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                         {error, not_found} ->
-                            Amount = ?MODULE:amount(Txn),
-                            case Amount of
-                                A when A < 0 ->
-                                    {error, negative_amount};
-                                A ->
-                                    case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
-                                        {error, _}=Err0 ->
-                                            Err0;
-                                        {ok, DCEntry} ->
-                                            TxnNonce = ?MODULE:nonce(Txn),
-                                            NextLedgerNonce = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1,
-                                            case TxnNonce =:= NextLedgerNonce of
-                                                false ->
-                                                    {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
-                                                true ->
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, A, Ledger)
-                                            end
+                            case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
+                                {error, _}=Err0 ->
+                                    Err0;
+                                {ok, DCEntry} ->
+                                    TxnNonce = ?MODULE:nonce(Txn),
+                                    NextLedgerNonce = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1,
+                                    case TxnNonce =:= NextLedgerNonce of
+                                        false ->
+                                            {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
+                                        true ->
+                                            ok
                                     end
                             end;
                         {ok, _} ->
@@ -146,21 +133,20 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
-    Amount = ?MODULE:amount(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_dc(Owner, Amount, Nonce, Ledger) of
+    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, Amount, ExpireWithin, Nonce, Ledger)
+            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
 print(undefined) -> <<"type=state_channel_open, undefined">>;
-print(#blockchain_txn_state_channel_open_v1_pb{id=ID, owner=Owner, amount=Amount, expire_within=ExpireWithin}) ->
-    io_lib:format("type=state_channel_open, id=~p, owner=~p, amount=~p, expire_within=~p",
-                  [ID, ?TO_B58(Owner), Amount, ExpireWithin]).
+print(#blockchain_txn_state_channel_open_v1_pb{id=ID, owner=Owner, expire_within=ExpireWithin}) ->
+    io_lib:format("type=state_channel_open, id=~p, owner=~p, expire_within=~p",
+                  [ID, ?TO_B58(Owner), ExpireWithin]).
 
  %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -171,32 +157,27 @@ new_test() ->
     Tx = #blockchain_txn_state_channel_open_v1_pb{
         id = <<"id">>,
         owner= <<"owner">>,
-        amount=666,
         expire_within=10,
         nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 666, 10, 1)).
+    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1)).
 
 id_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(<<"id">>, id(Tx)).
 
 owner_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
-amount_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
-    ?assertEqual(666, amount(Tx)).
-
 signature_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 666, 10, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"id">>, <<"owner">>, 666, 10, 1),
+    Tx0 = new(<<"id">>, <<"owner">>, 10, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
