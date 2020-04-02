@@ -6,7 +6,7 @@
 -module(blockchain_state_channel_v1).
 
 -export([
-    new/2, new/3,
+    new/2, new/4,
     id/1,
     owner/1,
     nonce/1, nonce/2,
@@ -16,7 +16,12 @@
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/2, get/2,
-    summaries/1, summaries/2
+    summaries/1, summaries/2, update_summaries/3,
+
+    add_payload/2,
+    skewed/1, skewed/2,
+    get_summary/2,
+    num_packets_for/2, num_dcs_for/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -28,6 +33,7 @@
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
 -type id() :: binary().
 -type state() :: open | closed.
+-type summaries() :: [blockchain_state_channel_summary_v1:summary()].
 
 -export_type([state_channel/0, id/0]).
 
@@ -38,19 +44,24 @@ new(ID, Owner) ->
         owner=Owner,
         nonce=0,
         summaries=[],
+        root_hash= <<>>,
+        skewed=undefined,
         state=open,
         expire_at_block=0
     }.
 
 -spec new(ID :: binary(),
           Owner :: libp2p_crypto:pubkey_bin(),
+          BlockHash :: binary(),
           ExpireAtBlock :: pos_integer()) -> state_channel().
-new(ID, Owner, ExpireAtBlock) ->
+new(ID, Owner, BlockHash, ExpireAtBlock) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
         owner=Owner,
         nonce=0,
         summaries=[],
+        root_hash= <<>>,
+        skewed=initialize_skewed(BlockHash),
         state=open,
         expire_at_block=ExpireAtBlock
     }.
@@ -71,14 +82,60 @@ nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
 
--spec summaries(state_channel()) -> blockchain_state_channel_summary_v1:summaries().
+-spec summaries(state_channel()) -> summaries().
 summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
     Summaries.
 
--spec summaries(Summaries :: blockchain_state_channel_summary_v1:summaries(),
+-spec summaries(Summaries :: summaries(),
                 SC :: state_channel()) -> state_channel().
 summaries(Summaries, SC) ->
     SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
+
+-spec update_summaries(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       NewSummary :: blockchain_state_channel_summary_v1:summary(),
+                       SC :: state_channel()) -> state_channel().
+update_summaries(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+    case get_summary(ClientPubkeyBin, SC) of
+        {error, not_found} ->
+            SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]};
+        {ok, _Summary} ->
+            NewSummaries = lists:keyreplace(ClientPubkeyBin,
+                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                                            Summaries,
+                                            NewSummary),
+            SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}
+    end.
+
+-spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  SC :: state_channel()) -> {ok, blockchain_state_channel_summary_v1:summary()} |
+                                            {error, not_found}.
+get_summary(ClientPubkeyBin, #blockchain_state_channel_v1_pb{summaries=Summaries}) ->
+    case lists:keyfind(ClientPubkeyBin,
+                       #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                       Summaries) of
+        false ->
+            {error, not_found};
+        Summary ->
+            {ok, Summary}
+    end.
+
+-spec num_packets_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                      SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
+num_packets_for(ClientPubkeyBin, SC) ->
+    case get_summary(ClientPubkeyBin, SC) of
+        {error, _}=E -> E;
+        {ok, Summary} ->
+            {ok, blockchain_state_channel_summary_v1:num_packets(Summary)}
+    end.
+
+-spec num_dcs_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
+num_dcs_for(ClientPubkeyBin, SC) ->
+    case get_summary(ClientPubkeyBin, SC) of
+        {error, _}=E -> E;
+        {ok, Summary} ->
+            {ok, blockchain_state_channel_summary_v1:num_dcs(Summary)}
+    end.
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
@@ -149,9 +206,44 @@ get(DB, ID) ->
         Error -> Error
     end.
 
+-spec skewed(state_channel()) -> skewed:skewed().
+skewed(#blockchain_state_channel_v1_pb{skewed=Skewed}) ->
+    Skewed.
+
+-spec skewed(undefined | skewed:skewed(), state_channel()) -> state_channel().
+skewed(Skewed, SC) ->
+    SC#blockchain_state_channel_v1_pb{skewed=Skewed}.
+
+-spec add_payload(Payload :: binary(), state_channel()) -> state_channel().
+add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=undefined}=SC) ->
+    %% Don't have a skewed, create new one
+    HashFun = fun skewed:hash_value/1,
+    Skewed0 = skewed:new(),
+    Skewed = skewed:add(Payload, HashFun, Skewed0),
+    RootHash = skewed:root_hash(Skewed),
+    SC#blockchain_state_channel_v1_pb{skewed=Skewed, root_hash=RootHash};
+add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
+    %% Already have a skewed
+    %% Check if we have already seen this payload in skewed
+    %% If yes, don't do anything, otherwise, add to skewed and return new state_channel
+    case skewed:contains(Skewed, Payload) of
+        true ->
+            SC;
+        false ->
+            HashFun = fun skewed:hash_value/1,
+            NewSkewed = skewed:add(Payload, HashFun, Skewed),
+            NewRootHash = skewed:root_hash(NewSkewed),
+            SC#blockchain_state_channel_v1_pb{skewed=NewSkewed, root_hash=NewRootHash}
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec initialize_skewed(BlockHash :: binary()) -> skewed:skewed().
+initialize_skewed(BlockHash) ->
+    HashFun = fun skewed:hash_value/1,
+    Skewed0 = skewed:new(),
+    skewed:add(BlockHash, HashFun, Skewed0).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -164,7 +256,8 @@ new_test() ->
         owner= <<"owner">>,
         nonce=0,
         summaries=[],
-        %% root_hash= <<>>,
+        root_hash= <<>>,
+        skewed=undefined,
         state=open,
         expire_at_block=0
     },
@@ -191,14 +284,30 @@ summaries_test() ->
     Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
     ExpectedSummaries = [Summary],
     NewSC = blockchain_state_channel_v1:summaries(ExpectedSummaries, SC),
-    ?assertEqual({ok, Summary}, blockchain_state_channel_summary_v1:summary_for(PubKeyBin, ExpectedSummaries)),
+    ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     ?assertEqual(ExpectedSummaries, blockchain_state_channel_v1:summaries(NewSC)).
 
 summaries_not_found_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual({error, not_found}, blockchain_state_channel_summary_v1:summary_for(PubKeyBin, summaries(SC))).
+    ?assertEqual({error, not_found}, get_summary(PubKeyBin, SC)).
+
+update_summaries_test() ->
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    SC = new(<<"1">>, <<"owner">>),
+    io:format("Summaries0: ~p~n", [summaries(SC)]),
+    ?assertEqual([], summaries(SC)),
+    Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
+    ExpectedSummaries = [Summary],
+    NewSC = blockchain_state_channel_v1:summaries(ExpectedSummaries, SC),
+    io:format("Summaries1: ~p~n", [summaries(NewSC)]),
+    ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
+    NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
+    NewSC1 = blockchain_state_channel_v1:update_summaries(PubKeyBin, NewSummary, NewSC),
+    io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
+    ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
 root_hash_test() ->
     SC = new(<<"1">>, <<"owner">>),

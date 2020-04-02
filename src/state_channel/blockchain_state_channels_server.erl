@@ -117,16 +117,33 @@ handle_cast({packet, SCPacket, HandlerPid},
                    true ->
                        case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
                            ok ->
-                               %% If this call blows up, we fucked up.
-                               %% Active should ALWAYS be in our state_channels map.
-                               _SC = maps:get(Active, SCs),
+                               %% Active should always be in our state_channels map
+                               SC = maps:get(Active, SCs),
+                               %% Get payload from packet
                                Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
-                               _Payload = blockchain_helium_packet_v1:payload(Packet),
+                               Payload = blockchain_helium_packet_v1:payload(Packet),
+                               %% Add this payload to state_channel's skewed merkle
+                               SC1 = blockchain_state_channel_v1:add_payload(Payload, SC),
+                               %% Get the summary for this client
+                               ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
 
-                               %% if the packet hash is not in merkle, update merkle
-                               %% update sc, num_packets, num_dcs
-                               %% some new state
-                               ok;
+                               NewSC = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
+                                           {error, not_found} ->
+                                               %% TODO: Fix dc calculation here...
+                                               NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, 0),
+                                               %% Add this to summaries
+                                               blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
+                                           {ok, ExistingSummary} ->
+                                               %% Update packet count for this client
+                                               ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
+                                               NewSummary = blockchain_state_channel_summary_v1:num_packets(ExistingNumPackets + 1,
+                                                                                                            ExistingSummary),
+                                               %% Update summaries
+                                               blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
+                                       end,
+
+                               %% Put new state_channel in our map
+                               State#state{state_channels=maps:put(Active, NewSC, SCs)};
                            {error, Why} ->
                                lager:error("handle_packet failed: ~p", [Why]),
                                State
@@ -161,7 +178,10 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
                             Owner ->
                                 ID = blockchain_txn_state_channel_open_v1:id(Txn),
                                 ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-                                SC = blockchain_state_channel_v1:new(ID, Owner, BlockHeight + ExpireWithin),
+                                SC = blockchain_state_channel_v1:new(ID,
+                                                                     Owner,
+                                                                     BlockHash,
+                                                                     (BlockHeight + ExpireWithin)),
 
                                 case Active of
                                     undefined ->
@@ -235,9 +255,10 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                         SC;
                                     true ->
                                         SC0 = blockchain_state_channel_v1:state(closed, SC),
-                                        SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
-                                        ok = close_state_channel(SC1, Owner, OwnerSigFun),
-                                        SC1
+                                        SC1 = blockchain_state_channel_v1:skewed(undefined, SC0),
+                                        SC2 = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
+                                        ok = close_state_channel(SC2, Owner, OwnerSigFun),
+                                        SC2
                                 end
                         end,
                         SCs
