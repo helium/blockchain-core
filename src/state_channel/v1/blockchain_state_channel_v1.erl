@@ -217,9 +217,8 @@ skewed(Skewed, SC) ->
 -spec add_payload(Payload :: binary(), state_channel()) -> state_channel().
 add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=undefined}=SC) ->
     %% Don't have a skewed, create new one
-    HashFun = fun skewed:hash_value/1,
     Skewed0 = skewed:new(),
-    Skewed = skewed:add(Payload, HashFun, Skewed0),
+    Skewed = skewed:add(Payload, Skewed0),
     RootHash = skewed:root_hash(Skewed),
     SC#blockchain_state_channel_v1_pb{skewed=Skewed, root_hash=RootHash};
 add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
@@ -230,8 +229,7 @@ add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
         true ->
             SC;
         false ->
-            HashFun = fun skewed:hash_value/1,
-            NewSkewed = skewed:add(Payload, HashFun, Skewed),
+            NewSkewed = skewed:add(Payload, Skewed),
             NewRootHash = skewed:root_hash(NewSkewed),
             SC#blockchain_state_channel_v1_pb{skewed=NewSkewed, root_hash=NewRootHash}
     end.
