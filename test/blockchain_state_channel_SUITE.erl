@@ -393,7 +393,8 @@ replay_test(Config) ->
 
     % Step 2: Create state channel open txn
     ID = crypto:strong_rand_bytes(120),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 100, 1),
+    ExpireWithin = 11,
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, ExpireWithin, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
@@ -427,7 +428,7 @@ replay_test(Config) ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    % Step 5: Sending 1 packet
+    % Step 7: Sending 1 packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
@@ -437,7 +438,21 @@ replay_test(Config) ->
         {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    % Step 8: Adding close txn to blockchain
+    % Step 8: Adding some blocks to get the state channel to expire
+    lists:foreach(
+        fun(_) ->
+            {ok, B} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, []]),
+            _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B, RouterChain, Self])
+        end,
+        lists:seq(1, 20)
+    ),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+        {ok, 22} == ct_rpc:call(RouterNode, blockchain, height, [C])
+    end, 10, timer:seconds(1)),
+
+    % Step 9: Adding close txn to blockchain
     receive
         {txn, Txn} ->
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
@@ -446,13 +461,13 @@ replay_test(Config) ->
         ct:fail("txn timeout")
     end,
 
-    % Step 9: Waiting for close txn to be mine
+    % Step 10: Waiting for close txn to be mine
     ok = blockchain_ct_utils:wait_until(fun() ->
         C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-        {ok, 3} == ct_rpc:call(RouterNode, blockchain, height, [C])
+        {ok, 23} == ct_rpc:call(RouterNode, blockchain, height, [C])
     end, 30, timer:seconds(1)),
 
-    % Step 10: Recreating the state channel open txn with the same nonce
+    % Step 11: Recreating the state channel open txn with the same nonce
     RouterChain2 = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     RouterLedger2 = blockchain:ledger(RouterChain2),
 
@@ -467,7 +482,7 @@ replay_test(Config) ->
                                 is_valid,
                                 [ReplaySignedSCOpenTxn, RouterChain2]),
 
-    %% Step 11: check whether the replay sc open txn is valid?
+    %% Step 12: check whether the replay sc open txn is valid?
     ?assertEqual({error, {bad_nonce, {state_channel_open, 1, 2}}}, ReplayIsValid),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
