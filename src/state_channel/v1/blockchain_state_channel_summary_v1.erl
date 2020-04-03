@@ -9,7 +9,8 @@
     new/1, new/3,
     client_pubkeybin/1,
     num_dcs/1, num_dcs/2,
-    num_packets/1, num_packets/2
+    num_packets/1, num_packets/2,
+    update/3
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -59,6 +60,12 @@ num_dcs(#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs}) ->
               Summary :: summary()) -> summary().
 num_dcs(NumDCs, Summary) ->
     Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs}.
+
+-spec update(NumDCs :: non_neg_integer(),
+             NumPackets :: non_neg_integer(),
+             Summary :: summary()) -> summary().
+update(NumDCs, NumPackets, Summary) ->
+    Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs, num_packets=NumPackets}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

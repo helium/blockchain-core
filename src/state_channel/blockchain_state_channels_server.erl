@@ -60,7 +60,7 @@
 start_link(Args) ->
     gen_server:start_link({local, ?SERVER}, ?SERVER, Args, []).
 
--spec nonce(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()}.
+-spec nonce(blockchain_state_channel_v1:id()) -> {ok, non_neg_integer()} | {error, not_found}.
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
@@ -127,7 +127,7 @@ handle_cast({packet, SCPacket, HandlerPid},
                                %% Get the summary for this client
                                ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
 
-                               NewSC = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
+                               SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
                                            {error, not_found} ->
                                                NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
                                                NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
@@ -139,12 +139,15 @@ handle_cast({packet, SCPacket, HandlerPid},
                                                %% Update DC count for this client
                                                NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
                                                ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-                                               NewSummary = blockchain_state_channel_summary_v1:num_dcs(ExistingNumDCs + NumDCs,
-                                                              blockchain_state_channel_summary_v1:num_packets(ExistingNumPackets + 1,
-                                                                                                              ExistingSummary)),
+                                               NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
+                                                                                                       ExistingNumPackets + 1,
+                                                                                                       ExistingSummary),
                                                %% Update summaries
                                                blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
                                        end,
+
+                               ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+                               NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
 
                                %% Put new state_channel in our map
                                State#state{state_channels=maps:put(Active, NewSC, SCs)};

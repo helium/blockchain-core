@@ -199,7 +199,9 @@ full_test(Config) ->
 
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        Res = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID]),
+        ct:pal("blockchain_state_channels_server nonce: ~p", [Res]),
+        {ok, 1} == Res
     end, 30, timer:seconds(1)),
 
     % Step 7: Making sure packet got transmitted
