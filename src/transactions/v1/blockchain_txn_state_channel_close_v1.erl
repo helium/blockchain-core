@@ -98,7 +98,12 @@ is_valid(Txn, Chain) ->
                                         {error, _Reason}=E ->
                                             E;
                                         {ok, _} ->
-                                            ok
+                                            case blockchain_state_channel_v1:skewed(SC) of
+                                                undefined ->
+                                                    ok;
+                                                _ ->
+                                                    {error, skewed_merkle_tree_present}
+                                            end
                                     end
                             end
                     end

@@ -61,7 +61,7 @@ new(ID, Owner, BlockHash, ExpireAtBlock) ->
         nonce=0,
         summaries=[],
         root_hash= <<>>,
-        skewed=initialize_skewed(BlockHash),
+        skewed=skewed:new(BlockHash),
         state=open,
         expire_at_block=ExpireAtBlock
     }.
@@ -239,11 +239,6 @@ add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec initialize_skewed(BlockHash :: binary()) -> skewed:skewed().
-initialize_skewed(BlockHash) ->
-    HashFun = fun skewed:hash_value/1,
-    Skewed0 = skewed:new(),
-    skewed:add(BlockHash, HashFun, Skewed0).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
