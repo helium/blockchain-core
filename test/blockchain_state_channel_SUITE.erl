@@ -168,7 +168,8 @@ full_test(Config) ->
 
     % Step 2: Create state channel open txn
     ID = crypto:strong_rand_bytes(24),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 100, 1),
+    ExpireWithin = 11,
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, ExpireWithin, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
@@ -200,31 +201,41 @@ full_test(Config) ->
     % Step 6: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
         Res = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID]),
-        ct:pal("blockchain_state_channels_server nonce: ~p", [Res]),
         {ok, 1} == Res
     end, 30, timer:seconds(1)),
 
-    % Step 7: Making sure packet got transmitted
-    receive
-        {packet, P0} ->
-            ?assertEqual(Packet0, P0)
-    after 10000 ->
-        ct:fail("packet timeout")
-    end,
-
-    % Step 5: Sending 1 packet
+    %% Step 6: Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
-    % Step 6: Checking state channel on server/client
+    %% Step 7: Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
+    {ok, Nonce} = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID]),
+    ct:pal("blockchain_state_channels_server nonce: ~p", [Nonce]),
+
+    % Step 5: Adding some blocks to get the state channel to expire
+    lists:foreach(
+        fun(_) ->
+            {ok, B} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, []]),
+            _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, B, RouterChain, Self])
+        end,
+        lists:seq(1, 20)
+    ),
+
+    %% At this point chain should be at 22
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+        {ok, 22} == ct_rpc:call(RouterNode, blockchain, height, [C])
+    end, 10, timer:seconds(1)),
+
     % Step 8: Adding close txn to blockchain
     receive
         {txn, Txn} ->
+            ct:pal("Txn: ~p", [Txn]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block1, RouterChain, Self])
     after 10000 ->
@@ -234,8 +245,12 @@ full_test(Config) ->
     % Step 9: Waiting for close txn to be mine
     ok = blockchain_ct_utils:wait_until(fun() ->
         C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
-        {ok, 3} == ct_rpc:call(RouterNode, blockchain, height, [C])
-    end, 30, timer:seconds(1)),
+        {ok, 23} == ct_rpc:call(RouterNode, blockchain, height, [C])
+    end, 10, timer:seconds(1)),
+
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
+    end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
@@ -269,7 +284,8 @@ expired_test(Config) ->
 
     % Step 2: Create state channel open txn
     ID = crypto:strong_rand_bytes(32),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, 20, 1),
+    ExpireWithin = 11,
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, ExpireWithin, 1),
     SignedSCOpenTxn = blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun),
 
     % Step 3: Adding block
@@ -300,14 +316,6 @@ expired_test(Config) ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    % Step 7: Making sure packet got transmitted
-    receive
-        {packet, P0} ->
-            ?assertEqual(Packet0, P0)
-    after 10000 ->
-        ct:fail("packet timeout")
-    end,
-
     % Step 5: Adding some blocks to get the state channel to expire
     lists:foreach(
         fun(_) ->
@@ -325,6 +333,7 @@ expired_test(Config) ->
     % Step 8: Adding close txn to blockchain
     receive
         {txn, Txn} ->
+            ct:pal("txn: ~p", [Txn]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block1, RouterChain, Self])
     after 10000 ->
