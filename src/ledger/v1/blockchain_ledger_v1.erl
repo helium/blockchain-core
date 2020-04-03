@@ -2463,7 +2463,6 @@ state_channels_test() ->
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
     ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
     ?assertEqual(Nonce, blockchain_ledger_state_channel_v1:nonce(SC)),
-    ?assertEqual(12, blockchain_ledger_state_channel_v1:amount(SC)),
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),

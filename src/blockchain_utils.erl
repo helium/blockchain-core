@@ -306,9 +306,12 @@ get_pubkeybin_sigfun_test() ->
     ok.
 
 start_swarm(Name, BaseDir) ->
-    NewOpts = lists:keystore(base_dir, 1, [], {base_dir, BaseDir})
-        ++ [{libp2p_nat, [{enabled, false}]}],
-    libp2p_swarm:start(Name, NewOpts).
+    SwarmOpts = [
+        {libp2p_nat, [{enabled, false}]},
+        {base_dir, BaseDir}
+    ],
+    application:ensure_all_started(throttle),
+    libp2p_swarm:start(Name, SwarmOpts).
 
 bitvector_roundtrip_test() ->
     L1 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 16)],
