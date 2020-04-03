@@ -416,13 +416,6 @@ replay_test(Config) ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    % Step 7: Making sure packet got transmitted
-    receive
-        {packet, P0} ->
-            ?assertEqual(Packet0, P0)
-    after 10000 ->
-        ct:fail("packet timeout")
-    end,
 
     % Step 5: Sending 1 packet
     Payload1 = crypto:strong_rand_bytes(120),
