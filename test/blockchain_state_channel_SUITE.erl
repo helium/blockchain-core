@@ -178,6 +178,7 @@ full_test(Config) ->
     ct:pal("RouterChain: ~p", [RouterChain]),
     {ok, Block0} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
     ct:pal("Block0: ~p", [Block0]),
+    SCOpenBlockHash = blockchain_block:hash_block(Block0),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, Self]),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -236,13 +237,17 @@ full_test(Config) ->
     receive
         {txn, Txn} ->
             ct:pal("Txn: ~p", [Txn]),
+            ?assertEqual(blockchain_txn_state_channel_close_v1, blockchain_txn:type(Txn)),
+            ExpectedTree = skewed:add(Payload1, skewed:add(Payload0, skewed:new(SCOpenBlockHash))),
+            ?assertEqual(blockchain_state_channel_v1:root_hash(blockchain_txn_state_channel_close_v1:state_channel(Txn)),
+                         skewed:root_hash(ExpectedTree)),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block1, RouterChain, Self])
     after 10000 ->
         ct:fail("txn timeout")
     end,
 
-    % Step 9: Waiting for close txn to be mine
+    % Step 9: Waiting for close txn to be mined
     ok = blockchain_ct_utils:wait_until(fun() ->
         C = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
         {ok, 23} == ct_rpc:call(RouterNode, blockchain, height, [C])
@@ -291,6 +296,7 @@ expired_test(Config) ->
     % Step 3: Adding block
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
     {ok, Block0} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]]),
+    SCOpenBlockHash = blockchain_block:hash_block(Block0),
     _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, Self]),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -334,6 +340,11 @@ expired_test(Config) ->
     receive
         {txn, Txn} ->
             ct:pal("txn: ~p", [Txn]),
+            ct:pal("Txn: ~p", [Txn]),
+            ?assertEqual(blockchain_txn_state_channel_close_v1, blockchain_txn:type(Txn)),
+            ExpectedTree = skewed:add(Payload0, skewed:new(SCOpenBlockHash)),
+            ?assertEqual(blockchain_state_channel_v1:root_hash(blockchain_txn_state_channel_close_v1:state_channel(Txn)),
+                         skewed:root_hash(ExpectedTree)),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block1, RouterChain, Self])
     after 10000 ->
@@ -415,7 +426,6 @@ replay_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
-
 
     % Step 5: Sending 1 packet
     Payload1 = crypto:strong_rand_bytes(120),
@@ -545,7 +555,6 @@ multiple_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
-
 
     % Step 10: Create another state channel
     ID2 = crypto:strong_rand_bytes(24),
