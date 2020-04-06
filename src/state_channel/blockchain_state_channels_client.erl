@@ -13,7 +13,6 @@
 -export([
          start_link/1,
          packet/1,
-         update_sc/1,
          state/0,
          response/1
         ]).
@@ -73,11 +72,6 @@ packet(Packet) ->
 state() ->
     gen_server:call(?SERVER, state).
 
--spec update_sc(NewSC :: blockchain_state_channel_v1:state_channel()) -> ok.
-update_sc(NewSC) ->
-    gen_server:cast(?SERVER, {update_sc, NewSC}).
-
-
 %% ------------------------------------------------------------------
 %% init, terminate and code_change
 %% ------------------------------------------------------------------
@@ -97,19 +91,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
-
-handle_cast({update_sc, NewSC}, #state{db=DB, state_channels=SCs}=State) ->
-    ID = blockchain_state_channel_v1:id(NewSC),
-    lager:debug("received state channel update for ~p", [ID]),
-    NewState = case validate_state_channel_update(maps:get(ID, SCs, undefined), NewSC) of
-                   {error, _Reason} ->
-                       lager:warning("state channel ~p is invalid ~p", [NewSC, _Reason]),
-                       State;
-                   ok ->
-                       ok = blockchain_state_channel_v1:save(DB, NewSC),
-                       State#state{state_channels=maps:put(ID, NewSC, SCs)}
-               end,
-    {noreply, NewState};
 handle_cast({packet, Packet}, State) ->
     NewState = handle_packet(Packet, State),
     {noreply, NewState};
@@ -129,24 +110,6 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec validate_state_channel_update(OldStateChannel :: blockchain_state_channel_v1:state_channel() | undefined,
-                                    NewStateChannel :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
-validate_state_channel_update(undefined, NewStateChannel) ->
-    blockchain_state_channel_v1:validate(NewStateChannel);
-validate_state_channel_update(OldStateChannel, NewStateChannel) ->
-    case blockchain_state_channel_v1:validate(NewStateChannel) of
-        {error, _}=Error ->
-            Error;
-        ok ->
-            NewNonce = blockchain_state_channel_v1:nonce(NewStateChannel),
-            OldNonce = blockchain_state_channel_v1:nonce(OldStateChannel),
-            case NewNonce > OldNonce of
-                false -> {error, {bad_nonce, NewNonce, OldNonce}};
-                true -> ok
-            end
-    end.
-
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     State :: state()) -> state().
 handle_packet(Packet, #state{swarm=Swarm}=State) ->
