@@ -65,7 +65,7 @@ basic(Config) ->
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
-
+    % Simulate other chain with fastforward handler only
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
 
     % Add some blocks
@@ -86,6 +86,7 @@ basic(Config) ->
         ,?FASTFORWARD_PROTOCOL
         ,{libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, Chain]}
     ),
+
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
     {ok, _} = libp2p_swarm:connect(SimSwarm, ListenAddr),
