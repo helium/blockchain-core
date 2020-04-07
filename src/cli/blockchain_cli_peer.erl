@@ -341,7 +341,7 @@ peer_refresh(["peer", "refresh", Addr], [], []) ->
     Swarm = blockchain_swarm:swarm(),
     Peerbook = libp2p_swarm:peerbook(Swarm),
     TrimmedAddr = string:trim(Addr),
-    libp2p_peerbook:refresh(Peerbook, libp2p_crypto:p2p_to_pubkey_bin(TrimmedAddr)),
+    libp2p_peer_resolution:refresh(Peerbook, libp2p_crypto:p2p_to_pubkey_bin(TrimmedAddr)),
     [clique_status:text("ok")].
 
 %%

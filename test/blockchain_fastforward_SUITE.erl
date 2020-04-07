@@ -32,7 +32,8 @@ all() ->
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
     % Simulate other chain with fastforward handler only
-    {ok, SimSwarm} = libp2p_swarm:start(fastforward_SUITE_sim, [{libp2p_nat, [{enabled, false}]}]),
+    {ok, SimSwarm} = libp2p_swarm:start(fastforward_SUITE_sim, [{libp2p_nat, [{enabled, false}]},
+                                                                {libp2p_peer_resolution, [{allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, true)}]}]),
     ok = libp2p_swarm:listen(SimSwarm, "/ip4/0.0.0.0/tcp/0"),
     blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, [{swarm, SimSwarm}|Config]).
 
@@ -65,7 +66,7 @@ basic(Config) ->
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
-
+    % Simulate other chain with fastforward handler only
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
 
     % Add some blocks
@@ -86,6 +87,7 @@ basic(Config) ->
         ,?FASTFORWARD_PROTOCOL
         ,{libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, Chain]}
     ),
+
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
     {ok, _} = libp2p_swarm:connect(SimSwarm, ListenAddr),
