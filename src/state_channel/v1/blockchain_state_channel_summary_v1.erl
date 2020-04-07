@@ -10,7 +10,7 @@
     client_pubkeybin/1,
     num_dcs/1, num_dcs/2,
     num_packets/1, num_packets/2,
-    update/3
+    update/3, validate/1
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -66,6 +66,25 @@ num_dcs(NumDCs, Summary) ->
              Summary :: summary()) -> summary().
 update(NumDCs, NumPackets, Summary) ->
     Summary#blockchain_state_channel_summary_v1_pb{num_dcs=NumDCs, num_packets=NumPackets}.
+
+validate(Summary) ->
+    try libp2p_crypto:bin_to_pubkey(client_pubkeybin(Summary)) of
+        _ ->
+            case num_dcs(Summary) >= num_packets(Summary) of
+                true ->
+                    case num_packets(Summary) > 0 of
+                        true ->
+                            ok;
+                        false ->
+                            {error, zero_packet_summary}
+                    end;
+                false ->
+                    {error, more_packets_than_dcs_in_summary}
+            end
+    catch
+        _:_ ->
+            {error, invalid_address_in_summary}
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
