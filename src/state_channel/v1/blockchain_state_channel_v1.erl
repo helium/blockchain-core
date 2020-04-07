@@ -182,7 +182,17 @@ validate(SC) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
     case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
         false -> {error, bad_signature};
-        true -> ok
+        true -> validate_summaries(summaries(SC))
+    end.
+
+validate_summaries([]) ->
+    ok;
+validate_summaries([H|T]) ->
+    case blockchain_state_channel_summary_v1:validate(H) of
+        ok ->
+            validate_summaries(T);
+        Error ->
+            Error
     end.
 
 -spec encode(state_channel()) -> binary().
