@@ -11,10 +11,12 @@
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
-    new/5, new/6,
+    new/7, new/8,
     hash/1,
     owner/1,
     addresses/1,
+    filter/1,
+    requested_subnet_size/1,
     oui/1,
     payer/1,
     staking_fee/1,
@@ -42,11 +44,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), [binary()], pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, OUI, StakingFee, Fee) ->
+-spec new(libp2p_crypto:pubkey_bin(), [binary()], binary() | undefined, pos_integer() | undefined, pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_oui().
+new(Owner, Addresses, Filter, RequestedSubnetSize, OUI, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
         addresses=Addresses,
+        filter=Filter,
+        requested_subnet_size=RequestedSubnetSize,
         oui=OUI,
         payer= <<>>,
         staking_fee=StakingFee,
@@ -55,11 +59,13 @@ new(Owner, Addresses, OUI, StakingFee, Fee) ->
         payer_signature= <<>>
     }.
 
--spec new(libp2p_crypto:pubkey_bin(), [binary()], pos_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, OUI, Payer, StakingFee, Fee) ->
+-spec new(libp2p_crypto:pubkey_bin(), [binary()], binary() | undefined, pos_integer() | undefined, pos_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer()) -> txn_oui().
+new(Owner, Addresses, Filter, RequestedSubnetSize, OUI, Payer, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
         owner=Owner,
         addresses=Addresses,
+        filter=Filter,
+        requested_subnet_size=RequestedSubnetSize,
         oui=OUI,
         payer=Payer,
         staking_fee=StakingFee,
@@ -67,8 +73,6 @@ new(Owner, Addresses, OUI, Payer, StakingFee, Fee) ->
         owner_signature= <<>>,
         payer_signature= <<>>
     }.
-
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -95,6 +99,14 @@ owner(Txn) ->
 -spec addresses(txn_oui()) -> [binary()].
 addresses(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.addresses.
+
+-spec filter(txn_oui()) -> binary() | undefined.
+filter(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.filter.
+
+-spec requested_subnet_size(txn_oui()) -> pos_integer() | undefined.
+requested_subnet_size(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.requested_subnet_size.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -292,34 +304,36 @@ print(#blockchain_txn_oui_v1_pb{owner=Owner, addresses=Addresses,
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
--spec validate_addresses(string()) -> boolean().
+
+-spec validate_addresses([binary()]) -> boolean().
 validate_addresses([]) ->
     true;
 validate_addresses(Addresses) ->
-    case erlang:length(Addresses) of
-        L when L =< 3 ->
-            lists:all(fun is_p2p/1, Addresses);
+    case {erlang:length(Addresses), erlang:length(lists:usort(Addresses))} of
+        {L, L} when L =< 3 ->
+            ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
         _ ->
             false
-    end.
-
--spec is_p2p(binary()) -> boolean().
-is_p2p(Address) ->
-    case catch multiaddr:protocols(erlang:binary_to_list(Address)) of
-        [{"p2p", _}] -> true;
-        _ -> false
     end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+-define(KEY1, <<0,105,110,41,229,175,44,3,221,73,181,25,27,184,120,84,
+               138,51,136,194,72,161,94,225,240,73,70,45,135,23,41,96,78>>).
+-define(KEY2, <<1,72,253,248,131,224,194,165,164,79,5,144,254,1,168,254,
+                111,243,225,61,41,178,207,35,23,54,166,116,128,38,164,87,212>>).
+-define(KEY3, <<1,124,37,189,223,186,125,185,240,228,150,61,9,164,28,75,
+                44,232,76,6,121,96,24,24,249,85,177,48,246,236,14,49,80>>).
+-define(KEY4, <<0,201,24,252,94,154,8,151,21,177,201,93,234,97,223,234,
+                109,216,141,189,126,227,92,243,87,8,134,107,91,11,221,179,190>>).
 
 missing_payer_signature_new() ->
     #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     #blockchain_txn_oui_v1_pb{
        owner= <<"owner">>,
-       addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+       addresses = [?KEY1],
        payer= libp2p_crypto:pubkey_to_bin(PubKey),
        payer_signature= <<>>,
        staking_fee=1,
@@ -330,7 +344,7 @@ missing_payer_signature_new() ->
 new_test() ->
     Tx = #blockchain_txn_oui_v1_pb{
         owner= <<"owner">>,
-        addresses = [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>],
+        addresses = [?KEY1],
         oui = 1,
         payer = <<>>,
         staking_fee=2,
@@ -338,38 +352,38 @@ new_test() ->
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3)).
+    ?assertEqual(Tx, new(<<"owner">>, [?KEY1], <<>>, 0, 1, 2, 3)).
 
 owner_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
-    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], addresses(Tx)).
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
+    ?assertEqual([?KEY1], addresses(Tx)).
 
 oui_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(1, oui(Tx)).
 
 staking_fee_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(2, staking_fee(Tx)).
 
 fee_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(3, fee(Tx)).
 
 payer_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, <<"payer">>, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, <<"payer">>, 2, 3),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 owner_signature_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 payer_signature_test() ->
-    Tx = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     ?assertEqual(<<>>, payer_signature(Tx)).
 
 missing_payer_signature_test() ->
@@ -378,7 +392,7 @@ missing_payer_signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, 2, 3),
+    Tx0 = new(<<"owner">>, [?KEY1], undefined, undefined, 1, 2, 3),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = owner_signature(Tx1),
@@ -387,7 +401,7 @@ sign_test() ->
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, <<"payer">>, 2, 3),
+    Tx0 = new(<<"owner">>, [?KEY1], undefined, undefined, 1, <<"payer">>, 2, 3),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_payer(Tx0, SigFun),
     Sig1 = payer_signature(Tx1),
@@ -396,12 +410,14 @@ sign_payer_test() ->
 
 validate_addresses_test() ->
     ?assert(validate_addresses([])),
-    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
-    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
-    ?assert(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>])),
+    ?assert(validate_addresses([?KEY1])),
+    ?assertNot(validate_addresses([?KEY1, ?KEY1])),
+    ?assert(validate_addresses([?KEY1, ?KEY2])),
+    ?assert(validate_addresses([?KEY1, ?KEY2, ?KEY3])),
+    ?assertNot(validate_addresses([?KEY1, ?KEY2, ?KEY3, ?KEY4])),
     ?assertNot(validate_addresses([<<"http://test.com">>])),
-    ?assertNot(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"http://test.com">>])),
-    ?assertNot(validate_addresses([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>, <<"http://test.com">>])),
+    ?assertNot(validate_addresses([?KEY1, <<"http://test.com">>])),
+    ?assertNot(validate_addresses([?KEY1, ?KEY1, <<"http://test.com">>])),
     ok.
 
 -endif.
