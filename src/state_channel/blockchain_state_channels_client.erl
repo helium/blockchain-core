@@ -113,10 +113,9 @@ handle_info(_Msg, State) ->
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     State :: state()) -> state().
 handle_packet(Packet, #state{swarm=Swarm}=State) ->
-    OUI = blockchain_helium_packet_v1:oui(Packet),
-    case find_routing(OUI) of
+    case find_routing(Packet) of
         {error, _Reason} ->
-            lager:error("failed to find router for oui ~p:~p", [OUI, _Reason]),
+            lager:error("failed to find router for packet with routing information ~p:~p", [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
             State;
         {ok, Peer} ->
             case find_stream(OUI, State) of
@@ -161,7 +160,7 @@ add_stream(OUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(OUI, Stream, Streams)}.
 
 -spec find_routing(OUI :: non_neg_integer()) -> {ok, string()} | {error, any()}.
-find_routing(OUI) ->
+find_routing(Packet) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_routing(OUI, Ledger) of
