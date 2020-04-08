@@ -77,7 +77,7 @@
 
     get_oui_counter/1, increment_oui_counter/2,
     find_ouis/2, add_oui/4,
-    find_routing/2,  add_routing/5,
+    find_routing/2,  update_routing/5,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/5,
@@ -1582,12 +1582,16 @@ find_routing(OUI, Ledger) ->
             Error
     end.
 
--spec add_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
-add_routing(Owner, OUI, Addresses, Nonce, Ledger) ->
-    RoutingCF = routing_cf(Ledger),
-    Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Nonce),
-    Bin = blockchain_ledger_routing_v1:serialize(Routing),
-    cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin).
+-spec update_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
+update_routing(_Owner, OUI, Action, Nonce, Ledger) ->
+    case find_routing(OUI, Ledger) of
+        {ok, Routing} ->
+            RoutingCF = routing_cf(Ledger),
+            Bin = blockchain_ledger_routing_v1:serialize(blockchain_ledger_routing_v1:update(Routing, Action, Nonce)),
+            cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin);
+        Error ->
+            Error
+    end.
 
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
@@ -2406,6 +2410,11 @@ commit(Fun, Ledger0) ->
     _ = Fun(Ledger1),
     commit_context(Ledger1).
 
+-define(KEY1, <<0,105,110,41,229,175,44,3,221,73,181,25,27,184,120,84,
+               138,51,136,194,72,161,94,225,240,73,70,45,135,23,41,96,78>>).
+-define(KEY2, <<1,72,253,248,131,224,194,165,164,79,5,144,254,1,168,254,
+                111,243,225,61,41,178,207,35,23,54,166,116,128,38,164,87,212>>).
+
 routing_test() ->
     BaseDir = test_utils:tmp_dir("routing_test"),
     Ledger = new(BaseDir),
@@ -2414,12 +2423,12 @@ routing_test() ->
     ?assertEqual({ok, 0}, get_oui_counter(Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_oui(<<"owner">>, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, Ledger2),
+    ok = add_oui(<<"owner">>, [?KEY1], 1, Ledger2),
     ok = commit_context(Ledger2),
     {ok, Routing0} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
     ?assertEqual(1, blockchain_ledger_routing_v1:oui(Routing0)),
-    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing0)),
+    ?assertEqual([?KEY1], blockchain_ledger_routing_v1:addresses(Routing0)),
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
 
     Ledger3 = new_context(Ledger),
@@ -2432,12 +2441,12 @@ routing_test() ->
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing1)),
 
     Ledger4 = new_context(Ledger),
-    ok = add_routing(<<"owner2">>, 2, [<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], 1, Ledger4),
+    ok = update_routing(<<"owner2">>, 2, {update_routers, [?KEY2]}, 1, Ledger4),
     ok = commit_context(Ledger4),
     {ok, Routing2} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing2)),
     ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing2)),
-    ?assertEqual([<<"/p2p/1WgtwXKS6kxHYoewW4F7aymP6q9127DCvKBmuJVi6HECZ1V7QZ">>], blockchain_ledger_routing_v1:addresses(Routing2)),
+    ?assertEqual([?KEY2], blockchain_ledger_routing_v1:addresses(Routing2)),
     ?assertEqual(1, blockchain_ledger_routing_v1:nonce(Routing2)),
 
     ?assertEqual({ok, [1]}, blockchain_ledger_v1:find_ouis(<<"owner">>, Ledger)),
