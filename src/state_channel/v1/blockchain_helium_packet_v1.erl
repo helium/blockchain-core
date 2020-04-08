@@ -8,7 +8,7 @@
 -export([
          new/0, new/2, %% only for testing, where we set only the oui and payload
          new/8,
-         oui/1,
+         routing_info/1,
          type/1,
          payload/1,
          timestamp/1,
@@ -28,18 +28,19 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type routing_info() :: {devaddr, DevAddr::non_neg_integer()} | {eui, DevEUI::non_neg_integer(), AppEUI::non_neg_integer()}.
 -type packet() :: #packet_pb{}.
--export_type([packet/0]).
+-export_type([packet/0, routing_info/0]).
 
 -spec new() -> packet().
 new() ->
     #packet_pb{}.
 
--spec new(OUI :: non_neg_integer(), Payload :: binary()) -> packet().
-new(OUI, Payload) ->
-    #packet_pb{oui=OUI, payload=Payload}.
+-spec new(RoutingInfo :: routing_info(), Payload :: binary()) -> packet().
+new(RoutingInfo, Payload) ->
+    #packet_pb{routing=make_routing_info(RoutingInfo), payload=Payload}.
 
--spec new(OUI :: non_neg_integer(),
+-spec new(RoutingInfo :: routing_info(),
           Type :: longfi | lorawan,
           Payload :: binary(),
           TimeStamp :: non_neg_integer(),
@@ -47,9 +48,9 @@ new(OUI, Payload) ->
           Frequency :: float(),
           DataRate :: string(),
           SNR :: float()) -> packet().
-new(OUI, Type, Payload, TimeStamp, SignalStrength, Frequency, DataRate, SNR) ->
+new(RoutingInfo, Type, Payload, TimeStamp, SignalStrength, Frequency, DataRate, SNR) ->
     #packet_pb{
-       oui=OUI,
+       routing=make_routing_info(RoutingInfo),
        type=Type,
        payload=Payload,
        timestamp=TimeStamp,
@@ -58,9 +59,14 @@ new(OUI, Type, Payload, TimeStamp, SignalStrength, Frequency, DataRate, SNR) ->
        datarate=DataRate,
        snr=SNR}.
 
--spec oui(packet()) -> non_neg_integer().
-oui(#packet_pb{oui=OUI}) ->
-    OUI.
+-spec routing_info(packet()) -> routing_info().
+routing_info(#packet_pb{routing=RoutingInfo}) ->
+    case RoutingInfo of
+        #routing_information_pb{data={devaddr, DevAddr}} ->
+            {devaddr, DevAddr};
+        #routing_information_pb{data={eui, #eui_pb{deveui=DevEUI, appeui=AppEUI}}} ->
+            {eui, DevEUI, AppEUI}
+    end.
 
 -spec type(packet()) -> lorawan | longfi.
 type(#packet_pb{type=Type}) ->
@@ -102,6 +108,12 @@ decode(BinaryPacket) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec make_routing_info(routing_info()) -> #routing_information_pb{}.
+make_routing_info({devaddr, DevAddr}) ->
+    #routing_information_pb{data={devaddr, DevAddr}};
+make_routing_info({eui, DevEUI, AppEUI}) ->
+    #routing_information_pb{data={eui, #eui_pb{deveui=DevEUI, appeui=AppEUI}}}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
