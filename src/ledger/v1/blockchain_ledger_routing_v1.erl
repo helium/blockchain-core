@@ -6,7 +6,7 @@
 -module(blockchain_ledger_routing_v1).
 
 -export([
-    new/4,
+    new/6,
     owner/1, owner/2,
     oui/1, oui/2,
     addresses/1,
@@ -34,8 +34,8 @@
 
 -export_type([routing/0]).
 
--spec new(non_neg_integer(),  binary(), [binary()], non_neg_integer()) -> routing().
-new(OUI, Owner, Addresses, Nonce) when Owner /= undefined andalso
+-spec new(non_neg_integer(),  binary(), [binary()], binary(), <<_:48>>, non_neg_integer()) -> routing().
+new(OUI, Owner, Addresses, Filter, Subnet, Nonce) when Owner /= undefined andalso
                                        OUI /= undefined andalso
                                        Addresses /= undefined andalso
                                        Nonce /= undefined ->
@@ -43,6 +43,8 @@ new(OUI, Owner, Addresses, Nonce) when Owner /= undefined andalso
         oui=OUI,
         owner=Owner,
         router_addresses=Addresses,
+        filters=[Filter],
+        subnets=[Subnet],
         nonce=Nonce
     }.
 

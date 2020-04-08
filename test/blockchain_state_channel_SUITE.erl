@@ -186,7 +186,7 @@ full_test(Config) ->
 
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     %% Checking state channel on server/client
@@ -196,7 +196,7 @@ full_test(Config) ->
 
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
+    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     %% Checking state channel on server/client
@@ -276,7 +276,7 @@ dup_packets_test(Config) ->
 
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     %% Checking state channel on server/client
@@ -286,7 +286,7 @@ dup_packets_test(Config) ->
 
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
+    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     %% Checking state channel on server/client
@@ -296,7 +296,7 @@ dup_packets_test(Config) ->
 
     %% Sending the same packet again
     Payload2 = crypto:strong_rand_bytes(120),
-    Packet2 = blockchain_helium_packet_v1:new(1, Payload2),
+    Packet2 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload2),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2]),
 
     %% Checking state channel on server/client
@@ -354,7 +354,7 @@ expired_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -385,7 +385,7 @@ expired_test(Config) ->
 
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     %% Checking state channel on server/client
@@ -435,7 +435,7 @@ replay_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -466,7 +466,7 @@ replay_test(Config) ->
 
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new(1, Payload0),
+    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     %% Checking state channel on server/client
@@ -476,7 +476,7 @@ replay_test(Config) ->
 
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new(1, Payload1),
+    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload1),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1]),
 
     %% Checking state channel on server/client
@@ -541,7 +541,7 @@ multiple_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -640,7 +640,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode2, Self),
 
     %% Create OUI txn for RouterNode1
-    SignedOUITxn1 = create_oui_txn(RouterNode1, 1),
+    SignedOUITxn1 = create_oui_txn(RouterNode1, 1, [], 8),
 
     %% Create 3 SCs for RouterNode1
     Expiry = 20,
@@ -804,12 +804,11 @@ get_consensus_members(Config, ConsensusAddrs) ->
                                          end
                                  end, [], Nodes)).
 
-create_oui_txn(RouterNode, OUI) ->
+create_oui_txn(RouterNode, OUI, EUIs, SubnetSize) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
-    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
-    RouterP2PAddress = ct_rpc:call(RouterNode, libp2p_swarm, p2p_address, [RouterSwarm]),
-    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [erlang:list_to_binary(RouterP2PAddress)], OUI, 1, 0),
+    {Filter, _} = xor16:to_bin(xor16:new([ <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>> || {DevEUI, AppEUI} <- EUIs], fun xxhash:hash64/1)),
+    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize, OUI, 1, 0),
     blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun).
 
 create_sc_open_txn(RouterNode, ID, Expiry, Nonce) ->

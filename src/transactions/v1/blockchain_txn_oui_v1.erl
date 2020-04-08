@@ -232,21 +232,31 @@ is_valid(Txn, Chain) ->
                         false ->
                             {error, invalid_addresses};
                         true ->
-                            StakingFee = ?MODULE:staking_fee(Txn),
-                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-                            case ExpectedStakingFee == StakingFee of
+                            case validate_subnet_size(?MODULE:requested_subnet_size(Txn)) of
                                 false ->
-                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                                    {error, invalid_subnet_size};
                                 true ->
-                                    Fee = ?MODULE:fee(Txn),
-                                    Owner = ?MODULE:owner(Txn),
-                                    Payer = ?MODULE:payer(Txn),
-                                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                                        true -> Owner;
-                                        false -> Payer
-                                    end,
-                                    StakingFee = ?MODULE:staking_fee(Txn),
-                                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                    case validate_filter(?MODULE:filter(Txn)) of
+                                        false ->
+                                            {error, invalid_filter};
+                                        true ->
+                                            StakingFee = ?MODULE:staking_fee(Txn),
+                                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
+                                            case ExpectedStakingFee == StakingFee of
+                                                false ->
+                                                    {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}}; 
+                                                true ->
+                                                    Fee = ?MODULE:fee(Txn),
+                                                    Owner = ?MODULE:owner(Txn),
+                                                    Payer = ?MODULE:payer(Txn),
+                                                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                                                      true -> Owner;
+                                                                      false -> Payer
+                                                                  end,
+                                                    StakingFee = ?MODULE:staking_fee(Txn),
+                                                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                            end
+                                    end
                             end
                     end
             end
@@ -267,13 +277,21 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
-        {error, _}=Error ->
-            Error;
-        ok ->
-            Addresses = ?MODULE:addresses(Txn),
-            OUI = ?MODULE:oui(Txn),
-            blockchain_ledger_v1:add_oui(Owner, Addresses, OUI, Ledger)
+
+    SubnetSize = ?MODULE:requested_subnet_size(Txn),
+    case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
+        {ok, Subnet} ->
+            case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    Addresses = ?MODULE:addresses(Txn),
+                    Filter = ?MODULE:filter(Txn),
+                    OUI = ?MODULE:oui(Txn),
+                    blockchain_ledger_v1:add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger)
+            end;
+        Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -313,6 +331,24 @@ validate_addresses(Addresses) ->
         {L, L} when L =< 3 ->
             ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
         _ ->
+            false
+    end.
+
+validate_subnet_size(Size) when Size < 8; Size > 65536 ->
+    false;
+validate_subnet_size(Size) ->
+    %% subnet size should be between 8 and 65536 as a power of two
+    Res = math:log2(Size),
+    %% check there's no floating point components of the number
+    %% Erlang will coerce between floats and ints when you use ==
+    trunc(Res) == Res.
+
+validate_filter(Filter) ->
+    %% the contain check does some structural checking of the filter
+    try xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
+        _ -> true
+    catch
+        _:_ ->
             false
     end.
 
