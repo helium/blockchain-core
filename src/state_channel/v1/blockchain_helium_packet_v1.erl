@@ -121,43 +121,45 @@ make_routing_info({eui, DevEUI, AppEUI}) ->
 -ifdef(TEST).
 
 new_test() ->
-    Packet = #packet_pb{oui=1, payload= <<"payload">>},
-    ?assertEqual(Packet, new(1, <<"payload">>)).
+    Packet = #packet_pb{routing=#routing_information_pb{data={devaddr, 16#deadbeef}}, payload= <<"payload">>},
+    ?assertEqual(Packet, new({devaddr, 16#deadbeef}, <<"payload">>)).
 
 oui_test() ->
-    Packet = new(1, <<"payload">>),
-    ?assertEqual(1, oui(Packet)).
+    Packet = new({devaddr, 16#deadbeef}, <<"payload">>),
+    ?assertEqual({devaddr, 16#deadbeef}, routing_info(Packet)),
+    Packet1 = new({eui, 16#deadbeef, 16#DEADC0DE}, <<"payload">>),
+    ?assertEqual({eui, 16#deadbeef, 16#deadc0de}, routing_info(Packet1)).
 
 payload_test() ->
-    Packet = new(1, <<"payload">>),
+    Packet = new({devaddr, 16#deadbeef}, <<"payload">>),
     ?assertEqual(<<"payload">>, payload(Packet)).
 
 type_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(lorawan, type(Packet)).
 
 timestamp_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(1000, timestamp(Packet)).
 
 signal_strength_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(0.0, signal_strength(Packet)).
 
 frequency_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(0.0, frequency(Packet)).
 
 datarate_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual("dr", datarate(Packet)).
 
 snr_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(0.0, snr(Packet)).
 
 encode_decode_test() ->
-    Packet = new(1, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
+    Packet = new({devaddr, 16#deadbeef}, lorawan, <<"payload">>, 1000, 0.0, 0.0, "dr", 0.0),
     ?assertEqual(Packet, decode(encode(Packet))).
 
 -endif.

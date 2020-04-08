@@ -103,6 +103,11 @@ handle_call(state, _From, State) ->
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
+handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
+    FilteredStreams = maps:filter(fun(_Name, Stream) ->
+                                          Stream == Pid
+                                  end, Streams),
+    {noreply, State#state{streams=FilteredStreams}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -112,30 +117,15 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     State :: state()) -> state().
-handle_packet(Packet, #state{swarm=Swarm}=State) ->
+handle_packet(Packet, State) ->
     case find_routing(Packet) of
         {error, _Reason} ->
             lager:error("failed to find router for packet with routing information ~p:~p", [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
             State;
-        {ok, Peer} ->
-            case find_stream(OUI, State) of
-                undefined ->
-                    %% Do not have a stream open for this oui
-                    %% Create one and add to state
-                    case blockchain_state_channel_handler:dial(Swarm, Peer, []) of
-                        {error, _Reason} ->
-                            lager:error("failed to dial ~p:~p", [Peer, _Reason]),
-                            %% TODO: retry?
-                            State;
-                        {ok, NewStream} ->
-                            ok = send_packet(Packet, Swarm, NewStream),
-                            add_stream(OUI, NewStream, State)
-                    end;
-                Stream ->
-                    %% Found an existing stream for this oui, use that to send packet
-                    ok = send_packet(Packet, Swarm, Stream),
-                    State
-            end
+        {ok, Routes} ->
+            lists:foldl(fun(Route, StateAcc) ->
+                                send_to_route(Packet, Route, StateAcc)
+                        end, State, Routes)
     end.
 
 %% ------------------------------------------------------------------
@@ -163,13 +153,35 @@ add_stream(OUI, Stream, #state{streams=Streams}=State) ->
 find_routing(Packet) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Routing} ->
-            % TODO: Select an address
-            [Address|_] = blockchain_ledger_routing_v1:addresses(Routing),
-            {ok, erlang:binary_to_list(Address)}
+    blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger).
+
+-spec send_to_route(blockchain_helium_packet_v1:packet(), blockchain_ledger_routing_v1:routing(), state()) -> state().
+send_to_route(Packet, Route, State=#state{swarm=Swarm}) ->
+    OUI = blockchain_ledger_routing_v1:oui(Route),
+    case find_stream(OUI, State) of
+        undefined ->
+            %% Do not have a stream open for this oui
+            %% Create one and add to state
+            {_, NewState} = lists:foldl(fun(_PubkeyBin, {done, StateAcc}) ->
+                                                %% was already able to send to one of this OUI's routers
+                                                {done, StateAcc};
+                                           (PubkeyBin, {not_done, StateAcc}) ->
+                                                StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                                case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
+                                                    {error, _Reason} ->
+                                                        lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                                        {not_done, StateAcc};
+                                                    {ok, NewStream} ->
+                                                        unlink(NewStream),
+                                                        erlang:monitor(process, NewStream),
+                                                        ok = send_packet(Packet, Swarm, NewStream),
+                                                        {done, add_stream(OUI, NewStream, State)}
+                                                end
+                                        end, State,  blockchain_ledger_routing_v1:addresses(Route)),
+            NewState;
+        Stream ->
+            ok = send_packet(Packet, Swarm, Stream),
+            State
     end.
 
 %% ------------------------------------------------------------------
