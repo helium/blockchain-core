@@ -76,12 +76,15 @@
     redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/2,
-    find_ouis/2, add_oui/4,
-    find_routing/2,  update_routing/5,
+    find_ouis/2, add_oui/6,
+    find_routing/2, find_routing_for_packet/2,
+    update_routing/5,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/5,
     delete_state_channel/3,
+
+    allocate_subnet/2,
 
     delay_vars/3,
 
@@ -129,6 +132,7 @@
     pocs :: rocksdb:cf_handle(),
     securities :: rocksdb:cf_handle(),
     routing :: rocksdb:cf_handle(),
+    subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid()
 }).
@@ -148,6 +152,9 @@
 
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
+-define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
+-define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
+
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
 -type entries() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_entry_v1:entry()}.
@@ -163,9 +170,9 @@
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
-    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF, SCsCF,
-     DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedDCEntriesCF, DelayedHTLCsCF,
-     DelayedPoCsCF, DelayedSecuritiesCF, DelayedRoutingCF, DelayedSCsCF] = CFs,
+    [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
+     SubnetsCF,SCsCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedDCEntriesCF,
+     DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -180,6 +187,7 @@ new(Dir) ->
             pocs=PoCsCF,
             securities=SecuritiesCF,
             routing=RoutingCF,
+            subnets=SubnetsCF,
             state_channels=SCsCF
         },
         delayed= #sub_ledger_v1{
@@ -191,6 +199,7 @@ new(Dir) ->
             pocs=DelayedPoCsCF,
             securities=DelayedSecuritiesCF,
             routing=DelayedRoutingCF,
+            subnets=DelayedSubnetsCF,
             state_channels=DelayedSCsCF
         }
     }.
@@ -1551,14 +1560,14 @@ increment_oui_counter(OUI, Ledger) ->
             {error, {invalid_oui, OUI, OUICounter+1}}
     end.
 
--spec add_oui(binary(), [binary()], pos_integer(), ledger()) -> ok | {error, any()}.
-add_oui(Owner, Addresses, OUI, Ledger) ->
+-spec add_oui(binary(), pos_integer(), [binary()], binary(), pos_integer(), ledger()) -> ok | {error, any()}.
+add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
     case ?MODULE:increment_oui_counter(OUI, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, OUI} ->
             RoutingCF = routing_cf(Ledger),
-            Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, 0),
+            Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Filter, Subnet, 0),
             Bin = blockchain_ledger_routing_v1:serialize(Routing),
             case ?MODULE:find_ouis(Owner, Ledger) of
                 {error, _}=Error ->
@@ -1580,6 +1589,51 @@ find_routing(OUI, Ledger) ->
             {error, not_found};
         Error ->
             Error
+    end.
+
+-spec find_routing_for_packet(blockchain_helium_packet_v1:packet(), ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]}
+                                                                                 | {error, any()}.
+find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
+    case blockchain_helium_packet_v1:routing_info(Packet) of
+        {eui, DevEUI, AppEUI} ->
+            %% ok, search the xor filters
+            Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
+            RoutingCF = routing_cf(Ledger),
+            Res = cache_fold(Ledger, RoutingCF,
+                             fun({_K, V}, Acc) ->
+                                     Route = blockchain_ledger_routing_v1:deserialize(V),
+                                     case lists:any(fun(Filter) ->
+                                                            xor16:contain({Filter, fun xxhash:hash64/1}, Key)
+                                                    end, blockchain_ledger_routing_v1:filters(Route)) of
+                                         true ->
+                                             [Route | Acc];
+                                         false ->
+                                             Acc
+                                     end
+                             end, [], []),
+            case Res of
+                [] ->
+                    {error, eui_not_mactched};
+                _ ->
+                    {ok, Res}
+            end;
+        {devaddr, DevAddr} ->
+            %% use the subnets
+            SubnetCF = subnets_cf(Ledger),
+            {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+            Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+            catch rocksdb:iterator_close(Itr),
+            case Dest of
+                error ->
+                    {error, subnet_not_found};
+                _ ->
+                    case find_routing(Dest, Ledger) of
+                        {ok, Route} ->
+                            {ok, [Route]};
+                        Error ->
+                            Error
+                    end
+            end
     end.
 
 -spec update_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
@@ -1652,6 +1706,44 @@ delete_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
     cache_delete(Ledger, SCsCF, Key).
+
+allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
+    SubnetCF = subnets_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+    Res = case rocksdb:iterator_move(Itr, last) of
+              {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _} ->
+                  ASize = subnet_mask_to_size(AMask),
+                  %% sanity check
+                  0 = (ASize - 1) band ABase,
+                  MaxSize = max(Size, ASize),
+                  case ABase + ASize + Size < ?BITS_25 of
+                      true ->
+                          %% ok there's room at the end
+                          %% check if we can do it contiguously
+                          Mask = subnet_size_to_mask(Size),
+                          ANewBase = ABase band (Mask bsl 2),
+                          case ANewBase + (MaxSize * 2) < ?BITS_25 of
+                              true ->
+                                  Size = subnet_mask_to_size(Mask),
+                                  Base = ANewBase + max(Size, ASize),
+                                  %% sanity check
+                                  0 = (Size - 1) band Base,
+                                  {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
+                              false ->
+                                  {error, partial_allocation}
+                          end;
+                      false ->
+                          {error, partial_allocation}
+                  end;
+              {error, invalid_iterator} ->
+                  %% there's no allocations at all
+                  Mask = subnet_size_to_mask(Size),
+                  {ok, <<0:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
+              {error, _} = Error ->
+                  Error
+          end,
+    catch rocksdb:iterator_close(Itr),
+    Res.
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
@@ -1759,6 +1851,12 @@ routing_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{routing=RoutingCF}}) ->
     RoutingCF;
 routing_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{routing=RoutingCF}}) ->
     RoutingCF.
+
+-spec subnets_cf(ledger()) -> rocksdb:cf_handle().
+subnets_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{subnets=SubnetsCF}}) ->
+    SubnetsCF;
+subnets_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{subnets=SubnetsCF}}) ->
+    SubnetsCF.
 
 -spec state_channels_cf(ledger()) -> rocksdb:cf_handle().
 state_channels_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{state_channels=SCsCF}}) ->
@@ -1905,9 +2003,9 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "state_channels",
+    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "subnets", "state_channels",
                   "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
-                  "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_state_channels"],
+                  "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_subnets","delayed_state_channels"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -2069,6 +2167,25 @@ increment_bin(Binary) ->
     NewSize = max(Size, BitsNeeded),
     <<(BinAsInt+1):NewSize/integer-unsigned-big>>.
 
+subnet_mask_to_size(Mask) ->
+    (((Mask bxor ?BITS_23) bsl 2) + 2#11) + 1.
+
+subnet_size_to_mask(Size) ->
+    %io:format("Size ~p~n", [Size]),
+    ?BITS_23 bxor ((Size bsr 2) - 1).
+
+subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-big>>}) ->
+    %Size = mask_to_size(Mask),
+    case (DevAddr band (Mask bsl 2)) == Base of
+        true ->
+            Dest;
+        %false when DevAddr > Base + Size ->
+            %error;
+        false ->
+            subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, prev))
+    end;
+subnet_lookup(_, _, _) ->
+    error.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
