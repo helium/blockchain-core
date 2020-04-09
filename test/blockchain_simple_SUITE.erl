@@ -973,7 +973,8 @@ routing_test(Config) ->
     Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter, <<0,0,0,127,255,254>>, 0),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    Addresses1 = [<<"/p2p/random">>],
+    #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
     OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 0, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
@@ -986,7 +987,6 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
     OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, OUI2, 0, 0),
     SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
 
@@ -997,7 +997,7 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 4} == blockchain:height(Chain) end),
 
-    Routing2 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,0,127,255,254>>, 0),
+    Routing2 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,4,127,255,254>>, 0),
     ?assertEqual({ok, Routing2}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     ?assertEqual({ok, [2, 1]}, blockchain_ledger_v1:find_ouis(Payer, Ledger)),
