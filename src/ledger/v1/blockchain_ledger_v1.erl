@@ -434,7 +434,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            pocs = PoCsCF,
            securities = SecuritiesCF,
            routing = RoutingCF,
-           state_channels = SCsCF
+           state_channels = SCsCF,
+           subnets = SubnetsCF
           } = SubLedger,
         %% NB: keep in sync with upgrades macro in blockchain.erl
         Filter = [<<"gateway_v2">>],
@@ -447,10 +448,10 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                                 end
                         end, []),
         L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
-              PoCs, Securities, Routings, StateChannels]
+              PoCs, Securities, Routings, StateChannels, Subnets]
         = [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
            || CF <- [AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                     PoCsCF, SecuritiesCF, RoutingCF, SCsCF]],
+                     PoCsCF, SecuritiesCF, RoutingCF, SCsCF, SubnetsCF]],
         L = lists:append(L0, DefaultVals),
         case Extended of
             false ->
@@ -465,7 +466,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                        <<"securities_fingerprint">> => fp(Securities),
                        <<"routings_fingerprint">> => fp(Routings),
                        <<"poc_fingerprint">> => fp(PoCs),
-                       <<"state_channels_fingerprint">> => fp(StateChannels)
+                       <<"state_channels_fingerprint">> => fp(StateChannels),
+                       <<"subnets_fingerprint">> => fp(Subnets)
                       }}
         end
     catch _:_ ->
@@ -1675,7 +1677,9 @@ find_sc_ids_by_owner(Owner, Ledger) ->
     %% and return the list of IDs (the second part of the key)
     {ok, cache_fold(Ledger, SCsCF,
                fun({K, _V}, Acc) when erlang:binary_part(K, {0, OwnerLength}) == Owner ->
-                       [binary:part(K, OwnerLength, byte_size(K) - OwnerLength)|Acc]
+                       [binary:part(K, OwnerLength, byte_size(K) - OwnerLength)|Acc];
+                  (_, Acc) ->
+                       Acc
                end, [], [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
 
 -spec find_scs_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
@@ -1688,7 +1692,9 @@ find_scs_by_owner(Owner, Ledger) ->
     {ok, cache_fold(Ledger, SCsCF,
                fun({K, V}, Acc) when erlang:binary_part(K, {0, OwnerLength}) == Owner ->
                        ID = binary:part(K, OwnerLength, byte_size(K) - OwnerLength),
-                       maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc)
+                       maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc);
+                  (_, Acc) ->
+                       Acc
                end, #{}, [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
 
 
