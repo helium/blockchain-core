@@ -172,27 +172,29 @@ new_test() ->
         owner = ?KEY2,
         oui = 1,
         router_addresses = [?KEY1],
+        filters=[<<>>],
+        subnets=[<<>>],
         nonce = 0
     },
-    ?assertEqual(Routing, new(1, ?KEY2, [?KEY1], 0)).
+    ?assertEqual(Routing, new(1, ?KEY2, [?KEY1], <<>>, <<>>, 0)).
 
 oui_test() ->
-    Routing = new(1, ?KEY2, [?KEY1], 0),
+    Routing = new(1, ?KEY2, [?KEY1], <<>>, <<>>, 0),
     ?assertEqual(1, oui(Routing)),
     ?assertEqual(2, oui(oui(2, Routing))).
 
 owner_test() ->
-    Routing = new(1, ?KEY2, [?KEY1], 0),
+    Routing = new(1, ?KEY2, [?KEY1], <<>>, <<>>, 0),
     ?assertEqual(?KEY2, owner(Routing)),
     ?assertEqual(?KEY3, owner(owner(?KEY3, Routing))).
 
 nonce_test() ->
-    Routing = new(1, ?KEY2, [?KEY1], 0),
+    Routing = new(1, ?KEY2, [?KEY1], <<>>, <<>>, 0),
     ?assertEqual(0, nonce(Routing)),
     ?assertEqual(1, nonce(nonce(1, Routing))).
 
 addresses_test() ->
-    Routing = new(1, ?KEY2, [], 0),
+    Routing = new(1, ?KEY2, [], <<>>, <<>>, 0),
     ?assertEqual([], addresses(Routing)),
     ?assertEqual([?KEY3], addresses(update(Routing, {update_routers, [?KEY3]}, 1))).
 

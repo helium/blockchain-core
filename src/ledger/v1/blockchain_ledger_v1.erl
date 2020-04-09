@@ -1560,7 +1560,7 @@ increment_oui_counter(OUI, Ledger) ->
             {error, {invalid_oui, OUI, OUICounter+1}}
     end.
 
--spec add_oui(binary(), pos_integer(), [binary()], binary(), pos_integer(), ledger()) -> ok | {error, any()}.
+-spec add_oui(binary(), pos_integer(), [binary()], binary(), <<_:48>>, ledger()) -> ok | {error, any()}.
 add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
     case ?MODULE:increment_oui_counter(OUI, Ledger) of
         {error, _}=Error ->
@@ -1610,10 +1610,10 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
                                          false ->
                                              Acc
                                      end
-                             end, [], []),
+                             end, []),
             case Res of
                 [] ->
-                    {error, eui_not_mactched};
+                    {error, eui_not_matched};
                 _ ->
                     {ok, Res}
             end;
@@ -1636,7 +1636,7 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
             end
     end.
 
--spec update_routing(binary(), non_neg_integer(), [binary()], non_neg_integer(), ledger()) -> ok | {error, any()}.
+-spec update_routing(binary(), non_neg_integer(), blockchain_txn_routing_v1:action(), non_neg_integer(), ledger()) -> ok | {error, any()}.
 update_routing(_Owner, OUI, Action, Nonce, Ledger) ->
     case find_routing(OUI, Ledger) of
         {ok, Routing} ->
@@ -1707,6 +1707,7 @@ delete_state_channel(ID, Owner, Ledger) ->
     Key = state_channel_key(ID, Owner),
     cache_delete(Ledger, SCsCF, Key).
 
+-spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
 allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
     SubnetCF = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
@@ -2540,7 +2541,7 @@ routing_test() ->
     ?assertEqual({ok, 0}, get_oui_counter(Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_oui(<<"owner">>, [?KEY1], 1, Ledger2),
+    ok = add_oui(<<"owner">>, 1, [?KEY1], <<>>, <<>>, Ledger2),
     ok = commit_context(Ledger2),
     {ok, Routing0} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
@@ -2549,7 +2550,7 @@ routing_test() ->
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
 
     Ledger3 = new_context(Ledger),
-    ok = add_oui(<<"owner2">>, [<<"/p2p/random">>], 2, Ledger3),
+    ok = add_oui(<<"owner2">>, 2, [<<"/p2p/random">>], <<>>, <<>>, Ledger3),
     ok = commit_context(Ledger3),
     {ok, Routing1} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing1)),

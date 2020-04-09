@@ -33,7 +33,12 @@
 -endif.
 
 -type txn_routing() :: #blockchain_txn_routing_v1_pb{}.
--export_type([txn_routing/0]).
+-type action() :: {update_routers, RouterAddresses::[binary()]} |
+                  {new_xor, Filter::binary()} |
+                  {update_xor, Index::non_neg_integer(), Filter::binary()} |
+                  {request_subnet, SubnetSize::non_neg_integer()}.
+
+-export_type([txn_routing/0, action/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,7 +77,7 @@ update_xor(OUI, Owner, Index, Xor, Fee, Nonce) ->
        signature= <<>>
       }.
 
--spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+-spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
 request_subnet(OUI, Owner, SubnetSize, Fee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
@@ -113,10 +118,7 @@ owner(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec action(txn_routing()) -> {update_routers, RouterAddresses::[binary()]} |
-                               {new_xor, Filter::binary()} |
-                               {update_xor, Index::non_neg_integer(), Filter::binary()} |
-                               {request_subnet, SubnetSize::non_neg_integer()}.
+-spec action(txn_routing()) -> action().
 action(Txn) ->
     case Txn#blockchain_txn_routing_v1_pb.update of
         {update_routers, #update_routers_pb{router_addresses=Addresses}} ->
