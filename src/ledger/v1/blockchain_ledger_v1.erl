@@ -1715,40 +1715,64 @@ delete_state_channel(ID, Owner, Ledger) ->
 allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
     SubnetCF = subnets_cf(Ledger),
     {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-    Res = case rocksdb:iterator_move(Itr, last) of
-              {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _} ->
-                  ASize = subnet_mask_to_size(AMask),
-                  %% sanity check
-                  0 = (ASize - 1) band ABase,
-                  MaxSize = max(Size, ASize),
-                  case ABase + ASize + Size < ?BITS_25 of
-                      true ->
-                          %% ok there's room at the end
-                          %% check if we can do it contiguously
-                          Mask = subnet_size_to_mask(Size),
-                          ANewBase = ABase band (Mask bsl 2),
-                          case ANewBase + (MaxSize * 2) < ?BITS_25 of
-                              true ->
-                                  Size = subnet_mask_to_size(Mask),
-                                  Base = ANewBase + max(Size, ASize),
-                                  %% sanity check
-                                  0 = (Size - 1) band Base,
-                                  {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
-                              false ->
-                                  {error, partial_allocation}
-                          end;
-                      false ->
-                          {error, partial_allocation}
-                  end;
-              {error, invalid_iterator} ->
-                  %% there's no allocations at all
-                  Mask = subnet_size_to_mask(Size),
-                  {ok, <<0:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
-              {error, _} = Error ->
-                  Error
-          end,
+    Result = allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, first), none),
     catch rocksdb:iterator_close(Itr),
-    Res.
+    Result.
+
+allocate_subnet(Size, _Itr, {error, invalid_iterator}, none) ->
+    %% we don't have any allocations at all
+    Mask = subnet_size_to_mask(Size),
+    {ok, <<0:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
+allocate_subnet(Size, Itr, {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _}, none) ->
+    %% just record the actual 'last' allocation and continue
+    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+allocate_subnet(Size, Itr, {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _}, {LastBase, LastSize}) ->
+    %% check if the last allocation was contiguous with this one
+    case LastBase + LastSize == ABase of
+        true ->
+            %% ok, no gaps here, keep on truckin'
+            allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+        false ->
+            %% check if there's enough room
+            case ABase - (LastBase + LastSize) >= Size of
+                false ->
+                    %% no room at the inn, sorry
+                    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+                true ->
+                    %% compute the base of the new allocation
+                    Mask = subnet_size_to_mask(Size),
+                    NewBase = case (LastBase band (Mask bsl 2)) == LastBase of
+                                  true ->
+                                      %% we're on the right alignment boundary
+                                      LastBase + LastSize;
+                                  false ->
+                                      %% compute the next allowed boundary
+                                      (LastBase band (Mask bsl 2)) + Size
+                              end,
+                    %% assert there's room
+                    true = NewBase + Size =< ABase,
+                    {ok, <<NewBase:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>}
+            end
+    end;
+allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
+    %% we're at the end of the allocation list
+    %% check if we have room at the end for this allocation
+    case LastBase + LastSize + Size =< ?BITS_25 of
+        false ->
+            {error, no_space};
+        true ->
+            %% still room
+            Mask = subnet_size_to_mask(Size),
+            NewBase = case (LastBase band (Mask bsl 2)) == LastBase of
+                          true ->
+                              %% we're on the right alignment boundary
+                              LastBase + LastSize;
+                          false ->
+                              %% compute the next allowed boundary
+                              (LastBase band (Mask bsl 2)) + Size
+                      end,
+            {ok, <<NewBase:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>}
+    end.
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
@@ -2634,6 +2658,51 @@ find_scs_by_owner_test() ->
 
     {ok, SCs} = find_scs_by_owner(Owner, Ledger),
     ?assertEqual(lists:sort(maps:keys(SCs)), lists:sort(IDs)),
+    ok.
+
+subnet_allocation_test() ->
+    BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
+    Ledger = new(BaseDir),
+    SubnetCF = subnets_cf(Ledger),
+    Mask8 = subnet_size_to_mask(8),
+    Mask16 = subnet_size_to_mask(16),
+    Mask32 = subnet_size_to_mask(32),
+    Mask64 = subnet_size_to_mask(64),
+    {ok, Subnet} = allocate_subnet(8, Ledger),
+    ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet2} = allocate_subnet(8, Ledger),
+    ?assertEqual(<<8:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet2),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<2:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet3} = allocate_subnet(32, Ledger),
+    ?assertEqual(<<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet3),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet3, <<3:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet4} = allocate_subnet(8, Ledger),
+    ?assertEqual(<<16:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet4),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet4, <<4:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet5} = allocate_subnet(16, Ledger),
+    ?assertEqual(<<64:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet5),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet5, <<5:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet6} = allocate_subnet(8, Ledger),
+    ?assertEqual(<<24:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet6),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet6, <<6:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet7} = allocate_subnet(16, Ledger),
+    ?assertEqual(<<80:25/integer-unsigned-big, Mask16:23/integer-unsigned-big>>, Subnet7),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet7, <<7:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet8} = allocate_subnet(64, Ledger),
+    ?assertEqual(<<128:25/integer-unsigned-big, Mask64:23/integer-unsigned-big>>, Subnet8),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet8, <<8:32/little-unsigned-integer>>, []),
+
+    {ok, Subnet9} = allocate_subnet(32, Ledger),
+    ?assertEqual(<<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet9),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet9, <<9:32/little-unsigned-integer>>, []),
     ok.
 
 -endif.
