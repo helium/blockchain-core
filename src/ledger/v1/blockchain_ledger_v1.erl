@@ -1574,7 +1574,7 @@ add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
                 {error, _}=Error ->
                     Error;
                 {ok, OUIs} ->
-                    ok = cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin),
+                    ok = cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin),
                     ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>),
                     cache_put(Ledger, RoutingCF, Owner, erlang:term_to_binary([OUI|OUIs]))
             end
@@ -1584,7 +1584,7 @@ add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
                                                    | {error, any()}.
 find_routing(OUI, Ledger) ->
     RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, []) of
+    case cache_get(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, []) of
         {ok, BinEntry} ->
             {ok, blockchain_ledger_routing_v1:deserialize(BinEntry)};
         not_found ->
@@ -1602,7 +1602,7 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
             Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
             RoutingCF = routing_cf(Ledger),
             Res = cache_fold(Ledger, RoutingCF,
-                             fun({_K, V}, Acc) ->
+                             fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
                                      Route = blockchain_ledger_routing_v1:deserialize(V),
                                      case lists:any(fun(Filter) ->
                                                             xor16:contain({Filter, fun xxhash:hash64/1}, Key)
@@ -1611,8 +1611,10 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
                                              [Route | Acc];
                                          false ->
                                              Acc
-                                     end
-                             end, []),
+                                     end;
+                                ({_K, _V}, Acc) ->
+                                     Acc
+                             end, [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
             case Res of
                 [] ->
                     {error, eui_not_matched};
@@ -1644,7 +1646,7 @@ update_routing(_Owner, OUI, Action, Nonce, Ledger) ->
         {ok, Routing} ->
             RoutingCF = routing_cf(Ledger),
             Bin = blockchain_ledger_routing_v1:serialize(blockchain_ledger_routing_v1:update(Routing, Action, Nonce)),
-            cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin);
+            cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin);
         Error ->
             Error
     end.

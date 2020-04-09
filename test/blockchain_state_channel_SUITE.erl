@@ -245,7 +245,7 @@ dup_packets_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [{16#deadbeef, 16#deadc0de}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -276,7 +276,7 @@ dup_packets_test(Config) ->
 
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1}, Payload0),
+    Packet0 = blockchain_helium_packet_v1:new({eui, 16#deadbeef, 16#deadc0de}, Payload0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0]),
 
     %% Checking state channel on server/client
