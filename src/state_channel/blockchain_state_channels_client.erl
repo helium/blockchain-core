@@ -149,7 +149,7 @@ find_stream(OUI, #state{streams=Streams}) ->
 add_stream(OUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(OUI, Stream, Streams)}.
 
--spec find_routing(OUI :: non_neg_integer()) -> {ok, string()} | {error, any()}.
+-spec find_routing(Packet :: blockchain_helium_packet_v1:packet()) -> {ok, blockchain_ledger_routing_v1:routing()} | {error, any()}.
 find_routing(Packet) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
