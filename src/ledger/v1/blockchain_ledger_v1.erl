@@ -1567,6 +1567,7 @@ add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
             Error;
         {ok, OUI} ->
             RoutingCF = routing_cf(Ledger),
+            SubnetCF = subnets_cf(Ledger),
             Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Filter, Subnet, 0),
             Bin = blockchain_ledger_routing_v1:serialize(Routing),
             case ?MODULE:find_ouis(Owner, Ledger) of
@@ -1574,6 +1575,7 @@ add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
                     Error;
                 {ok, OUIs} ->
                     ok = cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Bin),
+                    ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>),
                     cache_put(Ledger, RoutingCF, Owner, erlang:term_to_binary([OUI|OUIs]))
             end
     end.
@@ -2175,7 +2177,7 @@ subnet_size_to_mask(Size) ->
     %io:format("Size ~p~n", [Size]),
     ?BITS_23 bxor ((Size bsr 2) - 1).
 
-subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-big>>}) ->
+subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
     %Size = mask_to_size(Mask),
     case (DevAddr band (Mask bsl 2)) == Base of
         true ->

@@ -177,7 +177,7 @@ send_to_route(Packet, Route, State=#state{swarm=Swarm}) ->
                                                         ok = send_packet(Packet, Swarm, NewStream),
                                                         {done, add_stream(OUI, NewStream, State)}
                                                 end
-                                        end, State,  blockchain_ledger_routing_v1:addresses(Route)),
+                                        end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
             NewState;
         Stream ->
             ok = send_packet(Packet, Swarm, Stream),
