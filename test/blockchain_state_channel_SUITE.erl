@@ -155,7 +155,7 @@ full_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -245,7 +245,7 @@ dup_packets_test(Config) ->
 
     %% Create OUI txn
     OUI = 1,
-    SignedOUITxn = create_oui_txn(RouterNode, OUI),
+    SignedOUITxn = create_oui_txn(RouterNode, OUI, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -668,7 +668,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Create OUI txn for RouterNode2
-    SignedOUITxn2 = create_oui_txn(RouterNode2, 2),
+    SignedOUITxn2 = create_oui_txn(RouterNode2, 2, [], 8),
     ID21 = crypto:strong_rand_bytes(24),
     ID22 = crypto:strong_rand_bytes(24),
     ID23 = crypto:strong_rand_bytes(24),
