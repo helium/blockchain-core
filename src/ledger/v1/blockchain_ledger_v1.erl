@@ -1614,7 +1614,7 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
                                      end;
                                 ({_K, _V}, Acc) ->
                                      Acc
-                             end, [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
+                             end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
             case Res of
                 [] ->
                     {error, eui_not_matched};
