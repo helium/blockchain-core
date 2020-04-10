@@ -76,9 +76,9 @@
     redeem_htlc/3,
 
     get_oui_counter/1, increment_oui_counter/2,
-    find_ouis/2, add_oui/6,
-    find_routing/2, find_routing_for_packet/2,
-    update_routing/5,
+    add_oui/6,
+    find_routing/2, find_routing_for_packet/2, find_router_ouis/2,
+    update_routing/4,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/5,
@@ -1486,16 +1486,6 @@ check_security_balance(Address, Amount, Ledger) ->
             end
     end.
 
--spec find_ouis(binary(), ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
-find_ouis(Owner, Ledger) ->
-    RoutingCF = routing_cf(Ledger),
-    case cache_get(Ledger, RoutingCF, Owner, []) of
-        {ok, Bin} -> {ok, erlang:binary_to_term(Bin)};
-        not_found -> {ok, []};
-        Error -> Error
-
-    end.
-
 -spec find_htlc(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_htlc_v1:htlc()}
                                                          | {error, any()}.
 find_htlc(Address, Ledger) ->
@@ -1573,14 +1563,8 @@ add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
             SubnetCF = subnets_cf(Ledger),
             Routing = blockchain_ledger_routing_v1:new(OUI, Owner, Addresses, Filter, Subnet, 0),
             Bin = blockchain_ledger_routing_v1:serialize(Routing),
-            case ?MODULE:find_ouis(Owner, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                {ok, OUIs} ->
-                    ok = cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin),
-                    ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>),
-                    cache_put(Ledger, RoutingCF, Owner, erlang:term_to_binary([OUI|OUIs]))
-            end
+            ok = cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin),
+            ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>)
     end.
 
 -spec find_routing(non_neg_integer(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
@@ -1643,8 +1627,28 @@ find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
             end
     end.
 
--spec update_routing(binary(), non_neg_integer(), blockchain_txn_routing_v1:action(), non_neg_integer(), ledger()) -> ok | {error, any()}.
-update_routing(_Owner, OUI, Action, Nonce, Ledger) ->
+-spec find_router_ouis(RouterPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       Ledger :: ledger()) -> [non_neg_integer()].
+find_router_ouis(RouterPubkeyBin, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    cache_fold(
+      Ledger,
+      RoutingCF,
+      fun({<<OUI:32/integer-unsigned-big>>, Bin}, Acc) ->
+              Routing = blockchain_ledger_routing_v1:deserialize(Bin),
+              Addresses = blockchain_ledger_routing_v1:addresses(Routing),
+              case lists:member(RouterPubkeyBin, Addresses) of
+                  false ->
+                      Acc;
+                  true ->
+                      [OUI | Acc]
+              end
+      end,
+      []
+     ).
+
+-spec update_routing(non_neg_integer(), blockchain_txn_routing_v1:action(), non_neg_integer(), ledger()) -> ok | {error, any()}.
+update_routing(OUI, Action, Nonce, Ledger) ->
     case find_routing(OUI, Ledger) of
         {ok, Routing} ->
             RoutingCF = routing_cf(Ledger),
@@ -2567,6 +2571,8 @@ commit(Fun, Ledger0) ->
                138,51,136,194,72,161,94,225,240,73,70,45,135,23,41,96,78>>).
 -define(KEY2, <<1,72,253,248,131,224,194,165,164,79,5,144,254,1,168,254,
                 111,243,225,61,41,178,207,35,23,54,166,116,128,38,164,87,212>>).
+-define(KEY3, <<1,124,37,189,223,186,125,185,240,228,150,61,9,164,28,75,
+                44,232,76,6,121,96,24,24,249,85,177,48,246,236,14,49,80>>).
 
 routing_test() ->
     BaseDir = test_utils:tmp_dir("routing_test"),
@@ -2574,6 +2580,7 @@ routing_test() ->
     Ledger1 = new_context(Ledger),
     ?assertEqual({error, not_found}, find_routing(1, Ledger1)),
     ?assertEqual({ok, 0}, get_oui_counter(Ledger1)),
+    ?assertEqual([], ?MODULE:find_router_ouis(?KEY1, Ledger1)),
 
     Ledger2 = new_context(Ledger),
     ok = add_oui(<<"owner">>, 1, [?KEY1], <<>>, <<>>, Ledger2),
@@ -2581,29 +2588,32 @@ routing_test() ->
     {ok, Routing0} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
     ?assertEqual(1, blockchain_ledger_routing_v1:oui(Routing0)),
+    ?assertEqual([1], ?MODULE:find_router_ouis(?KEY1, Ledger)),
     ?assertEqual([?KEY1], blockchain_ledger_routing_v1:addresses(Routing0)),
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
 
     Ledger3 = new_context(Ledger),
-    ok = add_oui(<<"owner2">>, 2, [<<"/p2p/random">>], <<>>, <<>>, Ledger3),
+    ok = add_oui(<<"owner2">>, 2, [?KEY2], <<>>, <<>>, Ledger3),
     ok = commit_context(Ledger3),
     {ok, Routing1} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing1)),
     ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing1)),
-    ?assertEqual([<<"/p2p/random">>], blockchain_ledger_routing_v1:addresses(Routing1)),
+    ?assertEqual([2], ?MODULE:find_router_ouis(?KEY2, Ledger)),
+    ?assertEqual([?KEY2], blockchain_ledger_routing_v1:addresses(Routing1)),
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing1)),
 
     Ledger4 = new_context(Ledger),
-    ok = update_routing(<<"owner2">>, 2, {update_routers, [?KEY2]}, 1, Ledger4),
+    ok = update_routing(2, {update_routers, [?KEY3]}, 1, Ledger4),
     ok = commit_context(Ledger4),
     {ok, Routing2} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing2)),
     ?assertEqual(2, blockchain_ledger_routing_v1:oui(Routing2)),
-    ?assertEqual([?KEY2], blockchain_ledger_routing_v1:addresses(Routing2)),
+    ?assertEqual([?KEY3], blockchain_ledger_routing_v1:addresses(Routing2)),
+    ?assertEqual([2], ?MODULE:find_router_ouis(?KEY3, Ledger)),
     ?assertEqual(1, blockchain_ledger_routing_v1:nonce(Routing2)),
+    ?assertEqual([], ?MODULE:find_router_ouis(?KEY2, Ledger)),
+    ?assertEqual([1], ?MODULE:find_router_ouis(?KEY1, Ledger)),
 
-    ?assertEqual({ok, [1]}, blockchain_ledger_v1:find_ouis(<<"owner">>, Ledger)),
-    ?assertEqual({ok, [2]}, blockchain_ledger_v1:find_ouis(<<"owner2">>, Ledger)),
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
