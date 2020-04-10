@@ -887,6 +887,7 @@ multi_active_sc_test(Config) ->
 
     %% Check that it's gone from the sc server
     ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
+    ?assertEqual(ID2, ct_rpc:call(RouterNode, blockchain_state_channels_server, active, [])),
 
     %% Send more packets, this should use the newly active state channel
     Payload2 = crypto:strong_rand_bytes(120),
@@ -897,17 +898,17 @@ multi_active_sc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3]),
 
     %% Add more fake blocks to get the second sc to expire
-    EvenMoreFakeBlocks = 50,
+    EvenMoreFakeBlocks = 100,
     ok = add_and_gossip_fake_blocks(EvenMoreFakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 99),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 149),
 
     %% Adding close txn to blockchain
     receive
         {txn, Txn2} ->
             ct:pal("Txn2: ~p", [Txn2]),
             true = check_sc_close(Txn2, SCOpenBlockHash1, [Payload2, Payload3]),
-            {ok, Block100} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
-            _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block100, RouterChain, Self])
+            {ok, Block150} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
+            _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block150, RouterChain, Self])
     after 10000 ->
         ct:fail("txn timeout")
     end,
