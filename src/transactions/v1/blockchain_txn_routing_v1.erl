@@ -290,7 +290,7 @@ absorb(Txn, Chain) ->
         ok ->
             OUI = ?MODULE:oui(Txn),
             Nonce = ?MODULE:nonce(Txn),
-            blockchain_ledger_v1:update_routing(Owner, OUI, Action, Nonce, Ledger)
+            blockchain_ledger_v1:update_routing(OUI, Action, Nonce, Ledger)
     end.
 
 %%--------------------------------------------------------------------

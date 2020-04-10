@@ -1094,8 +1094,6 @@ routing_test(Config) ->
     Routing4 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,4,127,255,254>>, 0),
     ?assertEqual({ok, Routing4}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
-    ?assertEqual({ok, [2, 1]}, blockchain_ledger_v1:find_ouis(Payer, Ledger)),
-
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
     ok.
