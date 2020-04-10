@@ -14,7 +14,7 @@
 -include("blockchain.hrl").
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
 
--type downlink() :: blockchain_helium_packet_v1:packet().
+-type downlink() :: blockchain_helium_packet_v1:packet() | undefined.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
