@@ -206,12 +206,18 @@ is_valid(Txn, Chain) ->
                                             end;
                                         {new_xor, Xor} when byte_size(Xor) > 1024*100 ->
                                             {error, filter_too_large};
-                                        {new_xor, _Xor} ->
+                                        {new_xor, Xor} ->
                                             case length(blockchain_ledger_routing_v1:filters(Routing)) < 5 of
                                                 true ->
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = ?MODULE:owner(Txn),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                                    %% the contain check does some structural checking of the filter
+                                                    case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
+                                                        B when is_boolean(B) ->
+                                                            Fee = ?MODULE:fee(Txn),
+                                                            Owner = ?MODULE:owner(Txn),
+                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                                        _ ->
+                                                            {error, invalid_filter}
+                                                    end;
                                                 false ->
                                                     {error, too_many_filters}
                                             end;
@@ -219,10 +225,21 @@ is_valid(Txn, Chain) ->
                                             {error, invalid_xor_filter_index};
                                         {update_xor, _Index, Filter} when byte_size(Filter) > 1024*100 ->
                                             {error, filter_too_large};
-                                        {update_xor, _Index, _Filter} ->
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = ?MODULE:owner(Txn),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                        {update_xor, Index, Filter} ->
+                                            case Index < length(blockchain_ledger_routing_v1:filters(Routing)) of
+                                                true ->
+                                                    %% the contain check does some structural checking of the filter
+                                                    case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
+                                                        B when is_boolean(B) ->
+                                                            Fee = ?MODULE:fee(Txn),
+                                                            Owner = ?MODULE:owner(Txn),
+                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                                        _ ->
+                                                            {error, invalid_filter}
+                                                    end;
+                                                false ->
+                                                    {error, invalid_filter_index}
+                                            end;
                                         {request_subnet, SubnetSize} when SubnetSize < 8 orelse SubnetSize > 65536 ->
                                             {error, invalid_subnet_size};
                                         {request_subnet, SubnetSize} ->
@@ -232,10 +249,14 @@ is_valid(Txn, Chain) ->
                                             %% Erlang will coerce between floats and ints when you use ==
                                             case trunc(Res) == Res of
                                                 true ->
-                                                    %% TODO check if we have space to allocate this
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = ?MODULE:owner(Txn),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                                    case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
+                                                        {ok, _} ->
+                                                            Fee = ?MODULE:fee(Txn),
+                                                            Owner = ?MODULE:owner(Txn),
+                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                                        Error ->
+                                                            Error
+                                                    end;
                                                 false ->
                                                     {error, invalid_subnet_size}
                                             end
@@ -255,12 +276,19 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
+    %% try to allocate a subnet before debiting fees
+    Action = case ?MODULE:action(Txn) of
+        {request_subnet, SubnetSize} ->
+            {ok, Subnet} = blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger),
+            {request_subnet, Subnet};
+        Action0 ->
+            Action0
+    end,
     case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
             OUI = ?MODULE:oui(Txn),
-            Action = ?MODULE:action(Txn),
             Nonce = ?MODULE:nonce(Txn),
             blockchain_ledger_v1:update_routing(Owner, OUI, Action, Nonce, Ledger)
     end.
