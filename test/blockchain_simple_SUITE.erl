@@ -951,7 +951,7 @@ routing_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, OUI1, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -1072,7 +1072,7 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    OUITxn01 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, OUI2, 0, 0),
+    OUITxn01 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn01 = blockchain_txn_oui_v1:sign(OUITxn01, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -1769,7 +1769,7 @@ payer_test(Config) ->
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Filter, 8, 1, Payer, 1, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Filter, 8, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
@@ -2008,7 +2008,7 @@ update_gateway_oui_test(Config) ->
     OUI1 = 1,
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, Filter, 8, OUI1, 1, 1),
+    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, Filter, 8, 1, 1),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
