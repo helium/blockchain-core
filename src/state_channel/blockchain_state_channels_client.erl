@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         packet/1,
+         packet/2,
          state/0,
          response/1
         ]).
@@ -64,9 +64,9 @@ response(Resp) ->
             Mod:handle_response(Resp)
     end.
 
--spec packet(blockchain_helium_packet_v1:packet()) -> ok.
-packet(Packet) ->
-    gen_server:cast(?SERVER, {packet, Packet}).
+-spec packet(blockchain_helium_packet_v1:packet(), [string()]) -> ok.
+packet(Packet, DefaultRouters) ->
+    gen_server:cast(?SERVER, {packet, Packet, DefaultRouters}).
 
 -spec state() -> state().
 state() ->
@@ -91,8 +91,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
-handle_cast({packet, Packet}, State) ->
-    NewState = handle_packet(Packet, State),
+handle_cast({packet, Packet, DefaultRouters}, State) ->
+    NewState = handle_packet(Packet, DefaultRouters, State),
     {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
@@ -116,12 +116,30 @@ handle_info(_Msg, State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
+                    DefaultRouters :: [string()],
                     State :: state()) -> state().
-handle_packet(Packet, State) ->
+handle_packet(Packet, DefaultRouters, State=#state{swarm=Swarm}) ->
     case find_routing(Packet) of
         {error, _Reason} ->
-            lager:error("failed to find router for packet with routing information ~p:~p", [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-            State;
+            lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
+                        [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
+            lists:foldl(fun(Router, StateAcc) ->
+                                case find_stream(Router, StateAcc) of
+                                    undefined ->
+                                        case blockchain_state_channel_handler:dial(Swarm, Router, []) of
+                                            {error, _Reason} ->
+                                                StateAcc;
+                                            {ok, NewStream} ->
+                                                unlink(NewStream),
+                                                erlang:monitor(process, NewStream),
+                                                ok = send_packet(Packet, Swarm, NewStream),
+                                                add_stream(Router, NewStream, State)
+                                        end;
+                                    Stream ->
+                                        ok = send_packet(Packet, Swarm, Stream),
+                                        StateAcc
+                                end
+                        end, State, DefaultRouters);
         {ok, Routes} ->
             lists:foldl(fun(Route, StateAcc) ->
                                 send_to_route(Packet, Route, StateAcc)
@@ -141,11 +159,11 @@ send_packet(Packet, Swarm, Stream) ->
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
--spec find_stream(OUI :: non_neg_integer(), State :: state()) -> undefined | pid().
+-spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
 find_stream(OUI, #state{streams=Streams}) ->
     maps:get(OUI, Streams, undefined).
 
--spec add_stream(OUI :: non_neg_integer(), Stream :: pid(), State :: state()) -> state().
+-spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), Stream :: pid(), State :: state()) -> state().
 add_stream(OUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(OUI, Stream, Streams)}.
 
