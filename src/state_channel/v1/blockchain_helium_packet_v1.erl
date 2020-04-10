@@ -36,6 +36,15 @@
 new() ->
     #packet_pb{}.
 
+new_downlink(Payload, TransmitTime, TransmitPower, Frequency, DataRate) ->
+    #packet_pb{
+       type=lorawan,
+       payload=Payload,
+       timestamp=TransmitTime,
+       signal_strength=TransmitPower,
+       frequency=Frequency,
+       datarate=DataRate}.
+
 -spec new(RoutingInfo :: routing_info(), Payload :: binary()) -> packet().
 new(RoutingInfo, Payload) ->
     #packet_pb{routing=make_routing_info(RoutingInfo), payload=Payload}.
