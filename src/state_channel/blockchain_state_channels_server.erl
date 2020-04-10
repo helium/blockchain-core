@@ -264,7 +264,7 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
     NewStateChannels = maps:map(
                         fun(_ID, SC) ->
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-                                case ExpireAt =< BlockHeight of
+                                case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
                                     false ->
                                         SC;
                                     true ->
