@@ -161,13 +161,13 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, NewState};
 
 handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event}, State0=#state{chain = undefined}) ->
-    lager:info("received add block event whilst no chain and sync ~p.  Initializing chain and then handling block",[_Sync]),
+    lager:info("received add block event whilst no chain.  Initializing chain and then handling block"),
     NC = blockchain_worker:blockchain(),
     State = initialize_with_chain(State0, NC),
     handle_add_block_event(Event, State#state{chain = NC});
-handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
-    lager:debug("received add block event, sync is ~p",[Sync]),
-     handle_add_block_event(Event, State);
+handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event}, State) ->
+    lager:debug("received add block event"),
+    handle_add_block_event(Event, State);
 
 handle_info(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
@@ -203,8 +203,7 @@ initialize_with_chain(State, Chain)->
 
 -spec handle_add_block_event({atom(), blockchain_block:hash(), boolean(),
                                 blockchain_ledger_v1:ledger()}, #state{}) -> {noreply, #state{}}.
-handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
-                                                                           cur_block_height = CurBlockHeight})->
+handle_add_block_event({add_block, BlockHash, _Sync, _Ledger}, State=#state{chain = Chain})->
     #state{submit_f = SubmitF, chain = Chain} = State,
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
@@ -215,11 +214,8 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% If so we will only keep existing acceptions/rejections for rolled over members
             {IsNewElection, NewCGMembers} = check_block_for_new_election(Block),
             %% reprocess all txns remaining in the cache
-            ok = process_cached_txns(Chain, BlockHeight, SubmitF, Sync, IsNewElection, NewCGMembers),
-            %% only update the current block height if its not a sync block
-            NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
-            lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
-            {noreply, State#state{cur_block_height = NewCurBlockHeight}};
+            ok = process_cached_txns(Chain, BlockHeight, SubmitF, IsNewElection, NewCGMembers),
+            {noreply, State#state{cur_block_height = BlockHeight}};
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
@@ -251,12 +247,6 @@ check_block_for_new_election(Block)->
         [NewGroupTxn] ->
             {true, blockchain_txn_consensus_group_v1:members(NewGroupTxn)}
     end.
-
--spec maybe_update_block_height(undefined | integer(), integer(), boolean()) -> undefined | integer().
-maybe_update_block_height(CurBlockHeight, _BlockHeight, true = _Sync) ->
-    CurBlockHeight;
-maybe_update_block_height(_CurBlockHeight, BlockHeight, _Sync) ->
-    BlockHeight.
 
 -spec invoke_callback(fun(), ok | {error, invalid} | {error, rejected}) -> ok.
 invoke_callback(Callback, Msg) ->
@@ -296,10 +286,8 @@ retry(Txn, Chain, SubmitF) ->
     end.
 
 -spec process_cached_txns(blockchain:blockchain(), undefined | integer(),
-                integer(), boolean(), boolean(), [libp2p_crypto:pubkey_bin()]) -> ok.
-process_cached_txns(_Chain, _CurBlockHeight, _SubmitF, true = _Sync, _IsNewElection, _NewGroupMember)->
-    ok;
-process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGroupMembers)->
+                          integer(), boolean(), [libp2p_crypto:pubkey_bin()]) -> ok.
+process_cached_txns(Chain, CurBlockHeight, SubmitF, IsNewElection, NewGroupMembers)->
     %% get a sorted list of the cached txns
     CachedTxns = sorted_cached_txns(),
     {Txns, _} = lists:unzip(CachedTxns),
