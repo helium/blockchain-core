@@ -59,6 +59,7 @@
         {
          blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
          swarm :: undefined | pid(),
+         swarm_tid :: undefined | ets:tab(),
          sync_timer = make_ref() :: reference(),
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
@@ -279,6 +280,7 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
+    SwarmTID = libp2p_swarm:tid(Swarm),
     Ports = case application:get_env(blockchain, ports, undefined) of
                 undefined ->
                     %% fallback to the single 'port' app env var
@@ -320,7 +322,7 @@ init(Args) ->
         end,
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
-    {ok, #state{swarm=Swarm, blockchain=Blockchain, gossip_ref = Ref}}.
+    {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain, gossip_ref = Ref}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
@@ -358,8 +360,8 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
-handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain}
-                                                            ,swarm=Swarm}=State) ->
+handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
+                                                            swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
             lager:warning("~p is not a genesis block", [GenesisBlock]),
@@ -526,8 +528,8 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             {noreply, start_sync(State)}
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
-            #state{gossip_ref = GossipRef, blockchain = Blockchain} = State) ->
-    Swarm = blockchain_swarm:swarm(),
+            #state{gossip_ref = GossipRef, blockchain = Blockchain,
+                   swarm = Swarm} = State) ->
     Gossip = libp2p_swarm:gossip_group(Swarm),
     libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
@@ -586,9 +588,9 @@ maybe_sync(#state{blockchain = Chain} = State) ->
             State#state{sync_timer=Ref}
     end.
 
-start_sync(#state{blockchain = Chain, swarm = Swarm} = State) ->
+start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
     %% figure out who we're connected to
-    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(libp2p_swarm:tid(blockchain_swarm:swarm()))),
+    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(SwarmTID)),
     %% Get the p2p addresses of our peers, so we will connect on existing sessions
     Peers = lists:filter(fun(E) ->
                                  case libp2p_transport_p2p:p2p_addr(E) of
