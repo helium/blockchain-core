@@ -111,6 +111,7 @@
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+-export([subnet_size_to_mask/1]).
 -endif.
 
 -record(ledger_v1, {
@@ -1747,7 +1748,7 @@ allocate_subnet(Size, Itr, {ok, <<ABase:25/integer-unsigned-big, AMask:23/intege
                 true ->
                     %% compute the base of the new allocation
                     Mask = subnet_size_to_mask(Size),
-                    NewBase = case (LastBase band (Mask bsl 2)) == LastBase of
+                    NewBase = case ((LastBase + LastSize) band (Mask bsl 2)) == (LastBase + Size) of
                                   true ->
                                       %% we're on the right alignment boundary
                                       LastBase + LastSize;
@@ -1769,7 +1770,7 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
         true ->
             %% still room
             Mask = subnet_size_to_mask(Size),
-            NewBase = case (LastBase band (Mask bsl 2)) == LastBase of
+            NewBase = case ((LastBase + LastSize) band (Mask bsl 2)) == (LastBase + LastSize) of
                           true ->
                               %% we're on the right alignment boundary
                               LastBase + LastSize;
@@ -2710,5 +2711,20 @@ subnet_allocation_test() ->
     ?assertEqual(<<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet9),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet9, <<9:32/little-unsigned-integer>>, []),
     ok.
+
+subnet_allocation2_test() ->
+    BaseDir = test_utils:tmp_dir("subnet_allocation2_test"),
+    Ledger = new(BaseDir),
+    SubnetCF = subnets_cf(Ledger),
+    Mask8 = subnet_size_to_mask(8),
+    Mask32 = subnet_size_to_mask(32),
+    {ok, Subnet} = allocate_subnet(8, Ledger),
+    ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),
+    {ok, Subnet2} = allocate_subnet(32, Ledger),
+    ?assertEqual(<<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet2),
+    ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<3:32/little-unsigned-integer>>, []),
+    ok.
+
 
 -endif.

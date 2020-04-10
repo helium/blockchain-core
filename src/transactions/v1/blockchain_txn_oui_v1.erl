@@ -345,11 +345,9 @@ validate_subnet_size(Size) ->
 
 validate_filter(Filter) ->
     %% the contain check does some structural checking of the filter
-    try xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
-        _ -> true
-    catch
-        _:_ ->
-            false
+    case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
+        B when is_boolean(B) -> true;
+        _ -> false
     end.
 
 %% ------------------------------------------------------------------
