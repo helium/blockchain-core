@@ -8,6 +8,7 @@
 -export([
          new/0, new/2, %% only for testing, where we set only the oui and payload
          new/8,
+         new_downlink/5,
          routing_info/1,
          type/1,
          payload/1,
