@@ -36,7 +36,8 @@
           reject_f :: undefined | integer(),
           cur_block_height :: undefined | integer(),
           txn_cache :: undefined | ets:tid(),
-          chain :: undefined | blockchain:blockchain()
+          chain :: undefined | blockchain:blockchain(),
+          has_been_synced= false :: boolean()
          }).
 
 
@@ -210,6 +211,7 @@ initialize_with_chain(State, Chain)->
 handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain = Chain,
                                                                            cur_block_height = CurBlockHeight})->
     #state{submit_f = SubmitF, chain = Chain} = State,
+    HasBeenSynced = Sync == false orelse State#state.has_been_synced,
     case blockchain:get_block(BlockHash, Chain) of
         {ok, Block} ->
             BlockHeight = blockchain_block:height(Block),
@@ -219,11 +221,11 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
             %% If so we will only keep existing acceptions/rejections for rolled over members
             {IsNewElection, NewCGMembers} = check_block_for_new_election(Block),
             %% reprocess all txns remaining in the cache
-            ok = process_cached_txns(Chain, BlockHeight, SubmitF, Sync, IsNewElection, NewCGMembers),
+            ok = process_cached_txns(Chain, BlockHeight, SubmitF, HasBeenSynced == false, IsNewElection, NewCGMembers),
             %% only update the current block height if its not a sync block
             NewCurBlockHeight = maybe_update_block_height(CurBlockHeight, BlockHeight, Sync),
             lager:debug("received block height: ~p,  updated state block height: ~p", [BlockHeight, NewCurBlockHeight]),
-            {noreply, State#state{cur_block_height = NewCurBlockHeight}};
+            {noreply, State#state{cur_block_height = NewCurBlockHeight, has_been_synced=HasBeenSynced}};
         _ ->
             lager:error("failed to find block with hash: ~p", [BlockHash]),
             {noreply, State}
