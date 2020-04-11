@@ -171,7 +171,7 @@ handle_info({blockchain_event, {add_block, _BlockHash, _Sync, _Ledger} = Event},
     handle_add_block_event(Event, State#state{chain = NC});
 handle_info({blockchain_event, {add_block, _BlockHash, Sync, _Ledger} = Event}, State) ->
     lager:debug("received add block event, sync is ~p",[Sync]),
-     handle_add_block_event(Event, State);
+    handle_add_block_event(Event, State);
 
 handle_info(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown info msg: ~p", [_Msg]),
@@ -316,15 +316,18 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
             case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
                 {false, false} ->
                     %% the txn is not in the valid nor the invalid list
-                    %% this means the validations cannot decide as yet, such as is the case with a bad or out of sequence nonce
-                    %% stop the dialers as we dont know when this will be resubmitted
-                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
-                    %% update the txn in the cache to remove the now stopped dialers
-                    cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, []);
+                    %% this means the validations cannot decide as yet, such as is the case with a
+                    %% bad or out of sequence nonce
+                    %% so in this scenario do nothing...
+                    %% we need to keep dialers open to ensure we receive responses from the CG members
+                    %% who may not yet have responded to any previous submit
+                    lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
+                    ok;
                 {true, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
                     %% stop all existing dialers for the txn
+                    lager:debug("txn declared invalid, removing from cache and invoking callback: ~p",[blockchain_txn:hash(Txn)]),
                     lager:info("Invalidated txn: ~p", [blockchain_txn:hash(Txn)]),
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                     ok = invoke_callback(Callback, {error, invalid}),
@@ -346,6 +349,9 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
                             cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers);
                         false ->
+                            %% the txn remains valid, there is no new election and the txn has sufficient acceptions
+                            %% so do nothing
+                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p",[blockchain_txn:hash(Txn)]),
                             ok
                     end
             end
