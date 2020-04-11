@@ -39,11 +39,15 @@
           chain :: undefined | blockchain:blockchain()
          }).
 
+
+-type dialer() :: {pid(), libp2p_crypto:pubkey_bin()}.
+-type dialers() :: [dialer()].
+
 -type cached_txn_type() :: {Txn :: blockchain_txn:txn(),
                                 {Callback :: fun(), RecvBlockHeight :: undefined | integer(),
                                 Acceptions :: [libp2p_crypto:pubkey_bin()],
                                 Rejections :: [libp2p_crypto:pubkey_bin()],
-                                Dialers :: undefined | [pid()]}}.
+                                Dialers :: dialers()}}.
 
 
 %% ------------------------------------------------------------------
@@ -115,7 +119,7 @@ handle_cast({submit, Txn, Callback}, State=#state{chain = Chain,
                                                   submit_f = SubmitF}) ->
     %% send the txn to consensus group
     lager:debug("submitting txn to cg: ~s", [blockchain_txn:print(Txn)]),
-    Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
+    Dialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], [], []),
     ok = cache_txn(Txn, Callback, H, [], [], Dialers),
     {noreply, State};
 
@@ -132,17 +136,17 @@ handle_call(_Msg, _From, State) ->
 
 handle_info({no_group, {Dialer, Txn, Member}}, #state{chain = Chain, submit_f = SubmitF} = State) ->
     lager:info("txn: ~s, no group: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = retry(Txn, Chain, SubmitF),
+    ok = retry(Txn, Chain, SubmitF, Dialer),
     {noreply, State};
 
 handle_info({dial_failed, {Dialer, Txn, Member}}, #state{chain = Chain, submit_f = SubmitF} = State) ->
     lager:debug("txn: ~s, dial_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = retry(Txn, Chain, SubmitF),
+    ok = retry(Txn, Chain, SubmitF, Dialer),
     {noreply, State};
 
 handle_info({send_failed, {Dialer, Txn, Member}}, #state{chain = Chain, submit_f = SubmitF} = State) ->
     lager:debug("txn: ~s, send_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
-    ok = retry(Txn, Chain, SubmitF),
+    ok = retry(Txn, Chain, SubmitF, Dialer),
     {noreply, State};
 
 handle_info({accepted, {Dialer, Txn, Member}}, State) ->
@@ -194,9 +198,9 @@ initialize_with_chain(State, Chain)->
     SubmitF = submit_f(length(Signatories)),
     RejectF = reject_f(length(Signatories)),
     %% process any cached txn from before we had a chain, none of these will have been submitted as yet
-    F = fun({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, _Dialers}}) ->
-            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, [], []),
-            ok = cache_txn(Txn, Callback, Height, [], [], NewDialers)
+    F = fun({Txn, {Callback, _RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
+            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, Acceptions, Rejections, Dialers),
+            ok = cache_txn(Txn, Callback, Height, Acceptions, Rejections, NewDialers)
         end,
     lists:foreach(F, cached_txns()),
     State#state{chain=Chain, cur_block_height = Height, submit_f = SubmitF, reject_f = RejectF}.
@@ -263,8 +267,9 @@ invoke_callback(Callback, Msg) ->
     spawn(fun() -> Callback(Msg) end),
     ok.
 
--spec signatory_rand_members(blockchain:blockchain(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]) -> {ok, [libp2p_crypto:pubkey_bin()]}.
-signatory_rand_members(Chain, SubmitF, Acceptions, Rejections) ->
+-spec signatory_rand_members(blockchain:blockchain(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> {ok, [libp2p_crypto:pubkey_bin()]}.
+signatory_rand_members(Chain, SubmitF, Acceptions, Rejections, Dialers) ->
+    {_, MembersBeingDialed} = lists:unzip(Dialers),
     {ok, PrevBlock} = blockchain:head_block(Chain),
     Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock),
         not (Signer =:= blockchain_swarm:pubkey_bin())],
@@ -274,25 +279,26 @@ signatory_rand_members(Chain, SubmitF, Acceptions, Rejections) ->
             %% so use a random consensus member
             Ledger = blockchain:ledger(Chain),
             {ok, Members0} = blockchain_ledger_v1:consensus_members(Ledger),
-            Members = (Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions) -- Rejections,
+            Members = ((Members0 -- [blockchain_swarm:pubkey_bin()] -- Acceptions) -- Rejections) -- MembersBeingDialed,
             RandomMembers = blockchain_utils:shuffle(Members),
             {ok, lists:sublist(RandomMembers, SubmitF)};
         _ ->
             %% we have signatories
-            RandomSignatories = (blockchain_utils:shuffle(Signatories) -- Acceptions) -- Rejections,
+            RandomSignatories = ((blockchain_utils:shuffle(Signatories) -- Acceptions) -- Rejections) -- MembersBeingDialed,
             {ok, lists:sublist(RandomSignatories, SubmitF)}
     end.
 
--spec retry(blockchain_txn:txn(), blockchain:blockchain(), integer()) -> ok.
-retry(Txn, Chain, SubmitF) ->
+-spec retry(blockchain_txn:txn(), blockchain:blockchain(), integer(), pid()) -> ok.
+retry(Txn, Chain, SubmitF, Dialer) ->
     case cached_txn(Txn) of
         {error, _} ->
             %% We no longer have this txn, do nothing
             ok;
-        {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, _Dialers}}} ->
+        {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
+            RemainingDialers = lists:keydelete(1, Dialer, Dialers),
             %% resubmit the txn to CG
-            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, Acceptions, Rejections),
-            cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, NewDialers)
+            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, Acceptions, Rejections, RemainingDialers),
+            cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, RemainingDialers ++ NewDialers)
     end.
 
 -spec process_cached_txns(blockchain:blockchain(), undefined | integer(),
@@ -328,11 +334,16 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                         true ->
                             %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
                             %% keep any existing acceptions/rejections from the previous round
-                            ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                             RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
-                            lager:info("Resubmitting txn: ~p", [blockchain_txn:hash(Txn)]),
+                            %% figure out which dialers still point at a consensus group member
+                            {RemainingDialers, StaleDialers} = lists:partition(fun({_DialerPid, DialerMember}) ->
+                                                                    lists:member(DialerMember, NewGroupMembers)
+                                                            end, Dialers),
+                            %% stop all the old dialers that no longer are in the consensus group
+                            ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
                             {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
-                            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections),
+                            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
+                            lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
                             cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers);
                         false ->
                             ok
@@ -391,15 +402,15 @@ reject_actions(Chain,
                 {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}},
                 _RejectF,
                 _CurBlockHeight) ->
-    [NewDialer] = submit_txn_to_cg(Chain, Txn, 1, Acceptions, Rejections),
+    [NewDialer] = submit_txn_to_cg(Chain, Txn, 1, Acceptions, Rejections, Dialers),
     cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, [NewDialer | Dialers]).
 
--spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]) -> [pid()].
-submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections)->
-    {ok, Members} = signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections),
+-spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> dialers().
+submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections, Dialers)->
+    {ok, Members} = signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections, Dialers),
     dial_members(Members, Chain, Txn).
 
--spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn(), [pid()]) -> [pid()].
+-spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn(), dialers()) -> dialers().
 dial_members(Members, Chain, Txn)->
     dial_members(Members, Chain, Txn, []).
 dial_members([], _Chain, _Txn, AccDialers)->
@@ -407,9 +418,9 @@ dial_members([], _Chain, _Txn, AccDialers)->
 dial_members([Member | Rest], Chain, Txn, AccDialers)->
     {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, Member]),
     ok = blockchain_txn_dialer:dial(Dialer),
-    dial_members(Rest, Chain, Txn, [Dialer | AccDialers]).
+    dial_members(Rest, Chain, Txn, [{Dialer, Member} | AccDialers]).
 
--spec cache_txn(blockchain_txn:txn(), fun(), undefined | integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], [pid()]) -> ok.
+-spec cache_txn(blockchain_txn:txn(), fun(), undefined | integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> ok.
 cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, Dialers) ->
     true = ets:insert(?TXN_CACHE, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}),
     ok.
