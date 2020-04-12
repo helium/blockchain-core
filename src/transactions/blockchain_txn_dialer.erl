@@ -32,7 +32,8 @@
 -record(state, {
           parent :: pid(),
           txn :: blockchain_txn:txn(),
-          member :: libp2p_crypto:pubkey_bin()
+          member :: libp2p_crypto:pubkey_bin(),
+          timeout = make_ref() :: reference()
          }).
 
 %% ------------------------------------------------------------------
@@ -78,22 +79,27 @@ handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
                     Parent ! {send_failed, {self(), Txn, Member}},
                     {stop, normal, State};
                 _ ->
-                    {noreply, State}
+                    Ref = erlang:send_after(30000, Parent, {timeout, {self(), Txn, Member}}),
+                    {noreply, State#state{timeout=Ref}}
             end
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+handle_info({blockchain_txn_response, {ok, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member, timeout=Ref}) ->
+    erlang:cancel_timer(Ref),
     Parent ! {accepted, {self(), Txn, Member}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+handle_info({blockchain_txn_response, {no_group, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member, timeout=Ref}) ->
+    erlang:cancel_timer(Ref),
     Parent ! {no_group, {self(), Txn, Member}},
     {stop, normal, State};
-handle_info({blockchain_txn_response, {error, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member}) ->
+handle_info({blockchain_txn_response, {error, _TxnHash}}, State=#state{parent=Parent, txn=Txn, member=Member, timeout=Ref}) ->
+    erlang:cancel_timer(Ref),
     Parent ! {rejected, {self(), Txn, Member}},
     {stop, normal, State};
 handle_info(_Msg, State) ->
+    lager:info("txn dialer got unexpected info ~p", [_Msg]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
