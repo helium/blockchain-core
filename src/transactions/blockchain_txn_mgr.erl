@@ -142,6 +142,11 @@ handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     ok = retry(Txn, Dialer),
     {noreply, State};
 
+handle_info({timeout, {Dialer, Txn, Member}}, State) ->
+    lager:debug("txn: ~s, timeout: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
+    ok = retry(Txn, Dialer),
+    {noreply, State};
+
 handle_info({send_failed, {Dialer, Txn, Member}}, State) ->
     lager:debug("txn: ~s, send_failed: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
     ok = retry(Txn, Dialer),
@@ -353,7 +358,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                         false ->
                             %% the txn remains valid, there is no new election and the txn has sufficient acceptions
                             %% so do nothing
-                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",[blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), length(Dialers), SubmitF]),
+                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",[blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
                             ok
                     end
             end
