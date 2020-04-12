@@ -51,12 +51,13 @@ dial(Pid) ->
 init(Args) ->
     lager:debug("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, Txn, Member] = Args,
-    {ok, #state{parent=Parent, txn=Txn, member=Member}}.
+    Ref = erlang:send_after(30000, Parent, {timeout, {self(), Txn, Member}}),
+    {ok, #state{parent=Parent, txn=Txn, member=Member, timeout=Ref}}.
 
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
-handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
+handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent, timeout=Ref}) ->
     Swarm = blockchain_swarm:swarm(),
     P2PAddress = libp2p_crypto:pubkey_bin_to_p2p(Member),
     TxnHash = blockchain_txn:hash(Txn),
@@ -66,6 +67,7 @@ handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
                                          blockchain_txn_handler,
                                          [self(), blockchain_txn:hash(Txn)]) of
         {error, Reason} ->
+            erlang:cancel_timer(Ref),
             lager:error("libp2p_framed_stream dial failed. Reason: ~p, To: ~p, TxnHash: ~p",
                         [Reason, P2PAddress, TxnHash]),
             Parent ! {dial_failed, {self(), Txn, Member}},
@@ -74,13 +76,13 @@ handle_cast(dial, State=#state{member=Member, txn=Txn, parent=Parent}) ->
             DataToSend = blockchain_txn:serialize(Txn),
             case libp2p_framed_stream:send(Stream, DataToSend) of
                 {error, Reason} ->
+                    erlang:cancel_timer(Ref),
                     lager:error("libp2p_framed_stream send failed. Reason: ~p, To: ~p, TxnHash: ~p",
                                 [Reason, P2PAddress, TxnHash]),
                     Parent ! {send_failed, {self(), Txn, Member}},
                     {stop, normal, State};
                 _ ->
-                    Ref = erlang:send_after(30000, Parent, {timeout, {self(), Txn, Member}}),
-                    {noreply, State#state{timeout=Ref}}
+                    {noreply, State}
             end
     end;
 handle_cast(_Msg, State) ->
