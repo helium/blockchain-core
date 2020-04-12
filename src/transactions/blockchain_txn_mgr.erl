@@ -315,8 +315,14 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
         fun({Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
-            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
-                {false, false} ->
+            IsValidStandalone = case blockchain_txn:is_valid(Txn, Chain) of
+                                    ok ->
+                                        true;
+                                    _ ->
+                                        false
+                                end,
+            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions), IsValidStandalone} of
+                {_, _, false} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
@@ -325,7 +331,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     %% who may not yet have responded to any previous submit
                     lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                     ok;
-                {true, _} ->
+                {true, _, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
                     %% stop all existing dialers for the txn
@@ -334,7 +340,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                     ok = invoke_callback(Callback, {error, invalid}),
                     delete_cached_txn(Txn);
-                {_, true} ->
+                {_, true, true} ->
                     case IsNewElection orelse length(Dialers) < (SubmitF - length(Acceptions)) of
                         true ->
                             %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
@@ -425,6 +431,7 @@ dial_members([], _Chain, _Txn, AccDialers)->
     AccDialers;
 dial_members([Member | Rest], Chain, Txn, AccDialers)->
     {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, Member]),
+    erlang:monitor(process, Dialer),
     ok = blockchain_txn_dialer:dial(Dialer),
     dial_members(Rest, Chain, Txn, [{Dialer, Member} | AccDialers]).
 
