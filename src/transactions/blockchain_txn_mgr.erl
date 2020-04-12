@@ -298,7 +298,7 @@ retry(Txn, Dialer) ->
             %% We no longer have this txn, do nothing
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
-            RemainingDialers = lists:keydelete(1, Dialer, Dialers),
+            RemainingDialers = lists:keydelete(Dialer, 1, Dialers),
             cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, RemainingDialers)
     end.
 
@@ -403,12 +403,13 @@ rejected(Txn, Member, Dialer, CurBlockHeight, RejectF) ->
 %% txn has exceeded the max number of rejections
 %% delete it and invoke callback
 -spec reject_actions(cached_txn_type(), integer(), integer()) -> ok.
-reject_actions({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, _Dialers}},
+reject_actions({Txn, {Callback, _RecvBlockHeight, _Acceptions, _Rejections, Dialers}},
                 RejectF,
                 _CurBlockHeight)
     when length(_Rejections) > RejectF ->
     %% txn has been exceeded our max rejection count
     ok = invoke_callback(Callback, {error, rejected}),
+    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
     delete_cached_txn(Txn);
 %% the txn has been rejected but has not yet exceeded the max number of rejections,
 %% so resend to another CG member
