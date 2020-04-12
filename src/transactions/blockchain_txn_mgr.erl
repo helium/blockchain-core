@@ -449,7 +449,7 @@ delete_cached_txn(Txn) ->
 -spec cached_txn(blockchain_txn:txn())-> {ok, cached_txn_type()} | {error, txn_not_found}.
 cached_txn(Txn)->
     case ets:lookup(?TXN_CACHE, Txn) of
-        [Txn] -> {ok, Txn};
+        [Res] -> {ok, Res};
         _ -> {error, txn_not_found}
     end.
 
