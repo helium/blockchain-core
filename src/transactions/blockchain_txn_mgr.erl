@@ -349,7 +349,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
                             NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
                             lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
-                            cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, NewDialers);
+                            cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers);
                         false ->
                             %% the txn remains valid, there is no new election and the txn has sufficient acceptions
                             %% so do nothing
