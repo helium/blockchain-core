@@ -86,9 +86,8 @@ txn_list() ->
 make_ets_table() ->
     ets:new(?TXN_CACHE,
             [named_table,
-             {heir, self(), undefined},
-             {write_concurrency, true},
-             {read_concurrency, true}]).
+             private,
+             {heir, self(), undefined}]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
