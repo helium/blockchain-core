@@ -127,6 +127,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
+    Nonce = ?MODULE:nonce(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
@@ -167,7 +168,16 @@ is_valid(Txn, Chain) ->
                                                         {error, _}=Error1 ->
                                                             Error1;
                                                         ok ->
-                                                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                                                            case blockchain_ledger_v1:check_balance(Payer, Amount, Ledger) of
+                                                                ok ->
+                                                                    {ok, Entry} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+                                                                    case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
+                                                                        true -> ok;
+                                                                        false -> {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
+                                                                    end;
+                                                                Error2 ->
+                                                                    Error2
+                                                            end
                                                     end
                                             end
                                     end;
