@@ -7,6 +7,7 @@
 
 -behavior(gen_server).
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 -define(TXN_CACHE, txn_cache).
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -196,10 +197,9 @@ code_change(_OldVsn, State, _Extra) ->
 -spec initialize_with_chain(#state{}, blockchain:blockchain()) -> #state{}.
 initialize_with_chain(State, Chain)->
     {ok, Height} = blockchain:height(Chain),
-    {ok, PrevBlock} = blockchain:head_block(Chain),
-    Signatories = [Signer || {Signer, _} <- blockchain_block:signatures(PrevBlock)],
-    SubmitF = submit_f(length(Signatories)),
-    RejectF = reject_f(length(Signatories)),
+    {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
+    SubmitF = submit_f(N),
+    RejectF = reject_f(N),
     %% process any cached txn from before we had a chain, none of these will have been submitted as yet
     F = fun({Txn, {Callback, _RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
             ok = cache_txn(Txn, Callback, Height, Acceptions, Rejections, Dialers)
@@ -378,6 +378,7 @@ accepted(Txn, Member, Dialer) ->
     case cached_txn(Txn) of
         {error, _} ->
             %% We no longer have this txn, do nothing
+            lager:debug("cannot find accepted txn ~p with dialer ~p", [Txn, Dialer]),
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
             %% add the member to the accepted list, so we avoid potentially resubmitting to same one again later
@@ -390,6 +391,7 @@ rejected(Txn, Member, Dialer, CurBlockHeight, RejectF) ->
     ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     case cached_txn(Txn) of
         {error, _} ->
+            lager:debug("cannot find rejected txn ~p with dialer ~p", [Txn, Dialer]),
             %% We no longer have this txn, do nothing
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
@@ -420,9 +422,11 @@ submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections, Dialers)->
     {ok, Members} = signatory_rand_members(Chain, SubmitCount, Acceptions, Rejections, Dialers),
     dial_members(Members, Chain, Txn).
 
--spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn(), dialers()) -> dialers().
+-spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn()) -> dialers().
 dial_members(Members, Chain, Txn)->
     dial_members(Members, Chain, Txn, []).
+
+-spec dial_members([libp2p_crypto:pubkey_bin()], blockchain:blockchain(), blockchain_txn:txn(), dialers()) -> dialers().
 dial_members([], _Chain, _Txn, AccDialers)->
     AccDialers;
 dial_members([Member | Rest], Chain, Txn, AccDialers)->
