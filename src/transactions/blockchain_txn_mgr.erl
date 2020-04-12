@@ -376,7 +376,7 @@ accepted(Txn, Member, Dialer) ->
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
             %% add the member to the accepted list, so we avoid potentially resubmitting to same one again later
-            cache_txn(Txn, Callback, RecvBlockHeight, lists:usort([Member|Acceptions]), Rejections, Dialers -- Dialer)
+            cache_txn(Txn, Callback, RecvBlockHeight, lists:usort([Member|Acceptions]), Rejections, lists:keydelete(Dialer, 1, Dialers))
     end.
 
 -spec rejected(blockchain:blockchain(), blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid(), undefined | integer(), integer()) -> ok.
@@ -389,7 +389,7 @@ rejected(Chain, Txn, Member, Dialer, CurBlockHeight, RejectF) ->
             ok;
         {ok, {Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}} ->
             %% add the member to the rejections list, so we avoid resubmitting to one which already rejected
-            UpdatedTxnPayload = {Txn, {Callback, RecvBlockHeight, Acceptions, lists:usort([Member|Rejections]), Dialers -- Dialer}},
+            UpdatedTxnPayload = {Txn, {Callback, RecvBlockHeight, Acceptions, lists:usort([Member|Rejections]), lists:keydelete(Dialer, 1, Dialers)}},
             reject_actions(Chain, UpdatedTxnPayload, RejectF, CurBlockHeight)
     end.
 
