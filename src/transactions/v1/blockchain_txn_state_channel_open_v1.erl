@@ -158,19 +158,8 @@ do_is_valid_checks(Txn, Ledger) ->
                                 _ ->
                                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                                         {error, not_found} ->
-                                            case blockchain_ledger_v1:find_dc_entry(Owner, Ledger) of
-                                                {error, _}=Err0 ->
-                                                    Err0;
-                                                {ok, DCEntry} ->
-                                                    TxnNonce = ?MODULE:nonce(Txn),
-                                                    NextLedgerNonce = blockchain_ledger_data_credits_entry_v1:nonce(DCEntry) + 1,
-                                                    case TxnNonce =:= NextLedgerNonce of
-                                                        false ->
-                                                            {error, {bad_nonce, {state_channel_open, TxnNonce, NextLedgerNonce}}};
-                                                        true ->
-                                                            ok
-                                                    end
-                                            end;
+                                            %% No state channel with this ID for this Owner exists
+                                            ok;
                                         {ok, _} ->
                                             {error, state_channel_already_exists};
                                         {error, _}=Err ->

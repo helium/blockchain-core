@@ -520,13 +520,7 @@ replay_test(Config) ->
     ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, 1, Nonce),
     ct:pal("ReplaySignedSCOpenTxn: ~p", [ReplaySignedSCOpenTxn]),
 
-    ReplayIsValid = ct_rpc:call(RouterNode,
-                                blockchain_txn_state_channel_open_v1,
-                                is_valid,
-                                [ReplaySignedSCOpenTxn, RouterChain2]),
-
-    %% Check whether the replay sc open txn is valid?
-    ?assertEqual({error, {bad_nonce, {state_channel_open, 1, 2}}}, ReplayIsValid),
+    {error, {invalid_txns, [ReplaySignedSCOpenTxn]}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [ReplaySignedSCOpenTxn]]),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
