@@ -149,7 +149,7 @@ do_is_valid_checks(Txn, Ledger) ->
                     case lists:member(Owner, KnownRouters) of
                         false ->
                             lager:error("unknown router: ~p, known routers: ~p", [Owner, KnownRouters]),
-                            {error, unknown_owner};
+                            {error, unknown_router};
                         true ->
                             case blockchain_ledger_v1:find_sc_ids_by_owner(Owner, Ledger) of
                                 {ok, BinIds} when length(BinIds) >= ?MAX_OPEN_SC ->
