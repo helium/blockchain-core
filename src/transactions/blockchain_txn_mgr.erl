@@ -17,6 +17,7 @@
          submit/2,
          set_chain/1,
          txn_list/0,
+         txn_status/1,
          make_ets_table/0
         ]).
 
@@ -83,6 +84,10 @@ set_chain(Chain) ->
 txn_list() ->
     gen_server:call(?MODULE, txn_list, infinity).
 
+-spec txn_status(blockchain_txn:hash()) -> {ok, map()} | {error, not_found}.
+txn_status(Hash) ->
+    gen_server:call(?MODULE, {txn_status,Hash}, infinity).
+
 make_ets_table() ->
     ets:new(?TXN_CACHE,
             [named_table,
@@ -124,6 +129,18 @@ handle_cast({submit, Txn, Callback}, State=#state{cur_block_height = H}) ->
 handle_cast(_Msg, State) ->
     lager:warning("blockchain_txn_mgr got unknown cast: ~p", [_Msg]),
     {noreply, State}.
+
+handle_call({txn_status, Hash}, _, State) ->
+    lists:foreach(fun({Txn, {_Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
+                          case blockchain_txn:hash(Txn) == Hash of
+                              true ->
+                                  throw({reply, {ok, #{received_at => RecvBlockHeight, accepted_by => Acceptions,
+                                                       rejected_by => Rejections, dialers => Dialers}}, State});
+                              false ->
+                                  ok
+                          end
+                  end, cached_txns()),
+    {reply, {error, not_found}, State};
 
 handle_call(txn_list, _, State) ->
     {reply, cached_txns(), State};
