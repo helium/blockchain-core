@@ -206,8 +206,7 @@ absorb(Txn, Chain) ->
 
                     case blockchain_ledger_v1:get_oui_counter(Ledger) of
                         {error, _} ->
-                            %% no oui exists on the ledger
-                            blockchain_ledger_v1:add_oui(Owner, 1, Addresses, Filter, Subnet, Ledger);
+                            {error, oui_lookup_failed};
                         {ok, CurrOUI} ->
                             blockchain_ledger_v1:add_oui(Owner, CurrOUI + 1, Addresses, Filter, Subnet, Ledger)
                     end
