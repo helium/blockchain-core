@@ -25,7 +25,7 @@
 
 -spec new(Payee :: libp2p_crypto:pubkey_bin(),
           Amount :: non_neg_integer()) -> payment().
-new(Payee, Amount) when Amount > 0 ->
+new(Payee, Amount) ->
     #payment_pb{
        payee=Payee,
        amount=Amount
