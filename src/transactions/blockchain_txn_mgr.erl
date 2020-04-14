@@ -350,7 +350,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                                                             end, Dialers),
                             %% stop all the old dialers that no longer are in the consensus group
                             ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
-                            {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
+                            {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers, IsNewElection),
                             NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
                             lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
                             cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers);
@@ -364,11 +364,15 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
         end, CachedTxns).
 
 -spec purge_old_cg_members([libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()],
-                                  [libp2p_crypto:pubkey_bin()]) -> {[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}.
-purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers) ->
+                                  [libp2p_crypto:pubkey_bin()], boolean()) -> {[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}.
+purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers, true) ->
+    %% is a new election
     Acceptions = [ M || M <- NewGroupMembers, lists:member(M,Acceptions0) == true ],
     Rejections = [ M || M <- NewGroupMembers, lists:member(M,Rejections0) == true ],
-    {Acceptions, Rejections}.
+    {Acceptions, Rejections};
+purge_old_cg_members(Acceptions0, Rejections0, [], false) ->
+    %% not a new election
+    {Acceptions0, Rejections0}.
 
 -spec accepted(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid()) -> ok.
 accepted(Txn, Member, Dialer) ->
