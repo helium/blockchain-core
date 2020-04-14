@@ -337,7 +337,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                                         false
                                 end,
             case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions), IsValidStandalone} of
-                {_, _, false} ->
+                {false, false, true} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
