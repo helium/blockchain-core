@@ -346,6 +346,10 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     %% who may not yet have responded to any previous submit
                     lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                     ok;
+                {false, true, false} ->
+                    %% err now sure why this would happen but it does
+                    lager:debug("txn can be absorbed but at this point remains standalone invalid, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
+                    ok;
                 {true, _, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
