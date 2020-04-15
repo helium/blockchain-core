@@ -32,7 +32,11 @@
     chain_vars_set_unset_test/1,
     token_burn_test/1,
     payer_test/1,
-    poc_sync_interval_test/1
+    poc_sync_interval_test/1,
+    zero_payment_v1_test/1,
+    zero_amt_htlc_create_test/1,
+    negative_payment_v1_test/1,
+    negative_amt_htlc_create_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -72,7 +76,11 @@ all() ->
         chain_vars_set_unset_test,
         token_burn_test,
         payer_test,
-        poc_sync_interval_test
+        poc_sync_interval_test,
+        zero_payment_v1_test,
+        zero_amt_htlc_create_test,
+        negative_payment_v1_test,
+        negative_amt_htlc_create_test
     ].
 
 %%--------------------------------------------------------------------
@@ -89,7 +97,8 @@ init_per_testcase(TestCase, Config) ->
                         #{election_version => 3,
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
-                    _ -> #{}
+                    _ ->
+                        #{allow_zero_amount => false}
                 end,
     {ok, GenesisMembers, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance,
@@ -1932,6 +1941,94 @@ poc_sync_interval_test(Config) ->
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
     ok.
+
+zero_payment_v1_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Amount = 0,
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 0, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+
+    %% TODO: update when dc stuff with better test_util add_block lands
+    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+
+    ok.
+
+negative_payment_v1_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+
+    % Test a payment transaction, add a block and check balances
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    Recipient = blockchain_swarm:pubkey_bin(),
+    Amount = -100,
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 0, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+    SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+
+    %% TODO: update when dc stuff with better test_util add_block lands
+    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+
+    ok.
+
+zero_amt_htlc_create_test(Config) ->
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
+    Chain = ?config(chain, Config),
+
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    % Create a Payee
+    #{public := PayeePubKey, secret := _PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    % Generate a random address
+    HTLCAddress = crypto:strong_rand_bytes(33),
+    % Create a Hashlock
+    Hashlock = crypto:hash(sha256, <<"sharkfed">>),
+    Amount = 0,
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 0, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
+
+    %% TODO: update when dc stuff with better test_util add_block lands
+    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    ok.
+
+negative_amt_htlc_create_test(Config) ->
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
+    Chain = ?config(chain, Config),
+
+    % Create a Payer
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    % Create a Payee
+    #{public := PayeePubKey, secret := _PayeePrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Payee = libp2p_crypto:pubkey_to_bin(PayeePubKey),
+    % Generate a random address
+    HTLCAddress = crypto:strong_rand_bytes(33),
+    % Create a Hashlock
+    Hashlock = crypto:hash(sha256, <<"sharkfed">>),
+    Amount = -100,
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 0, 1),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
+
+    %% TODO: update when dc stuff with better test_util add_block lands
+    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    ok.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
 
 create_gateway() ->
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),

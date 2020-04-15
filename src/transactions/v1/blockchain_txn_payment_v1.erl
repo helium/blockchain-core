@@ -149,7 +149,17 @@ is_valid(Txn, Chain) ->
                                         {error, _}=Error0 ->
                                             Error0;
                                         {ok, MinerFee} ->
-                                            case (Amount >= 0) andalso (Fee >= MinerFee) of
+
+                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                              {ok, false} ->
+                                                                  %% check that amount is greater than 0
+                                                                  (Amount > 0) andalso (Fee >= MinerFee);
+                                                              _ ->
+                                                                  %% if undefined or true, use the old check
+                                                                  (Amount >= 0) andalso (Fee >= MinerFee)
+                                                          end,
+
+                                            case AmountCheck of
                                                 false ->
                                                     {error, invalid_transaction};
                                                 true ->

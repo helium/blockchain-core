@@ -315,7 +315,8 @@ raw_vars(Vars) ->
                 ?h3_max_grid_distance => 13,
                 ?h3_neighbor_res => 12,
                 ?min_score => 0.15,
-                ?reward_version => 1
+                ?reward_version => 1,
+                ?allow_zero_amount => false
                },
 
     maps:merge(DefVars, Vars).
