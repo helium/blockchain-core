@@ -330,27 +330,17 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
         fun({Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
-            IsValidStandalone = case blockchain_txn:is_valid(Txn, Chain) of
-                                    ok ->
-                                        true;
-                                    _ ->
-                                        false
-                                end,
-            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions), IsValidStandalone} of
-                {false, false, true} ->
+            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
+                {false, false} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
                     %% so in this scenario do nothing...
                     %% we need to keep dialers open to ensure we receive responses from the CG members
                     %% who may not yet have responded to any previous submit
-                    lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
+                    lager:debug("txn ~p has undecided validations, leaving in cache: ~p", [Txn, blockchain_txn:hash(Txn)]),
                     ok;
-                {false, true, false} ->
-                    %% err now sure why this would happen but it does
-                    lager:debug("txn can be absorbed but at this point remains standalone invalid, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
-                    ok;
-                {true, _, _} ->
+                {true, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
                     %% stop all existing dialers for the txn
@@ -359,7 +349,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                     ok = invoke_callback(Callback, {error, invalid}),
                     delete_cached_txn(Txn);
-                {_, true, true} ->
+                {_, true} ->
                     case IsNewElection orelse length(Dialers) < (SubmitF - length(Acceptions)) of
                         true ->
                             %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
@@ -372,9 +362,26 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             %% stop all the old dialers that no longer are in the consensus group
                             ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
                             {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers, IsNewElection),
-                            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
-                            lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
-                            cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers);
+                            %% check if this transaction has any dependencies
+                            %% figure out what, if anything, this transaction depends on
+                            case blockchain_txn:depends_on(Txn, Txns) of
+                                [] ->
+                                    %% XXX we assume we have correct dependency resolution here, if you add a new transaction with 
+                                    %% dependencies and don't fix depends_on, your transaction will probably get rejected
+                                    NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
+                                    lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
+                                    cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers);
+                                Dependencies ->
+                                    {ok, {_, {_, _, A0, _, _}}} = cached_txn(hd(Dependencies)),
+                                    ElegibleMembers = sets:to_list(lists:foldl(fun(E, Acc) ->
+                                                                                       {ok, {_, {_, _, A, _, _}}} = cached_txn(E),
+                                                                                       sets:intersection(Acc, sets:from_list(A))
+                                                                               end, sets:from_list(A0), tl(Dependencies))),
+                                    {_, DialedMembers} = lists:unzip(Dialers),
+                                    NewDialers = dial_members(lists:sublist(((ElegibleMembers -- NewAcceptions) -- NewRejections) -- DialedMembers, SubmitF - length(NewAcceptions) - length(Dialers)), Chain, Txn),
+                                    lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers), length(NewDialers)]),
+                                    cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers)
+                            end;
                         false ->
                             %% the txn remains valid, there is no new election and the txn has sufficient acceptions
                             %% so do nothing
@@ -456,7 +463,6 @@ dial_members([], _Chain, _Txn, AccDialers)->
     AccDialers;
 dial_members([Member | Rest], Chain, Txn, AccDialers)->
     {ok, Dialer} = blockchain_txn_mgr_sup:start_dialer([self(), Txn, Member]),
-    erlang:monitor(process, Dialer),
     ok = blockchain_txn_dialer:dial(Dialer),
     dial_members(Rest, Chain, Txn, [{Dialer, Member} | AccDialers]).
 

@@ -66,7 +66,8 @@
     wrap_txn/1,
     unwrap_txn/1,
     is_valid/2,
-    validate_fields/1
+    validate_fields/1,
+    depends_on/2
 ]).
 
 -ifdef(TEST).
@@ -616,6 +617,8 @@ nonce(Txn) ->
             blockchain_txn_payment_v1:nonce(Txn);
         blockchain_txn_security_exchange_v1 ->
             blockchain_txn_security_exchange_v1:nonce(Txn);
+        blockchain_txn_token_burn_v1 ->
+            blockchain_txn_token_burn_v1:nonce(Txn);
         blockchain_txn_payment_v2 ->
             blockchain_txn_payment_v2:nonce(Txn);
         _ ->
@@ -663,9 +666,75 @@ actor(Txn) ->
             <<>>
     end.
 
+depends_on(Txn, Txns) ->
+    case type(Txn) of
+        Type when Type == blockchain_txn_payment_v1;
+                  Type == blockchain_txn_create_htlc_v1;
+                  Type == blockchain_txn_token_burn_v1;
+                  Type == blockchain_txn_payment_v2 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            Types = [blockchain_txn_payment_v1, blockchain_txn_create_htlc_v1, blockchain_txn_token_burn_v1, blockchain_txn_payment_v2],
+            lists:filter(fun(E) ->
+                                 ThisNonce = nonce(E),
+                                 lists:member(type(E), Types) andalso actor(E) == Actor andalso ThisNonce < Nonce
+                         end, Txns);
+        blockchain_txn_assert_location_v1 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_assert_location_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
+                                 (type(E) == blockchain_txn_add_gateway_v1 andalso blockchain_txn_add_gateway_v1:gateway(E) == Actor)
+                         end, Txns);
+        blockchain_txn_security_exchange_v1 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            lists:filter(fun(E) ->
+                                 ThisNonce = nonce(E),
+                                 type(E) == blockchain_txn_security_exchange_v1 andalso actor(E) == Actor andalso ThisNonce < Nonce
+                         end, Txns);
+        blockchain_txn_vars_v1 ->
+            Nonce = blockchain_txn_vars_v1:nonce(Txn),
+            lists:filter(fun(E) ->
+                                 type(E) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(E) < Nonce
+                         end, Txns);
+        %% TODO revisit once the state channels stuff has landed
+        %blockchain_txn_routing_v1 ->
+        %    Actor = actor(Txn),
+        %    Nonce = blockchain_txn_routing_v1:nonce(Txn),
+        _ ->
+            []
+    end.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+
+
+depends_on_test() ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey1),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    #{secret := _PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    Recipient = libp2p_crypto:pubkey_to_bin(PubKey2),
+    Txns = lists:map(fun(Nonce) ->
+                      case rand:uniform(2) of
+                          1 ->
+                              blockchain_txn_payment_v1:sign(blockchain_txn_payment_v1:new(Payer, Recipient, 1, 0, Nonce), SigFun);
+                          2 ->
+                              blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce, 0), SigFun)
+                      end
+              end, lists:seq(1, 50)),
+    lists:foreach(fun(_) ->
+                      Shuffled = blockchain_utils:shuffle(Txns),
+                      Txn = lists:last(Shuffled),
+                      Dependencies = depends_on(Txn, Shuffled),
+                      ?assertEqual(length(Dependencies), nonce(Txn) - 1),
+                      ?assert(lists:all(fun(T) -> nonce(T) < nonce(Txn) end, Dependencies))
+              end, lists:seq(1, 10)).
+
 
 -endif.
