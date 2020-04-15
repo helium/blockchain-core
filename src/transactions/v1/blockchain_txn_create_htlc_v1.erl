@@ -11,6 +11,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
 
 -export([
@@ -192,7 +193,18 @@ is_valid(Txn, Chain) ->
                                                 true ->
                                                     Amount = ?MODULE:amount(Txn),
                                                     Fee = ?MODULE:fee(Txn),
-                                                    case (Amount >= 0) andalso (Fee >= MinerFee) of
+
+                                                    AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                                      {ok, false} ->
+                                                                          %% check that amount is greater than 0
+                                                                          (Amount > 0) andalso (Fee >= MinerFee);
+                                                                      _ ->
+                                                                          %% if undefined or true, use the old check
+                                                                          (Amount >= 0) andalso (Fee >= MinerFee)
+                                                                  end,
+
+
+                                                    case AmountCheck of
                                                         false ->
                                                             lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
                                                             {error, invalid_transaction};

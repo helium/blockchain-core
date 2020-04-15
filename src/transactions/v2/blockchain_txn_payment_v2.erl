@@ -195,7 +195,16 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
                                                 {error, _}=Error0 ->
                                                     Error0;
                                                 {ok, MinerFee} ->
-                                                    case (TotAmount >= 0) andalso (Fee >= MinerFee) of
+                                                    AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                                      {ok, false} ->
+                                                                          %% check that none of the payments have a zero amount
+                                                                          has_non_zero_amounts(Payments) andalso (Fee >= MinerFee);
+                                                                      _ ->
+                                                                          %% if undefined or true, use the old check
+                                                                          (TotAmount >= 0) andalso (Fee >= MinerFee)
+                                                                  end,
+
+                                                    case AmountCheck of
                                                         false ->
                                                             {error, invalid_transaction};
                                                         true ->
@@ -223,6 +232,11 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
 has_unique_payees(Payments) ->
     Payees = [blockchain_payment_v2:payee(P) || P <- Payments],
     length(lists:usort(Payees)) == length(Payees).
+
+-spec has_non_zero_amounts(Payments :: blockchain_payment_v2:payments()) -> boolean().
+has_non_zero_amounts(Payments) ->
+    Amounts = [blockchain_payment_v2:amount(P) || P <- Payments],
+    lists:all(fun(A) -> A > 0 end, Amounts).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

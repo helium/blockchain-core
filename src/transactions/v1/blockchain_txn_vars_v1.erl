@@ -750,6 +750,13 @@ validate_var(?deprecate_payment_v1, Value) ->
         _ -> throw({error, {invalid_deprecate_payment_v1, Value}})
     end;
 
+validate_var(?allow_zero_amount, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_allow_zero_amount, Value}})
+    end;
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

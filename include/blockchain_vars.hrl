@@ -253,3 +253,5 @@
 -define(max_payments, max_payments).
 %% Var to switch off legacy payment txn
 -define(deprecate_payment_v1, deprecate_payment_v1).
+%% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
+-define(allow_zero_amount, allow_zero_amount).
