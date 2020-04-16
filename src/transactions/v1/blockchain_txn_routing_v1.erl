@@ -8,6 +8,7 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
@@ -190,77 +191,32 @@ is_valid(Txn, Chain) ->
                             PubKey = libp2p_crypto:bin_to_pubkey(Owner),
                             BaseTxn = Txn#blockchain_txn_routing_v1_pb{signature = <<>>},
                             EncodedTxn = blockchain_txn_routing_v1_pb:encode_msg(BaseTxn),
-                            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                                false ->
-                                    {error, bad_signature};
-                                true ->
-                                    case ?MODULE:action(Txn) of
-                                        {update_routers, Addresses} ->
-                                            case validate_addresses(Addresses) of
-                                                false ->
-                                                    {error, invalid_addresses};
-                                                true ->
-                                                    Fee = ?MODULE:fee(Txn),
-                                                    Owner = ?MODULE:owner(Txn),
-                                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
-                                            end;
-                                        {new_xor, Xor} when byte_size(Xor) > 1024*100 ->
-                                            {error, filter_too_large};
-                                        {new_xor, Xor} ->
-                                            case length(blockchain_ledger_routing_v1:filters(Routing)) < 5 of
-                                                true ->
-                                                    %% the contain check does some structural checking of the filter
-                                                    case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
-                                                        B when is_boolean(B) ->
-                                                            Fee = ?MODULE:fee(Txn),
-                                                            Owner = ?MODULE:owner(Txn),
-                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+
+                            case blockchain:config(?max_xor_filter_size, Ledger) of
+                                {ok, XORFilterSize} ->
+                                    case blockchain:config(?max_xor_filter_num, Ledger) of
+                                        {ok, XORFilterNum} ->
+                                            case blockchain:config(?max_subnet_size, Ledger) of
+                                                {ok, MaxSubnetSize} ->
+                                                    case blockchain:config(?min_subnet_size, Ledger) of
+                                                        {ok, MinSubnetSize} ->
+                                                            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                                                                false ->
+                                                                    {error, bad_signature};
+                                                                true ->
+                                                                    do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize)
+                                                            end;
                                                         _ ->
-                                                            {error, invalid_filter}
+                                                            {error, min_subnet_size_not_set}
                                                     end;
-                                                false ->
-                                                    {error, too_many_filters}
+                                                _ ->
+                                                    {error, max_subnet_size_not_set}
                                             end;
-                                        {update_xor, Index, _Filter} when Index < 0 orelse Index >= 5 ->
-                                            {error, invalid_xor_filter_index};
-                                        {update_xor, _Index, Filter} when byte_size(Filter) > 1024*100 ->
-                                            {error, filter_too_large};
-                                        {update_xor, Index, Filter} ->
-                                            case Index < length(blockchain_ledger_routing_v1:filters(Routing)) of
-                                                true ->
-                                                    %% the contain check does some structural checking of the filter
-                                                    case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
-                                                        B when is_boolean(B) ->
-                                                            Fee = ?MODULE:fee(Txn),
-                                                            Owner = ?MODULE:owner(Txn),
-                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
-                                                        _ ->
-                                                            {error, invalid_filter}
-                                                    end;
-                                                false ->
-                                                    {error, invalid_filter_index}
-                                            end;
-                                        {request_subnet, SubnetSize} when SubnetSize < 8 orelse SubnetSize > 65536 ->
-                                            {error, invalid_subnet_size};
-                                        {request_subnet, SubnetSize} ->
-                                            %% subnet size should be between 8 and 65536 as a power of two
-                                            Res = math:log2(SubnetSize),
-                                            %% check there's no floating point components of the number
-                                            %% Erlang will coerce between floats and ints when you use ==
-                                            case trunc(Res) == Res of
-                                                true ->
-                                                    case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
-                                                        {ok, _} ->
-                                                            Fee = ?MODULE:fee(Txn),
-                                                            Owner = ?MODULE:owner(Txn),
-                                                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
-                                                        Error ->
-                                                            Error
-                                                    end;
-                                                false ->
-                                                    {error, invalid_subnet_size}
-                                            end
-                                    end
+                                        _ ->
+                                            {error, max_xor_filter_num_not_set}
+                                    end;
+                                _ ->
+                                    {error, max_xor_filter_size_not_set}
                             end
                     end
             end
@@ -318,6 +274,75 @@ validate_addresses(Addresses) ->
             ok == blockchain_txn:validate_fields([{{router_address, P}, {address, libp2p}} || P <- Addresses]);
         _ ->
             false
+    end.
+
+do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize) ->
+    case ?MODULE:action(Txn) of
+        {update_routers, Addresses} ->
+            case validate_addresses(Addresses) of
+                false ->
+                    {error, invalid_addresses};
+                true ->
+                    Fee = ?MODULE:fee(Txn),
+                    Owner = ?MODULE:owner(Txn),
+                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+            end;
+        {new_xor, Xor} when byte_size(Xor) > XORFilterSize ->
+            {error, filter_too_large};
+        {new_xor, Xor} ->
+            case length(blockchain_ledger_routing_v1:filters(Routing)) < XORFilterNum of
+                true ->
+                    %% the contain check does some structural checking of the filter
+                    case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
+                        B when is_boolean(B) ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = ?MODULE:owner(Txn),
+                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                        _ ->
+                            {error, invalid_filter}
+                    end;
+                false ->
+                    {error, too_many_filters}
+            end;
+        {update_xor, Index, _Filter} when Index < 0 orelse Index >= XORFilterNum ->
+            {error, invalid_xor_filter_index};
+        {update_xor, _Index, Filter} when byte_size(Filter) > XORFilterSize ->
+            {error, filter_too_large};
+        {update_xor, Index, Filter} ->
+            case Index < length(blockchain_ledger_routing_v1:filters(Routing)) of
+                true ->
+                    %% the contain check does some structural checking of the filter
+                    case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
+                        B when is_boolean(B) ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = ?MODULE:owner(Txn),
+                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                        _ ->
+                            {error, invalid_filter}
+                    end;
+                false ->
+                    {error, invalid_filter_index}
+            end;
+        {request_subnet, SubnetSize} when SubnetSize < MinSubnetSize orelse SubnetSize > MaxSubnetSize ->
+            {error, invalid_subnet_size};
+        {request_subnet, SubnetSize} ->
+            %% subnet size should be between 8 and 65536 as a power of two
+            Res = math:log2(SubnetSize),
+            %% check there's no floating point components of the number
+            %% Erlang will coerce between floats and ints when you use ==
+            case trunc(Res) == Res of
+                true ->
+                    case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
+                        {ok, _} ->
+                            Fee = ?MODULE:fee(Txn),
+                            Owner = ?MODULE:owner(Txn),
+                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                        Error ->
+                            Error
+                    end;
+                false ->
+                    {error, invalid_subnet_size}
+            end
     end.
 
 %% ------------------------------------------------------------------
