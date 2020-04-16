@@ -104,9 +104,15 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, Packet, _HandlerPid}, #state{active=undefined}=State) ->
-    %% We can't do anything with this packet because we have no active state_channel
-    lager:warning("Got packet: ~p when no sc is active", [Packet]),
+handle_cast({packet, SCPacket, HandlerPid}, #state{active=undefined, sc_packet_handler=SCPacketHandler}=State) ->
+    lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
+    case blockchain_state_channel_packet_v1:validate(SCPacket) of
+        {error, _Reason} ->
+            lager:warning("packet failed to validate ~p ~p", [_Reason, SCPacket]);
+        true ->
+            %% we cannot record this packet in a state channel, but we can still deliver it
+            SCPacketHandler:handle_packet(SCPacket, HandlerPid)
+    end,
     {noreply, State};
 handle_cast({packet, SCPacket, HandlerPid},
             #state{sc_packet_handler=SCPacketHandler, active=Active, state_channels=SCs}=State) ->
@@ -264,7 +270,7 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
     NewStateChannels = maps:map(
                         fun(_ID, SC) ->
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-                                case ExpireAt =< BlockHeight of
+                                case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
                                     false ->
                                         SC;
                                     true ->

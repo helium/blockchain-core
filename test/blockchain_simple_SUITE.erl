@@ -958,8 +958,9 @@ routing_test(Config) ->
     meck:expect(blockchain_txn_oui_v1, is_valid, fun(_, _) -> ok end),
 
     OUI1 = 1,
-    Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, OUI1, 0, 0),
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -969,36 +970,129 @@ routing_test(Config) ->
 
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
-    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, 0),
+    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    Addresses1 = [<<"/p2p/random">>],
-    OUITxn2 = blockchain_txn_routing_v1:new(OUI1, Payer, Addresses1, 0, 1),
+    #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
+    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 0, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
-    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, 1),
+    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    OUI2 = 2,
-    Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn3 = blockchain_txn_oui_v1:new(Payer, Addresses0, OUI2, 0, 0),
-    SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, SigFun),
+    OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, 2),
+    SignedOUITxn3 = blockchain_txn_routing_v1:sign(OUITxn3, SigFun),
+    {Filter2, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter2, 0, 3),
+    SignedOUITxn4 = blockchain_txn_routing_v1:sign(OUITxn4, SigFun),
+    {Filter2a, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4a = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2a, 0, 4),
+    SignedOUITxn4a = blockchain_txn_routing_v1:sign(OUITxn4a, SigFun),
 
-    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
-
-    {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3, SignedOUITxn4, SignedOUITxn4a]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
 
     ok = test_utils:wait_until(fun() -> {ok, 4} == blockchain:height(Chain) end),
 
-    Routing2 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, 0),
-    ?assertEqual({ok, Routing2}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
+    {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
+    %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
+    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+                  <<32:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
+                 blockchain_ledger_routing_v1:subnets(Routing2)),
+    ?assertEqual([Filter2, Filter2a], blockchain_ledger_routing_v1:filters(Routing2)),
+    ?assertEqual(4, blockchain_ledger_routing_v1:nonce(Routing2)),
 
-    ?assertEqual({ok, [2, 1]}, blockchain_ledger_v1:find_ouis(Payer, Ledger)),
+    %% test updating with invalid filter
+    Filter3 = <<"lolsdf">>,
+    OUITxn5 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter3, 0, 5),
+    SignedOUITxn5 = blockchain_txn_routing_v1:sign(OUITxn5, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
+
+    Filter4 = crypto:strong_rand_bytes(1024*1024),
+    OUITxn6 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter4, 0, 5),
+    SignedOUITxn6 = blockchain_txn_routing_v1:sign(OUITxn6, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6]),
+
+    OUITxn6a = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 2, Filter, 0, 5),
+    SignedOUITxn6a = blockchain_txn_routing_v1:sign(OUITxn6a, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6a]),
+
+    OUITxn6b = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 5, Filter, 0, 5),
+    SignedOUITxn6b = blockchain_txn_routing_v1:sign(OUITxn6b, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6b]),
+
+    %% test invalid subnet_size
+    OUITxn7 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 31, 0, 5),
+    SignedOUITxn7 = blockchain_txn_routing_v1:sign(OUITxn7, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn7]),
+    OUITxn8 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 2, 0, 5),
+    SignedOUITxn8 = blockchain_txn_routing_v1:sign(OUITxn8, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn8]),
+    OUITxn9 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 4294967296, 0, 5),
+    SignedOUITxn9 = blockchain_txn_routing_v1:sign(OUITxn9, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn9]),
+
+    %% test adding an invalid xor
+    OUITxn10 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter3, 0, 5),
+    SignedOUITxn10 = blockchain_txn_routing_v1:sign(OUITxn10, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn10]),
+    OUITxn11 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter4, 0, 5),
+    SignedOUITxn11 = blockchain_txn_routing_v1:sign(OUITxn11, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn11]),
+
+    %% fill up the xor list for this node
+    {Filter2b, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4b = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2b, 0, 5),
+    SignedOUITxn4b = blockchain_txn_routing_v1:sign(OUITxn4b, SigFun),
+
+    {Filter2c, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4c = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2c, 0, 6),
+    SignedOUITxn4c = blockchain_txn_routing_v1:sign(OUITxn4c, SigFun),
+
+    {Filter2d, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4d = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2d, 0, 7),
+    SignedOUITxn4d = blockchain_txn_routing_v1:sign(OUITxn4d, SigFun),
+
+    {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4b, SignedOUITxn4c, SignedOUITxn4d]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block3, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 5} == blockchain:height(Chain) end),
+
+    {ok, Routing3} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
+    %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
+    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+                  <<32:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
+                 blockchain_ledger_routing_v1:subnets(Routing3)),
+    ?assertEqual([Filter2, Filter2a, Filter2b, Filter2c, Filter2d], blockchain_ledger_routing_v1:filters(Routing3)),
+    ?assertEqual(7, blockchain_ledger_routing_v1:nonce(Routing3)),
+
+    %% no more filters can be added
+    {Filter2e, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn4e = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2e, 0, 8),
+    SignedOUITxn4e = blockchain_txn_routing_v1:sign(OUITxn4e, SigFun),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4e]),
+
+    OUI2 = 2,
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
+    OUITxn01 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
+    SignedOUITxn01 = blockchain_txn_oui_v1:sign(OUITxn01, SigFun),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
+
+    {ok, Block4} = test_utils:create_block(ConsensusMembers, [SignedOUITxn01]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block4, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 6} == blockchain:height(Chain) end),
+
+    Routing4 = blockchain_ledger_routing_v1:new(OUI2, Payer, Addresses0, Filter, <<0,0,4,127,255,254>>, 0),
+    ?assertEqual({ok, Routing4}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
@@ -1680,8 +1774,9 @@ payer_test(Config) ->
     ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
-    Addresses0 = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, 1, Payer, 1, 10),
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Filter, 8, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
@@ -1711,7 +1806,7 @@ payer_test(Config) ->
     ?assertEqual(10*Rate-11*3, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
 
-    Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, 0),
+    Routing = blockchain_ledger_routing_v1:new(1, Owner, Addresses0, Filter, <<0,0,0,127,255,254>>, 0),
     ?assertEqual({ok, Routing}, blockchain_ledger_v1:find_routing(1, Ledger)),
 
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, blockchain:ledger(Chain)),
@@ -2002,8 +2097,9 @@ update_gateway_oui_test(Config) ->
     SignedOwnerAddGatewayTxn = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, OwnerSigFun),
     SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTxn, GatewaySigFun),
     OUI1 = 1,
-    Addresses = [erlang:list_to_binary(libp2p_swarm:p2p_address(Swarm))],
-    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, OUI1, 1, 1),
+    Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, Filter, 8, 1, 1),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
     _ = blockchain_gossip_handler:add_block(Swarm, Block24, Chain, self()),
