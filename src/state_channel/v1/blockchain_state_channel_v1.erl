@@ -15,7 +15,7 @@
     expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
-    save/2, get/2,
+    save/2, fetch/2,
     summaries/1, summaries/2, update_summaries/3,
 
     add_payload/2,
@@ -204,14 +204,18 @@ decode(Binary) ->
     blockchain_state_channel_v1_pb:decode_msg(Binary, blockchain_state_channel_v1_pb).
 
 -spec save(rocksdb:db_handle(), state_channel()) -> ok.
-save(DB, SC) ->
-    ID = ?MODULE:id(SC),
+save(DB, SC0) ->
+    ID = ?MODULE:id(SC0),
+    SC = skewed(blockchain_skewed_v1:serialize(skewed(SC0)), SC0),
+    lager:info("saving state_channel: ~p", [SC]),
     ok = rocksdb:put(DB, ID, ?MODULE:encode(SC), [{sync, true}]).
 
--spec get(rocksdb:db_handle(), id()) -> {ok, state_channel()} | {error, any()}.
-get(DB, ID) ->
+-spec fetch(rocksdb:db_handle(), id()) -> {ok, state_channel()} | {error, any()}.
+fetch(DB, ID) ->
     case rocksdb:get(DB, ID, [{sync, true}]) of
-        {ok, BinarySC} -> {ok, ?MODULE:decode(BinarySC)};
+        {ok, BinarySC} ->
+            SC0 = ?MODULE:decode(BinarySC),
+            {ok, ?MODULE:skewed(blockchain_skewed_v1:deserialize(skewed(SC0)), SC0)};
         not_found -> {error, not_found};
         Error -> Error
     end.
@@ -341,12 +345,12 @@ encode_decode_test() ->
     ?assertEqual(SC1, decode(encode(SC1))),
     ?assertEqual(SC2, decode(encode(SC2))).
 
-save_get_test() ->
-    BaseDir = test_utils:tmp_dir("save_get_test"),
+save_fetch_test() ->
+    BaseDir = test_utils:tmp_dir("save_fetch_test"),
     {ok, DB} = open_db(BaseDir),
     SC = new(<<"1">>, <<"owner">>),
     ?assertEqual(ok, save(DB, SC)),
-    ?assertEqual({ok, SC}, get(DB, <<"1">>)).
+    ?assertEqual({ok, SC}, fetch(DB, <<"1">>)).
 
 open_db(Dir) ->
     DBDir = filename:join(Dir, "state_channels.db"),
