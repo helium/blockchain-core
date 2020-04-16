@@ -264,10 +264,32 @@ init_per_testcase(TestCase, Config) ->
 
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(TestCase, Config) ->
     Nodes = ?config(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
-    ok.
+    case ?config(tc_status, Config) of
+        ok ->
+            %% test passed, we can cleanup
+            cleanup_per_testcase(TestCase, Config);
+        _ ->
+            %% leave results alone for analysis
+            ok
+    end,
+    {comment, done}.
+
+cleanup_per_testcase(_TestCase, Config) ->
+    Nodes = ?config(nodes, Config),
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
+    lists:foreach(fun(Node) ->
+                          LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
+                          Res = os:cmd("rm -rf " ++ LogRoot),
+                          ct:pal("rm -rf ~p -> ~p", [LogRoot, Res]),
+                          DataDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                          Res2 = os:cmd("rm -rf " ++ DataDir),
+                          ct:pal("rm -rf ~p -> ~p", [DataDir, Res2]),
+                          ok
+                  end, Nodes).
 
 create_vars() ->
     create_vars(#{}).
@@ -335,10 +357,12 @@ init_base_dir_config(Mod, TestCase, Config)->
     PrivDir = ?config(priv_dir, Config),
     TCName = erlang:atom_to_list(TestCase),
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
+    LogDir = PrivDir ++ "logs/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     SimDir = BaseDir ++ "_sim",
     [
         {base_dir, BaseDir},
-        {sim_dir, SimDir}
+        {sim_dir, SimDir},
+        {log_dir, LogDir}
         | Config
     ].
 
