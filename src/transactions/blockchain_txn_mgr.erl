@@ -330,17 +330,17 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
         fun({Txn, {Callback, RecvBlockHeight, Acceptions, Rejections, Dialers}}) ->
-            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
-                {false, false} ->
+            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions), IsNewElection} of
+                {false, false, _} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
                     %% so in this scenario do nothing...
                     %% we need to keep dialers open to ensure we receive responses from the CG members
                     %% who may not yet have responded to any previous submit
-                    lager:debug("txn ~p has undecided validations, leaving in cache: ~p", [Txn, blockchain_txn:hash(Txn)]),
+                    lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                     ok;
-                {true, _} ->
+                {true, _, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
                     %% stop all existing dialers for the txn
@@ -349,58 +349,78 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
                     ok = invoke_callback(Callback, {error, invalid}),
                     delete_cached_txn(Txn);
-                {_, true} ->
-                    case IsNewElection orelse length(Dialers) < (SubmitF - length(Acceptions)) of
+                {_, true, true} ->
+                    %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
+                    %% keep any existing acceptions/rejections from the previous round
+                    lager:debug("txn is valid and there is a new election: ~p.  Checking if it needs to be resubmitted", [blockchain_txn:hash(Txn)]),
+                    RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
+                    %% figure out which dialers still point to members of the new consensus group
+                    {RemainingDialers, StaleDialers} = lists:partition(fun({_DialerPid, DialerMember}) ->
+                                                            lists:member(DialerMember, NewGroupMembers)
+                                                    end, Dialers),
+                    %% stop all the dialers to members no longer in the consensus group
+                    ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
+                    %% remove any acceptions and rejections from members no longer in the consensus group
+                    {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
+                    %% check if the txn has any dependencies and resubmit as required
+                    check_for_deps_and_resubmit(Txn, Txns, Callback, RecvBlockHeight0, Chain, SubmitF, NewAcceptions, NewRejections, RemainingDialers);
+                {_, true, _} ->
+                    %% the txn is valid and there has not been a new election
+                    %% if we dont have sufficient acceptions at this point, resubmit to additional members
+                    lager:debug("txn is valid and there is NO new election: ~p.  Checking if it needs to be resubmitted", [blockchain_txn:hash(Txn)]),
+                    case length(Dialers) < (SubmitF - length(Acceptions)) of
                         true ->
-                            %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
-                            %% keep any existing acceptions/rejections from the previous round
                             RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
-                            %% figure out which dialers still point at a consensus group member
-                            {RemainingDialers, StaleDialers} = lists:partition(fun({_DialerPid, DialerMember}) ->
-                                                                    lists:member(DialerMember, NewGroupMembers)
-                                                            end, Dialers),
-                            %% stop all the old dialers that no longer are in the consensus group
-                            ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
-                            {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers, IsNewElection),
-                            %% check if this transaction has any dependencies
-                            %% figure out what, if anything, this transaction depends on
-                            case blockchain_txn:depends_on(Txn, Txns) of
-                                [] ->
-                                    %% XXX we assume we have correct dependency resolution here, if you add a new transaction with 
-                                    %% dependencies and don't fix depends_on, your transaction will probably get rejected
-                                    NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, NewAcceptions, NewRejections, RemainingDialers),
-                                    lager:info("Resubmitting txn: ~p to ~b new dialers after election", [blockchain_txn:hash(Txn), length(NewDialers)]),
-                                    cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers);
-                                Dependencies ->
-                                    {ok, {_, {_, _, A0, _, _}}} = cached_txn(hd(Dependencies)),
-                                    ElegibleMembers = sets:to_list(lists:foldl(fun(E, Acc) ->
-                                                                                       {ok, {_, {_, _, A, _, _}}} = cached_txn(E),
-                                                                                       sets:intersection(Acc, sets:from_list(A))
-                                                                               end, sets:from_list(A0), tl(Dependencies))),
-                                    {_, DialedMembers} = lists:unzip(Dialers),
-                                    NewDialers = dial_members(lists:sublist(((ElegibleMembers -- NewAcceptions) -- NewRejections) -- DialedMembers, SubmitF - length(NewAcceptions) - length(Dialers)), Chain, Txn),
-                                    lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers), length(NewDialers)]),
-                                    cache_txn(Txn, Callback, RecvBlockHeight0, NewAcceptions, NewRejections, RemainingDialers ++ NewDialers)
-                            end;
+                            %% check if the txn has any dependencies and resubmit as required
+                            check_for_deps_and_resubmit(Txn, Txns, Callback, RecvBlockHeight0, Chain, SubmitF, Acceptions, Rejections, Dialers);
                         false ->
-                            %% the txn remains valid, there is no new election and the txn has sufficient acceptions
-                            %% so do nothing
-                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",[blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
+                            %% the txn remains valid and the txn has sufficient acceptions, so do nothing
+                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",
+                                [blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
                             ok
                     end
             end
         end, CachedTxns).
 
+-spec check_for_deps_and_resubmit(blockchain_txn:txn(), [blockchain_txn:txn()],
+        function(), integer() | undefined, blockchain:blockchain(), integer(),
+        [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], [dialer()]) -> ok.
+check_for_deps_and_resubmit(Txn, Txns, Callback, RecvBlockHeight, Chain,
+                            SubmitF, Acceptions, Rejections ,Dialers)->
+    %% check if this transaction has any dependencies
+    %% figure out what, if anything, this transaction depends on
+    case blockchain_txn:depends_on(Txn, Txns) of
+        [] ->
+            %% NOTE: we assume we have correct dependency resolution here, if you add a new transaction with
+            %% dependencies and don't fix depends_on, your transaction will probably get rejected
+            NewDialers = submit_txn_to_cg(Chain, Txn, SubmitF, Acceptions, Rejections, Dialers),
+            lager:info("Resubmitting txn: ~p to ~b new dialers", [blockchain_txn:hash(Txn), length(NewDialers)]),
+            cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, Dialers ++ NewDialers);
+        Dependencies ->
+            %% for txns with dep txns, we only want to submit to members which have accepted one of the dep txns previously
+            %% so we need to build up an explicit set of elegible members rather than sending to random CG members
+            {ok, {_, {_, _, A0, _, _}}} = cached_txn(hd(Dependencies)),
+            ElegibleMembers = sets:to_list(lists:foldl(fun(E, Acc) ->
+                                                               {ok, {_, {_, _, A, _, _}}} = cached_txn(E),
+                                                               sets:intersection(Acc, sets:from_list(A))
+                                                       end, sets:from_list(A0), tl(Dependencies))),
+            {_, ExistingDialers} = lists:unzip(Dialers),
+            %% remove any CG members from the elegible list which have already accepted or rejected the txn and also
+            %% those which we are already dialling
+            ElegibleMembers1 = ((ElegibleMembers -- Acceptions) -- Rejections) -- ExistingDialers,
+            %% determine max number of new diallers we need to start and then use this to get our target list to dial
+            MaxNewDiallersCount = SubmitF - length(Acceptions) - length(Dialers),
+            NewDialers = dial_members(lists:sublist(ElegibleMembers1, MaxNewDiallersCount), Chain, Txn),
+            lager:debug("txn ~p depends on ~p other txns, can dial ~p members and dialed ~p", [blockchain_txn:hash(Txn), length(Dependencies), length(ElegibleMembers), length(NewDialers)]),
+            cache_txn(Txn, Callback, RecvBlockHeight, Acceptions, Rejections, Dialers ++ NewDialers)
+    end.
+
 -spec purge_old_cg_members([libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()],
-                                  [libp2p_crypto:pubkey_bin()], boolean()) -> {[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}.
-purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers, true) ->
-    %% is a new election
+                                  [libp2p_crypto:pubkey_bin()]) -> {[libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()]}.
+purge_old_cg_members(Acceptions0, Rejections0, NewGroupMembers) ->
     Acceptions = [ M || M <- NewGroupMembers, lists:member(M,Acceptions0) == true ],
     Rejections = [ M || M <- NewGroupMembers, lists:member(M,Rejections0) == true ],
-    {Acceptions, Rejections};
-purge_old_cg_members(Acceptions0, Rejections0, [], false) ->
-    %% not a new election
-    {Acceptions0, Rejections0}.
+    {Acceptions, Rejections}.
 
 -spec accepted(blockchain_txn:txn(), libp2p_crypto:pubkey_bin(), pid()) -> ok.
 accepted(Txn, Member, Dialer) ->
