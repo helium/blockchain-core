@@ -417,7 +417,6 @@ convert_to_state_channels(LedgerSCs) ->
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
-                     Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
                      blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0)
              end,
