@@ -419,7 +419,6 @@ convert_to_state_channels(LedgerSCs) ->
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
                      Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                     lager:info("loaded SC from ledger with nonce ~p", [Nonce]),
                      blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0)
              end,
              LedgerSCs).
@@ -439,8 +438,11 @@ maybe_get_new_active(SCs) ->
             SCSortFun = fun({_ID1, SC1}, {_ID2, SC2}) ->
                                blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                         end,
+            SCSortFun2 = fun({_ID1, SC1}, {_ID2, SC2}) ->
+                               blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                        end,
 
-            {ID, _} = hd(lists:sort(SCSortFun, L)),
+            {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
             ID
     end.
 
