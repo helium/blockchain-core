@@ -52,7 +52,9 @@ init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
 init_per_testcase(Test, Config) ->
-    InitConfig = blockchain_ct_utils:init_per_testcase(Test, Config),
+    InitConfig0 = blockchain_ct_utils:init_base_dir_config(?MODULE, Test, Config),
+    InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),
+
     Nodes = ?config(nodes, InitConfig),
     Balance = 5000,
     NumConsensusMembers = ?config(num_consensus_members, InitConfig),
