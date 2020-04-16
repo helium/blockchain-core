@@ -666,6 +666,8 @@ actor(Txn) ->
             <<>>
     end.
 
+
+-spec depends_on(txn(), [txn()]) -> [txn()].
 depends_on(Txn, Txns) ->
     case type(Txn) of
         Type when Type == blockchain_txn_payment_v1;
