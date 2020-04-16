@@ -159,7 +159,8 @@ shuffle(List) ->
     [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 init_per_testcase(TestCase, Config) ->
-
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
     case net_kernel:start([list_to_atom("runner-blockchain-" ++
@@ -190,15 +191,15 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, load, [libp2p]),
                                 ct_rpc:call(Node, application, load, [erlang_stats]),
                                 %% give each node its own log directory
-                                LogRoot = "log/" ++ atom_to_list(TestCase) ++ "/" ++ atom_to_list(Node),
+                                LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
-                                BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
-                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
+                                BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),

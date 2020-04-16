@@ -419,8 +419,8 @@ convert_to_state_channels(LedgerSCs) ->
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
                      Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                     SC1 = blockchain_state_channel_v1:nonce(Nonce, SC0),
-                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC1)
+                     lager:info("loaded SC from ledger with nonce ~p", [Nonce]),
+                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0)
              end,
              LedgerSCs).
 
