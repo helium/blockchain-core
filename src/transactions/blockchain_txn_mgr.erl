@@ -156,7 +156,8 @@ handle_info({dial_failed, {Dialer, Txn, Member}}, State) ->
     {noreply, State};
 
 handle_info({timeout, {Dialer, Txn, Member}}, State) ->
-    lager:debug("txn: ~s, timeout: ~p, Dialer: ~p", [blockchain_txn:print(Txn), Member, Dialer]),
+    lager:debug("txn: ~s, timeout: ~p, Dialer: ~p. Dialer will be stopped", [blockchain_txn:print(Txn), Member, Dialer]),
+    ok = blockchain_txn_mgr_sup:stop_dialer(Dialer),
     ok = retry(Txn, Dialer),
     {noreply, State};
 
