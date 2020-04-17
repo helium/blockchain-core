@@ -260,8 +260,6 @@
 %% ------------------------------------------------------------------
 %% State channel related vars
 %%
-%% Approximate blocks in a week, set to 10080
--define(approx_blocks_in_week, approx_blocks_in_week).
 %% Min state channel expiration (# of blocks), set to 10
 -define(min_expire_within, min_expire_within).
 %% Max open state channels per router, set to 2
@@ -274,3 +272,5 @@
 -define(max_subnet_size, max_subnet_size).
 %% Min subnet size, 8
 -define(min_subnet_size, min_subnet_size).
+%% Max subnet num
+-define(max_subnet_num, max_subnet_num).
