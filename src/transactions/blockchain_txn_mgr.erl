@@ -248,12 +248,12 @@ handle_add_block_event({add_block, BlockHash, Sync, _Ledger}, State=#state{chain
 purge_block_txns_from_cache(Block)->
     MinedTxns = blockchain_block:transactions(Block),
     ok = lists:foreach(
-        fun({Txn, TxnData}) ->
+        fun({Txn, #txn_data{callback=Callback, dialers=Dialers}}) ->
             case lists:member(Txn, MinedTxns) of
                 true ->
                     %% txn has been mined in last block
-                    ok = blockchain_txn_mgr_sup:stop_dialers(TxnData#txn_data.dialers),
-                    ok = invoke_callback(TxnData#txn_data.callback, ok),
+                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+                    ok = invoke_callback(Callback, ok),
                     delete_cached_txn(Txn);
                 false ->
                     noop
@@ -451,7 +451,7 @@ rejected(Txn, Member, Dialer, CurBlockHeight, RejectF) ->
         {ok, {Txn, #txn_data{rejections = Rejections, dialers = Dialers} = TxnData}} ->
             %% add the member to the rejections list, so we avoid resubmitting to one which already rejected
             NewTxnData = TxnData#txn_data{  rejections = lists:usort([Member|Rejections]),
-                                                              dialers = lists:keydelete(Dialer, 1, Dialers)},
+                                            dialers = lists:keydelete(Dialer, 1, Dialers)},
             reject_actions({Txn, NewTxnData}, RejectF, CurBlockHeight)
     end.
 
