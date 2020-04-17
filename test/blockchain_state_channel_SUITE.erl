@@ -1218,7 +1218,7 @@ crash_multi_sc_test(Config) ->
     ct:pal("Block0: ~p", [Block0]),
 
     %% Get sc open block hash for verification later
-    %% SCOpenBlockHash = blockchain_block:hash_block(Block0),
+    SCOpenBlockHash = blockchain_block:hash_block(Block0),
 
     %% Fake gossip block
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block0, RouterChain, Self]),
@@ -1290,10 +1290,27 @@ crash_multi_sc_test(Config) ->
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
     ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
 
+    %% At this point we know that the first sc open must have expired, however, we do not know whether it's
+    %% responsible for both packets or just one, so, we look at it's nonce and go from there
+
+    {ok, NonceSC1} = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]),
+    {ok, NonceSC2} = ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2]),
+
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            %% true = check_sc_close(Txn, SCOpenBlockHash, [Payload0, Payload1]),
+            case NonceSC1 of
+                0 ->
+                    %% This guy did nothing
+                    ok;
+                1 ->
+                    %% It sent one packet
+                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [Payload0]);
+                2 ->
+                    %% It sent both packets
+                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [Payload0, Payload1])
+            end,
+
             {ok, Block23} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block23, RouterChain, Self])
     after 10000 ->
@@ -1311,7 +1328,17 @@ crash_multi_sc_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn2} ->
-            %% true = check_sc_close(Txn, SCOpenBlockHash, [Payload0, Payload1]),
+            case NonceSC2 of
+                0 ->
+                    %% This guy did nothing
+                    ok;
+                1 ->
+                    %% It sent one packet
+                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [Payload1]);
+                2 ->
+                    %% It sent both packets
+                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [Payload0, Payload1])
+            end,
             {ok, Block44} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [RouterSwarm, Block44, RouterChain, Self])
     after 10000 ->
