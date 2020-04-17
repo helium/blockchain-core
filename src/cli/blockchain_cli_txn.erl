@@ -10,6 +10,7 @@
 -export([register_cli/0]).
 
 -include("blockchain.hrl").
+-include("blockchain_shared.hrl").
 
 register_cli() ->
     register_all_usage(), register_all_cmds().
@@ -76,7 +77,9 @@ txn_queue([], [], []) ->
     usage.
 
 format_txn_list(TxnList) ->
-    lists:map(fun({Txn, {_Callback, RecvBlockHeight, Acceptions, Rejections, _Dialer}}) ->
+    lists:map(fun({Txn, #txn_data{  acceptions = Acceptions,
+                                    rejections = Rejections,
+                                    recv_block_height = RecvBlockHeight}}) ->
                       TxnMod = blockchain_txn:type(Txn),
                       TxnHash = blockchain_txn:hash(Txn),
                       [
