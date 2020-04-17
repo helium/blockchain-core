@@ -1105,7 +1105,9 @@ crash_single_sc_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
 
     %% Check that the nonce of the sc server is okay
-    ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
 
     %% look at sc server before sending the packet
     {_, _, _} = debug(RouterNode),
