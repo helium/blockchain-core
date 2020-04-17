@@ -76,14 +76,17 @@ txn_queue([], [], []) ->
     usage.
 
 format_txn_list(TxnList) ->
-    lists:map(fun({Txn, {_Callback, RecvBlockHeight, Acceptions, Rejections, _Dialer}}) ->
-                      TxnMod = blockchain_txn:type(Txn),
-                      TxnHash = blockchain_txn:hash(Txn),
+    maps:fold(fun(Txn, TxnData, Acc) ->
+                    TxnMod = blockchain_txn:type(Txn),
+                    TxnHash = blockchain_txn:hash(Txn),
+                    Acceptions = proplists:get_value(acceptions, TxnData, []),
+                    Rejections = proplists:get_value(rejections, TxnData, []),
+                    RecvBlockHeight = proplists:get_value(recv_block_height, TxnData, undefined),
                       [
-                       {txn_type, atom_to_list(TxnMod)},
+                       [{txn_type, atom_to_list(TxnMod)},
                        {txn_hash, io_lib:format("~p", [libp2p_crypto:bin_to_b58(TxnHash)])},
                        {acceptions, length(Acceptions)},
                        {rejections, length(Rejections)},
-                       {accepted_block_height, RecvBlockHeight}
-                      ]
-              end, TxnList).
+                       {accepted_block_height, RecvBlockHeight}]
+                      | Acc]
+              end, [], TxnList).
