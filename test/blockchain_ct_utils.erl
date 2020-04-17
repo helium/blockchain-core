@@ -159,7 +159,8 @@ shuffle(List) ->
     [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 init_per_testcase(TestCase, Config) ->
-
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
     case net_kernel:start([list_to_atom("runner-blockchain-" ++
@@ -190,15 +191,15 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, load, [libp2p]),
                                 ct_rpc:call(Node, application, load, [erlang_stats]),
                                 %% give each node its own log directory
-                                LogRoot = "log/" ++ atom_to_list(TestCase) ++ "/" ++ atom_to_list(Node),
+                                LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
-                                BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
-                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
+                                BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
@@ -264,10 +265,32 @@ init_per_testcase(TestCase, Config) ->
 
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(TestCase, Config) ->
     Nodes = ?config(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
-    ok.
+    case ?config(tc_status, Config) of
+        ok ->
+            %% test passed, we can cleanup
+            cleanup_per_testcase(TestCase, Config);
+        _ ->
+            %% leave results alone for analysis
+            ok
+    end,
+    {comment, done}.
+
+cleanup_per_testcase(_TestCase, Config) ->
+    Nodes = ?config(nodes, Config),
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
+    lists:foreach(fun(Node) ->
+                          LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
+                          Res = os:cmd("rm -rf " ++ LogRoot),
+                          ct:pal("rm -rf ~p -> ~p", [LogRoot, Res]),
+                          DataDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                          Res2 = os:cmd("rm -rf " ++ DataDir),
+                          ct:pal("rm -rf ~p -> ~p", [DataDir, Res2]),
+                          ok
+                  end, Nodes).
 
 create_vars() ->
     create_vars(#{}).
@@ -335,10 +358,12 @@ init_base_dir_config(Mod, TestCase, Config)->
     PrivDir = ?config(priv_dir, Config),
     TCName = erlang:atom_to_list(TestCase),
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
+    LogDir = PrivDir ++ "logs/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     SimDir = BaseDir ++ "_sim",
     [
         {base_dir, BaseDir},
-        {sim_dir, SimDir}
+        {sim_dir, SimDir},
+        {log_dir, LogDir}
         | Config
     ].
 
