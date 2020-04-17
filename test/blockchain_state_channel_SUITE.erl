@@ -69,12 +69,12 @@ init_per_testcase(Test, Config) ->
 
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
     ExtraVars = #{max_open_sc => 2,
-                  approx_blocks_in_week => 10080,
                   min_expire_within => 10,
                   max_xor_filter_size => 1024*100,
                   max_xor_filter_num => 5,
                   max_subnet_size => 65536,
-                  min_subnet_size => 8},
+                  min_subnet_size => 8,
+                  max_subnet_num => 20},
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 

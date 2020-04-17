@@ -135,48 +135,43 @@ do_is_valid_checks(Txn, Ledger) ->
 
     case blockchain:config(?min_expire_within, Ledger) of
         {ok, MinExpireWithin} ->
-            case blockchain:config(?approx_blocks_in_week, Ledger) of
-                {ok, ApproxBlocksInWeek} ->
-                    case blockchain:config(?max_open_sc, Ledger) of
-                        {ok, MaxOpenSC} ->
-                            case ExpireWithin > MinExpireWithin andalso ExpireWithin < ApproxBlocksInWeek of
-                                false ->
-                                    {error, invalid_expire_at_block};
-                                true ->
-                                    case blockchain_ledger_v1:find_routing(OUI, Ledger) of
-                                        {error, not_found} ->
-                                            lager:error("oui: ~p not found for this router: ~p", [OUI, Owner]),
-                                            {error, {not_found, OUI, Owner}};
-                                        {ok, Routing} ->
-                                            KnownRouters = blockchain_ledger_routing_v1:addresses(Routing),
-                                            case lists:member(Owner, KnownRouters) of
-                                                false ->
-                                                    lager:error("unknown router: ~p, known routers: ~p", [Owner, KnownRouters]),
-                                                    {error, unknown_router};
-                                                true ->
-                                                    case blockchain_ledger_v1:find_sc_ids_by_owner(Owner, Ledger) of
-                                                        {ok, BinIds} when length(BinIds) >= MaxOpenSC ->
-                                                            lager:error("already have max open state_channels for router: ~p", [Owner]),
-                                                            {error, {max_scs_open, Owner}};
-                                                        _ ->
-                                                            case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                                                                {error, not_found} ->
-                                                                    %% No state channel with this ID for this Owner exists
-                                                                    ok;
-                                                                {ok, _} ->
-                                                                    {error, state_channel_already_exists};
-                                                                {error, _}=Err ->
-                                                                    Err
-                                                            end
+            case blockchain:config(?max_open_sc, Ledger) of
+                {ok, MaxOpenSC} ->
+                    case ExpireWithin > MinExpireWithin andalso ExpireWithin < blockchain_utils:approx_blocks_in_week(Ledger) of
+                        false ->
+                            {error, invalid_expire_at_block};
+                        true ->
+                            case blockchain_ledger_v1:find_routing(OUI, Ledger) of
+                                {error, not_found} ->
+                                    lager:error("oui: ~p not found for this router: ~p", [OUI, Owner]),
+                                    {error, {not_found, OUI, Owner}};
+                                {ok, Routing} ->
+                                    KnownRouters = blockchain_ledger_routing_v1:addresses(Routing),
+                                    case lists:member(Owner, KnownRouters) of
+                                        false ->
+                                            lager:error("unknown router: ~p, known routers: ~p", [Owner, KnownRouters]),
+                                            {error, unknown_router};
+                                        true ->
+                                            case blockchain_ledger_v1:find_sc_ids_by_owner(Owner, Ledger) of
+                                                {ok, BinIds} when length(BinIds) >= MaxOpenSC ->
+                                                    lager:error("already have max open state_channels for router: ~p", [Owner]),
+                                                    {error, {max_scs_open, Owner}};
+                                                _ ->
+                                                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+                                                        {error, not_found} ->
+                                                            %% No state channel with this ID for this Owner exists
+                                                            ok;
+                                                        {ok, _} ->
+                                                            {error, state_channel_already_exists};
+                                                        {error, _}=Err ->
+                                                            Err
                                                     end
                                             end
                                     end
-                            end;
-                        _ ->
-                            {error, max_open_sc_not_set}
+                            end
                     end;
                 _ ->
-                    {error, approx_blocks_in_week_not_set}
+                    {error, max_open_sc_not_set}
             end;
         _ ->
             {error, min_expire_within_not_set}
