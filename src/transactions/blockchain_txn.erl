@@ -274,7 +274,14 @@ maybe_log_duration(Type, Start) ->
     end.
 
 types(L) ->
-    lists:map(fun type/1, L).
+    L1 = lists:map(fun type/1, L),
+    M = lists:foldl(
+          fun(T, Acc) ->
+                  maps:update_with(T, fun(X) -> X + 1 end, 1, Acc)
+          end,
+          #{},
+          L1),
+    maps:to_list(M).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -151,9 +151,9 @@ is_valid(Txn, Chain) ->
                 false ->
                     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
                         {error, Reason}=Error ->
-                            lager:error([{poc_id, HexPOCID}],
-                                        "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
-                                        [POCOnionKeyHash, Reason]),
+                            lager:warning([{poc_id, HexPOCID}],
+                                          "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
+                                          [POCOnionKeyHash, Reason]),
                             Error;
                         {ok, PoCs} ->
                             Secret = ?MODULE:secret(Txn),
@@ -163,17 +163,17 @@ is_valid(Txn, Chain) ->
                                 {ok, PoC} ->
                                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                                         {error, Reason}=Error ->
-                                            lager:error([{poc_id, HexPOCID}],
-                                                        "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                                                        [Challenger, Reason]),
+                                            lager:warning([{poc_id, HexPOCID}],
+                                                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                                                          [Challenger, Reason]),
                                             Error;
                                         {ok, GwInfo} ->
                                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                                             case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, Reason}=Error ->
-                                                    lager:error([{poc_id, HexPOCID}],
-                                                                "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                                [LastChallenge, Reason]),
+                                                    lager:warning([{poc_id, HexPOCID}],
+                                                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                                                  [LastChallenge, Reason]),
                                                     Error;
                                                 {ok, Block1} ->
                                                     PoCInterval = blockchain_utils:challenge_interval(Ledger),
@@ -593,7 +593,7 @@ absorb(Txn, Chain) ->
                 end
         end
     catch What:Why:Stacktrace ->
-              lager:error([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
+              lager:warning([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
               {error, state_missing}
     end.
 
@@ -605,7 +605,7 @@ absorb(Txn, Chain) ->
 get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
     case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
         {error, Reason}=Error0 ->
-            lager:error("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [OnionKeyHash, Reason]),
+            lager:warning("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [OnionKeyHash, Reason]),
             Error0;
         {ok, PoCs} ->
             case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
@@ -614,13 +614,13 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                 {ok, _PoC} ->
                     case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
                         {error, Reason}=Error2 ->
-                            lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
+                            lager:warning("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
                             Error2;
                         {ok, GwInfo} ->
                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
-                                    lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
+                                    lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
                                     Error3;
                                 {ok, Block1} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
@@ -730,21 +730,21 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     ZippedLayers = lists:zip(LayerData, LayerHashes),
     ZippedLayersLength = length(ZippedLayers),
     HexPOCID = ?MODULE:hex_poc_id(Txn),
-    lager:info([{poc_id, HexPOCID}], "starting poc receipt validation..."),
+    lager:debug([{poc_id, HexPOCID}], "starting poc receipt validation..."),
 
     case TxnPathLength == RebuiltPathLength of
         false ->
             HumanTxnPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_poc_path_element_v1:challengee(E)))) || E <- TxnPath],
             HumanRebuiltPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(A))) || A <- Path],
-            lager:error([{poc_id, HexPOCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
-            lager:error([{poc_id, HexPOCID}], "TxnPath: ~p", [HumanTxnPath]),
-            lager:error([{poc_id, HexPOCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
+            lager:warning([{poc_id, HexPOCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
+            lager:warning([{poc_id, HexPOCID}], "TxnPath: ~p", [HumanTxnPath]),
+            lager:warning([{poc_id, HexPOCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
             {error, path_length_mismatch};
         true ->
             %% Now check whether layers are of equal length
             case TxnPathLength == ZippedLayersLength of
                 false ->
-                    lager:error([{poc_id, HexPOCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p", [TxnPathLength, ZippedLayersLength]),
+                    lager:warning([{poc_id, HexPOCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p", [TxnPathLength, ZippedLayersLength]),
                     {error, zip_layer_length_mismatch};
                 true ->
                     Result = lists:foldl(
@@ -791,23 +791,23 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                    false ->
                                                        case Receipt == undefined of
                                                            true ->
-                                                               lager:error([{poc_id, HexPOCID}],
-                                                                           "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
-                                                                           [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
+                                                               lager:warning([{poc_id, HexPOCID}],
+                                                                             "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
+                                                                             [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
                                                            false ->
-                                                               lager:error([{poc_id, HexPOCID}],
-                                                                           "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
-                                                                           [blockchain_poc_receipt_v1:origin(Receipt),
-                                                                            ExpectedOrigin,
-                                                                            blockchain_poc_receipt_v1:data(Receipt),
-                                                                            LayerDatum,
-                                                                            blockchain_poc_receipt_v1:gateway(Receipt),
-                                                                            Gateway])
+                                                               lager:warning([{poc_id, HexPOCID}],
+                                                                             "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
+                                                                             [blockchain_poc_receipt_v1:origin(Receipt),
+                                                                              ExpectedOrigin,
+                                                                              blockchain_poc_receipt_v1:data(Receipt),
+                                                                              LayerDatum,
+                                                                              blockchain_poc_receipt_v1:gateway(Receipt),
+                                                                              Gateway])
                                                        end,
                                                        {error, invalid_receipt}
                                                end;
                                            _ ->
-                                               lager:error([{poc_id, HexPOCID}], "receipt not in order"),
+                                               lager:warning([{poc_id, HexPOCID}], "receipt not in order"),
                                                {error, receipt_not_in_order}
                                        end
                                end,

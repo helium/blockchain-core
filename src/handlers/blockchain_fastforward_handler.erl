@@ -69,6 +69,7 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     #blockchain_sync_blocks_pb{blocks=BinBlocks} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
+    lager:info("adding blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
     case blockchain:add_blocks(Blocks, Blockchain) of
         ok ->
             ok;
