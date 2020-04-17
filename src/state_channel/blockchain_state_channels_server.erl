@@ -178,10 +178,9 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             {noreply, State};
         Chain ->
             Ledger = blockchain:ledger(Chain),
-            LoadState = load_state(Ledger, State),
+            LoadState = load_state(Ledger, State#state{chain=Chain}),
             lager:info("load state: ~p", [LoadState]),
-            NewState = LoadState#state{chain=Chain},
-            {noreply, NewState}
+            {noreply, LoadState}
     end;
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
@@ -354,9 +353,9 @@ get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
 
 -spec load_state(Ledger :: blockchain_ledger_v1:ledger(),
                  State :: state()) -> state().
-load_state(Ledger, #state{db=DB, owner={Owner, _}}=State) ->
+load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
     {ok, SCMap} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
-    ConvertedSCs = convert_to_state_channels(SCMap),
+    ConvertedSCs = convert_to_state_channels(SCMap, Chain),
 
     DBSCs = case get_state_channels(DB) of
                 {error, _} ->
@@ -412,13 +411,29 @@ save_state_channels(DB, ID) ->
             end
     end.
 
--spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map()) -> state_channels().
-convert_to_state_channels(LedgerSCs) ->
+-spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map(), blockchain:blockchain()) -> state_channels().
+convert_to_state_channels(LedgerSCs, Chain) ->
+    {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                     blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0)
+                     Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
+                     Filter = fun(T) -> blockchain_txn:type(T) == blockchain_txn_state_channel_open_v1 andalso
+                                        blockchain_txn_state_channel_open_v1:id(T) == ID andalso
+                                        blockchain_txn_state_channel_open_v1:nonce(T) == Nonce
+                              end,
+                     BlockHash = blockchain:fold_chain(fun(Block, undefined) ->
+                                                               case blockchain_utils:find_txn(Block, Filter) of
+                                                                   [_T] ->
+                                                                       blockchain_block:hash_block(Block);
+                                                                   _ ->
+                                                                       undefined
+                                                               end;
+                                                          (_, _Hash) -> return
+                                                       end, undefined, Head, Chain),
+                     SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
+                     blockchain_state_channel_v1:skewed(skewed:new(BlockHash), SC1)
              end,
              LedgerSCs).
 
