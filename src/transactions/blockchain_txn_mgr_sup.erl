@@ -41,8 +41,9 @@ start_dialer([Parent, Txn, ConsensusMember]) ->
     supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]).
 
 stop_dialer(Pid) ->
-    supervisor:terminate_child(?MODULE, Pid).
+    catch supervisor:terminate_child(?MODULE, Pid),
+    ok.
 
-stop_dialers(Pids) ->
-    [catch supervisor:terminate_child(?MODULE, Pid) || Pid <- Pids],
+stop_dialers(Dialers) ->
+    [catch supervisor:terminate_child(?MODULE, Pid) || {Pid, _Member} <- Dialers],
     ok.

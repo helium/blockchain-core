@@ -1064,7 +1064,6 @@ reset_ledger(Height,
             %% new chain
             {ok, Ledger1} = blockchain_worker:new_ledger(Dir),
             Chain1 = ledger(Ledger1, Chain),
-            blockchain_worker:blockchain(Chain1),
 
             %% reapply the blocks
             Chain2 =
@@ -1100,6 +1099,8 @@ reset_ledger(Height,
               %% this will be a noop in the case where Height == TopHeight
               Chain1,
               lists:seq(1, Height)),
+
+            blockchain_worker:blockchain(Chain1),
 
             blockchain_lock:release(),
             {ok, Chain2}
