@@ -200,11 +200,16 @@ is_valid(Txn, Chain) ->
                                                 {ok, MaxSubnetSize} ->
                                                     case blockchain:config(?min_subnet_size, Ledger) of
                                                         {ok, MinSubnetSize} ->
-                                                            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
-                                                                false ->
-                                                                    {error, bad_signature};
-                                                                true ->
-                                                                    do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize)
+                                                            case blockchain:config(?max_subnet_num, Ledger) of
+                                                                {ok, MaxSubnetNum} ->
+                                                                    case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+                                                                        false ->
+                                                                            {error, bad_signature};
+                                                                        true ->
+                                                                            do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum)
+                                                                    end;
+                                                                _ ->
+                                                                    {error, max_subnet_num_not_set}
                                                             end;
                                                         _ ->
                                                             {error, min_subnet_size_not_set}
@@ -276,7 +281,15 @@ validate_addresses(Addresses) ->
             false
     end.
 
-do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize) ->
+-spec do_is_valid_checks(Txn :: txn_routing(),
+                         Ledger :: blockchain_ledger_v1:ledger(),
+                         Routing :: blockchain_ledger_routing_v1:routing(),
+                         XORFilterSize :: pos_integer(),
+                         XORFilterNum :: pos_integer(),
+                         MinSubnetSize :: pos_integer(),
+                         MaxSubnetSize :: pos_integer(),
+                         MaxSubnetNum :: pos_integer()) -> ok | {error, any()}.
+do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum) ->
     case ?MODULE:action(Txn) of
         {update_routers, Addresses} ->
             case validate_addresses(Addresses) of
@@ -332,18 +345,27 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
             %% Erlang will coerce between floats and ints when you use ==
             case trunc(Res) == Res of
                 true ->
-                    case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
-                        {ok, _} ->
-                            Fee = ?MODULE:fee(Txn),
-                            Owner = ?MODULE:owner(Txn),
-                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
-                        Error ->
-                            Error
+                    case subnets_left(Routing, MaxSubnetNum) of
+                        false ->
+                            {error, max_subnets_reached};
+                        true ->
+                            case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
+                                {ok, _} ->
+                                    Fee = ?MODULE:fee(Txn),
+                                    Owner = ?MODULE:owner(Txn),
+                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                Error ->
+                                    Error
+                            end
                     end;
                 false ->
                     {error, invalid_subnet_size}
             end
     end.
+
+-spec subnets_left(Routing :: blockchain_ledger_routing_v1:routing(), MaxSubnetNum :: pos_integer()) -> boolean().
+subnets_left(Routing, MaxSubnetNum) ->
+    length(blockchain_ledger_routing_v1:subnets(Routing)) =< MaxSubnetNum.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
