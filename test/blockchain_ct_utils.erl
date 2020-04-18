@@ -342,7 +342,14 @@ raw_vars(Vars) ->
                 ?h3_neighbor_res => 12,
                 ?min_score => 0.15,
                 ?reward_version => 1,
-                ?allow_zero_amount => false
+                ?allow_zero_amount => false,
+                ?max_open_sc => 2,
+                ?min_expire_within => 10,
+                ?max_xor_filter_size => 1024*100,
+                ?max_xor_filter_num => 5,
+                ?max_subnet_size => 65536,
+                ?min_subnet_size => 8,
+                ?max_subnet_num => 20
                },
 
     maps:merge(DefVars, Vars).
