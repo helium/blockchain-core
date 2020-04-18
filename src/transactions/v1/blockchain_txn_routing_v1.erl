@@ -237,21 +237,43 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
+    OUI = ?MODULE:oui(Txn),
     %% try to allocate a subnet before debiting fees
     Action = case ?MODULE:action(Txn) of
         {request_subnet, SubnetSize} ->
-            {ok, Subnet} = blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger),
-            {request_subnet, Subnet};
+            {ok, Routing} = blockchain_ledger_v1:find_routing(OUI, Ledger),
+            {ok, MaxSubnetNum} = blockchain:config(?max_subnet_num, Ledger),
+            case subnets_left(Routing, MaxSubnetNum) of
+                false ->
+                    {error, max_subnets_reached};
+                true ->
+                    {ok, Subnet} = blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger),
+                    {request_subnet, Subnet}
+            end;
+        {new_xor, _}=Action0 ->
+            {ok, Routing} = blockchain_ledger_v1:find_routing(OUI, Ledger),
+            {ok, XorFilterNum} = blockchain:config(?max_xor_filter_num, Ledger),
+            case length(blockchain_ledger_routing_v1:filters(Routing)) < XorFilterNum of
+                true ->
+                    Action0;
+                false ->
+                    {error, max_filters_reached}
+            end;
         Action0 ->
             Action0
     end,
-    case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
-        {error, _}=Error ->
+    case Action of
+        {error, _} = Error ->
             Error;
-        ok ->
-            OUI = ?MODULE:oui(Txn),
-            Nonce = ?MODULE:nonce(Txn),
-            blockchain_ledger_v1:update_routing(OUI, Action, Nonce, Ledger)
+        _ ->
+            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                ok ->
+                    OUI = ?MODULE:oui(Txn),
+                    Nonce = ?MODULE:nonce(Txn),
+                    blockchain_ledger_v1:update_routing(OUI, Action, Nonce, Ledger)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -365,7 +387,8 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
 
 -spec subnets_left(Routing :: blockchain_ledger_routing_v1:routing(), MaxSubnetNum :: pos_integer()) -> boolean().
 subnets_left(Routing, MaxSubnetNum) ->
-    length(blockchain_ledger_routing_v1:subnets(Routing)) =< MaxSubnetNum.
+    Subnets = length(blockchain_ledger_routing_v1:subnets(Routing)),
+    Subnets < MaxSubnetNum.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

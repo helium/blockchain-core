@@ -1161,7 +1161,10 @@ max_subnet_test(Config) ->
                           [],
                           lists:seq(2, 24)),
 
-    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, OUITxns),
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, OUITxns),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
+    {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
+    ?assert(20 =< blockchain_ledger_routing_v1:subnets(Routing2)),
 
     ok.
 
