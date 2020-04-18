@@ -100,8 +100,16 @@ init_per_testcase(TestCase, Config) ->
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->
-                        #{allow_zero_amount => false}
+                        #{allow_zero_amount => false,
+                          max_open_sc => 2,
+                          min_expire_within => 10,
+                          max_xor_filter_size => 1024*100,
+                          max_xor_filter_num => 5,
+                          max_subnet_size => 65536,
+                          min_subnet_size => 8,
+                          max_subnet_num => 20}
                 end,
+
     {ok, GenesisMembers, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance,
                               {PrivKey, PubKey},
