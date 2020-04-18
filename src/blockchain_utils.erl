@@ -23,7 +23,8 @@
     find_txn/2,
     map_to_bitvector/1,
     bitvector_to_map/2,
-    get_pubkeybin_sigfun/1
+    get_pubkeybin_sigfun/1,
+    approx_blocks_in_week/1
 ]).
 
 -ifdef(TEST).
@@ -276,6 +277,16 @@ bitvector_to_map(Count, Vector) ->
 nearest_byte(X) ->
     (X div 8 + case X rem 8 of 0 -> 0; _ -> 1 end) * 8.
 
+-spec approx_blocks_in_week(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
+approx_blocks_in_week(Ledger) ->
+    case blockchain:config(?block_time, Ledger) of
+        {ok, BT} ->
+            %% BT is in ms
+            %% ms in a week = 604800000
+            trunc(604800000 / BT);
+        _ ->
+            10000
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -255,3 +255,22 @@
 -define(deprecate_payment_v1, deprecate_payment_v1).
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
+
+
+%% ------------------------------------------------------------------
+%% State channel related vars
+%%
+%% Min state channel expiration (# of blocks), set to 10
+-define(min_expire_within, min_expire_within).
+%% Max open state channels per router, set to 2
+-define(max_open_sc, max_open_sc).
+%% Max xor filter size, set to 1024*100
+-define(max_xor_filter_size, max_xor_filter_size).
+%% Max number of xor filters, set to 5
+-define(max_xor_filter_num, max_xor_filter_num).
+%% Max subnet size, 65536
+-define(max_subnet_size, max_subnet_size).
+%% Min subnet size, 8
+-define(min_subnet_size, min_subnet_size).
+%% Max subnet num
+-define(max_subnet_num, max_subnet_num).

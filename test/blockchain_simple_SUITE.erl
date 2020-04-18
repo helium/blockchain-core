@@ -37,7 +37,8 @@
     zero_amt_htlc_create_test/1,
     negative_payment_v1_test/1,
     negative_amt_htlc_create_test/1,
-    update_gateway_oui_test/1
+    update_gateway_oui_test/1,
+    max_subnet_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -82,7 +83,8 @@ all() ->
         zero_amt_htlc_create_test,
         negative_payment_v1_test,
         negative_amt_htlc_create_test,
-        update_gateway_oui_test
+        update_gateway_oui_test,
+        max_subnet_test
     ].
 
 %%--------------------------------------------------------------------
@@ -100,8 +102,16 @@ init_per_testcase(TestCase, Config) ->
                           election_bba_penalty => 0.01,
                           election_seen_penalty => 0.03};
                     _ ->
-                        #{allow_zero_amount => false}
+                        #{allow_zero_amount => false,
+                          max_open_sc => 2,
+                          min_expire_within => 10,
+                          max_xor_filter_size => 1024*100,
+                          max_xor_filter_num => 5,
+                          max_subnet_size => 65536,
+                          min_subnet_size => 8,
+                          max_subnet_num => 20}
                 end,
+
     {ok, GenesisMembers, ConsensusMembers, Keys} =
         test_utils:init_chain(Balance,
                               {PrivKey, PubKey},
@@ -1096,6 +1106,66 @@ routing_test(Config) ->
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
+    ok.
+
+max_subnet_test(Config) ->
+    BaseDir = ?config(base_dir, Config),
+
+    ConsensusMembers = ?config(consensus_members, Config),
+    BaseDir = ?config(base_dir, Config),
+    Chain = ?config(chain, Config),
+    Swarm = ?config(swarm, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+
+    meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
+    meck:expect(blockchain_txn_oui_v1, is_valid, fun(_, _) -> ok end),
+
+    OUI1 = 1,
+    Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
+    SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
+
+    ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block0, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
+
+    Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+    ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
+    Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
+    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 0, 1),
+    SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
+    {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block1, Chain, self()),
+
+    ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
+
+    Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
+    ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
+
+    OUITxns = lists:foldl(fun(I, Acc) ->
+                                  T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, I),
+                                  ST = blockchain_txn_routing_v1:sign(T, SigFun),
+                                  [ST | Acc]
+                          end,
+                          [],
+                          lists:seq(2, 24)),
+
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, OUITxns),
+    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
+    {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
+    ?assert(20 =< blockchain_ledger_routing_v1:subnets(Routing2)),
+
     ok.
 
 block_save_failed_test(Config) ->
