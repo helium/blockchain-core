@@ -86,7 +86,6 @@ keys_test(Config) ->
     ok = blockchain_worker:integrate_genesis_block(GenesisBlock),
 
     Chain = blockchain_worker:blockchain(),
-    Swarm = blockchain_swarm:swarm(),
 
     ok = test_utils:wait_until(fun() -> {ok, 1} =:= blockchain:height(Chain) end),
 
@@ -96,7 +95,7 @@ keys_test(Config) ->
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, PayerSigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
