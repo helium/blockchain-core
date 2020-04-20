@@ -274,3 +274,5 @@
 -define(min_subnet_size, min_subnet_size).
 %% Max subnet num
 -define(max_subnet_num, max_subnet_num).
+%% Grace period (in num of blocks) for state channels to get GCd
+-define(sc_grace_blocks, sc_grace_blocks).

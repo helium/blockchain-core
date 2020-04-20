@@ -773,6 +773,8 @@ validate_var(?min_subnet_size, Value) ->
     validate_int(Value, "min_subnet_size", 8, 65536, false);
 validate_var(?max_subnet_num, Value) ->
     validate_int(Value, "max_subnet_num", 1, 20, false);
+validate_var(?sc_grace_blocks, Value) ->
+    validate_int(Value, "sc_grace_blocks", 1, 100, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
