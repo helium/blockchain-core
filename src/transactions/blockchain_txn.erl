@@ -722,10 +722,35 @@ depends_on(Txn, Txns) ->
             lists:filter(fun(E) ->
                                  type(E) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(E) < Nonce
                          end, Txns);
-        %% TODO revisit once the state channels stuff has landed
-        %blockchain_txn_routing_v1 ->
-        %    Actor = actor(Txn),
-        %    Nonce = blockchain_txn_routing_v1:nonce(Txn),
+        blockchain_txn_state_channel_open_v1 ->
+            Actor = blockchain_txn_state_channel_open_v1:actor(Txn),
+            Nonce = blockchain_txn_state_channel_open_v1:nonce(Txn),
+            OUI = blockchain_txn_state_channel_open_v1:oui(Txn),
+            lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_state_channel_open_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
+                                 (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
+                                 (type(E) == blockchain_txn_routing_v1 andalso
+                                  blockchain_txn_routing_v1:oui(E) == OUI andalso
+                                  blockchain_txn_routing_v1:owner(E) == Actor)
+                         end, Txns);
+        blockchain_txn_state_channel_close_v1 ->
+            Actor = actor(Txn),
+            SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+            SCCloseID = blockchain_state_channel_v1:id(SC),
+            lists:filter(fun(E) ->
+                                 type(E) == blockchain_txn_state_channel_open_v1 andalso
+                                 blockchain_txn_state_channel_open_v1:owner(E) == Actor andalso
+                                 blockchain_txn_state_channel_open_v1:id(E) == SCCloseID
+                         end,
+                         Txns);
+        blockchain_txn_routing_v1 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
+                                 (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso blockchain_txn_routing_v1:nonce(E) < Nonce)
+                         end,
+                         Txns);
         _ ->
             []
     end.
