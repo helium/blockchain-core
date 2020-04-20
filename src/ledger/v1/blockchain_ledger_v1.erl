@@ -51,6 +51,7 @@
     request_poc/5,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/1,
+    maybe_gc_scs/1,
 
     find_entry/2,
     credit_account/3, debit_account/4,
@@ -1202,6 +1203,43 @@ maybe_gc_pocs(Chain) ->
               Alters),
             commit_context(Ledger),
             ok;
+        _ ->
+            ok
+    end.
+
+maybe_gc_scs(Chain) ->
+    Ledger0 = blockchain:ledger(Chain),
+    {ok, Height} = current_height(Ledger0),
+
+    case ?MODULE:config(?sc_grace_blocks, Ledger0) of
+        {ok, Grace} ->
+            case Height rem 100 == 0 of
+                true ->
+                    lager:info("gcing old state_channels..."),
+                    Ledger = new_context(Ledger0),
+                    SCsCF = state_channels_cf(Ledger),
+                    Alters = cache_fold(
+                               Ledger,
+                               SCsCF,
+                               fun({KeyHash, BinSC}, Acc) ->
+                                       SC = blockchain_ledger_state_channel_v1:deserialize(BinSC),
+                                       ExpireAtBlock = blockchain_ledger_state_channel_v1:expire_at_block(SC),
+                                       case (ExpireAtBlock + Grace) < Height of
+                                           false ->
+                                               Acc;
+                                           true ->
+                                               [KeyHash | Acc]
+                                       end
+                               end, []),
+                    ok = lists:foreach(fun(KeyHash) ->
+                                               cache_delete(Ledger, SCsCF, KeyHash)
+                                       end,
+                                       Alters),
+                    commit_context(Ledger),
+                    ok;
+                _ ->
+                    ok
+            end;
         _ ->
             ok
     end.

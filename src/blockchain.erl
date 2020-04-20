@@ -723,7 +723,13 @@ add_block_(Block, Blockchain, Syncing) ->
                             try
                                 ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
                             catch C:E ->
-                                      lager:info("poc gc failed with ~p:~p", [C,E]),
+                                      lager:info("poc gc failed with ~p:~p", [C, E]),
+                                      ok
+                            end,
+                            try
+                                ok = blockchain_ledger_v1:maybe_gc_scs(Blockchain)
+                            catch C2:E2 ->
+                                      lager:info("sc gc failed with ~p:~p", [C2, E2]),
                                       ok
                             end,
                             case blockchain_ledger_v1:new_snapshot(Ledger) of
