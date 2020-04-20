@@ -718,20 +718,19 @@ depends_on(Txn, Txns) ->
                                  type(E) == blockchain_txn_security_exchange_v1 andalso actor(E) == Actor andalso ThisNonce < Nonce
                          end, Txns);
         blockchain_txn_vars_v1 ->
-            Nonce = blockchain_txn_vars_v1:nonce(Txn),
+            Nonce = nonce(Txn),
             lists:filter(fun(E) ->
                                  type(E) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(E) < Nonce
                          end, Txns);
         blockchain_txn_state_channel_open_v1 ->
-            Actor = blockchain_txn_state_channel_open_v1:actor(Txn),
-            Nonce = blockchain_txn_state_channel_open_v1:nonce(Txn),
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
             OUI = blockchain_txn_state_channel_open_v1:oui(Txn),
             lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_oui_v1 andalso lists:member(Actor, blockchain_txn_oui_v1:addresses(E))) orelse
                                  (type(E) == blockchain_txn_state_channel_open_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
-                                 (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
-                                 (type(E) == blockchain_txn_routing_v1 andalso
-                                  blockchain_txn_routing_v1:oui(E) == OUI andalso
-                                  blockchain_txn_routing_v1:owner(E) == Actor)
+                                 (type(E) == blockchain_txn_routing_v1 andalso blockchain_txn_routing_v1:oui(E) == OUI) orelse
+                                 (type(E) == blockchain_txn_token_burn_v1 andalso blockchain_txn_token_burn_v1:payee(E) == Actor)
                          end, Txns);
         blockchain_txn_state_channel_close_v1 ->
             Actor = actor(Txn),
@@ -751,6 +750,7 @@ depends_on(Txn, Txns) ->
                                  (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso blockchain_txn_routing_v1:nonce(E) < Nonce)
                          end,
                          Txns);
+        %% TODO: token exchange rate txn when it's time
         _ ->
             []
     end.
