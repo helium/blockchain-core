@@ -23,6 +23,8 @@
     close/1,
     compact/1,
 
+    is_block_plausible/2,
+
     last_block_add_time/1,
 
     delete_temp_blocks/1,
@@ -1670,26 +1672,34 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
 %% that means it's probably not wildly impossible
 is_block_plausible(Block, Chain) ->
     Ledger = ledger(Chain),
-    case blockchain_ledger_v1:consensus_members(Ledger) of
-        {error, _Reason} ->
-            false;
-        {ok, ConsensusAddrs} ->
-            N = length(ConsensusAddrs),
-            F = (N-1) div 3,
-            {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-            Sigs = blockchain_block:signatures(Block),
-            case blockchain_block:verify_signatures(Block,
-                                                    ConsensusAddrs,
-                                                    Sigs,
-                                                    F + 1,
-                                                    MasterKey)
-            of
-                false ->
-                    %% phwit
+    BlockHeight = blockchain_block:height(Block),
+    {ok, ChainHeight} = blockchain:height(Chain),
+    %% check the block is higher than our chain height
+    case BlockHeight > ChainHeight of
+        true ->
+            case blockchain_ledger_v1:consensus_members(Ledger) of
+                {error, _Reason} ->
                     false;
-                {true, _, _} ->
-                    true
-            end
+                {ok, ConsensusAddrs} ->
+                    N = length(ConsensusAddrs),
+                    F = (N-1) div 3,
+                    {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                    Sigs = blockchain_block:signatures(Block),
+                    case blockchain_block:verify_signatures(Block,
+                                                            ConsensusAddrs,
+                                                            Sigs,
+                                                            F + 1,
+                                                            MasterKey)
+                    of
+                        false ->
+                            %% phwit
+                            false;
+                        {true, _, _} ->
+                            true
+                    end
+            end;
+        false ->
+            false
     end.
 
 save_plausible_block(Block, #blockchain{db=DB, plausible_blocks=PlausibleBlocks}) ->

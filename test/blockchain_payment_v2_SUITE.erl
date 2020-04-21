@@ -99,7 +99,6 @@ single_payee_test(Config) ->
     Balance = ?config(balance, Config),
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
-    Swarm = ?config(swarm, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
@@ -116,7 +115,7 @@ single_payee_test(Config) ->
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
@@ -165,7 +164,6 @@ different_payees_test(Config) ->
     Balance = ?config(balance, Config),
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
-    Swarm = ?config(swarm, Config),
 
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}, {Recipient2, _} |_] = ConsensusMembers,
@@ -186,7 +184,7 @@ different_payees_test(Config) ->
     ct:pal("~s", [blockchain_txn:print(SignedTx)]),
 
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block, Chain, self()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
