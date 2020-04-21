@@ -707,7 +707,7 @@ add_block_(Block, Blockchain, Syncing) ->
                     Sigs = blockchain_block:signatures(Block),
                     MyAddress = blockchain_swarm:pubkey_bin(),
                     BeforeCommit = fun() ->
-                                           lager:info("adding block ~p", [Height]),
+                                           lager:debug("adding block ~p", [Height]),
                                            ok = ?save_block(Block, Blockchain)
                                    end,
                     {Signers, _Signatures} = lists:unzip(Sigs),
