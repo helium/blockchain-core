@@ -786,23 +786,65 @@ depends_on_test() ->
     ok.
 
 sc_depends_on_test() ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    Payer = libp2p_crypto:pubkey_to_bin(PubKey1),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey1),
+    [{Payer, SigFun}] = gen_payers(1),
 
+    [{Payer1, SigFun1}, {Payer2, SigFun2}, {Payer3, SigFun3}] = gen_payers(3),
+
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter1, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter2, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter3, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+
+    %% oui txns
+    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer, [Payer], Filter, 8, 1, 0), SigFun),
+    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer1, gen_pubkeys(3), Filter1, 8, 1, 0), SigFun1),
+    O2 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer2, gen_pubkeys(3), Filter2, 16, 1, 0), SigFun2),
+    O3 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer3, gen_pubkeys(3), Filter3, 24, 1, 0), SigFun3),
+
+    %% routing txns
     RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 1), SigFun),
     RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 2), SigFun),
     RT3 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 3), SigFun),
 
+    %% sc open txns
     SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1), SigFun),
     SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2), SigFun),
     SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3), SigFun),
 
-    Txns = [RT1, RT2, RT3, SC1, SC2, SC3],
+    Txns = [O0, O1, O2, O3, RT1, RT2, RT3, SC1, SC2, SC3],
 
-    nonce_check(Txns),
+    sc_check(Txns),
 
     ok.
+
+sc_check(Txns) ->
+    lists:foreach(fun(_) ->
+                      Shuffled = blockchain_utils:shuffle(Txns),
+                      Txn = lists:last(Shuffled),
+                      Dependencies = depends_on(Txn, Shuffled),
+
+                      case blockchain_txn:type(Txn) of
+                          blockchain_txn_state_channel_open_v1 ->
+                              TxnNonce = nonce(Txn),
+                              SCOpens = filter_txn(Dependencies, blockchain_txn_state_channel_open_v1),
+                              Routings = filter_txn(Dependencies, blockchain_txn_routing_v1),
+                              OUIs = filter_txn(Dependencies, blockchain_txn_oui_v1),
+                              ?assert(lists:all(fun(T) -> nonce(T) < TxnNonce end, SCOpens)),
+                              ?assert(lists:all(fun(T) -> blockchain_txn_routing_v1:oui(T) == blockchain_txn_state_channel_open_v1:oui(Txn) end, Routings)),
+                              ?assert(lists:all(fun(T) ->
+                                                        lists:member(blockchain_txn_state_channel_open_v1:owner(Txn), blockchain_txn_oui_v1:addresses(T))
+                                                end,
+                                                OUIs));
+                          blockchain_txn_routing_v1 ->
+                              TxnNonce = nonce(Txn),
+                              Routings = filter_txn(Dependencies, blockchain_txn_routing_v1),
+                              OUIs = filter_txn(Dependencies, blockchain_txn_oui_v1),
+                              ?assert(lists:all(fun(T) -> nonce(T) < TxnNonce end, Routings)),
+                              ?assert(lists:all(fun(T) -> blockchain_txn_oui_v1:owner(T) == blockchain_txn_routing_v1:owner(Txn) end, OUIs));
+                          _ ->
+                              ok
+                      end
+              end, lists:seq(1, 10)).
 
 nonce_check(Txns) ->
     lists:foreach(fun(_) ->
@@ -819,5 +861,16 @@ gen_pubkeys(Count) ->
                         Addr = libp2p_crypto:pubkey_to_bin(PubKey),
                         [Addr | Acc]
                 end, [], lists:seq(1, Count)).
+
+gen_payers(Count) ->
+    lists:foldl(fun(_, Acc) ->
+                        #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+                        PubkeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+                        SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+                        [{PubkeyBin, SigFun} | Acc]
+                end, [], lists:seq(1, Count)).
+
+filter_txn(Dependencies, Type) ->
+    lists:filter(fun(T) -> blockchain_txn:type(T) == Type end, Dependencies).
 
 -endif.
