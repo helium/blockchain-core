@@ -810,10 +810,10 @@ sc_depends_on_test() ->
     %% sc open for payer1
     SC4 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer1, 30, 2, 1), SigFun),
 
-    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, [O0, RT1, SC1, SC2]))),
-    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, [O0, O1, RT1, SC1, SC2]))),
-    ?assertEqual(lists:sort([O0, RT1, SC1]), lists:sort(depends_on(SC2, [O0, O1, RT1, SC1, SC2, SC3]))),
-    ?assertEqual(lists:sort([O1, RT2]), lists:sort(depends_on(SC4, [O0, O1, RT1, RT2, SC1, SC2, SC3]))),
+    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, RT1, SC1, SC2])))),
+    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2])))),
+    ?assertEqual(lists:sort([O0, RT1, SC1]), lists:sort(depends_on(SC2, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2, SC3])))),
+    ?assertEqual(lists:sort([O1, RT2]), lists:sort(depends_on(SC4, blockchain_utils:shuffle([O0, O1, RT1, RT2, SC1, SC2, SC3])))),
 
     ok.
 
