@@ -232,8 +232,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
                         {error, _Reason} ->
-                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason,
-                                                                                       print(Txn)]),
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason, print(Txn)]),
                             validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -639,6 +638,10 @@ nonce(Txn) ->
             blockchain_txn_token_burn_v1:nonce(Txn);
         blockchain_txn_payment_v2 ->
             blockchain_txn_payment_v2:nonce(Txn);
+        blockchain_txn_state_channel_open_v1 ->
+            blockchain_txn_state_channel_open_v1:nonce(Txn);
+        blockchain_txn_routing_v1 ->
+            blockchain_txn_routing_v1:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -747,7 +750,7 @@ depends_on(Txn, Txns) ->
             Nonce = nonce(Txn),
             lists:filter(fun(E) ->
                                  (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
-                                 (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso blockchain_txn_routing_v1:nonce(E) < Nonce)
+                                 (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce)
                          end,
                          Txns);
         %% TODO: token exchange rate txn when it's time
@@ -777,13 +780,44 @@ depends_on_test() ->
                               blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce, 0), SigFun)
                       end
               end, lists:seq(1, 50)),
+
+    ok = nonce_check(Txns),
+
+    ok.
+
+sc_depends_on_test() ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey1),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 1), SigFun),
+    RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 2), SigFun),
+    RT3 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 3), SigFun),
+
+    SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1), SigFun),
+    SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2), SigFun),
+    SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3), SigFun),
+
+    Txns = [RT1, RT2, RT3, SC1, SC2, SC3],
+
+    nonce_check(Txns),
+
+    ok.
+
+nonce_check(Txns) ->
     lists:foreach(fun(_) ->
                       Shuffled = blockchain_utils:shuffle(Txns),
                       Txn = lists:last(Shuffled),
                       Dependencies = depends_on(Txn, Shuffled),
-                      ?assertEqual(length(Dependencies), nonce(Txn) - 1),
+                      io:format("~nTxn: ~p~nDependencies: ~p~n", [Txn, Dependencies]),
                       ?assert(lists:all(fun(T) -> nonce(T) < nonce(Txn) end, Dependencies))
               end, lists:seq(1, 10)).
 
+gen_pubkeys(Count) ->
+    lists:foldl(fun(_, Acc) ->
+                        #{secret := _, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+                        Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                        [Addr | Acc]
+                end, [], lists:seq(1, Count)).
 
 -endif.
