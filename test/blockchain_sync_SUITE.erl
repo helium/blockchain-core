@@ -6,7 +6,11 @@
 -include("blockchain.hrl").
 
 -export([
-    all/0, init_per_testcase/2, end_per_testcase/2
+    all/0,
+    init_per_suite/1,
+    end_per_suite/1,
+    init_per_testcase/2,
+    end_per_testcase/2
 ]).
 
 -export([
@@ -25,6 +29,19 @@
 %%--------------------------------------------------------------------
 all() ->
     [basic].
+
+%%--------------------------------------------------------------------
+%% TEST SUITE SETUP
+%%--------------------------------------------------------------------
+init_per_suite(Config) ->
+    blockchain_ct_utils:init_per_suite(Config).
+
+%%--------------------------------------------------------------------
+%% TEST SUITE TEARDOWN
+%%--------------------------------------------------------------------
+end_per_suite(Config) ->
+    Config.
+
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP

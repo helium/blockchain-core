@@ -17,6 +17,7 @@
          get_config/2,
          random_n/2,
          init_per_testcase/2,
+         init_per_suite/1,
          end_per_testcase/2,
          create_vars/0, create_vars/1,
          raw_vars/1,
@@ -156,6 +157,14 @@ random_n(N, List) ->
 
 shuffle(List) ->
     [x || {_,x} <- lists:sort([{rand:uniform(), N} || N <- List])].
+
+init_per_suite(Config) ->
+    application:ensure_all_started(ranch),
+    application:set_env(lager, error_logger_flush_queue, false),
+    application:ensure_all_started(lager),
+    lager:set_loglevel(lager_console_backend, debug),
+    application:ensure_all_started(throttle),
+    Config.
 
 init_per_testcase(TestCase, Config) ->
 
