@@ -232,8 +232,7 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
                         {error, _Reason} ->
-                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason,
-                                                                                       print(Txn)]),
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason, print(Txn)]),
                             validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -639,6 +638,10 @@ nonce(Txn) ->
             blockchain_txn_token_burn_v1:nonce(Txn);
         blockchain_txn_payment_v2 ->
             blockchain_txn_payment_v2:nonce(Txn);
+        blockchain_txn_state_channel_open_v1 ->
+            blockchain_txn_state_channel_open_v1:nonce(Txn);
+        blockchain_txn_routing_v1 ->
+            blockchain_txn_routing_v1:nonce(Txn);
         _ ->
             -1 %% other transactions sort first
     end.
@@ -718,14 +721,39 @@ depends_on(Txn, Txns) ->
                                  type(E) == blockchain_txn_security_exchange_v1 andalso actor(E) == Actor andalso ThisNonce < Nonce
                          end, Txns);
         blockchain_txn_vars_v1 ->
-            Nonce = blockchain_txn_vars_v1:nonce(Txn),
+            Nonce = nonce(Txn),
             lists:filter(fun(E) ->
                                  type(E) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(E) < Nonce
                          end, Txns);
-        %% TODO revisit once the state channels stuff has landed
-        %blockchain_txn_routing_v1 ->
-        %    Actor = actor(Txn),
-        %    Nonce = blockchain_txn_routing_v1:nonce(Txn),
+        blockchain_txn_state_channel_open_v1 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            OUI = blockchain_txn_state_channel_open_v1:oui(Txn),
+            lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_oui_v1 andalso lists:member(Actor, blockchain_txn_oui_v1:addresses(E))) orelse
+                                 (type(E) == blockchain_txn_state_channel_open_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
+                                 (type(E) == blockchain_txn_routing_v1 andalso blockchain_txn_routing_v1:oui(E) == OUI) orelse
+                                 (type(E) == blockchain_txn_token_burn_v1 andalso blockchain_txn_token_burn_v1:payee(E) == Actor)
+                         end, Txns);
+        blockchain_txn_state_channel_close_v1 ->
+            Actor = actor(Txn),
+            SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+            SCCloseID = blockchain_state_channel_v1:id(SC),
+            lists:filter(fun(E) ->
+                                 type(E) == blockchain_txn_state_channel_open_v1 andalso
+                                 blockchain_txn_state_channel_open_v1:owner(E) == Actor andalso
+                                 blockchain_txn_state_channel_open_v1:id(E) == SCCloseID
+                         end,
+                         Txns);
+        blockchain_txn_routing_v1 ->
+            Actor = actor(Txn),
+            Nonce = nonce(Txn),
+            lists:filter(fun(E) ->
+                                 (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
+                                 (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce)
+                         end,
+                         Txns);
+        %% TODO: token exchange rate txn when it's time
         _ ->
             []
     end.
@@ -752,13 +780,64 @@ depends_on_test() ->
                               blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce, 0), SigFun)
                       end
               end, lists:seq(1, 50)),
+
+    ok = nonce_check(Txns),
+
+    ok.
+
+sc_depends_on_test() ->
+    [{Payer, SigFun}] = gen_payers(1),
+    [{Payer1, SigFun1}] = gen_payers(1),
+
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    {Filter1, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+
+    %% oui for payer
+    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer, [Payer], Filter, 8, 1, 0), SigFun),
+    %% oui for payer1
+    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer1, [Payer1], Filter1, 8, 1, 0), SigFun1),
+
+    %% routing for payer
+    RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 1), SigFun),
+    %% routing for payer1
+    RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(2, Payer1, gen_pubkeys(3), 0, 1), SigFun),
+
+    %% sc opens for payer
+    SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1), SigFun),
+    SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2), SigFun),
+    SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3), SigFun),
+
+    %% sc open for payer1
+    SC4 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer1, 30, 2, 1), SigFun),
+
+    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, RT1, SC1, SC2])))),
+    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2])))),
+    ?assertEqual(lists:sort([O0, RT1, SC1]), lists:sort(depends_on(SC2, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2, SC3])))),
+    ?assertEqual(lists:sort([O1, RT2]), lists:sort(depends_on(SC4, blockchain_utils:shuffle([O0, O1, RT1, RT2, SC1, SC2, SC3])))),
+
+    ok.
+
+nonce_check(Txns) ->
     lists:foreach(fun(_) ->
                       Shuffled = blockchain_utils:shuffle(Txns),
                       Txn = lists:last(Shuffled),
                       Dependencies = depends_on(Txn, Shuffled),
-                      ?assertEqual(length(Dependencies), nonce(Txn) - 1),
+                      io:format("~nTxn: ~p~nDependencies: ~p~n", [Txn, Dependencies]),
                       ?assert(lists:all(fun(T) -> nonce(T) < nonce(Txn) end, Dependencies))
               end, lists:seq(1, 10)).
 
+gen_pubkeys(Count) ->
+    lists:foldl(fun(_, Acc) ->
+                        #{secret := _, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+                        Addr = libp2p_crypto:pubkey_to_bin(PubKey),
+                        [Addr | Acc]
+                end, [], lists:seq(1, Count)).
 
+gen_payers(Count) ->
+    lists:foldl(fun(_, Acc) ->
+                        #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+                        PubkeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+                        SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+                        [{PubkeyBin, SigFun} | Acc]
+                end, [], lists:seq(1, Count)).
 -endif.

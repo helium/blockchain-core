@@ -1153,18 +1153,17 @@ max_subnet_test(Config) ->
                                                 <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    OUITxns = lists:foldl(fun(I, Acc) ->
-                                  T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, I),
-                                  ST = blockchain_txn_routing_v1:sign(T, SigFun),
-                                  [ST | Acc]
-                          end,
-                          [],
-                          lists:seq(2, 24)),
+    RoutingTxns = lists:foldl(fun(I, Acc) ->
+                                      T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, I),
+                                      ST = blockchain_txn_routing_v1:sign(T, SigFun),
+                                      [ST | Acc]
+                              end,
+                              [],
+                              lists:seq(2, 20)),
 
-    {ok, Block2} = test_utils:create_block(ConsensusMembers, OUITxns),
-    _ = blockchain_gossip_handler:add_block(Swarm, Block2, Chain, self()),
-    {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
-    ?assert(20 =< blockchain_ledger_routing_v1:subnets(Routing2)),
+    RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, 21), SigFun),
+
+    {error, {invalid_txns, [RoutingTxn21]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
 
     ok.
 
