@@ -20,9 +20,6 @@ register_all_usage() ->
                           apply(clique, register_usage, Args)
                   end,
                   [
-                   ledger_pay_usage(),
-                   ledger_create_htlc_usage(),
-                   ledger_redeem_htlc_usage(),
                    ledger_balance_usage(),
                    ledger_export_usage(),
                    ledger_gateways_usage(),
@@ -35,9 +32,6 @@ register_all_cmds() ->
                           [apply(clique, register_command, Cmd) || Cmd <- Cmds]
                   end,
                   [
-                   ledger_pay_cmd(),
-                   ledger_create_htlc_cmd(),
-                   ledger_redeem_htlc_cmd(),
                    ledger_balance_cmd(),
                    ledger_export_cmd(),
                    ledger_gateways_cmd(),
@@ -51,11 +45,8 @@ register_all_cmds() ->
 ledger_usage() ->
     [["ledger"],
      ["blockchain ledger commands\n\n",
-      "  ledger balance             - Get the balance for this or all addresses.\n"
+      "  ledger balance             - Get the balance for one or all addresses.\n"
       "  ledger export              - Export transactions from the ledger to <file>.\n"
-      "  ledger pay                 - Transfer tokens to a crypto address.\n"
-      "  ledger create_htlc         - Create or a hashed timelock address.\n"
-      "  ledger redeem_htlc         - Redeem from a hashed timelock address.\n"
       "  ledger gateways            - Display the list of active gateways.\n"
       "  ledger variables           - Interact with chain variables.\n"
      ]
@@ -68,158 +59,21 @@ ledger_cmd() ->
 
 
 %%--------------------------------------------------------------------
-%% ledger pay
-%%--------------------------------------------------------------------
-ledger_pay_cmd() ->
-    [
-     [["ledger", "pay", '*', '*', '*'], [],
-      [{nonce, [{shortname, "n"}, {longname, "nonce"}]}], fun ledger_pay/3]
-    ].
-
-ledger_pay_usage() ->
-    [["ledger", "pay"],
-     ["ledger pay <address> <amount> <fee> [-n nonce]\n\n",
-      "  Transfer given <amount> to the target <address> with a <fee> for the miners.\n"
-     ]
-    ].
-
-ledger_pay(["ledger", "pay", Addr, Amount, F], [], Flags) ->
-    case (catch {libp2p_crypto:b58_to_bin(Addr),
-                 list_to_integer(Amount), list_to_integer(F)}) of
-        {'EXIT', _} ->
-            usage;
-        {Recipient, Value, Fee} when Value > 0 ->
-            case proplists:get_value(nonce, Flags) of
-                undefined ->
-                    blockchain_worker:spend(Recipient, Value, Fee);
-                NonceStr ->
-                    blockchain_worker:spend(Recipient, Value, Fee, list_to_integer(NonceStr))
-            end,
-            [clique_status:text("ok")];
-        _ -> usage
-    end;
-ledger_pay(_, _, _) ->
-    usage.
-
-%%--------------------------------------------------------------------
-%% ledger create_htlc
-%%--------------------------------------------------------------------
-ledger_create_htlc_cmd() ->
-    [
-     [["ledger", "create_htlc"], '_', [
-                                       {payee, [{shortname, "p"}, {longname, "payee"}]},
-                                       {value, [{shortname, "v", {longname, "value"}}]},
-                                       {hashlock, [{shortname, "h"}, {longname, "hashlock"}]},
-                                       {timelock, [{shortname, "t"}, {longname, "timelock"}]},
-                                       {fee, [{shortname, "f"}, {longname, "fee"}]}
-                                      ], fun ledger_create_htlc/3]
-    ].
-
-ledger_create_htlc_usage() ->
-    [["ledger", "create_htlc"],
-     ["ledger create_htlc\n\n",
-      "  Creates a new HTLC address with a specified hashlock and timelock (in block height), and transfers a value of tokens to it.\n"
-      "Required:\n\n"
-      "  -p, --payee <value>\n",
-      "  The base58 address of the intended payee for this HTLC\n",
-      "  -v, --value <value>\n",
-      "  The amount of tokens to transfer to the contract address\n",
-      "  -h, --hashlock <sha256hash>\n",
-      "  A SHA256 digest of a secret value (called a preimage) that locks this contract\n",
-      "  -t, --timelock <blockheight>\n",
-      "  A specific blockheight after which the payer (you) can redeem their tokens\n",
-      "  -f --fee <fee>\n",
-      "  The fee for the miners\n"
-     ]
-    ].
-
-ledger_create_htlc(_CmdBase, _, []) ->
-    usage;
-ledger_create_htlc(_CmdBase, _Keys, Flags) ->
-    % generate 32 random bytes for an address as no keys are needed
-    Address = crypto:strong_rand_bytes(32),
-    case (catch ledger_create_htlc_helper(Flags, Address)) of
-        {'EXIT', _Reason} ->
-            usage;
-        ok ->
-            Text = io_lib:format("Created HTLC at address ~p", [libp2p_crypto:bin_to_b58(?B58_HTLC_VER, Address)]),
-            [clique_status:text(Text)];
-        _ -> usage
-    end.
-
-ledger_create_htlc_helper(Flags, Address) ->
-    Payee = libp2p_crypto:b58_to_bin(clean(proplists:get_value(payee, Flags))),
-    Amount = list_to_integer(clean(proplists:get_value(value, Flags))),
-    Hashlock = blockchain_utils:hex_to_bin(list_to_binary(clean(proplists:get_value(hashlock, Flags)))),
-    Timelock = list_to_integer(clean(proplists:get_value(timelock, Flags))),
-    Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
-    Nonce = list_to_integer(clean(proplists:get_value(nonce, Flags))),
-    blockchain_worker:create_htlc_txn(Payee, Address, Hashlock, Timelock, Amount, Fee, Nonce).
-
-%%--------------------------------------------------------------------
-%% ledger redeem
-%%--------------------------------------------------------------------
-ledger_redeem_htlc_cmd() ->
-    [
-     [["ledger", "redeem_htlc"], '_', [
-                                       {address, [{shortname, "a"}, {longname, "address"}]},
-                                       {preimage, [{shortname, "p"}, {longname, "preimage"}]},
-                                       {fee, [{shortname, "f"}, {longname, "fee"}]}
-                                      ], fun ledger_redeem_htlc/3]
-    ].
-
-ledger_redeem_htlc_usage() ->
-    [["ledger", "redeem_htlc"],
-     ["Redeem the balance from an HTLC address with the specified preimage for the Hashlock.\n"
-      "Required:\n\n"
-      "  -a, --address <address>\n",
-      "  The address of the Hashed TimeLock Contract to redeem from\n",
-      "  -p --preimage <preimage>\n",
-      "  The preimage used to create the Hashlock for this contract address\n",
-      "  -f --fee <fee>\n",
-      "  The fee for the miners\n"
-     ]
-    ].
-
-ledger_redeem_htlc(_CmdBase, _, []) ->
-    usage;
-ledger_redeem_htlc(_CmdBase, _Keys, Flags) ->
-    case (catch ledger_redeem_htlc_helper(Flags)) of
-        {'EXIT', _Reason} ->
-            usage;
-        ok ->
-            [clique_status:text("ok")];
-        _ -> usage
-    end.
-
-ledger_redeem_htlc_helper(Flags) ->
-    Address = libp2p_crypto:b58_to_bin(clean(proplists:get_value(address, Flags))),
-    Preimage = list_to_binary(clean(proplists:get_value(preimage, Flags))),
-    Fee = list_to_integer(clean(proplists:get_value(fee, Flags))),
-    blockchain_worker:redeem_htlc_txn(Address, Preimage, Fee).
-
-%%--------------------------------------------------------------------
 %% ledger balance
 %%--------------------------------------------------------------------
 ledger_balance_cmd() ->
     [
      [["ledger", "balance", '*'], [], [], fun ledger_balance/3],
      [["ledger", "balance"], [],
-      [ {htlc, [{shortname, "p"},
-              {longname, "htlc"}]},
-        {all, [{shortname, "a"},
-              {longname, "all"}]}
+      [ {htlc, [{shortname, "p"}, {longname, "htlc"}]}
       ], fun ledger_balance/3]
     ].
 
 ledger_balance_usage() ->
     [["ledger", "balance"],
-     ["ledger balance [<address> | -a | -h]\n\n",
-      "  Retrieve the current balanace for this node, all nodes,\n",
-      "  or a given <address>.\n\n"
+     ["ledger balance [<address> | -p]\n\n",
+      "  Retrieve the current balanace for a given <address>, all known addresses or just htlc balances.\n\n"
       "Options\n\n",
-      "  -a, --all\n",
-      "    Display balances for all known addresses.\n"
       "  -p, --htlc\n",
       "    Display balances for all known HTLCs.\n"
      ]
@@ -235,22 +89,16 @@ ledger_balance(["ledger", "balance", Str], [], []) ->
             [clique_status:table(R)]
     end;
 ledger_balance(_CmdBase, [], []) ->
-    PubkeyBin = blockchain_swarm:pubkey_bin(),
-    Ledger = get_ledger(),
-    {ok, Entry} = blockchain_ledger_v1:find_entry(PubkeyBin, Ledger),
-    R = [format_ledger_balance({PubkeyBin, Entry})],
+    Entries = maps:filter(fun(K, _V) ->
+                                   is_binary(K)
+                           end, blockchain_ledger_v1:entries(get_ledger())),
+    R = [format_ledger_balance({A, E}) || {A, E} <- maps:to_list(Entries)],
     [clique_status:table(R)];
 ledger_balance(_CmdBase, [], [{htlc, _}]) ->
     HTLCs = maps:filter(fun(K, _V) ->
                                    is_binary(K)
                            end, blockchain_ledger_v1:htlcs(get_ledger())),
     R = [format_htlc_balance({A, H}) || {A, H} <- maps:to_list(HTLCs)],
-    [clique_status:table(R)];
-ledger_balance(_CmdBase, [], [{all, _}]) ->
-    Entries = maps:filter(fun(K, _V) ->
-                                   is_binary(K)
-                           end, blockchain_ledger_v1:entries(get_ledger())),
-    R = [format_ledger_balance({A, E}) || {A, E} <- maps:to_list(Entries)],
     [clique_status:table(R)].
 
 -spec format_ledger_balance({libp2p_crypto:pubkey_bin(), blockchain_ledger_entry_v1:entry() | {error, any()}}) -> list().
@@ -342,15 +190,6 @@ format_ledger_gateway_entry({GatewayAddr, Gateway}, Ledger, Verbose) ->
      {name, Name},
      {effective_score, Score} |
      blockchain_ledger_gateway_v2:print(GatewayAddr, Gateway, Ledger, Verbose)].
-
-%% NOTE: I noticed that giving a shortname to the flag would end up adding a leading "="
-%% Presumably none of the flags would be _having_ a leading "=" intentionally!
-clean(String) ->
-    case string:split(String, "=", leading) of
-        [[], S] -> S;
-        [S] -> S;
-        _ -> error
-    end.
 
 %% ledger variables
 

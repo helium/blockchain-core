@@ -5,7 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain).
 
--export([
+-export(
+   [
     new/3, integrate_genesis/2,
     genesis_hash/1 ,genesis_block/1,
     head_hash/1, head_block/1,
@@ -33,8 +34,10 @@
 
     fold_chain/4,
 
-    reset_ledger/1, reset_ledger/2, reset_ledger/3
-]).
+    reset_ledger/1, reset_ledger/2, reset_ledger/3,
+
+    add_gateway_txn/4, assert_loc_txn/6
+   ]).
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
@@ -1408,6 +1411,44 @@ load_genesis(Dir) ->
         {ok, Binary} ->
             {ok, blockchain_block:deserialize(Binary)}
     end.
+
+%% @doc Creates a signed add_gatewaytransaction with this blockchain's
+%% keys as the gateway, and the given owner, payer, fee and stacking
+%% fee.
+-spec add_gateway_txn(OwnerB58::string(),
+                      PayerB58::string(),
+                      Fee::pos_integer(),
+                      StakingFee::non_neg_integer()) -> {ok, binary()}.
+add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
+    Owner = libp2p_crypto:b58_to_bin(OwnerB58),
+    Payer = libp2p_crypto:b58_to_bin(PayerB58),
+    {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    Txn = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer, StakingFee, Fee),
+    SignedTxn = blockchain_txn_add_gateway_v1:sign_request(Txn, SigFun),
+    {ok, blockchain_txn:serialize(SignedTxn)}.
+
+
+%% @doc Creates a signed assert_location transaction using the keys of
+%% this blockchain as the gateway to be asserted for the given
+%% location, owner and payer.
+-spec assert_loc_txn(H3String::string(),
+                     OwnerB58::string(),
+                     PayerB58::string(),
+                     Nonce::non_neg_integer(),
+                     StakingFee::pos_integer(),
+                     Fee::pos_integer()
+                    ) -> {ok, binary()}.
+assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, StakingFee, Fee) ->
+    H3Index = h3:from_string(H3String),
+    Owner = libp2p_crypto:b58_to_bin(OwnerB58),
+    Payer = libp2p_crypto:b58_to_bin(PayerB58),
+    {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    Txn = blockchain_txn_assert_location_v1:new(PubKeyBin, Owner, Payer, H3Index, Nonce, StakingFee, Fee),
+    SignedTxn = blockchain_txn_assert_location_v1:sign_request(Txn, SigFun),
+    {ok, blockchain_txn:serialize(SignedTxn)}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
