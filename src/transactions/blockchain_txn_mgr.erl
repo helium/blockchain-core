@@ -211,7 +211,7 @@ handle_info(_Msg, State) ->
 terminate(_Reason, _State) ->
     lager:debug("terminating with reason ~p", [_Reason]),
     %% stop dialers of cached txns
-    catch [blockchain_txn_mgr_sup:stop_dialers(TxnData#txn_data.dialers) || {_Txn, TxnData} <- cached_txns()],
+    [blockchain_txn_mgr_sup:stop_dialers(TxnData#txn_data.dialers) || {_Txn, TxnData} <- cached_txns()],
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
