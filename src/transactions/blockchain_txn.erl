@@ -688,6 +688,12 @@ depends_on(Txn, Txns) ->
                                  ThisNonce = nonce(E),
                                  lists:member(type(E), Types) andalso actor(E) == Actor andalso ThisNonce < Nonce
                          end, Txns);
+        blockchain_txn_poc_receipts_v1 ->
+            Actor = actor(Txn),
+            OnionKeyHash = blockchain_txn_poc_receipts_v1:onion_key_hash(Txn),
+            lists:filter(fun(E) ->
+                                 type(E) == blockchain_txn_poc_request_v1 andalso Actor == actor(E) andalso blockchain_txn_poc_request_v1:onion_key_hash(E) == OnionKeyHash
+                         end, Txns);
         blockchain_txn_assert_location_v1 ->
             Actor = actor(Txn),
             Nonce = nonce(Txn),
@@ -743,7 +749,14 @@ depends_on_test() ->
                       Dependencies = depends_on(Txn, Shuffled),
                       ?assertEqual(length(Dependencies), nonce(Txn) - 1),
                       ?assert(lists:all(fun(T) -> nonce(T) < nonce(Txn) end, Dependencies))
-              end, lists:seq(1, 10)).
+              end, lists:seq(1, 10)),
+
+    PoCRequest = blockchain_txn_poc_request_v1:new(Payer, <<"secrethash">>, <<"onionhash">>, <<"blockhash">>, 1),
+    OtherPoCRequest = blockchain_txn_poc_request_v1:new(Recipient, <<"secrethash">>, <<"onionhash2">>, <<"blockhash">>, 1),
+    PoCReceipt = blockchain_txn_poc_receipts_v1:new(Payer, <<"secret">>, <<"onionhash">>, []),
+
+    ?assertEqual([PoCRequest], depends_on(PoCReceipt, [PoCRequest, OtherPoCRequest |Txns])),
+    ?assertEqual([], depends_on(PoCRequest, [PoCReceipt, OtherPoCRequest |Txns])).
 
 
 -endif.
