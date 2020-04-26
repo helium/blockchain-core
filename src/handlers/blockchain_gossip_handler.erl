@@ -43,7 +43,7 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
                     true ->
                         %% already got this block, just return
                         ok;
-                    false ->
+                    _ ->
                         case blockchain:is_block_plausible(Block, Blockchain) of
                             true ->
                                 lager:debug("Got block: ~p from: ~p", [Block, From]),
@@ -69,6 +69,8 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
 
 add_block(Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
+    %% try to acquire the lock with a timeout, will crash this process if we can't get the lock
+    ok = blockchain_lock:acquire(5000),
     case blockchain:add_block(Block, Chain) of
         ok ->
             lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
