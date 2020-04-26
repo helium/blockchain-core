@@ -1738,8 +1738,8 @@ is_block_plausible(Block, Chain) ->
     Ledger = ledger(Chain),
     BlockHeight = blockchain_block:height(Block),
     {ok, ChainHeight} = blockchain:height(Chain),
-    %% check the block is higher than our chain height
-    case BlockHeight > ChainHeight of
+    %% check the block is higher than our chain height but not unreasonably so
+    case BlockHeight > ChainHeight andalso BlockHeight < ChainHeight + 90 of
         true ->
             case blockchain_ledger_v1:consensus_members(Ledger) of
                 {error, _Reason} ->
