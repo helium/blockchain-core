@@ -16,6 +16,7 @@
     ledger/1, ledger/2, ledger_at/2,
     dir/1,
     blocks/1, get_block/2,
+    has_block/2,
     add_blocks/2, add_block/2, add_block/3,
     delete_block/2,
     config/2,
@@ -526,6 +527,28 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
            ?MODULE:get_block(Hash, Blockchain);
         not_found ->
             {error, not_found};
+        Error ->
+            Error
+    end.
+
+%% checks if we have this block in any of the places we store blocks
+%% note that if we only use this for gossip we will never see assume valid blocks
+%% so we don't need to check for them
+has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
+                             plausible_blocks=PlausibleBlocks}) ->
+    Hash = blockchain_block:hash_block(Block),
+    case rocksdb:get(DB, BlocksCF, Hash, []) of
+        {ok, _} ->
+            true;
+        not_found ->
+            case rocksdb:get(DB, PlausibleBlocks, Hash, []) of
+                {ok, _} ->
+                    true;
+                not_found ->
+                    false;
+                Error ->
+                    Error
+            end;
         Error ->
             Error
     end.
@@ -1715,8 +1738,8 @@ is_block_plausible(Block, Chain) ->
     Ledger = ledger(Chain),
     BlockHeight = blockchain_block:height(Block),
     {ok, ChainHeight} = blockchain:height(Chain),
-    %% check the block is higher than our chain height
-    case BlockHeight > ChainHeight of
+    %% check the block is higher than our chain height but not unreasonably so
+    case BlockHeight > ChainHeight andalso BlockHeight < ChainHeight + 90 of
         true ->
             case blockchain_ledger_v1:consensus_members(Ledger) of
                 {error, _Reason} ->

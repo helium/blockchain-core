@@ -5,24 +5,38 @@
 
 -behaviour(gen_server).
 
--export([acquire/0, release/0, force_release/0, check/0]).
+-export([acquire/0, acquire/1, release/0, force_release/0, check/0]).
 
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -define(holding_lock, holding_lock).
 -define(lock_ref, lock_ref).
 
+-spec acquire() -> ok | error.
 acquire() ->
+    acquire(infinity).
+
+-spec acquire(Timeout:: infinity | pos_integer()) -> ok | error.
+acquire(Timeout) ->
     case get(?holding_lock) of
         undefined ->
             Ref = make_ref(),
-            put(?lock_ref, Ref),
-            put(?holding_lock, 1),
-            gen_server:call(?MODULE, {acquire, Ref}, infinity);
+            try gen_server:call(?MODULE, {acquire, Ref}, Timeout) of
+                ok ->
+                    put(?lock_ref, Ref),
+                    put(?holding_lock, 1),
+                    ok
+            catch _:_ ->
+                      %% release it in case we got it anyway
+                      ?MODULE ! {Ref, release},
+                      error
+            end;
         N ->
-            put(?holding_lock, N + 1)
+            put(?holding_lock, N + 1),
+            ok
     end.
 
+-spec release() -> ok.
 release() ->
     case get(?holding_lock) of
         undefined ->
@@ -32,9 +46,11 @@ release() ->
             erase(?holding_lock),
             Ref = get(?lock_ref),
             erase(?lock_ref),
-            ?MODULE ! {Ref, release};
+            ?MODULE ! {Ref, release},
+            ok;
         N ->
-            put(?holding_lock, N - 1)
+            put(?holding_lock, N - 1),
+            ok
     end.
 
 force_release()  ->

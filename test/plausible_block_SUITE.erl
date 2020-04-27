@@ -33,7 +33,7 @@ basic(Config) ->
     SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
-    BlocksN = 100,
+    BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
@@ -69,8 +69,8 @@ basic(Config) ->
     %% add all the rest of the blocks (emulate a sync)
     ok = blockchain:add_blocks(Blocks -- [LastBlock], Chain),
     %% check the plausible block is now the head of the chain
-    ?assertEqual({ok, 101}, blockchain:height(Chain)),
-    ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:sync_height(Chain)),
     ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(LastBlock)}),
     %% make sure the plausible blocks got removed
     [] = blockchain:get_plausible_blocks(Chain),
@@ -78,8 +78,8 @@ basic(Config) ->
     FinalBlock = test_utils:create_block(ConsensusMembers, []),
     blockchain:add_block(FinalBlock, Chain0),
     ok = blockchain:add_block(FinalBlock, Chain),
-    ?assertEqual({ok, 102}, blockchain:height(Chain)),
-    ?assertEqual({ok, 102}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 82}, blockchain:height(Chain)),
+    ?assertEqual({ok, 82}, blockchain:sync_height(Chain)),
     ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(FinalBlock)}),
     [] = blockchain:get_plausible_blocks(Chain),
     %% try adding the previously plausible block again, it should not work
@@ -92,7 +92,7 @@ definitely_invalid(Config) ->
     SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
-    BlocksN = 100,
+    BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
@@ -144,8 +144,8 @@ definitely_invalid(Config) ->
     %% add all the rest of the blocks (emulate a sync)
     ok = blockchain:add_blocks(Blocks, Chain),
     %% check the plausible block is not the head of the chain
-    ?assertEqual({ok, 101}, blockchain:height(Chain)),
-    ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:sync_height(Chain)),
     ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(lists:last(Blocks))}),
     %% make sure the plausible block is not in the chain at all
     {error, not_found} = blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),
@@ -158,7 +158,7 @@ ultimately_invalid(Config) ->
     SimDir = ?config(sim_dir, Config),
 
     Balance = 5000,
-    BlocksN = 100,
+    BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
@@ -215,8 +215,8 @@ ultimately_invalid(Config) ->
     %% add all the rest of the blocks (emulate a sync)
     ok = blockchain:add_blocks(Blocks, Chain),
     %% check the plausible block is not the head of the chain
-    ?assertEqual({ok, 101}, blockchain:height(Chain)),
-    ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:height(Chain)),
+    ?assertEqual({ok, 81}, blockchain:sync_height(Chain)),
     ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(lists:last(Blocks))}),
     %% make sure the plausible block is not in the chain at all
     {error, not_found} = blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),

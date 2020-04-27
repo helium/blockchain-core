@@ -39,19 +39,26 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
             undefined ->
                 lager:notice("gossip_handler unknown block: ~p", [Block]);
             _ ->
-                case blockchain:is_block_plausible(Block, Blockchain) of
+                case blockchain:has_block(Block, Blockchain) of
                     true ->
-                        lager:debug("Got block: ~p from: ~p", [Block, From]),
-                        %% don't block the gossip server
-                        spawn(fun() -> add_block(Block, Blockchain, From) end),
-                        %% pass it along
-                        libp2p_group_gossip:send(
-                          libp2p_swarm:gossip_group(Swarm),
-                          ?GOSSIP_PROTOCOL,
-                          blockchain_gossip_handler:gossip_data(Swarm, Block)
-                         );
-                    false ->
-                        ok
+                        %% already got this block, just return
+                        ok;
+                    _ ->
+                        case blockchain:is_block_plausible(Block, Blockchain) of
+                            true ->
+                                lager:debug("Got block: ~p from: ~p", [Block, From]),
+                                %% don't block the gossip server
+                                spawn(fun() -> add_block(Block, Blockchain, From) end),
+                                %% pass it along
+                                libp2p_group_gossip:send(
+                                  libp2p_swarm:gossip_group(Swarm),
+                                  ?GOSSIP_PROTOCOL,
+                                  blockchain_gossip_handler:gossip_data(Swarm, Block)
+                                 );
+                            false ->
+                                blockchain_worker:maybe_sync(),
+                                ok
+                        end
                 end
         end
     catch
@@ -62,6 +69,8 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
 
 add_block(Block, Chain, Sender) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
+    %% try to acquire the lock with a timeout, will crash this process if we can't get the lock
+    ok = blockchain_lock:acquire(5000),
     case blockchain:add_block(Block, Chain) of
         ok ->
             lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
@@ -74,6 +83,12 @@ add_block(Block, Chain, Sender) ->
             lager:warning("gossipped block ~p doesn't fit with our chain,"
                           " will start sync if not already active", [blockchain_block:height(Block)]),
             blockchain_worker:maybe_sync(),
+            ok;
+        {error, disjoint_assumed_valid_block} ->
+            %% harmless
+            ok;
+        {error, block_higher_than_assumed_valid_height} ->
+            %% harmless
             ok;
         Error ->
             %% Uhm what is this?
