@@ -162,7 +162,7 @@ adjust_old_group(Group, Ledger) ->
                  condense_votes(Sz, Seen0)
              end || Block <- Blocks],
 
-    lager:info("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
+    lager:debug("ct ~p bbas ~p seens ~p", [length(Blocks), BBAs, Seens]),
 
     Penalties0 =
         lists:foldl(
@@ -179,7 +179,7 @@ adjust_old_group(Group, Ledger) ->
           #{},
           BBAs),
 
-    lager:info("penalties0 ~p", [Penalties0]),
+    lager:debug("penalties0 ~p", [Penalties0]),
 
     Penalties =
         lists:foldl(
@@ -198,7 +198,7 @@ adjust_old_group(Group, Ledger) ->
     %% now that we've accumulated all of the penalties, apply them to
     %% adjust the score for this group generation
 
-    lager:info("penalties ~p", [Penalties]),
+    lager:debug("penalties ~p", [Penalties]),
 
     lists:map(
       fun({Score, Loc, Addr}) ->
@@ -237,7 +237,7 @@ condense_votes(Sz, Seen0) ->
           end,
           #{},
           SeenMaps),
-    lager:info("counts ~p", [Counts]),
+    lager:debug("counts ~p", [Counts]),
     maps:map(fun(_Idx, Ct) ->
                      %% we do the opposite of the intuitive check here, because when we
                      %% use the condensed votes, true is good and false is bad, so we want
@@ -389,7 +389,7 @@ has_new_group(Txns) ->
             lists:foreach(fun(T) ->
                                   case blockchain_txn:type(T) == blockchain_txn_consensus_group_v1 of
                                       true ->
-                                          lager:info("txn ~s", [blockchain_txn:print(T)]);
+                                          lager:warning("txn ~s", [blockchain_txn:print(T)]);
                                       _ -> ok
                                   end
                           end, Txns),
