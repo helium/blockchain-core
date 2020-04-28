@@ -566,6 +566,10 @@ validate_var(?election_seen_penalty, Value) ->
 %% ledger vars
 validate_var(?var_gw_inactivity_threshold, Value) ->
     validate_int(Value, "var_gw_inactivity_threshold", 15, 2880, false);
+validate_var(?witness_refresh_interval, Value) ->
+    validate_int(Value, "witness_refresh_interval", 10, 20000, false);
+validate_var(?witness_refresh_rand_n, Value) ->
+    validate_int(Value, "witness_refresh_rand_n", 50, 1000, false);
 
 %% meta vars
 validate_var(?vars_commit_delay, Value) ->

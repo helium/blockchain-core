@@ -754,13 +754,20 @@ add_block_(Block, Blockchain, Syncing) ->
                                       lager:info("poc gc failed with ~p:~p", [C,E]),
                                       ok
                             end,
-                            case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                {error, Reason}=Error ->
-                                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                    Error;
-                                {ok, NewLedger} ->
-                                    lager:info("Notifying new block ~p", [Height]),
-                                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                            Ledger = blockchain:ledger(Blockchain),
+                            case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger) of
+                                {error, Reason0}=Error0 ->
+                                    lager:error("Error refreshing witnesses, Reason: ~p", [Reason0]),
+                                    Error0;
+                                ok ->
+                                    case blockchain_ledger_v1:new_snapshot(Ledger) of
+                                        {error, Reason}=Error ->
+                                            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                            Error;
+                                        {ok, NewLedger} ->
+                                            lager:info("Notifying new block ~p", [Height]),
+                                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                                    end
                             end
                     end;
                 plausible ->

@@ -53,6 +53,12 @@
 %% outcome of threshold var application.
 -define(var_gw_inactivity_threshold, var_gw_inactivity_threshold).
 
+%% the number of blocks before a random subset of gatways refresh
+%% their witnesses
+-define(witness_refresh_interval, witness_refresh_interval).
+%% seeding the random number for witness_refresh_interval
+-define(witness_refresh_rand_n, witness_refresh_rand_n).
+
 %%%
 %%% meta vars
 %%%

@@ -41,6 +41,7 @@
     fixup_neighbors/4,
     add_gateway_location/4,
     add_gateway_witnesses/3,
+    refresh_gateway_witnesses/2,
 
     gateway_versions/1,
 
@@ -149,6 +150,7 @@
 -type htlcs() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_htlc_v1:htlc()}.
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 -type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
+-type gateway_offsets() :: [{pos_integer(), libp2p_crypto:pubkey_bin()}].
 
 -export_type([ledger/0]).
 
@@ -1129,6 +1131,57 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
             cache_put(Ledger, AGwsCF, GatewayAddress, blockchain_ledger_gateway_v2:serialize(GW1))
     end.
 
+-spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                             Ledger :: ledger()) -> ok | {error, any()}.
+remove_gateway_witness(GatewayPubkeyBin, Ledger) ->
+    case ?MODULE:find_gateway_info(GatewayPubkeyBin, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, GW0} ->
+            GW1 = blockchain_ledger_gateway_v2:clear_witnesses(GW0),
+            ?MODULE:update_gateway(GW1, GatewayPubkeyBin, Ledger)
+    end.
+
+-spec refresh_gateway_witnesses(blockchain_block:hash(), ledger()) -> ok | {error, any()}.
+refresh_gateway_witnesses(Hash, Ledger0) ->
+    case ?MODULE:config(?witness_refresh_interval, Ledger0) of
+        {ok, RefreshInterval} when is_integer(RefreshInterval) ->
+            case ?MODULE:config(?witness_refresh_rand_n, Ledger0) of
+                {ok, RandN} when is_integer(RandN) ->
+                    %% We need to do all the calculation within this context
+                    LedgerContext = blockchain_ledger_v1:new_context(Ledger0),
+
+                    case ?MODULE:get_hexes(LedgerContext) of
+                        {error, _}=Error ->
+                            Error;
+                        {ok, HexMap} ->
+                            ZoneList = maps:keys(HexMap),
+                            GatewayPubkeyBins = zone_list_to_pubkey_bins(ZoneList, LedgerContext),
+                            GatewayOffsets = pubkey_bins_to_offset(GatewayPubkeyBins),
+                            GatewaysToRefresh = filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN),
+                            lager:info("Refreshing witnesses for: ~p", [GatewaysToRefresh]),
+
+                            Res = lists:map(fun({_, GwPubkeyBin}) ->
+                                                    remove_gateway_witness(GwPubkeyBin, LedgerContext)
+                                            end,
+                                            GatewaysToRefresh),
+
+                            case lists:all(fun(T) -> T == ok end, Res) of
+                                false ->
+                                    lager:error("Witness refresh failed for: ~p", [GatewaysToRefresh]),
+                                    {error, witness_refresh_failed};
+                                true ->
+                                    commit_context(LedgerContext),
+                                    ok
+                            end
+                    end;
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -1298,6 +1351,41 @@ maybe_gc_pocs(Chain) ->
         _ ->
             ok
     end.
+
+-spec zone_list_to_pubkey_bins(ZoneList :: [h3:h3_index()],
+                               Ledger :: ledger()) -> [libp2p_crypto:pubkey_bin()].
+zone_list_to_pubkey_bins(ZoneList, Ledger) ->
+    lists:flatten(lists:foldl(fun(Zone, Acc) ->
+                                      {ok, ContainedPubkeyBins} = blockchain_ledger_v1:get_hex(Zone, Ledger),
+                                      [ContainedPubkeyBins | Acc]
+                              end,
+                              [],
+                              ZoneList)).
+
+-spec pubkey_bins_to_offset(GatewayPubkeyBins :: [libp2p_crypto:pubkey_bin()]) -> gateway_offsets().
+pubkey_bins_to_offset(GatewayPubkeyBins) ->
+    lists:keysort(1, lists:foldl(fun(PubkeyBin, Acc) ->
+                                         %% This can be 32 bytes sometimes hence in the loop
+                                         S = byte_size(PubkeyBin) * 8 - 64,
+                                         <<_:S, Offset:64/unsigned-little>> = PubkeyBin,
+                                         [{Offset, PubkeyBin} | Acc]
+                                 end,
+                                 [],
+                                 GatewayPubkeyBins)).
+
+-spec filtered_gateways_to_refresh(Hash :: blockchain_block:hash(),
+                                   RefreshInterval :: pos_integer(),
+                                   GatewayOffsets :: gateway_offsets(),
+                                   RandN :: pos_integer()) -> gateway_offsets().
+filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
+    RandState = blockchain_utils:rand_state(Hash),
+    %% NOTE: I believe this ensure that the random number gets seeded with a value
+    %% higher than the RefreshInterval
+    {RandVal, _NewRandState} = rand:uniform_s(RandN*RefreshInterval, RandState),
+    lists:filter(fun({Offset, _PubkeyBin}) ->
+                         ((Offset + RandVal) rem RefreshInterval) == 0
+                 end,
+                 GatewayOffsets).
 
 %%--------------------------------------------------------------------
 %% @doc
