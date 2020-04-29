@@ -29,6 +29,7 @@
 
     last_block_add_time/1,
 
+    absorb_temp_blocks_fun/3,
     delete_temp_blocks/1,
 
     analyze/1, repair/1,
@@ -850,11 +851,15 @@ add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchai
             {error, block_higher_than_assumed_valid_height}
     end.
 
-absorb_temp_blocks([],Chain, _Syncing) ->
+absorb_temp_blocks(HashChain, Blockchain, Syncing) ->
+    ok = blockchain_worker:set_absorbing(HashChain, Blockchain, Syncing).
+
+absorb_temp_blocks_fun([], Chain, _Syncing) ->
     %% we did it!
+    ok = blockchain_worker:absorb_done(),
     delete_temp_blocks(Chain),
     ok;
-absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
+absorb_temp_blocks_fun([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),

@@ -31,7 +31,10 @@
     sync/0,
     cancel_sync/0,
     pause_sync/0,
-    sync_paused/0
+    sync_paused/0,
+
+    set_absorbing/3,
+    absorb_done/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -60,7 +63,9 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
-         gossip_ref = make_ref() :: reference()
+         gossip_ref = make_ref() :: reference(),
+         absorb_info :: undefined | {pid(), reference()},
+         absorb_retry = 3 :: pos_integer()
         }).
 
 %% ------------------------------------------------------------------
@@ -118,6 +123,12 @@ sync_paused() ->
 
 new_ledger(Dir) ->
     gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
+
+set_absorbing(HashChain, Blockchain, Syncing) ->
+    gen_server:call(?SERVER, {set_absorbing, HashChain, Blockchain, Syncing}, infinity).
+
+absorb_done() ->
+    gen_server:call(?SERVER, absorb_done, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -261,8 +272,6 @@ init(Args) ->
                 {R, make_ref()};
             {ok, Chain} ->
                 %% blockchain:new will take care of any repairs needed, possibly asynchronously
-                %%
-                %% do ledger upgrade
                 {ok, GossipRef} = add_handlers(Swarm, Chain),
                 self() ! maybe_sync,
                 {ok, GenesisHash} = blockchain:genesis_hash(Chain),
@@ -304,6 +313,18 @@ handle_call(pause_sync, _From, State) ->
     {reply, ok, pause_sync(State)};
 handle_call(sync_paused, _From, State) ->
     {reply, State#state.sync_paused, State};
+
+handle_call({set_absorbing, HashChain, Blockchain, Syncing}, _From, State) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:absorb_temp_blocks_fun(HashChain, Blockchain, Syncing)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {reply, ok, State#state{absorb_info = Info, sync_paused = true}};
+handle_call(absorb_done, _From, #state{absorb_info = {_Pid, Ref}} = State) ->
+    _ = erlang:demonitor(Ref, [flush]),
+    {reply, ok, maybe_sync(State#state{absorb_info = undefined, sync_paused = false})};
+
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -414,6 +435,10 @@ handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
+handle_info({'DOWN', AbsorbRef, process, _AbsorbPid, _Reason},
+            #state{sync_ref = SyncRef, blockchain = Chain} = State0) ->
+    %% TODO Restart magic here
+    {noreply, State};
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
