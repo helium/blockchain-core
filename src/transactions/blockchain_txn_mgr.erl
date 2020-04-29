@@ -406,7 +406,7 @@ check_for_deps_and_resubmit(Txn, Txns, Chain, SubmitF, #txn_data{ acceptions = A
                                                                   dialers = Dialers} = TxnData)->
     %% check if this transaction has any dependencies
     %% figure out what, if anything, this transaction depends on
-    case lists:dropwhile(fun(E) -> cached_txn(E) == {error, txn_not_found} end, blockchain_txn:depends_on(Txn, Txns)) of
+    case lists:filter(fun(E) -> cached_txn(E) /= {error, txn_not_found} end, blockchain_txn:depends_on(Txn, Txns)) of
         [] ->
             %% NOTE: we assume we have correct dependency resolution here, if you add a new transaction with
             %% dependencies and don't fix depends_on, your transaction will probably get rejected
