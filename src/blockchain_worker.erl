@@ -33,7 +33,15 @@
     sync/0,
     cancel_sync/0,
     pause_sync/0,
-    sync_paused/0
+    sync_paused/0,
+
+    set_resyncing/3,
+    resync_done/0,
+    is_resyncing/0,
+
+    set_absorbing/3,
+    absorb_done/0,
+    is_absorbing/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -62,7 +70,11 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
-         gossip_ref = make_ref() :: reference()
+         gossip_ref = make_ref() :: reference(),
+         absorb_info :: undefined | {pid(), reference()},
+         absorb_retries = 3 :: pos_integer(),
+         resync_info :: undefined | {pid(), reference()},
+         resync_retries = 3 :: pos_integer()
         }).
 
 %% ------------------------------------------------------------------
@@ -121,9 +133,29 @@ sync_paused() ->
 new_ledger(Dir) ->
     gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
 
-
 load(BaseDir, GenDir) ->
     gen_server:cast(?SERVER, {load, BaseDir, GenDir}).
+
+-spec set_absorbing(blockchain_block:block(), blockchain:blockchain(), boolean()) -> ok.
+set_absorbing(Block, Blockchain, Syncing) ->
+    gen_server:cast(?SERVER, {set_absorbing, Block, Blockchain, Syncing}).
+
+absorb_done() ->
+    gen_server:call(?SERVER, absorb_done, infinity).
+
+is_absorbing() ->
+    gen_server:call(?SERVER, is_absorbing, infinity).
+
+-spec set_resyncing(pos_integer(), pos_integer(), blockchain:blockchain()) -> ok.
+set_resyncing(ChainHeight, LedgerHeight, Blockchain) ->
+    gen_server:cast(?SERVER, {set_resyncing, ChainHeight, LedgerHeight, Blockchain}).
+
+resync_done() ->
+    gen_server:call(?SERVER, resync_done, infinity).
+
+is_resyncing() ->
+    gen_server:call(?SERVER, is_resyncing, infinity).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -290,6 +322,19 @@ handle_call(pause_sync, _From, State) ->
     {reply, ok, pause_sync(State)};
 handle_call(sync_paused, _From, State) ->
     {reply, State#state.sync_paused, State};
+
+handle_call(absorb_done, _From, #state{absorb_info = {_Pid, Ref}} = State) ->
+    _ = erlang:demonitor(Ref, [flush]),
+    {reply, ok, maybe_sync(State#state{absorb_info = undefined, sync_paused = false})};
+handle_call(is_absorbing, _From, State) ->
+    {reply, State#state.absorb_info /= undefined, State};
+
+handle_call(resync_done, _From, #state{resync_info = {_Pid, Ref}} = State) ->
+    _ = erlang:demonitor(Ref, [flush]),
+    {reply, ok, maybe_sync(State#state{resync_info = undefined, sync_paused = false})};
+handle_call(is_resyncing, _From, State) ->
+    {reply, State#state.resync_info /= undefined, State};
+
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -322,6 +367,25 @@ handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
     {noreply, State};
+handle_cast({set_absorbing, Block, Blockchain, Syncing}, State=#state{absorb_info=undefined, resync_info=undefined}) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:absorb_temp_blocks_fun(Block, Blockchain, Syncing)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {noreply, State#state{absorb_info = Info, sync_paused = true, absorb_retries = 3}};
+handle_cast({set_absorbing, _Block, _Blockchain, _Syncing}, State) ->
+    {noreply, State};
+handle_cast({set_resyncing, BlockHeight, LedgerHeight, Blockchain}, State=#state{absorb_info=undefined, resync_info=undefined}) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:resync_fun(BlockHeight, LedgerHeight, Blockchain)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {noreply, State#state{resync_info = Info, sync_paused = true, resync_retries = 3}};
+handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
+    {noreply, State};
+
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
 handle_cast({submit_txn, Txn}, State) ->
@@ -378,22 +442,10 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
         N when N < 0 ->
             %% if blocktimes are in the future, we're confused about
             %% the time, proceed as if we're synced.
-            Ref = case State#state.sync_paused of
-                      true ->
-                          make_ref();
-                      false ->
-                          erlang:send_after(?SYNC_TIME, self(), maybe_sync)
-                  end,
-            {noreply, State#state{sync_timer = Ref}};
+            {noreply, schedule_sync(State)};
         N when N < 60 * 60 ->
             %% relatively recent
-            Ref = case State#state.sync_paused of
-                      true ->
-                          make_ref();
-                      false ->
-                          erlang:send_after(?SYNC_TIME, self(), maybe_sync)
-                  end,
-            {noreply, State#state{sync_timer = Ref}};
+            {noreply, schedule_sync(State)};
         _ ->
             %% we're deep in the past here, so just start the next sync
             {noreply, start_sync(State)}
@@ -406,6 +458,42 @@ handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
+handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
+            #state{absorb_info = {AbsorbPid, AbsorbRef}, absorb_retries = Retries} = State) ->
+    case Reason of
+        normal ->
+            lager:info("Absorb process completed successfully"),
+            {noreply, schedule_sync(State#state{sync_paused=false, absorb_info=undefined})};
+        shutdown ->
+            {noreply, State#state{absorb_info=undefined}};
+        Reason when Retries > 0 ->
+            lager:warning("Absorb process exited with reason ~p, retrying ~p more times", [Reason, Retries]),
+            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            {noreply, State#state{absorb_info=undefined, absorb_retries = Retries - 1}};
+        Reason ->
+            lager:warning("Absorb process exited with reason ~p, stopping", [Reason]),
+            %% ran out of retries
+            {stop, Reason, State}
+    end;
+handle_info({'DOWN', ResyncRef, process, ResyncPid, Reason},
+            #state{resync_info = {ResyncPid, ResyncRef}, resync_retries = Retries} = State) ->
+    case Reason of
+        normal ->
+            lager:info("Resync process completed successfully"),
+            %% check if we have any pending assume valids to take care of
+            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            {noreply, schedule_sync(State#state{sync_paused=false, resync_info=undefined})};
+        shutdown ->
+            {noreply, State#state{resync_info=undefined}};
+        Reason when Retries > 0 ->
+            lager:warning("Resync process exited with reason ~p, retrying ~p more times", [Reason, Retries]),
+            {noreply, State#state{resync_info=undefined, resync_retries = Retries - 1}};
+        Reason ->
+            lager:warning("Resync process exited with reason ~p, stopping", [Reason]),
+            %% ran out of retries
+            {stop, Reason, State}
+    end;
+
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
@@ -418,10 +506,10 @@ code_change(_OldVsn, State, _Extra) ->
 terminate(_Reason, #state{blockchain=undefined}) ->
     ok;
 terminate(_Reason, #state{blockchain={no_genesis, Chain}}) ->
-    ok = blockchain:close(Chain),
+    catch blockchain:close(Chain),
     ok;
 terminate(_Reason, #state{blockchain=Chain}) ->
-    ok = blockchain:close(Chain),
+    catch blockchain:close(Chain),
     ok.
 
 
@@ -450,15 +538,13 @@ maybe_sync(#state{blockchain = Chain} = State) ->
                     start_sync(State);
                 _ ->
                     %% no need to sync now, check again later
-                    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-                    State#state{sync_timer=Ref}
+                    schedule_sync(State)
             end;
         T when T > SyncCooldownTime orelse Height == 1 ->
             start_sync(State);
         _ ->
             %% no need to sync now, check again later
-            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            State#state{sync_timer=Ref}
+            schedule_sync(State)
     end.
 
 start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
@@ -474,8 +560,7 @@ start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = Sta
     case Peers of
         [] ->
             %% try again later when there's peers
-            Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
-            State#state{sync_timer=Ref};
+            schedule_sync(State);
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
             {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
@@ -605,3 +690,12 @@ load_chain(Swarm, BaseDir, GenDir) ->
             true = libp2p_swarm:network_id(Swarm, GenesisHash),
             {Chain, GossipRef}
     end.
+
+schedule_sync(State) ->
+    Ref = case State#state.sync_paused of
+              true ->
+                  make_ref();
+              false ->
+                  erlang:send_after(?SYNC_TIME, self(), maybe_sync)
+          end,
+    State#state{sync_timer=Ref}.
