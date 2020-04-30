@@ -27,6 +27,8 @@
 
     new_ledger/1,
 
+    load/1,
+
     maybe_sync/0,
     sync/0,
     cancel_sync/0,
@@ -53,7 +55,7 @@
 
 -record(state,
         {
-         blockchain :: {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
+         blockchain :: undefined | {no_genesis, blockchain:blockchain()} | blockchain:blockchain(),
          swarm :: undefined | pid(),
          swarm_tid :: undefined | ets:tab(),
          sync_timer = make_ref() :: reference(),
@@ -119,6 +121,9 @@ sync_paused() ->
 new_ledger(Dir) ->
     gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
 
+
+load(Args) ->
+    gen_server:call(?SERVER, {load, Args}, infinity).
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -238,43 +243,23 @@ init(Args) ->
                 PortList when is_list(PortList) ->
                     PortList
             end,
-    BaseDir = proplists:get_value(base_dir, Args, "data"),
-    GenDir = proplists:get_value(update_dir, Args, undefined),
-    AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
-                                  application:get_env(blockchain, assumed_valid_block_height, undefined)} of
-                                {undefined, _} ->
-                                    undefined;
-                                {_, undefined} ->
-                                    undefined;
-                                BlockHashAndHeight ->
-                                    case application:get_env(blockchain, honor_assumed_valid, false) of
-                                        true ->
-                                            BlockHashAndHeight;
-                                        _ ->
-                                            undefined
-                                    end
-                            end,
     {Blockchain, Ref} =
-        case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
-            {no_genesis, _Chain}=R ->
-                %% mark all upgrades done
-                {R, make_ref()};
-            {ok, Chain} ->
-                %% blockchain:new will take care of any repairs needed, possibly asynchronously
-                %%
-                %% do ledger upgrade
-                {ok, GossipRef} = add_handlers(Swarm, Chain),
-                self() ! maybe_sync,
-                {ok, GenesisHash} = blockchain:genesis_hash(Chain),
-                ok = blockchain_txn_mgr:set_chain(Chain),
-                true = libp2p_swarm:network_id(Swarm, GenesisHash),
-                {Chain, GossipRef}
+        case application:get_env(blockchain, autoload, true) of
+            false ->
+                %% some applications might not want the chain to load up and do work until they're ready
+                {undefined, make_ref()};
+            true ->
+                BaseDir = proplists:get_value(base_dir, Args, "data"),
+                GenDir = proplists:get_value(update_dir, Args, undefined),
+                load_chain(Swarm, BaseDir, GenDir)
         end,
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain, gossip_ref = Ref}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
+    {reply, undefined, State};
+handle_call(_, _From, #state{blockchain=undefined}=State) ->
     {reply, undefined, State};
 handle_call(num_consensus_members, _From, #state{blockchain = Chain} = State) ->
     {ok, N} = blockchain:config(?num_consensus_members, blockchain:ledger(Chain)),
@@ -308,8 +293,10 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast(maybe_sync, State) ->
-    {noreply, maybe_sync(State)};
+handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
+    {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
+    notify({new_chain, Blockchain}),
+    {reply, ok, State#state{blockchain = Blockchain, gossip_ref = Ref}};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
                                                             swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
@@ -330,8 +317,12 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain, gossip_ref = GossipRef}}
     end;
+handle_cast(_, #state{blockchain=undefined}=State) ->
+    {noreply, State};
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
     {noreply, State};
+handle_cast(maybe_sync, State) ->
+    {noreply, maybe_sync(State)};
 handle_cast({submit_txn, Txn}, State) ->
     ok = send_txn(Txn),
     {noreply, State};
@@ -423,6 +414,8 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+terminate(_Reason, #state{blockchain=undefined}) ->
+    ok;
 terminate(_Reason, #state{blockchain={no_genesis, Chain}}) ->
     ok = blockchain:close(Chain),
     ok;
@@ -577,3 +570,39 @@ send_txn(Txn) ->
 
 send_txn(Txn, Callback) ->
     ok = blockchain_txn_mgr:submit(Txn, Callback).
+
+get_assume_valid_height_and_hash() ->
+    case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+          application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+        {undefined, _} ->
+            undefined;
+        {_, undefined} ->
+            undefined;
+        BlockHashAndHeight ->
+            case application:get_env(blockchain, honor_assumed_valid, false) of
+                true ->
+                    BlockHashAndHeight;
+                _ ->
+                    undefined
+            end
+    end.
+
+load_chain(Swarm, BaseDir, GenDir) ->
+    AssumedValidBlockHashAndHeight = get_assume_valid_height_and_hash(),
+    case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
+        {no_genesis, _Chain}=R ->
+            %% mark all upgrades done
+            {R, make_ref()};
+        {ok, Chain} ->
+            %% blockchain:new will take care of any repairs needed, possibly asynchronously
+            %%
+            %% do ledger upgrade
+            {ok, GossipRef} = add_handlers(Swarm, Chain),
+            self() ! maybe_sync,
+            {ok, GenesisHash} = blockchain:genesis_hash(Chain),
+            ok = blockchain_txn_mgr:set_chain(Chain),
+            true = libp2p_swarm:network_id(Swarm, GenesisHash),
+            {Chain, GossipRef}
+    end.
+
+
