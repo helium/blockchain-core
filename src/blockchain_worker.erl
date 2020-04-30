@@ -33,6 +33,10 @@
     pause_sync/0,
     sync_paused/0,
 
+    set_resyncing/3,
+    resync_done/0,
+    is_resyncing/0,
+
     set_absorbing/3,
     absorb_done/0,
     is_absorbing/0
@@ -66,7 +70,9 @@
          sync_paused = false :: boolean(),
          gossip_ref = make_ref() :: reference(),
          absorb_info :: undefined | {pid(), reference()},
-         absorb_retry = 3 :: pos_integer()
+         absorb_retries = 3 :: pos_integer(),
+         resync_info :: undefined | {pid(), reference()},
+         resync_retries = 3 :: pos_integer()
         }).
 
 %% ------------------------------------------------------------------
@@ -134,6 +140,17 @@ absorb_done() ->
 
 is_absorbing() ->
     gen_server:call(?SERVER, is_absorbing, infinity).
+
+-spec set_resyncing(pos_integer(), pos_integer(), blockchain:blockchain()) -> ok.
+set_resyncing(ChainHeight, LedgerHeight, Blockchain) ->
+    gen_server:cast(?SERVER, {set_resyncing, ChainHeight, LedgerHeight, Blockchain}).
+
+resync_done() ->
+    gen_server:call(?SERVER, resync_done, infinity).
+
+is_resyncing() ->
+    gen_server:call(?SERVER, is_resyncing, infinity).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -324,19 +341,36 @@ handle_call(absorb_done, _From, #state{absorb_info = {_Pid, Ref}} = State) ->
     {reply, ok, maybe_sync(State#state{absorb_info = undefined, sync_paused = false})};
 handle_call(is_absorbing, _From, State) ->
     {reply, State#state.absorb_info /= undefined, State};
+
+handle_call(resync_done, _From, #state{resync_info = {_Pid, Ref}} = State) ->
+    _ = erlang:demonitor(Ref, [flush]),
+    {reply, ok, maybe_sync(State#state{resync_info = undefined, sync_paused = false})};
+handle_call(is_resyncing, _From, State) ->
+    {reply, State#state.resync_info /= undefined, State};
+
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({set_absorbing, Block, Blockchain, Syncing}, State=#state{absorb_info=undefined}) ->
+handle_cast({set_absorbing, Block, Blockchain, Syncing}, State=#state{absorb_info=undefined, resync_info=undefined}) ->
     Info = spawn_monitor(
              fun() ->
                      blockchain:absorb_temp_blocks_fun(Block, Blockchain, Syncing)
              end),
     %% just don't sync, it's a waste of bandwidth
-    {noreply, State#state{absorb_info = Info, sync_paused = true}};
+    {noreply, State#state{absorb_info = Info, sync_paused = true, absorb_retries = 3}};
 handle_cast({set_absorbing, _Block, _Blockchain, _Syncing}, State) ->
     {noreply, State};
+handle_cast({set_resyncing, BlockHeight, LedgerHeight, Blockchain}, State=#state{absorb_info=undefined, resync_info=undefined}) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:resync_fun(BlockHeight, LedgerHeight, Blockchain)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {noreply, State#state{resync_info = Info, sync_paused = true, resync_retries = 3}};
+handle_cast({set_resyncing, _Block, _Blockchain, _Syncing}, State) ->
+    {noreply, State};
+
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
@@ -444,32 +478,41 @@ handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
 handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
-            #state{absorb_info = {AbsorbPid, AbsorbRef}} = State0) ->
+            #state{absorb_info = {AbsorbPid, AbsorbRef}, absorb_retries = Retries} = State) ->
     case Reason of
         normal ->
             lager:info("Absorb process completed successfully"),
-            {noreply, State0#state{sync_paused=false, absorb_info=undefined}};
+            {noreply, State#state{sync_paused=false, absorb_info=undefined}};
         shutdown ->
-            {noreply, State0#state{absorb_info=undefined}};
+            {noreply, State#state{absorb_info=undefined}};
+        Reason when Retries > 0 ->
+            lager:warning("Absorb process exited with reason ~p, retrying ~p more times", [Reason, Retries]),
+            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            {noreply, State#state{absorb_info=undefined, absorb_retries = Retries - 1}};
         Reason ->
-            lager:warning("Absorb process exited with reason ~p", [Reason]),
-            AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
-                                                   application:get_env(blockchain, assumed_valid_block_height, undefined)} of
-                                                 {undefined, _} ->
-                                                     undefined;
-                                                 {_, undefined} ->
-                                                     undefined;
-                                                 BlockHashAndHeight ->
-                                                     case application:get_env(blockchain, honor_assumed_valid, false) of
-                                                         true ->
-                                                             BlockHashAndHeight;
-                                                         _ ->
-                                                             undefined
-                                                     end
-                                             end,
-            blockchain:init_assumed_valid(State0#state.blockchain, AssumedValidBlockHashAndHeight),
-            {noreply, State0#state{absorb_info=undefined}}
+            lager:warning("Absorb process exited with reason ~p, stopping", [Reason]),
+            %% ran out of retries
+            {stop, Reason, State}
     end;
+handle_info({'DOWN', ResyncRef, process, ResyncPid, Reason},
+            #state{resync_info = {ResyncPid, ResyncRef}, resync_retries = Retries} = State) ->
+    case Reason of
+        normal ->
+            lager:info("Resync process completed successfully"),
+            %% check if we have any pending assume valids to take care of
+            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            {noreply, State#state{sync_paused=false, resync_info=undefined}};
+        shutdown ->
+            {noreply, State#state{resync_info=undefined}};
+        Reason when Retries > 0 ->
+            lager:warning("Resync process exited with reason ~p, retrying ~p more times", [Reason, Retries]),
+            {noreply, State#state{resync_info=undefined, resync_retries = Retries - 1}};
+        Reason ->
+            lager:warning("Resync process exited with reason ~p, stopping", [Reason]),
+            %% ran out of retries
+            {stop, Reason, State}
+    end;
+
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
@@ -633,3 +676,19 @@ send_txn(Txn) ->
 
 send_txn(Txn, Callback) ->
     ok = blockchain_txn_mgr:submit(Txn, Callback).
+
+get_assume_valid_height_and_hash() ->
+    case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+          application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+        {undefined, _} ->
+            undefined;
+        {_, undefined} ->
+            undefined;
+        BlockHashAndHeight ->
+            case application:get_env(blockchain, honor_assumed_valid, false) of
+                true ->
+                    BlockHashAndHeight;
+                _ ->
+                    undefined
+            end
+    end.

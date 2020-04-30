@@ -29,6 +29,7 @@
 
     last_block_add_time/1,
 
+    resync_fun/3,
     absorb_temp_blocks_fun/3,
     delete_temp_blocks/1,
 
@@ -834,6 +835,7 @@ absorb_temp_blocks(Block, Blockchain, Syncing) ->
     ok = blockchain_worker:set_absorbing(Block, Blockchain, Syncing).
 
 absorb_temp_blocks_fun(Block, Blockchain=#blockchain{temp_blocks=TempBlocksCF}, Syncing) ->
+    ok = blockchain_lock:acquire(),
     {ok, MainChainHeadHash} = blockchain:head_hash(Blockchain),
     %% ok, now build the chain back to the oldest block in the temporary
     %% storage or to the head of the main chain, whichever comes first
@@ -851,6 +853,7 @@ absorb_temp_blocks_fun(Block, Blockchain=#blockchain{temp_blocks=TempBlocksCF}, 
         Res ->
             lager:info("temp Chain ~p", [length(Chain)]),
             lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
+            blockchain_lock:release(),
             ok
     end.
 
@@ -858,6 +861,7 @@ absorb_temp_blocks_fun_([], Chain, _Syncing) ->
     %% we did it!
     ok = blockchain_worker:absorb_done(),
     delete_temp_blocks(Chain),
+    blockchain_lock:release(),
     ok;
 absorb_temp_blocks_fun_([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
@@ -1628,7 +1632,7 @@ maybe_continue_resync(Blockchain, Blocking) ->
                     %% block the caller
                     resync_fun(ChainHeight, LedgerHeight, Blockchain);
                 false ->
-                    spawn_link(fun() -> resync_fun(ChainHeight, LedgerHeight, Blockchain) end)
+                    blockchain_worker:set_resyncing(ChainHeight, LedgerHeight, Blockchain)
             end,
             Blockchain;
         {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight < LedgerHeight ->
