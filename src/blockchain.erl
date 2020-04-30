@@ -748,27 +748,7 @@ add_block_(Block, Blockchain, Syncing) ->
                             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
                             Error;
                         ok ->
-                            try
-                                ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
-                            catch C:E ->
-                                      lager:info("poc gc failed with ~p:~p", [C,E]),
-                                      ok
-                            end,
-                            Ledger = blockchain:ledger(Blockchain),
-                            case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger) of
-                                {error, Reason0}=Error0 ->
-                                    lager:error("Error refreshing witnesses, Reason: ~p", [Reason0]),
-                                    Error0;
-                                ok ->
-                                    case blockchain_ledger_v1:new_snapshot(Ledger) of
-                                        {error, Reason}=Error ->
-                                            lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                            Error;
-                                        {ok, NewLedger} ->
-                                            lager:info("Notifying new block ~p", [Height]),
-                                            ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
-                                    end
-                            end
+                            run_absorb_block_hooks(Syncing, Hash, Blockchain)
                     end;
                 plausible ->
                     case save_plausible_block(Block, Blockchain) of
@@ -792,7 +772,12 @@ add_block_(Block, Blockchain, Syncing) ->
             %% blockchain is higher than ledger, try to play the chain forwards
             lists:foldl(fun(H, ok) ->
                                   {ok, B} = get_block(H, Blockchain),
-                                  blockchain_txn:absorb_and_commit(B, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(B));
+                                  case blockchain_txn:absorb_and_commit(B, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(B)) of
+                                      ok ->
+                                          run_absorb_block_hooks(Syncing, H, Blockchain);
+                                      {error, Reason} ->
+                                          lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason])
+                                  end;
                            (_, Error) -> Error
                           end, ok, lists:seq(LedgerHeight+1, BlockchainHeight))
     end.
@@ -882,16 +867,9 @@ absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
             Error;
         ok ->
-            case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
-                {error, Reason}=Error ->
-                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                    Error;
-                {ok, NewLedger} ->
-                    lager:info("Notifying new block ~p", [Height]),
-                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger}),
-                    absorb_temp_blocks(Chain, Blockchain, Syncing)
-            end
-    end.
+            run_absorb_block_hooks(Syncing, Hash, Blockchain)
+    end,
+    absorb_temp_blocks(Chain, Blockchain, Syncing).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1125,6 +1103,9 @@ reset_ledger(Height,
                                       ok = blockchain_txn:absorb_and_commit(Block, CAcc,  fun() -> ok end,
                                                                             blockchain_block:is_rescue_block(Block))
                               end,
+                              Hash = blockchain_block:hash_block(Block),
+                              %% can only get here if the absorb suceeded
+                              run_absorb_block_hooks(true, Hash, CAcc),
                               CAcc;
                           _ ->
                               lager:warning("couldn't absorb block at ~p", [H]),
@@ -1724,13 +1705,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                                               {ok, Block} = get_block(Hash, Blockchain),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
-                                              case blockchain_ledger_v1:new_snapshot(blockchain:ledger(Blockchain)) of
-                                                  {error, Reason}=Error ->
-                                                      lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                                                      Error;
-                                                  {ok, NewLedger} ->
-                                                      ok = blockchain_worker:notify({add_block, Hash, true, NewLedger})
-                                              end
+                                              run_absorb_block_hooks(true, Hash, Blockchain)
                                       end, HashChain)
                     after
                         blockchain_lock:release()
@@ -1828,6 +1803,28 @@ get_plausible_blocks(Itr, {ok, _Key, BinBlock}, Acc) ->
              end,
     get_plausible_blocks(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
+
+run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
+    try
+        ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain)
+    catch C:E ->
+              lager:info("poc gc failed with ~p:~p", [C,E]),
+              ok
+    end,
+    Ledger = blockchain:ledger(Blockchain),
+    case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger) of
+        {error, Reason0}=Error0 ->
+            lager:error("Error refreshing witnesses, Reason: ~p", [Reason0]),
+            Error0;
+        ok ->
+            case blockchain_ledger_v1:new_snapshot(Ledger) of
+                {error, Reason}=Error ->
+                    lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                    Error;
+                {ok, NewLedger} ->
+                    ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
