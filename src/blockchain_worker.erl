@@ -33,7 +33,11 @@
     sync/0,
     cancel_sync/0,
     pause_sync/0,
-    sync_paused/0
+    sync_paused/0,
+
+    set_absorbing/3,
+    absorb_done/0,
+    is_absorbing/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -62,7 +66,9 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
-         gossip_ref = make_ref() :: reference()
+         gossip_ref = make_ref() :: reference(),
+         absorb_info :: undefined | {pid(), reference()},
+         absorb_retry = 3 :: pos_integer()
         }).
 
 %% ------------------------------------------------------------------
@@ -123,7 +129,18 @@ new_ledger(Dir) ->
 
 
 load(Args) ->
-    gen_server:call(?SERVER, {load, Args}, infinity).
+    gen_server:cast(?SERVER, {load, Args}).
+
+-spec set_absorbing(blockchain_block:block(), blockchain:blockchain(), boolean()) -> ok.
+set_absorbing(Block, Blockchain, Syncing) ->
+    gen_server:cast(?SERVER, {set_absorbing, Block, Blockchain, Syncing}).
+
+absorb_done() ->
+    gen_server:call(?SERVER, absorb_done, infinity).
+
+is_absorbing() ->
+    gen_server:call(?SERVER, is_absorbing, infinity).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -255,10 +272,6 @@ init(Args) ->
                      [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain, gossip_ref = Ref}}.
 
-handle_call({load, Args}, _From, #state{blockchain=undefined}=State) ->
-    {Blockchain, Ref} = load_chain(State#state.swarm, Args),
-    notify({new_chain, Blockchain}),
-    {reply, ok, State#state{blockchain = Blockchain, gossip_ref = Ref}};
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
 handle_call(_, _From, #state{blockchain=undefined}=State) ->
@@ -291,10 +304,20 @@ handle_call(pause_sync, _From, State) ->
     {reply, ok, pause_sync(State)};
 handle_call(sync_paused, _From, State) ->
     {reply, State#state.sync_paused, State};
+
+handle_call(absorb_done, _From, #state{absorb_info = {_Pid, Ref}} = State) ->
+    _ = erlang:demonitor(Ref, [flush]),
+    {reply, ok, maybe_sync(State#state{absorb_info = undefined, sync_paused = false})};
+handle_call(is_absorbing, _From, State) ->
+    {reply, State#state.absorb_info /= undefined, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({load, Args}, #state{blockchain=undefined}=State) ->
+    {Blockchain, Ref} = load_chain(State#state.swarm, Args),
+    notify({new_chain, Blockchain}),
+    {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref}};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
                                                             swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
@@ -318,6 +341,15 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
 handle_cast(_, #state{blockchain=undefined}=State) ->
     {noreply, State};
 handle_cast(_, #state{blockchain={no_genesis, _}}=State) ->
+    {noreply, State};
+handle_cast({set_absorbing, Block, Blockchain, Syncing}, State=#state{absorb_info=undefined}) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:absorb_temp_blocks_fun(Block, Blockchain, Syncing)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {noreply, State#state{absorb_info = Info, sync_paused = true}};
+handle_cast({set_absorbing, _Block, _Blockchain, _Syncing}, State) ->
     {noreply, State};
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
@@ -403,6 +435,33 @@ handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
+handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
+            #state{absorb_info = {AbsorbPid, AbsorbRef}} = State0) ->
+    case Reason of
+        normal ->
+            lager:info("Absorb process completed successfully"),
+            {noreply, State0#state{sync_paused=false, absorb_info=undefined}};
+        shutdown ->
+            {noreply, State0#state{absorb_info=undefined}};
+        Reason ->
+            lager:warning("Absorb process exited with reason ~p", [Reason]),
+            AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+                                                   application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+                                                 {undefined, _} ->
+                                                     undefined;
+                                                 {_, undefined} ->
+                                                     undefined;
+                                                 BlockHashAndHeight ->
+                                                     case application:get_env(blockchain, honor_assumed_valid, false) of
+                                                         true ->
+                                                             BlockHashAndHeight;
+                                                         _ ->
+                                                             undefined
+                                                     end
+                                             end,
+            blockchain:init_assumed_valid(State0#state.blockchain, AssumedValidBlockHashAndHeight),
+            {noreply, State0#state{absorb_info=undefined}}
+    end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->
