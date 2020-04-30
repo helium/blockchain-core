@@ -34,7 +34,8 @@
     sync_paused/0,
 
     set_absorbing/3,
-    absorb_done/0
+    absorb_done/0,
+    is_absorbing/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -124,11 +125,15 @@ sync_paused() ->
 new_ledger(Dir) ->
     gen_server:call(?SERVER, {new_ledger, Dir}, infinity).
 
-set_absorbing(HashChain, Blockchain, Syncing) ->
-    gen_server:call(?SERVER, {set_absorbing, HashChain, Blockchain, Syncing}, infinity).
+-spec set_absorbing(blockchain_block:block(), blockchain:blockchain(), boolean()) -> ok.
+set_absorbing(Block, Blockchain, Syncing) ->
+    gen_server:cast(?SERVER, {set_absorbing, Block, Blockchain, Syncing}).
 
 absorb_done() ->
     gen_server:call(?SERVER, absorb_done, infinity).
+
+is_absorbing() ->
+    gen_server:call(?SERVER, is_absorbing, infinity).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -314,21 +319,24 @@ handle_call(pause_sync, _From, State) ->
 handle_call(sync_paused, _From, State) ->
     {reply, State#state.sync_paused, State};
 
-handle_call({set_absorbing, HashChain, Blockchain, Syncing}, _From, State) ->
-    Info = spawn_monitor(
-             fun() ->
-                     blockchain:absorb_temp_blocks_fun(HashChain, Blockchain, Syncing)
-             end),
-    %% just don't sync, it's a waste of bandwidth
-    {reply, ok, State#state{absorb_info = Info, sync_paused = true}};
 handle_call(absorb_done, _From, #state{absorb_info = {_Pid, Ref}} = State) ->
     _ = erlang:demonitor(Ref, [flush]),
     {reply, ok, maybe_sync(State#state{absorb_info = undefined, sync_paused = false})};
-
+handle_call(is_absorbing, _From, State) ->
+    {reply, State#state.absorb_info /= undefined, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({set_absorbing, Block, Blockchain, Syncing}, State=#state{absorb_info=undefined}) ->
+    Info = spawn_monitor(
+             fun() ->
+                     blockchain:absorb_temp_blocks_fun(Block, Blockchain, Syncing)
+             end),
+    %% just don't sync, it's a waste of bandwidth
+    {noreply, State#state{absorb_info = Info, sync_paused = true}};
+handle_cast({set_absorbing, _Block, _Blockchain, _Syncing}, State) ->
+    {noreply, State};
 handle_cast(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
@@ -435,10 +443,33 @@ handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
                                     {blockchain_gossip_handler, [Swarm, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
-handle_info({'DOWN', AbsorbRef, process, _AbsorbPid, _Reason},
-            #state{sync_ref = SyncRef, blockchain = Chain} = State0) ->
-    %% TODO Restart magic here
-    {noreply, State};
+handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
+            #state{absorb_info = {AbsorbPid, AbsorbRef}} = State0) ->
+    case Reason of
+        normal ->
+            lager:info("Absorb process completed successfully"),
+            {noreply, State0#state{sync_paused=false, absorb_info=undefined}};
+        shutdown ->
+            {noreply, State0#state{absorb_info=undefined}};
+        Reason ->
+            lager:warning("Absorb process exited with reason ~p", [Reason]),
+            AssumedValidBlockHashAndHeight = case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+                                                   application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+                                                 {undefined, _} ->
+                                                     undefined;
+                                                 {_, undefined} ->
+                                                     undefined;
+                                                 BlockHashAndHeight ->
+                                                     case application:get_env(blockchain, honor_assumed_valid, false) of
+                                                         true ->
+                                                             BlockHashAndHeight;
+                                                         _ ->
+                                                             undefined
+                                                     end
+                                             end,
+            blockchain:init_assumed_valid(State0#state.blockchain, AssumedValidBlockHashAndHeight),
+            {noreply, State0#state{absorb_info=undefined}}
+    end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     {noreply, State#state{blockchain = NC}};
 handle_info(_Msg, State) ->

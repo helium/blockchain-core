@@ -88,6 +88,7 @@ basic(Config) ->
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain)),
     ok = blockchain:add_block(LastBlock, Chain),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 101}, blockchain:height(Chain)),
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
     ok.
@@ -165,6 +166,7 @@ blockchain_restart(Config) ->
     ?assertEqual({ok, 1}, blockchain:height(Chain1)),
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain1)),
     ok = blockchain:add_block(LastBlock, Chain1),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 101}, blockchain:height(Chain1)),
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain1)),
     ok.
@@ -205,6 +207,7 @@ blockchain_almost_synced(Config) ->
     ?assertEqual({ok, 100}, blockchain:height(Chain1)),
     ?assertEqual({ok, 100}, blockchain:sync_height(Chain1)),
     ok = blockchain:add_block(LastBlock, Chain1),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 101}, blockchain:height(Chain1)),
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain1)),
     ok.
@@ -249,6 +252,7 @@ blockchain_crash_while_absorbing(Config) ->
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     blockchain:add_blocks(Blocks, Chain),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 50}, blockchain:height(Chain)),
     meck:unload(blockchain_txn),
     %% simulate the node stopping or crashing
@@ -317,12 +321,14 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
 
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
     blockchain:add_blocks(Blocks, Chain),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 50}, blockchain:height(Chain)),
     meck:unload(blockchain_txn),
     %% simulate the node stopping or crashing
     blockchain:close(Chain),
     %% re-open with a newer assumed-valid hash supplied, like if we got an OTA
     {ok, Chain1} = blockchain:new(SimDir, Genesis, {blockchain_block:hash_block(FinalLastBlock), blockchain_block:height(FinalLastBlock)}),
+    blockchain_worker:blockchain(Chain1),
     %% the sync height should be 101 because we don't have the new assume valid hash
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain1)),
     %% the actual height should be right before the explode block
@@ -332,6 +338,7 @@ blockchain_crash_while_absorbing_and_assume_valid_moves(Config) ->
     ?assertEqual(blockchain:sync_hash(Chain1), {ok, blockchain_block:hash_block(LastBlock)}),
     %% add the new final block
     ok = blockchain:add_block(FinalLastBlock, Chain1),
+    ok = wait_until_absorbed(),
     ?assertEqual(blockchain:sync_hash(Chain1), {ok, blockchain_block:hash_block(FinalLastBlock)}),
     ?assertEqual(blockchain:head_hash(Chain1), {ok, blockchain_block:hash_block(FinalLastBlock)}),
     ?assertEqual({ok, 102}, blockchain:height(Chain1)),
@@ -384,6 +391,10 @@ overlapping_streams(Config) ->
     ?assertEqual(1, length(lists:usort([ blockchain:sync_hash(Chain) || _ <- lists:seq(1, 100)]))),
 
     ok = blockchain:add_block(LastBlock, Chain),
+    ok = wait_until_absorbed(),
     ?assertEqual({ok, 101}, blockchain:height(Chain)),
     ?assertEqual({ok, 101}, blockchain:sync_height(Chain)),
     ok.
+
+wait_until_absorbed() ->
+    blockchain_ct_utils:wait_until(fun() -> false == blockchain_worker:is_absorbing() end).
