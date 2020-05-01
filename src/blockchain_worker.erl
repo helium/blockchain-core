@@ -154,9 +154,6 @@ is_resyncing() ->
     gen_server:call(?SERVER, is_resyncing, infinity).
 
 load(Args) ->
-    gen_server:cast(?SERVER, {load, Args}, infinity).
-
-load(Args) ->
     gen_server:cast(?SERVER, {load, Args}).
 
 %%--------------------------------------------------------------------
