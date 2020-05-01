@@ -341,7 +341,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
     notify({new_chain, Blockchain}),
-    {reply, ok, State#state{blockchain = Blockchain, gossip_ref = Ref}};
+    {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref}};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
                                                             swarm=Swarm}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
