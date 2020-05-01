@@ -29,6 +29,8 @@
 
     last_block_add_time/1,
 
+    resync_fun/3,
+    absorb_temp_blocks_fun/3,
     delete_temp_blocks/1,
 
     analyze/1, repair/1,
@@ -36,6 +38,8 @@
     fold_chain/4,
 
     reset_ledger/1, reset_ledger/2, reset_ledger/3,
+
+    init_assumed_valid/2,
 
     add_gateway_txn/4, assert_loc_txn/6
    ]).
@@ -797,37 +801,14 @@ add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchai
                     %% save this block so if we get interrupted or crash
                     %% we don't need to wait for another sync to resume
                     ok = save_temp_block(Block, Blockchain),
-                    %% ok, now build the chain back to the oldest block in the temporary
-                    %% storage or to the head of the main chain, whichever comes first
-                    case blockchain:head_hash(Blockchain) of
-                        {ok, MainChainHeadHash} ->
-                            Chain = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
-                            %% note that 'Chain' includes 'Block' here.
-                            %%
-                            %% check the oldest block in the temporary chain connects with
-                            %% the HEAD block in the main chain
-                            {ok, OldestTempBlock} = get_temp_block(hd(Chain), Blockchain),
-                            case blockchain_block:prev_hash(OldestTempBlock) of
-                                MainChainHeadHash ->
-                                    %% Ok, this looks like we have everything we need.
-                                    %% Absorb all the transactions without validating them
-                                    absorb_temp_blocks(Chain, Blockchain, Syncing);
-                                Res ->
-                                    lager:info("temp Chain ~p", [length(Chain)]),
-                                    lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
-                                    {error, disjoint_assumed_valid_block}
-                            end;
-                        _Error ->
-                            lager:warning("Unable to get head hash of main chain ~p", [_Error]),
-                            {error, unobtainable_head_hash}
-                    end;
+                    absorb_temp_blocks(Block, Blockchain, Syncing);
                 _ ->
                     %% it's possible that we've seen everything BUT the assumed valid block, and done a full validate + absorb
                     %% already, so check for that
                     case blockchain:get_block(ParentHash, Blockchain) of
                         {ok, _} ->
                             ok = save_temp_block(Block, Blockchain),
-                            absorb_temp_blocks([blockchain_block:hash_block(Block)], Blockchain, Syncing);
+                            absorb_temp_blocks(Block, Blockchain, Syncing);
                         _ ->
                             lager:notice("Saw the assumed_valid block, but don't have its parent"),
                             {error, disjoint_assumed_valid_block}
@@ -850,11 +831,39 @@ add_assumed_valid_block({AssumedValidHash, AssumedValidHeight}, Block, Blockchai
             {error, block_higher_than_assumed_valid_height}
     end.
 
-absorb_temp_blocks([],Chain, _Syncing) ->
+absorb_temp_blocks(Block, Blockchain, Syncing) ->
+    ok = blockchain_worker:set_absorbing(Block, Blockchain, Syncing).
+
+absorb_temp_blocks_fun(Block, Blockchain=#blockchain{temp_blocks=TempBlocksCF}, Syncing) ->
+    ok = blockchain_lock:acquire(),
+    {ok, MainChainHeadHash} = blockchain:head_hash(Blockchain),
+    %% ok, now build the chain back to the oldest block in the temporary
+    %% storage or to the head of the main chain, whichever comes first
+    Chain = build_hash_chain(MainChainHeadHash, Block, Blockchain, TempBlocksCF),
+    %% note that 'Chain' includes 'Block' here.
+    %%
+    %% check the oldest block in the temporary chain connects with
+    %% the HEAD block in the main chain
+    {ok, OldestTempBlock} = get_temp_block(hd(Chain), Blockchain),
+    case blockchain_block:prev_hash(OldestTempBlock) of
+        MainChainHeadHash ->
+            %% Ok, this looks like we have everything we need.
+            %% Absorb all the transactions without validating them
+            absorb_temp_blocks_fun_(Chain, Blockchain, Syncing);
+        Res ->
+            lager:info("temp Chain ~p", [length(Chain)]),
+            lager:warning("Saw assumed valid block, but cannot connect it to the main chain ~p", [Res]),
+            blockchain_lock:release(),
+            ok
+    end.
+
+absorb_temp_blocks_fun_([], Chain, _Syncing) ->
     %% we did it!
+    ok = blockchain_worker:absorb_done(),
     delete_temp_blocks(Chain),
+    blockchain_lock:release(),
     ok;
-absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
+absorb_temp_blocks_fun_([BlockHash|Chain], Blockchain, Syncing) ->
     {ok, Block} = get_temp_block(BlockHash, Blockchain),
     Height = blockchain_block:height(Block),
     Hash = blockchain_block:hash_block(Block),
@@ -867,9 +876,9 @@ absorb_temp_blocks([BlockHash|Chain], Blockchain, Syncing) ->
             lager:error("Error absorbing transaction, Ignoring Hash: ~p, Reason: ~p", [blockchain_block:hash_block(Block), Reason]),
             Error;
         ok ->
-            run_absorb_block_hooks(Syncing, Hash, Blockchain)
-    end,
-    absorb_temp_blocks(Chain, Blockchain, Syncing).
+            run_absorb_block_hooks(Syncing, Hash, Blockchain),
+            absorb_temp_blocks_fun_(Chain, Blockchain, Syncing)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1579,26 +1588,7 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
                     Block = blockchain_block:deserialize(BinBlock),
                     case blockchain_block:height(Block) == Height of
                         true ->
-                            %% spawn a worker process to do this in the background so we don't
-                            %% block application startup
-                            spawn_link(fun() ->
-                                               blockchain_lock:acquire(),
-                                               try add_assumed_valid_block(HashAndHeight, Block, Blockchain, false) of
-                                                   ok ->
-                                                       %% we did it!
-                                                       ok;
-                                                   {error, Reason} ->
-                                                       %% something went wrong!
-                                                       lager:warning("assume valid processing failed on init with assumed_valid hash present ~p", [Reason]),
-                                                       delete_temp_blocks(Blockchain),
-                                                       ok
-                                               catch C:E:S ->
-                                                       lager:warning("assume valid processing failed on init with assumed_valid hash present ~p:~p ~p", [C, E, S]),
-                                                       ok
-                                               after
-                                                   blockchain_lock:force_release()
-                                               end
-                                       end),
+                            absorb_temp_blocks(Block, Blockchain, true),
                             Blockchain;
                         false ->
                             %% block must be bad somehow
@@ -1642,7 +1632,7 @@ maybe_continue_resync(Blockchain, Blocking) ->
                     %% block the caller
                     resync_fun(ChainHeight, LedgerHeight, Blockchain);
                 false ->
-                    spawn_link(fun() -> resync_fun(ChainHeight, LedgerHeight, Blockchain) end)
+                    blockchain_worker:set_resyncing(ChainHeight, LedgerHeight, Blockchain)
             end,
             Blockchain;
         {{ok, ChainHeight}, {ok, LedgerHeight}} when ChainHeight < LedgerHeight ->
