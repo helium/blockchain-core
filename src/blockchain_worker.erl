@@ -156,6 +156,9 @@ is_resyncing() ->
 load(Args) ->
     gen_server:cast(?SERVER, {load, Args}, infinity).
 
+load(Args) ->
+    gen_server:cast(?SERVER, {load, Args}).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
