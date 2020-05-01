@@ -27,7 +27,7 @@
 
     new_ledger/1,
 
-    load/1,
+    load/2,
 
     maybe_sync/0,
     sync/0,
@@ -153,8 +153,8 @@ resync_done() ->
 is_resyncing() ->
     gen_server:call(?SERVER, is_resyncing, infinity).
 
-load(Args) ->
-    gen_server:cast(?SERVER, {load, Args}).
+load(BaseDir, GenDir) ->
+    gen_server:cast(?SERVER, {load, BaseDir, GenDir}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -337,7 +337,6 @@ handle_call(is_resyncing, _From, State) ->
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
-
 
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
