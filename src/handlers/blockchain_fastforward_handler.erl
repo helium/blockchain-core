@@ -49,9 +49,19 @@ init(client, _Conn, [Blockchain]) ->
     {ok, #state{blockchain=Blockchain}};
 init(server, _Conn, [_Path, _, Blockchain]) ->
     lager:debug("started fastforward_handler server"),
-    {ok, Hash} = blockchain:head_hash(Blockchain),
-    Msg = #blockchain_sync_hash_pb{hash=Hash},
-    {ok, #state{blockchain=Blockchain}, blockchain_sync_handler_pb:encode_msg(Msg)}.
+    %% use the process registry as a poor man's singleton
+    %% registering will fail if another fastforward is running
+    try erlang:register(?MODULE, self()) of
+        true ->
+            %% die if we haven't started to add blocks in 15s
+            %% in case we have a slow peer
+            erlang:send_after(15000, self(), timeout),
+            {ok, Hash} = blockchain:head_hash(Blockchain),
+            Msg = #blockchain_sync_hash_pb{hash=Hash},
+            {ok, #state{blockchain=Blockchain}, blockchain_sync_handler_pb:encode_msg(Msg)}
+    catch _:_ ->
+              {stop, normal}
+    end.
 
 handle_data(client, Data, #state{blockchain=Blockchain}=State) ->
     #blockchain_sync_hash_pb{hash=Hash} =
@@ -79,6 +89,8 @@ handle_data(server, Data, #state{blockchain=Blockchain}=State) ->
     end,
     {stop, normal, State}.
 
+handle_info(server, timeout, State) ->
+    {stop, normal, State};
 handle_info(_Type, _Msg, State) ->
     lager:debug("rcvd unknown type: ~p unknown msg: ~p", [_Type, _Msg]),
     {noreply, State}.
