@@ -268,7 +268,7 @@ init(Args) ->
     ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
-    SwarmTID = libp2p_swarm:tid(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
     Ports = case application:get_env(blockchain, ports, undefined) of
                 undefined ->
                     %% fallback to the single 'port' app env var
@@ -284,10 +284,10 @@ init(Args) ->
             true ->
                 BaseDir = proplists:get_value(base_dir, Args, "data"),
                 GenDir = proplists:get_value(update_dir, Args, undefined),
-                load_chain(Swarm, BaseDir, GenDir)
+                load_chain(SwarmTID, BaseDir, GenDir)
         end,
     true = lists:all(fun(E) -> E == ok end,
-                     [ libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
+                     [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain, gossip_ref = Ref}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
@@ -301,10 +301,10 @@ handle_call(consensus_addrs, _From, #state{blockchain=Chain}=State) ->
     {reply, blockchain_ledger_v1:consensus_members(blockchain:ledger(Chain)), State};
 handle_call(blockchain, _From, #state{blockchain=Chain}=State) ->
     {reply, Chain, State};
-handle_call({blockchain, NewChain}, _From, #state{swarm = Swarm} = State) ->
+handle_call({blockchain, NewChain}, _From, #state{swarm_tid = SwarmTID} = State) ->
     notify({new_chain, NewChain}),
-    remove_handlers(Swarm),
-    {ok, GossipRef} = add_handlers(Swarm, NewChain),
+    remove_handlers(SwarmTID),
+    {ok, GossipRef} = add_handlers(SwarmTID, NewChain),
     {reply, ok, State#state{blockchain = NewChain, gossip_ref = GossipRef}};
 handle_call({new_ledger, Dir}, _From, State) ->
     %% We do this here so the same process that normally owns the ledger
@@ -344,7 +344,7 @@ handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     notify({new_chain, Blockchain}),
     {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref}};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
-                                                            swarm=Swarm}=State) ->
+                                                            swarm_tid=SwarmTid}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
         false ->
             lager:warning("~p is not a genesis block", [GenesisBlock]),
@@ -357,9 +357,9 @@ handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genes
             lager:info("blockchain started with ~p, consensus ~p", [lager:pr(Blockchain, blockchain), ConsensusAddrs]),
             {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
             ok = notify({integrate_genesis_block, GenesisHash}),
-            {ok, GossipRef} = add_handlers(Swarm, Blockchain),
+            {ok, GossipRef} = add_handlers(SwarmTid, Blockchain),
             ok = blockchain_txn_mgr:set_chain(Blockchain),
-            true = libp2p_swarm:network_id(Swarm, GenesisHash),
+            true = libp2p_swarm:network_id(SwarmTid, GenesisHash),
             self() ! maybe_sync,
             {noreply, State#state{blockchain=Blockchain, gossip_ref = GossipRef}}
     end;
@@ -452,10 +452,10 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
     end;
 handle_info({'DOWN', GossipRef, process, _GossipPid, _Reason},
             #state{gossip_ref = GossipRef, blockchain = Blockchain,
-                   swarm = Swarm} = State) ->
-    Gossip = libp2p_swarm:gossip_group(Swarm),
+                   swarm_tid=SwarmTID} = State) ->
+    Gossip = libp2p_swarm:gossip_group(SwarmTID),
     libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
-                                    {blockchain_gossip_handler, [Swarm, Blockchain]}),
+                                    {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
     NewGossipRef = erlang:monitor(process, Gossip),
     {noreply, State#state{gossip_ref = NewGossipRef}};
 handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
@@ -587,29 +587,29 @@ pause_sync(State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_handlers(pid(), blockchain:blockchain()) -> {ok, reference()}.
-add_handlers(Swarm, Blockchain) ->
-    Gossip = libp2p_swarm:gossip_group(Swarm),
+-spec add_handlers(ets:tab(), blockchain:blockchain()) -> {ok, reference()}.
+add_handlers(SwarmTID, Blockchain) ->
+    Gossip = libp2p_swarm:gossip_group(SwarmTID),
     libp2p_group_gossip:add_handler(Gossip, ?GOSSIP_PROTOCOL,
-                                    {blockchain_gossip_handler, [Swarm, Blockchain]}),
+                                    {blockchain_gossip_handler, [SwarmTID, Blockchain]}),
     Ref = erlang:monitor(process, Gossip),
     ok = libp2p_swarm:add_stream_handler(
-        Swarm,
+        SwarmTID,
         ?SYNC_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_sync_handler, ?SERVER, Blockchain]}
     ),
     ok = libp2p_swarm:add_stream_handler(
-        Swarm,
+        SwarmTID,
         ?FASTFORWARD_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, Blockchain]}
     ),
     {ok, Ref}.
 
--spec remove_handlers(pid()) -> ok.
-remove_handlers(Swarm) ->
-    libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(Swarm), ?GOSSIP_PROTOCOL),
-    libp2p_swarm:remove_stream_handler(Swarm, ?SYNC_PROTOCOL),
-    libp2p_swarm:remove_stream_handler(Swarm, ?FASTFORWARD_PROTOCOL).
+-spec remove_handlers(ets:tab()) -> ok.
+remove_handlers(SwarmTID) ->
+    libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(SwarmTID), ?GOSSIP_PROTOCOL),
+    libp2p_swarm:remove_stream_handler(SwarmTID, ?SYNC_PROTOCOL),
+    libp2p_swarm:remove_stream_handler(SwarmTID, ?FASTFORWARD_PROTOCOL).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -673,7 +673,7 @@ get_assume_valid_height_and_hash() ->
             end
     end.
 
-load_chain(Swarm, BaseDir, GenDir) ->
+load_chain(SwarmTID, BaseDir, GenDir) ->
     AssumedValidBlockHashAndHeight = get_assume_valid_height_and_hash(),
     case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
         {no_genesis, _Chain}=R ->
@@ -683,11 +683,11 @@ load_chain(Swarm, BaseDir, GenDir) ->
             %% blockchain:new will take care of any repairs needed, possibly asynchronously
             %%
             %% do ledger upgrade
-            {ok, GossipRef} = add_handlers(Swarm, Chain),
+            {ok, GossipRef} = add_handlers(SwarmTID, Chain),
             self() ! maybe_sync,
             {ok, GenesisHash} = blockchain:genesis_hash(Chain),
             ok = blockchain_txn_mgr:set_chain(Chain),
-            true = libp2p_swarm:network_id(Swarm, GenesisHash),
+            true = libp2p_swarm:network_id(SwarmTID, GenesisHash),
             {Chain, GossipRef}
     end.
 

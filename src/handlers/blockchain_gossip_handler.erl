@@ -21,16 +21,16 @@
          gossip_data/2
         ]).
 
-init_gossip_data([Swarm, Blockchain]) ->
+init_gossip_data([SwarmTID, Blockchain]) ->
     lager:debug("gossiping init"),
     {ok, Block} = blockchain:head_block(Blockchain),
     lager:debug("gossiping block to peers on init"),
-    {send, gossip_data(Swarm, Block)};
+    {send, gossip_data(SwarmTID, Block)};
 init_gossip_data(WAT) ->
     lager:info("WAT ~p", [WAT]),
     {send, <<>>}.
 
-handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
+handle_gossip_data(_StreamPid, Data, [SwarmTID, Blockchain]) ->
     try
         #blockchain_gossip_block_pb{from=From, block=BinBlock} =
             blockchain_gossip_handler_pb:decode_msg(Data, blockchain_gossip_block_pb),
@@ -48,7 +48,7 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
                             true ->
                                 lager:debug("Got block: ~p from: ~p", [Block, From]),
                                 %% don't block the gossip server
-                                spawn(fun() -> add_block(Block, Blockchain, From, Swarm) end),
+                                spawn(fun() -> add_block(Block, Blockchain, From, SwarmTID) end),
                                 ok;
                             false ->
                                 blockchain_worker:maybe_sync(),
@@ -62,7 +62,7 @@ handle_gossip_data(_StreamPid, Data, [Swarm, Blockchain]) ->
     end,
     noreply.
 
-add_block(Block, Chain, Sender, Swarm) ->
+add_block(Block, Chain, Sender, SwarmTID) ->
     lager:debug("Sender: ~p, MyAddress: ~p", [Sender, blockchain_swarm:pubkey_bin()]),
     %% try to acquire the lock with a timeout, will crash this process if we can't get the lock
     ok = blockchain_lock:acquire(5000),
@@ -70,13 +70,13 @@ add_block(Block, Chain, Sender, Swarm) ->
         ok ->
             lager:info("got gossipped block ~p", [blockchain_block:height(Block)]),
             %% pass it along
-            regossip_block(Block, Swarm),
+            regossip_block(Block, SwarmTID),
             ok;
         plausible ->
             lager:warning("plausuble gossipped block doesn't fit with our chain, will start sync if not already active"),
             blockchain_worker:maybe_sync(),
             %% pass it along
-            regossip_block(Block, Swarm),
+            regossip_block(Block, SwarmTID),
             ok;
         exists ->
             ok;
@@ -97,15 +97,15 @@ add_block(Block, Chain, Sender, Swarm) ->
     end.
 
 -spec gossip_data(libp2p_swarm:swarm(), blockchain_block:block()) -> binary().
-gossip_data(Swarm, Block) ->
-    PubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+gossip_data(SwarmTID, Block) ->
+    PubKeyBin = libp2p_swarm:pubkey_bin(SwarmTID),
     BinBlock = blockchain_block:serialize(Block),
     Msg= #blockchain_gossip_block_pb{from=PubKeyBin, block=BinBlock},
     blockchain_gossip_handler_pb:encode_msg(Msg).
 
-regossip_block(Block, Swarm) ->
+regossip_block(Block, SwarmTID) ->
     libp2p_group_gossip:send(
-      libp2p_swarm:gossip_group(Swarm),
+      libp2p_swarm:gossip_group(SwarmTID),
       ?GOSSIP_PROTOCOL,
-      blockchain_gossip_handler:gossip_data(Swarm, Block)
+      blockchain_gossip_handler:gossip_data(SwarmTID, Block)
      ).
