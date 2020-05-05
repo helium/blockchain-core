@@ -130,13 +130,13 @@ peer_listen_usage() ->
     ].
 
 peer_listen(_CmdBase, [], []) ->
-    Swarm = blockchain_swarm:swarm(),
-    ListenAddrs = libp2p_swarm:listen_addrs(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
+    ListenAddrs = libp2p_swarm:listen_addrs(SwarmTID),
     %% Format result
-    [format_listen_addrs(Swarm, ListenAddrs)].
+    [format_listen_addrs(SwarmTID, ListenAddrs)].
 
-format_listen_addrs(Swarm, Addrs) ->
-    SortedAddrs = libp2p_transport:sort_addrs(libp2p_swarm:tid(Swarm), Addrs),
+format_listen_addrs(SwarmTID, Addrs) ->
+    SortedAddrs = libp2p_transport:sort_addrs(SwarmTID, Addrs),
     clique_status:table([[{"listen_addrs (prioritized)", A}] || A <- SortedAddrs]).
 
 
@@ -178,9 +178,9 @@ peer_connect_usage() ->
     ].
 
 peer_connect(["peer", "connect", Addr], [], []) ->
-    Swarm = blockchain_swarm:swarm(),
+    SwarmTID = blockchain_swarm:tid(),
     TrimmedAddr = string:trim(Addr),
-    case libp2p_swarm:connect(Swarm, TrimmedAddr) of
+    case libp2p_swarm:connect(SwarmTID, TrimmedAddr) of
         {ok, _} ->
             Text = io_lib:format("Connected to ~p successfully~n", [TrimmedAddr]),
             [clique_status:text(Text)];
@@ -230,9 +230,9 @@ peer_ping_usage() ->
     ].
 
 peer_ping(["peer", "ping", Addr], [], []) ->
-    Swarm = blockchain_swarm:swarm(),
+    SwarmTID = blockchain_swarm:tid(),
     TrimmedAddr = string:trim(Addr),
-    case libp2p_swarm:connect(Swarm, TrimmedAddr) of
+    case libp2p_swarm:connect(SwarmTID, TrimmedAddr) of
         {ok, Session} ->
             case libp2p_session:ping(Session) of
                 {ok, RTT} ->
@@ -279,22 +279,22 @@ peer_book_usage() ->
     ].
 
 peer_book(["peer", "book", Addr], [], []) ->
-    Swarm = blockchain_swarm:swarm(),
-    PeerBook = libp2p_swarm:peerbook(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
+    PeerBook = libp2p_swarm:peerbook(SwarmTID),
     {ok, Peer} = libp2p_peerbook:get(PeerBook, libp2p_crypto:p2p_to_pubkey_bin(Addr)),
     [format_peers([Peer]),
-     format_listen_addrs(Swarm, libp2p_peer:listen_addrs(Peer)),
+     format_listen_addrs(SwarmTID, libp2p_peer:listen_addrs(Peer)),
      format_peer_connections(Peer)];
 peer_book(_CmdBase, [], [{self, _}]) ->
-    Swarm = blockchain_swarm:swarm(),
-    PeerBook = libp2p_swarm:peerbook(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
+    PeerBook = libp2p_swarm:peerbook(SwarmTID),
     {ok, Peer} = libp2p_peerbook:get(PeerBook, blockchain_swarm:pubkey_bin()),
     [format_peers([Peer]),
-     format_listen_addrs(Swarm, libp2p_peer:listen_addrs(Peer)),
-     format_peer_sessions(Swarm)];
+     format_listen_addrs(SwarmTID, libp2p_peer:listen_addrs(Peer)),
+     format_peer_sessions(SwarmTID)];
 peer_book(_CmdBase, [], [{all, _}]) ->
-    Swarm = blockchain_swarm:swarm(),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
     [format_peers(libp2p_peerbook:values(Peerbook))];
 peer_book(_CmdBase, [], []) ->
     usage.
@@ -338,8 +338,8 @@ peer_refresh_usage() ->
     ].
 
 peer_refresh(["peer", "refresh", Addr], [], []) ->
-    Swarm = blockchain_swarm:swarm(),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
+    SwarmTID = blockchain_swarm:tid(),
+    Peerbook = libp2p_swarm:peerbook(SwarmTID),
     TrimmedAddr = string:trim(Addr),
     libp2p_peerbook:refresh(Peerbook, libp2p_crypto:p2p_to_pubkey_bin(TrimmedAddr)),
     [clique_status:text("ok")].
