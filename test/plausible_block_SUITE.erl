@@ -83,7 +83,7 @@ basic(Config) ->
     ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(FinalBlock)}),
     [] = blockchain:get_plausible_blocks(Chain),
     %% try adding the previously plausible block again, it should not work
-    ok = blockchain:add_block(LastBlock, Chain),
+    exists = blockchain:add_block(LastBlock, Chain),
     [] = blockchain:get_plausible_blocks(Chain),
     ok.
 
