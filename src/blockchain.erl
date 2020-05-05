@@ -580,7 +580,7 @@ add_blocks_([LastBlock | []], Chain) ->
     ?MODULE:add_block(LastBlock, Chain, true);
 add_blocks_([Block | Blocks], Chain) ->
     case ?MODULE:add_block(Block, Chain, true) of
-        Res when Res == ok; Res == plausible ->
+        Res when Res == ok; Res == plausible; Res == exists ->
             add_blocks_(Blocks, Chain);
         Error ->
             Error
@@ -590,11 +590,11 @@ add_blocks_([Block | Blocks], Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_block(blockchain_block:block(), blockchain()) -> ok | plausible | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain()) -> ok | exists | plausible | {error, any()}.
 add_block(Block, Blockchain) ->
     add_block(Block, Blockchain, false).
 
--spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | plausible | {error, any()}.
+-spec add_block(blockchain_block:block(), blockchain(), boolean()) -> ok | exists | plausible | {error, any()}.
 add_block(Block, #blockchain{db=DB, blocks=BlocksCF, heights=HeightsCF, default=DefaultCF} = Blockchain, Syncing) ->
     blockchain_lock:acquire(),
     try
@@ -647,7 +647,7 @@ can_add_block(Block, Blockchain) ->
     {ok, GenesisHash} = blockchain:genesis_hash(Blockchain),
     case blockchain_block:is_genesis(Block) of
         true when Hash =:= GenesisHash ->
-            ok;
+            exists;
         true ->
             {error, unknown_genesis_block};
         false ->
@@ -669,13 +669,13 @@ can_add_block(Block, Blockchain) ->
                     of
                         false when HeadHash =:= Hash ->
                             lager:debug("Already have this block"),
-                            ok;
+                            exists;
                         false ->
                             case ?MODULE:get_block(Hash, Blockchain) of
                                 {ok, Block} ->
                                     %% we already have this, thanks
                                     %% don't error here incase there's more blocks coming that *are* valid
-                                    ok;
+                                    exists;
                                 _ ->
                                     %% check the block is not contiguous
                                     case Height > (ChainHeight + 1) of

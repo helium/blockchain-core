@@ -95,7 +95,7 @@ keys_test(Config) ->
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, PayerSigFun),
     Block = test_utils:create_block(ConsensusMembers, [SignedTx]),
-    _ = blockchain_gossip_handler:add_block(Block, Chain, self()),
+    _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
