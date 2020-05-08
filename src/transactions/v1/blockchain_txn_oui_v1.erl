@@ -44,7 +44,7 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(Owner :: libp2p_crypto:pubkey_bin(),
-          Addresses :: [binary()],
+          Addresses :: [libp2p_crypto:pubkey_bin()],
           Filter :: binary() | undefined,
           RequestedSubnetSize :: pos_integer() | undefined,
           StakingFee :: pos_integer(),
@@ -104,7 +104,7 @@ owner(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec addresses(txn_oui()) -> [binary()].
+-spec addresses(txn_oui()) -> [libp2p_crypto:pubkey_bin()].
 addresses(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.addresses.
 
