@@ -761,6 +761,27 @@ validate_var(?allow_zero_amount, Value) ->
         _ -> throw({error, {invalid_allow_zero_amount, Value}})
     end;
 
+%% state channel vars
+%% XXX: what are some reasonable limits here?
+validate_var(?min_expire_within, Value) ->
+    validate_int(Value, "min_expire_within", 9, 20, false);
+validate_var(?max_open_sc, Value) ->
+    validate_int(Value, "max_open_sc", 1, 3, false);
+validate_var(?max_xor_filter_size, Value) ->
+    validate_int(Value, "max_xor_filter_size", 1024, 1024*100, false);
+validate_var(?max_xor_filter_num, Value) ->
+    validate_int(Value, "max_xor_filter_num", 3, 6, false);
+validate_var(?max_subnet_size, Value) ->
+    validate_int(Value, "max_subnet_size", 8, 65536, false);
+validate_var(?min_subnet_size, Value) ->
+    validate_int(Value, "min_subnet_size", 8, 65536, false);
+validate_var(?max_subnet_num, Value) ->
+    validate_int(Value, "max_subnet_num", 1, 20, false);
+validate_var(?sc_grace_blocks, Value) ->
+    validate_int(Value, "sc_grace_blocks", 1, 100, false);
+validate_var(?dc_payload_size, Value) ->
+    validate_int(Value, "dc_payload_size", 1, 32, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

@@ -7,6 +7,7 @@
 -export([pmap/2,
          wait_until/1,
          wait_until/3,
+         wait_until_height/2,
          wait_until_disconnected/2,
          start_node/3,
          partition_cluster/2,
@@ -167,7 +168,8 @@ init_per_suite(Config) ->
     Config.
 
 init_per_testcase(TestCase, Config) ->
-
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
     os:cmd(os:find_executable("epmd")++" -daemon"),
     {ok, Hostname} = inet:gethostname(),
     case net_kernel:start([list_to_atom("runner-blockchain-" ++
@@ -188,7 +190,7 @@ init_per_testcase(TestCase, Config) ->
     NodeNames = lists:map(fun(_M) -> list_to_atom(randname(5)) end, lists:seq(1, TotalNodes)),
 
     Nodes = pmap(fun(Node) ->
-                         start_node(Node, Config, blockchain_dist_SUITE)
+                         start_node(Node, Config, TestCase)
                  end, NodeNames),
 
     ConfigResult = pmap(fun(Node) ->
@@ -198,20 +200,22 @@ init_per_testcase(TestCase, Config) ->
                                 ct_rpc:call(Node, application, load, [libp2p]),
                                 ct_rpc:call(Node, application, load, [erlang_stats]),
                                 %% give each node its own log directory
-                                LogRoot = "log/" ++ atom_to_list(TestCase) ++ "/" ++ atom_to_list(Node),
+                                LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
                                 ct_rpc:call(Node, application, set_env, [lager, log_root, LogRoot]),
                                 ct_rpc:call(Node, lager, set_loglevel, [{lager_file_backend, "log/console.log"}, debug]),
 
                                 %% set blockchain configuration
                                 #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
                                 Key = {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)},
-                                BaseDir = "data_" ++ atom_to_list(TestCase) ++ "_" ++ atom_to_list(Node),
-                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BaseDir]),
+                                BlockchainBaseDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                                ct_rpc:call(Node, application, set_env, [blockchain, base_dir, BlockchainBaseDir]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, num_consensus_members, NumConsensusMembers]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, port, Port]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, seed_nodes, SeedNodes]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, key, Key]),
                                 ct_rpc:call(Node, application, set_env, [blockchain, peer_cache_timeout, PeerCacheTimeout]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_client_handler, sc_client_test_handler]),
+                                ct_rpc:call(Node, application, set_env, [blockchain, sc_packet_handler, sc_packet_test_handler]),
 
                                 {ok, StartedApps} = ct_rpc:call(Node, application, ensure_all_started, [blockchain]),
                                 ct:pal("Node: ~p, StartedApps: ~p", [Node, StartedApps])
@@ -270,10 +274,32 @@ init_per_testcase(TestCase, Config) ->
 
     [{nodes, Nodes}, {num_consensus_members, NumConsensusMembers} | Config].
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(TestCase, Config) ->
     Nodes = ?config(nodes, Config),
     pmap(fun(Node) -> ct_slave:stop(Node) end, Nodes),
-    ok.
+    case ?config(tc_status, Config) of
+        ok ->
+            %% test passed, we can cleanup
+            cleanup_per_testcase(TestCase, Config);
+        _ ->
+            %% leave results alone for analysis
+            ok
+    end,
+    {comment, done}.
+
+cleanup_per_testcase(_TestCase, Config) ->
+    Nodes = ?config(nodes, Config),
+    BaseDir = ?config(base_dir, Config),
+    LogDir = ?config(log_dir, Config),
+    lists:foreach(fun(Node) ->
+                          LogRoot = LogDir ++ "_" ++ atom_to_list(Node),
+                          Res = os:cmd("rm -rf " ++ LogRoot),
+                          ct:pal("rm -rf ~p -> ~p", [LogRoot, Res]),
+                          DataDir = BaseDir ++ "_" ++ atom_to_list(Node),
+                          Res2 = os:cmd("rm -rf " ++ DataDir),
+                          ct:pal("rm -rf ~p -> ~p", [DataDir, Res2]),
+                          ok
+                  end, Nodes).
 
 create_vars() ->
     create_vars(#{}).
@@ -342,7 +368,15 @@ raw_vars(Vars) ->
                 ?poc_typo_fixes => true,
                 ?poc_target_hex_parent_res => 5,
                 ?witness_refresh_interval => 10,
-                ?witness_refresh_rand_n => 100
+                ?witness_refresh_rand_n => 100,
+                ?max_open_sc => 2,
+                ?min_expire_within => 10,
+                ?max_xor_filter_size => 1024*100,
+                ?max_xor_filter_num => 5,
+                ?max_subnet_size => 65536,
+                ?min_subnet_size => 8,
+                ?max_subnet_num => 20,
+                ?dc_payload_size => 24
                },
 
     maps:merge(DefVars, Vars).
@@ -358,9 +392,17 @@ init_base_dir_config(Mod, TestCase, Config)->
     PrivDir = ?config(priv_dir, Config),
     TCName = erlang:atom_to_list(TestCase),
     BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
+    LogDir = PrivDir ++ "logs/" ++ erlang:atom_to_list(Mod) ++ "_" ++ TCName,
     SimDir = BaseDir ++ "_sim",
     [
         {base_dir, BaseDir},
-        {sim_dir, SimDir}
+        {sim_dir, SimDir},
+        {log_dir, LogDir}
         | Config
     ].
+
+wait_until_height(Node, Height) ->
+    wait_until(fun() ->
+                       C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
+                       {ok, Height} == ct_rpc:call(Node, blockchain, height, [C])
+               end, 30, timer:seconds(1)).

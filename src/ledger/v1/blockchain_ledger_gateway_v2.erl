@@ -27,7 +27,8 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
-    witness_hist/1, witness_recent_time/1, witness_first_time/1
+    witness_hist/1, witness_recent_time/1, witness_first_time/1,
+    oui/1, oui/2
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -414,6 +415,13 @@ witness_recent_time(Witness) ->
 witness_first_time(Witness) ->
     Witness#witness.first_time.
 
+-spec oui(gateway()) -> pos_integer().
+oui(Gateway) ->
+    Gateway#gateway_v2.oui.
+
+-spec oui(pos_integer() | undefined, gateway()) -> gateway().
+oui(OUI, Gateway) ->
+    Gateway#gateway_v2{oui=OUI}.
 
 %%--------------------------------------------------------------------
 %% @doc

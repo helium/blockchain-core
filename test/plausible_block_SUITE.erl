@@ -42,7 +42,7 @@ basic(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -75,7 +75,7 @@ basic(Config) ->
     %% make sure the plausible blocks got removed
     [] = blockchain:get_plausible_blocks(Chain),
     %% make a new block
-    FinalBlock = test_utils:create_block(ConsensusMembers, []),
+    {ok, FinalBlock} = test_utils:create_block(ConsensusMembers, []),
     blockchain:add_block(FinalBlock, Chain0),
     ok = blockchain:add_block(FinalBlock, Chain),
     ?assertEqual({ok, 82}, blockchain:height(Chain)),
@@ -101,7 +101,7 @@ definitely_invalid(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -120,7 +120,7 @@ definitely_invalid(Config) ->
     % Add some blocks
     Blocks1 = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain1),
             [Block|Acc]
         end,
@@ -167,7 +167,7 @@ ultimately_invalid(Config) ->
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain0),
             [Block|Acc]
         end,
@@ -186,7 +186,7 @@ ultimately_invalid(Config) ->
     % Add some blocks
     Blocks1 = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-            Block = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             blockchain:add_block(Block, Chain1),
             [Block|Acc]
         end,
