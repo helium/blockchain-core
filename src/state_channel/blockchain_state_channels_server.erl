@@ -112,9 +112,10 @@ handle_cast({packet, SCPacket, HandlerPid}, #state{active_sc_id=undefined, sc_pa
     end,
     {noreply, State};
 handle_cast({packet, SCPacket, HandlerPid},
-            #state{db=DB, sc_packet_handler=SCPacketHandler, active_sc_id=ActiveSCID, state_channels=SCs}=State) ->
+            #state{db=DB, sc_packet_handler=SCPacketHandler, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
     %% Get raw packet
     Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
+    Ledger = blockchain:ledger(Chain),
     NewState = case blockchain_state_channel_packet_v1:validate(SCPacket) of
                    {error, _Reason} ->
                        lager:warning("packet: ~p failed to validate ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet)), _Reason]),
@@ -133,7 +134,7 @@ handle_cast({packet, SCPacket, HandlerPid},
 
                                SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
                                            {error, not_found} ->
-                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
+                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                                                NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
                                                %% Add this to summaries
                                                blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
@@ -141,7 +142,7 @@ handle_cast({packet, SCPacket, HandlerPid},
                                                %% Update packet count for this client
                                                ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
                                                %% Update DC count for this client
-                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(byte_size(Payload)),
+                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                                                ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
                                                NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                                                        ExistingNumPackets + 1,

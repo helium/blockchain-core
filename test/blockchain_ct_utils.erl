@@ -375,7 +375,8 @@ raw_vars(Vars) ->
                 ?max_xor_filter_num => 5,
                 ?max_subnet_size => 65536,
                 ?min_subnet_size => 8,
-                ?max_subnet_num => 20
+                ?max_subnet_num => 20,
+                ?dc_payload_size => 24
                },
 
     maps:merge(DefVars, Vars).

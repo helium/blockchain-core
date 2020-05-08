@@ -2343,21 +2343,18 @@ subnet_mask_to_size(Mask) ->
     (((Mask bxor ?BITS_23) bsl 2) + 2#11) + 1.
 
 subnet_size_to_mask(Size) ->
-    %io:format("Size ~p~n", [Size]),
     ?BITS_23 bxor ((Size bsr 2) - 1).
 
 subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
-    %Size = mask_to_size(Mask),
     case (DevAddr band (Mask bsl 2)) == Base of
         true ->
             Dest;
-        %false when DevAddr > Base + Size ->
-            %error;
         false ->
             subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, prev))
     end;
 subnet_lookup(_, _, _) ->
     error.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------

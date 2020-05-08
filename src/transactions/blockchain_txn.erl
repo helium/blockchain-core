@@ -169,7 +169,9 @@ wrap_txn(#blockchain_txn_state_channel_open_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_update_gateway_oui_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={update_gateway_oui, Txn}};
 wrap_txn(#blockchain_txn_state_channel_close_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={state_channel_close, Txn}}.
+    #blockchain_txn_pb{txn={state_channel_close, Txn}};
+wrap_txn(#blockchain_txn_routing_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={routing, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->

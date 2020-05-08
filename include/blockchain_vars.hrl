@@ -282,3 +282,5 @@
 -define(max_subnet_num, max_subnet_num).
 %% Grace period (in num of blocks) for state channels to get GCd
 -define(sc_grace_blocks, sc_grace_blocks).
+%% DC Payload size, set to 24
+-define(dc_payload_size, dc_payload_size).

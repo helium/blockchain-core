@@ -282,8 +282,8 @@ approx_blocks_in_week(Ledger) ->
     case blockchain:config(?block_time, Ledger) of
         {ok, BT} ->
             %% BT is in ms
-            %% ms in a week = 604800000
-            trunc(604800000 / BT);
+            %% ms in a week = 7 * 24 * 60 * 60 * 1000
+            trunc((7 * 24 * 60 * 60 * 1000) / BT);
         _ ->
             10000
     end.

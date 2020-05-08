@@ -81,7 +81,8 @@ init_per_testcase(Test, Config) ->
                   max_subnet_size => 65536,
                   min_subnet_size => 8,
                   max_subnet_num => 20,
-                  sc_grace_blocks => 5},
+                  sc_grace_blocks => 5,
+                  dc_payload_size => 24},
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
