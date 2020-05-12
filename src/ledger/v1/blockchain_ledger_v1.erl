@@ -1654,7 +1654,7 @@ redeem_htlc(Address, Payee, Ledger) ->
     end.
 
 
--spec get_oui_counter(ledger()) -> {ok, pos_integer()} | {error, any()}.
+-spec get_oui_counter(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 get_oui_counter(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?OUI_COUNTER, []) of
