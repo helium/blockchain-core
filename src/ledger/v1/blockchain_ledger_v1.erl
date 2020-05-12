@@ -1,4 +1,4 @@
-%%%-------------------------------------------------------------------
+
 %% @doc
 %% == Blockchain Ledger ==
 %% @end
@@ -95,6 +95,11 @@
     raw_fingerprint/2, %% does not use cache
     cf_fold/4,
 
+    maybe_recalc_price/2,
+    add_oracle_price/2,
+    current_oracle_price/1,
+    current_oracle_price_list/1,
+
     apply_raw_changes/2,
 
     set_hexes/2, get_hexes/1,
@@ -132,12 +137,19 @@
     snapshot_threshold_txns/1,
     load_threshold_txns/2,
 
+    load_oracle_price/2,
+    load_oracle_price_list/2,
+
     clean/1, close/1,
     compact/1
 ]).
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+
+-ifdef(TEST).
+-export([median/1]).
+-endif.
 
 -record(ledger_v1, {
     dir :: file:filename_all(),
@@ -173,6 +185,8 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
+-define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
+-define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
 
@@ -180,6 +194,7 @@
 
 -define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
+-define(DEFAULT_ORACLE_PRICE, 0).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -1416,6 +1431,115 @@ maybe_gc_scs(Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Maybe recalculate the median of the oracle prices that are valid
+%% in a sliding window.
+%%
+%% Prices are calculated every so many blocks, frequency controlled by
+%% the chain_var called `price_oracle_refresh_interval'
+%%
+%% Prices are considered valid if they are:
+%% <ul>
+%%      <li>Older than `price_oracle_scan_delay' seconds, and,</li>
+%%      <li>No more than `price_oracle_scan_max' seconds old</li>
+%% </ul>
+%%
+%% More recent prices from the same oracle replace older prices.
+%%
+%% Additionally there must be valid prices from a majority of the
+%% oracles. Example: If there are 9 oracles, there must be valid
+%% prices from <u>at least</u> 5 different oracles.
+%%
+%% If there are less prices than a majority, then the last calculated
+%% price is reused.
+%% @end
+%%--------------------------------------------------------------------
+-spec maybe_recalc_price( Blockchain :: blockchain:blockchain(),
+                          Ledger :: ledger() ) -> ok.
+maybe_recalc_price(Blockchain, Ledger) ->
+    case blockchain:config(?price_oracle_refresh_interval, Ledger) of
+        {error, not_found} -> ok;
+        {ok, I} -> do_maybe_recalc_price(I, Blockchain, Ledger)
+    end.
+
+do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    {ok, CurrentHeight} = current_height(Ledger),
+    {ok, LastPrice} = current_oracle_price(Ledger),
+
+    case CurrentHeight rem Interval == 0 of
+        false -> ok;
+        true ->
+            {ok, Block} = blockchain:get_block(CurrentHeight, Blockchain),
+            BlockT = blockchain_block:time(Block),
+            {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
+            cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(NewPriceList)),
+            cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(NewPrice))
+    end.
+
+recalc_price(LastPrice, BlockT, _DefaultCF, Ledger) ->
+    {ok, DelaySecs} = blockchain:config(?price_oracle_price_scan_delay, Ledger),
+    {ok, MaxSecs} = blockchain:config(?price_oracle_price_scan_max, Ledger),
+    StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
+    EndScan = BlockT - MaxSecs, % typically 1 day + 1 hour (in seconds)
+    {ok, Prices} = current_oracle_price_list(Ledger),
+    NewPriceList = trim_price_list(EndScan, Prices),
+    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    Maximum = length(blockchain_utils:vars_keys_to_list(RawOracleKeys)),
+    Minimum = (Maximum div 2) + 1,
+
+    ValidPrices = lists:foldl(
+                    fun(E, Acc) ->
+                            select_prices_by_time(StartScan, EndScan, E, Acc)
+                    end, #{},
+                    %% guarantee that prices are sorted in timestamp order
+                    %% so that newer prices will replace older prices
+                    lists:sort(fun sort_price_entry_time/2, NewPriceList)),
+
+    NumPrices = maps:size(ValidPrices),
+
+    case NumPrices >= Minimum andalso NumPrices =< Maximum of
+        true -> {median(maps:values(ValidPrices)), NewPriceList};
+        false -> {LastPrice, NewPriceList}
+    end.
+
+sort_price_entry_time(A, B) ->
+    ATime = blockchain_ledger_oracle_price_entry:timestamp(A),
+    BTime = blockchain_ledger_oracle_price_entry:timestamp(B),
+
+    ATime =< BTime.
+
+select_prices_by_time(Start, End, Entry, Acc) ->
+    T = blockchain_ledger_oracle_price_entry:timestamp(Entry),
+    PK = blockchain_ledger_oracle_price_entry:public_key( Entry),
+    P = blockchain_ledger_oracle_price_entry:price(Entry),
+
+    if
+        T >= Start andalso T =< End -> Acc#{ PK => P };
+        T > End -> Acc;
+        true -> Acc
+    end.
+
+median(L) ->
+    Sorted = lists:sort(L),
+    Len = length(L),
+    case Len rem 2 of
+        0 -> lists:nth(Len div 2, Sorted);
+        1 ->
+            Div = Len div 2,
+            Div1 = Div+1,
+            (lists:nth(Div, Sorted) + lists:nth(Div1, Sorted)) div 2 %% no floats
+    end.
+
+trim_price_list(LastTime, PriceEntries) ->
+    lists:dropwhile(fun(Entry) ->
+                            case blockchain_ledger_oracle_price_entry:timestamp(Entry) of
+                                T when T > LastTime -> true;
+                                _ -> false
+                            end
+                    end, PriceEntries).
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
@@ -2006,6 +2130,57 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
                               (LastBase band (Mask bsl 2)) + Size
                       end,
             {ok, <<NewBase:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>}
+    end.
+
+-spec add_oracle_price(
+        Entry :: blockchain_ledger_oracle_price_entry:oracle_price_entry(),
+        Ledger :: ledger()) -> ok.
+add_oracle_price(PriceEntry, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    Prices = case cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []) of
+                 {ok, BinPrices} ->
+                     binary_to_term(BinPrices);
+                 not_found ->
+                     []
+             end,
+    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary([ PriceEntry | Prices ])).
+
+-spec load_oracle_price(Price :: non_neg_integer(), Ledger :: ledger()) -> ok.
+load_oracle_price(Price, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(Price)).
+
+-spec load_oracle_price_list(
+        PriceEntries :: [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
+        Ledger :: ledger()) -> ok.
+load_oracle_price_list(PriceEntries, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(PriceEntries)).
+
+-spec current_oracle_price(ledger()) -> {ok, Price :: non_neg_integer()} | {error, any()}.
+current_oracle_price(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []) of
+        {ok, Bin} ->
+            {ok, binary_to_term(Bin)};
+        not_found ->
+            {ok, 0};
+        Other ->
+            Other
+    end.
+
+-spec current_oracle_price_list(ledger()) ->
+    {ok, [ blockchain_ledger_oracle_price_entry:oracle_price_entry() ]}
+    | {error, any()}.
+current_oracle_price_list(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []) of
+        {ok, BinPrices} ->
+            {ok, binary_to_term(BinPrices)};
+        not_found ->
+            {ok, []};
+        Other ->
+            Other
     end.
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->

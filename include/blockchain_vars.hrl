@@ -293,3 +293,21 @@
 
 %% how often we attempt to take a snapshot of the ledger
 -define(snapshot_interval, snapshot_interval).
+%% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% Price oracle variables
+%%
+%% Oracle public keys - encoded like so...
+%% <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
+-define(price_oracle_public_keys, price_oracle_public_keys).
+%% How many blocks between price recalculations
+-define(price_oracle_refresh_interval, price_oracle_refresh_interval).
+%% How much delta between the current blockchain height and the transaction is allowed
+-define(price_oracle_height_delta, price_oracle_height_delta).
+%% How many seconds to delay scanning for prices.
+-define(price_oracle_price_scan_delay, price_oracle_price_scan_delay).
+%% How many seconds to stop scanning for oracle prices.
+%% (Will also affect what prices get dropped from the cached list of prices.)
+-define(price_oracle_price_scan_max, price_oracle_price_scan_max).
+%% ------------------------------------------------------------------

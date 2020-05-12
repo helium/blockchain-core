@@ -557,6 +557,19 @@ validate_float(Value, Name, Min, Max) ->
             end
     end.
 
+validate_oracle_public_keys_format(Str) when is_binary(Str) ->
+    PubKeys = blockchain_utils:vars_keys_to_list(Str),
+    validate_oracle_keys(PubKeys).
+
+validate_oracle_keys([]) -> ok;
+validate_oracle_keys([H|T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(H),
+        validate_oracle_keys(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_oracle_pubkey, H}})
+    end.
 
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
@@ -823,6 +836,26 @@ validate_var(?snapshot_version, Value) ->
 %% -endif.
 validate_var(?snapshot_interval, Value) -> % half day to two weeks
     validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
+
+validate_var(?price_oracle_public_keys, Value) ->
+    validate_oracle_public_keys_format(Value);
+
+validate_var(?price_oracle_price_scan_delay, Value) ->
+    %% Allowed: 0 seconds to 86400 seconds (1 day)
+    validate_int(Value, "price_oracle_price_scan_delay", 0, 86400, false);
+
+validate_var(?price_oracle_price_scan_max, Value) ->
+    %% Allowed: 0 seconds to 604800 seconds (7 days)
+    validate_int(Value, "price_oracle_price_scan_max", 0, 604800, false);
+
+validate_var(?price_oracle_refresh_interval, Value) ->
+    %% How many blocks to skip between price refreshes
+    validate_int(Value, "price_oracle_refresh_interval", 0, 5000, false);
+
+validate_var(?price_oracle_height_delta, Value) ->
+    %% How many blocks to allow between when a txn is
+    %% submitted and when it is committed to the ledger
+    validate_int(Value, "price_oracle_height_delta", 0, 500, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
