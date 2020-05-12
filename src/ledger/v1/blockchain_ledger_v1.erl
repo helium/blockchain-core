@@ -2871,5 +2871,35 @@ subnet_allocation2_test() ->
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<3:32/little-unsigned-integer>>, []),
     ok.
 
+debit_dc_test() ->
+    BaseDir = test_utils:tmp_dir("debit_dc_test"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    %% TODO: update thes when txn fee is real
+    %% set default txn fee for now
+    ok = update_transaction_fee(Ledger1),
+    ok = commit_context(Ledger1),
+    %% check no dc entry initially
+    {error, dc_entry_not_found} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
+
+    %% debit dc, note: no dc entry here still
+    Ledger2 = new_context(Ledger),
+    ok = ?MODULE:debit_dc(<<"address">>, 1, Ledger2),
+    ok = commit_context(Ledger2),
+
+    %% blank dc entry should pop up here
+    {ok, Entry0} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(0, blockchain_ledger_data_credits_entry_v1:balance(Entry0)),
+    ?assertEqual(1, blockchain_ledger_data_credits_entry_v1:nonce(Entry0)),
+
+    %% credit some dc to this
+    Ledger3 = new_context(Ledger),
+    ok = credit_dc(<<"address">>, 1000, Ledger3),
+    ok = commit_context(Ledger3),
+
+    %% check updated dcs
+    {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.
