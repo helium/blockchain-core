@@ -1447,25 +1447,31 @@ credit_dc(Address, Amount, Ledger) ->
                Ledger :: ledger()) -> ok | {error, any()}.
 debit_dc(Address, Nonce, Ledger) ->
     {ok, Fee} = ?MODULE:transaction_fee(Ledger),
-    case ?MODULE:find_dc_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
-                false ->
-                    {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
+
+    Entry = case ?MODULE:find_dc_entry(Address, Ledger) of
+                {error, dc_entry_not_found} ->
+                    %% Just create a blank entry if dc_entry_not_found
+                    blockchain_ledger_data_credits_entry_v1:new(0, 0);
+                {error, _}=Error ->
+                    Error;
+                {ok, Entry0} ->
+                    Entry0
+            end,
+
+    case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
+        false ->
+            {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
+        true ->
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+            %% NOTE: If fee = 0, this should still work..
+            case (Balance - Fee) >= 0 of
                 true ->
-                    Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-                    %% NOTE: If fee = 0, this should still work..
-                    case (Balance - Fee) >= 0 of
-                        true ->
-                            Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
-                            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-                            EntriesCF = dc_entries_cf(Ledger),
-                            cache_put(Ledger, EntriesCF, Address, Bin);
-                        false ->
-                            {error, {insufficient_dc_balance, Fee, Balance}}
-                    end
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
+                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
+                    EntriesCF = dc_entries_cf(Ledger),
+                    cache_put(Ledger, EntriesCF, Address, Bin);
+                false ->
+                    {error, {insufficient_dc_balance, Fee, Balance}}
             end
     end.
 
