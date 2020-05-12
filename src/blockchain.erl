@@ -494,13 +494,13 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
                               ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger0),
                               ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
                               ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+                              ok = blockchain_ledget_v1:maybe_recalc_price(Ledger0),
 
                               %% take an intermediate snapshot here to
                               %% make things faster in the future
                               Ledger1 = ?MODULE:ledger(Chain1),
                               Ctxt = blockchain_ledger_v1:get_context(Ledger1),
                               blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
-
                               {ok, Chain1};
                           {error, Reason} ->
                               {error, {block_absorb_failed, H, Reason}}
@@ -1060,7 +1060,10 @@ build_hash_chain_(StopHash, CF, Blockchain = #blockchain{db=DB}, [ParentHash|Tai
             end
     end.
 
-
+-spec fold_chain(fun((Blk :: blockchain_block:block(), AccIn :: any()) -> NewAcc :: any()),
+                     Acc0 :: any(),
+                    Block :: blockchain_block:block(),
+                    Chain :: blockchain()) -> AccOut :: any().
 %% @doc fold blocks in the chain `Chain' backwards from `Block' until a hole in the chain, the genesis block or the function returns `return'.
 fold_chain(Fun, Acc0, Block, Chain) ->
     case Fun(Block, Acc0) of
@@ -2029,6 +2032,8 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Ledger1),
 
+        ok = blockchain_ledger_v1:maybe_recalc_price(Blockchain, Ledger1),
+
         case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger1) of
             {error, Reason0}=Error0 ->
                 lager:error("Error refreshing witnesses, Reason: ~p", [Reason0]),
@@ -2044,8 +2049,8 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
                         ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
                 end
         end
-    catch _:_ ->
-            lager:warning("hooks failed"),
+    catch What:Why:Stack ->
+            lager:warning("hooks failed ~p ~p ~s", [What, Why, lager:pr_stacktrace(Stack, {What, Why})]),
             blockchain_ledger_v1:delete_context(Ledger1)
     end.
 
