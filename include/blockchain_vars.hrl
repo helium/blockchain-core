@@ -293,3 +293,11 @@
 
 %% how often we attempt to take a snapshot of the ledger
 -define(snapshot_interval, snapshot_interval).
+%% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% Price oracle variables
+%%
+%% Oracle public keys
+-define(price_oracle_public_keys, price_oracle_public_keys).
+%% ------------------------------------------------------------------

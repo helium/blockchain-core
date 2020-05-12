@@ -557,6 +557,10 @@ validate_float(Value, Name, Min, Max) ->
             end
     end.
 
+%% TODO: make this actually validate the public key format
+validate_public_key_format(Key) when is_binary(Key) ->
+    ok.
+
 
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
@@ -823,6 +827,9 @@ validate_var(?snapshot_version, Value) ->
 %% -endif.
 validate_var(?snapshot_interval, Value) -> % half day to two weeks
     validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
+
+validate_var(?price_oracle_public_keys, Value) ->
+    validate_public_key_format(Value);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

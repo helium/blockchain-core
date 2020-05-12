@@ -34,6 +34,7 @@
              | blockchain_txn_payment_v2:txn_payment_v2()
              | blockchain_txn_state_channel_open_v1:txn_state_channel_open()
              | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui()
+             | blockchain_txn_price_oracle_submission_v1:txn_price_oracle_submission()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
 -type txns() :: [txn()].
@@ -127,7 +128,7 @@ to_json(Txn, Opts) ->
 
 %% Since the proto file for the transaction union includes the
 %% definitions of the underlying protobufs for each transaction we
-%% break encapsulation here and do no tuse the txn modules themselves.
+%% break encapsulation here and do not use the txn modules themselves.
 -spec wrap_txn(blockchain_txn:txn()) -> #blockchain_txn_pb{}.
 wrap_txn(#blockchain_txn_assert_location_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={assert_location, Txn}};
@@ -510,7 +511,9 @@ type(#blockchain_txn_state_channel_open_v1_pb{}) ->
 type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
     blockchain_txn_update_gateway_oui_v1;
 type(#blockchain_txn_state_channel_close_v1_pb{}) ->
-    blockchain_txn_state_channel_close_v1.
+    blockchain_txn_state_channel_close_v1;
+type(#blockchain_txn_price_oracle_v1_pb{}) ->
+    blockchain_txn_price_oracle_v1.
 
 -spec validate_fields([{{atom(), iodata() | undefined}, {binary, pos_integer()} | {binary, pos_integer(), pos_integer()} |
                         {address, libp2p}}]) -> ok | {error, any()}.
