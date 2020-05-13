@@ -1447,25 +1447,31 @@ credit_dc(Address, Amount, Ledger) ->
                Ledger :: ledger()) -> ok | {error, any()}.
 debit_dc(Address, Nonce, Ledger) ->
     {ok, Fee} = ?MODULE:transaction_fee(Ledger),
-    case ?MODULE:find_dc_entry(Address, Ledger) of
-        {error, _}=Error ->
-            Error;
-        {ok, Entry} ->
-            case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
-                false ->
-                    {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
+
+    Entry = case ?MODULE:find_dc_entry(Address, Ledger) of
+                {error, dc_entry_not_found} ->
+                    %% Just create a blank entry if dc_entry_not_found
+                    blockchain_ledger_data_credits_entry_v1:new(0, 0);
+                {error, _}=Error ->
+                    Error;
+                {ok, Entry0} ->
+                    Entry0
+            end,
+
+    case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
+        false ->
+            {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
+        true ->
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+            %% NOTE: If fee = 0, this should still work..
+            case (Balance - Fee) >= 0 of
                 true ->
-                    Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-                    %% NOTE: If fee = 0, this should still work..
-                    case (Balance - Fee) >= 0 of
-                        true ->
-                            Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
-                            Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
-                            EntriesCF = dc_entries_cf(Ledger),
-                            cache_put(Ledger, EntriesCF, Address, Bin);
-                        false ->
-                            {error, {insufficient_dc_balance, Fee, Balance}}
-                    end
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
+                    Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
+                    EntriesCF = dc_entries_cf(Ledger),
+                    cache_put(Ledger, EntriesCF, Address, Bin);
+                false ->
+                    {error, {insufficient_dc_balance, Fee, Balance}}
             end
     end.
 
@@ -2865,5 +2871,35 @@ subnet_allocation2_test() ->
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<3:32/little-unsigned-integer>>, []),
     ok.
 
+debit_dc_test() ->
+    BaseDir = test_utils:tmp_dir("debit_dc_test"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    %% TODO: update thes when txn fee is real
+    %% set default txn fee for now
+    ok = update_transaction_fee(Ledger1),
+    ok = commit_context(Ledger1),
+    %% check no dc entry initially
+    {error, dc_entry_not_found} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
+
+    %% debit dc, note: no dc entry here still
+    Ledger2 = new_context(Ledger),
+    ok = ?MODULE:debit_dc(<<"address">>, 1, Ledger2),
+    ok = commit_context(Ledger2),
+
+    %% blank dc entry should pop up here
+    {ok, Entry0} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(0, blockchain_ledger_data_credits_entry_v1:balance(Entry0)),
+    ?assertEqual(1, blockchain_ledger_data_credits_entry_v1:nonce(Entry0)),
+
+    %% credit some dc to this
+    Ledger3 = new_context(Ledger),
+    ok = credit_dc(<<"address">>, 1000, Ledger3),
+    ok = commit_context(Ledger3),
+
+    %% check updated dcs
+    {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
+    ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.
