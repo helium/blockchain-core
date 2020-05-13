@@ -64,7 +64,21 @@ nonce(ID) ->
 
 -spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
 packet(Packet, HandlerPid) ->
-    gen_server:cast(?SERVER, {packet, Packet, HandlerPid}).
+    spawn(fun() ->
+                  case blockchain_state_channel_packet_v1:validate(Packet) of
+                      {error, _Reason} ->
+                          lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
+                      true ->
+                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+                          case SCPacketHandler:handle_packet(Packet, HandlerPid) of
+                              ok ->
+                                  gen_server:cast(?SERVER, {packet, Packet});
+                              {error, Why} ->
+                                  lager:error("handle_packet failed: ~p", [Why])
+                          end
+                  end
+          end),
+    ok.
 
 -spec state_channels() -> state_channels().
 state_channels() ->
@@ -101,73 +115,54 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, SCPacket, HandlerPid}, #state{active_sc_id=undefined, sc_packet_handler=SCPacketHandler}=State) ->
+handle_cast({packet, SCPacket}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
-    case blockchain_state_channel_packet_v1:validate(SCPacket) of
-        {error, _Reason} ->
-            lager:warning("packet failed to validate ~p ~p", [_Reason, SCPacket]);
-        true ->
-            %% we cannot record this packet in a state channel, but we can still deliver it
-            SCPacketHandler:handle_packet(SCPacket, HandlerPid)
-    end,
     {noreply, State};
-handle_cast({packet, SCPacket, HandlerPid},
-            #state{db=DB, sc_packet_handler=SCPacketHandler, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
+handle_cast({packet, SCPacket},
+            #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
     %% Get raw packet
     Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
     Ledger = blockchain:ledger(Chain),
-    NewState = case blockchain_state_channel_packet_v1:validate(SCPacket) of
-                   {error, _Reason} ->
-                       lager:warning("packet: ~p failed to validate ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet)), _Reason]),
-                       State;
-                   true ->
-                       case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
-                           ok ->
-                               %% ActiveSCID should always be in our state_channels map
-                               SC = maps:get(ActiveSCID, SCs),
-                               %% Get payload from packet
-                               Payload = blockchain_helium_packet_v1:payload(Packet),
-                               %% Add this payload to state_channel's skewed merkle
-                               SC1 = blockchain_state_channel_v1:add_payload(Payload, SC),
-                               %% Get the summary for this client
-                               ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
+    %% ActiveSCID should always be in our state_channels map
+    SC = maps:get(ActiveSCID, SCs),
+    %% Get payload from packet
+    Payload = blockchain_helium_packet_v1:payload(Packet),
+    %% Add this payload to state_channel's skewed merkle
+    SC1 = blockchain_state_channel_v1:add_payload(Payload, SC),
+    %% Get the summary for this client
+    ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
 
-                               SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
-                                           {error, not_found} ->
-                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                                               NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
-                                               %% Add this to summaries
-                                               blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
-                                           {ok, ExistingSummary} ->
-                                               %% Update packet count for this client
-                                               ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-                                               %% Update DC count for this client
-                                               NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                                               ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-                                               NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
-                                                                                                       ExistingNumPackets + 1,
-                                                                                                       ExistingSummary),
-                                               %% Update summaries
-                                               blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
-                                       end,
+    SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
+              {error, not_found} ->
+                  NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
+                  NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
+                  %% Add this to summaries
+                  blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
+              {ok, ExistingSummary} ->
+                  %% Update packet count for this client
+                  ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
+                  %% Update DC count for this client
+                  NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
+                  ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
+                  NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
+                                                                          ExistingNumPackets + 1,
+                                                                          ExistingSummary),
+                  %% Update summaries
+                  blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
+          end,
 
-                               ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-                               NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
+    ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+    NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
 
-                               %% Save state channel to db
-                               ok = blockchain_state_channel_v1:save(DB, NewSC),
-                               ok = save_state_channels(DB, ActiveSCID),
+    %% Save state channel to db
+    ok = blockchain_state_channel_v1:save(DB, NewSC),
+    ok = save_state_channels(DB, ActiveSCID),
 
-                               %% Put new state_channel in our map
-                               lager:info("packet: ~p successfully validated, updating state",
-                                          [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
-                               State#state{state_channels=maps:update(ActiveSCID, NewSC, SCs)};
-                           {error, Why} ->
-                               lager:error("handle_packet failed: ~p", [Why]),
-                               State
-                       end
-               end,
-    {noreply, NewState};
+    %% Put new state_channel in our map
+    lager:info("packet: ~p successfully validated, updating state",
+               [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
+    {noreply, State#state{state_channels=maps:update(ActiveSCID, NewSC, SCs)}};
+
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

@@ -916,6 +916,9 @@ multi_active_sc_test(Config) ->
     ?assertEqual(1, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
     ?assertEqual(ID2, ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])),
 
+    %% Wait 1 sec before sending more packets
+    ok= timer:sleep(1000),
+
     %% Send more packets, this should use the newly active state channel
     Payload2 = crypto:strong_rand_bytes(120),
     Packet2 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload2),
