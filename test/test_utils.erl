@@ -116,7 +116,7 @@ generate_keys(N, Type) ->
     ).
 
 wait_until(Fun) ->
-    wait_until(Fun, 40, 100).
+    wait_until(Fun, 100, 100).
 
 wait_until(Fun, Retry, Delay) when Retry > 0 ->
     Res = Fun(),

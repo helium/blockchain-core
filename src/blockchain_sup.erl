@@ -86,7 +86,7 @@ init(Args) ->
           ]},
          {libp2p_group_gossip,
           [
-           {stream_client, {?GOSSIP_PROTOCOL, {blockchain_gossip_handler, []}}},
+           {stream_client, {?GOSSIP_PROTOCOL_V1, {blockchain_gossip_handler, []}}},   %% NOTE: this config is not used anywhere in bc core or libp2p
            {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
            %% in should be ~2/3 out, otherwise nodes with good
            %% connections will hog all the gossip

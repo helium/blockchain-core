@@ -14,8 +14,8 @@
 ]).
 
 -export([
-    basic/1
-]).
+         v1/1, v2/1, basic/4
+        ]).
 
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
@@ -29,7 +29,8 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic].
+    [v1, v2].
+
 
 %%--------------------------------------------------------------------
 %% TEST SUITE SETUP
@@ -64,30 +65,55 @@ end_per_testcase(_, Config) ->
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-basic(Config) ->
+v1(Config) ->
     BaseDir = ?config(base_dir, Config),
+    {ok, Sup, Keys, _Opts} = test_utils:init(BaseDir),
+    try
+        basic(v1, Sup, Keys, Config)
+    catch C:E ->
+            lager:info("XXXX ~p:~p", [C, E]),
+            true = erlang:exit(Sup, normal),
+            ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
+            erlang:C(E)
+    end.
+
+v2(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    {ok, Sup, Keys, _Opts} = test_utils:init(BaseDir),
+    lager:info("XXX sup ~p ~p", [Sup, erlang:is_process_alive(Sup)]),
+    case Sup of
+        P when is_pid(P) ->
+            ok;
+        {error, {already_started, P}} ->
+            lager:info("XXX ~p ~p", [P, erlang:is_process_alive(P)])
+    end,
+    try
+        basic(v2, Sup, Keys, Config)
+    catch C:E:S ->
+            lager:info("XXXX ~p:~p ~p", [C, E, S]),
+            true = erlang:exit(Sup, normal),
+            ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
+            erlang:C(E)
+    end.
+
+basic(Version, Sup, {PrivKey, PubKey}, Config) ->
     SimDir = ?config(sim_dir, Config),
     SimSwarm = ?config(swarm, Config),
 
     Balance = 5000,
     BlocksN = 100,
-    {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    %% create a chain
     {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
-
+    %% create a second chain
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
 
-    % Add some blocks
+    % Add some blocks to the first chain
     Blocks = lists:reverse(lists:foldl(
         fun(_, Acc) ->
-                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
             %_ = blockchain_gossip_handler:add_block(blockchain_swarm:swarm(), Block, Chain0, length(ConsensusMembers), blockchain_swarm:pubkey_bin()),
             ok = blockchain:add_block(Block, Chain0),
             [Block|Acc]
@@ -98,9 +124,14 @@ basic(Config) ->
     LastBlock = lists:last(Blocks),
 
     ok = libp2p_swarm:add_stream_handler(
-        SimSwarm
-        ,?FASTFORWARD_PROTOCOL
-        ,{libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, Chain]}
+           SimSwarm,
+           ?FASTFORWARD_PROTOCOL_V1,
+           {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, [?FASTFORWARD_PROTOCOL_V1, Chain]]}
+    ),
+    ok = libp2p_swarm:add_stream_handler(
+           SimSwarm,
+           ?FASTFORWARD_PROTOCOL_V2,
+           {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?MODULE, [?FASTFORWARD_PROTOCOL_V2, Chain]]}
     ),
     % This is just to connect the 2 swarms
     [ListenAddr|_] = libp2p_swarm:listen_addrs(blockchain_swarm:swarm()),
@@ -108,14 +139,16 @@ basic(Config) ->
     [ListenAddr2|_] = libp2p_swarm:listen_addrs(SimSwarm),
     ok = test_utils:wait_until(fun() -> erlang:length(libp2p_peerbook:values(libp2p_swarm:peerbook(blockchain_swarm:swarm()))) > 1 end),
 
+    ?assertEqual({ok, 1}, blockchain:height(Chain)),
+    ?assertEqual({ok, 101}, blockchain:height(Chain0)),
 
-    ?assertNotEqual(blockchain:height(Chain), blockchain:height(Chain0)),
     %% use fastforward to fastforward the peer
-    case libp2p_swarm:dial_framed_stream(blockchain_swarm:swarm(),
-                                         ListenAddr2,
-                                         ?FASTFORWARD_PROTOCOL,
-                                         blockchain_fastforward_handler,
-                                         [Chain0]) of
+    ProtocolVersion =
+        case Version of
+            v1 -> ?FASTFORWARD_PROTOCOL_V1;
+            v2 -> ?FASTFORWARD_PROTOCOL_V2
+        end,
+    case blockchain_fastforward_handler:dial(blockchain_swarm:swarm(), Chain0, ListenAddr2, ProtocolVersion) of
         {ok, _Stream} ->
             ct:pal("got stream ~p~n", [_Stream]),
             ok
@@ -123,6 +156,6 @@ basic(Config) ->
 
     ok = test_utils:wait_until(fun() ->{ok, BlocksN + 1} =:= blockchain:height(Chain) end),
     ?assertEqual({ok, LastBlock}, blockchain:head_block(blockchain_worker:blockchain())),
-    true = erlang:exit(Sup, normal),
+    gen:stop(Sup),
     ok = test_utils:wait_until(fun() -> erlang:is_process_alive(Sup) == false end),
     ok.
