@@ -30,7 +30,7 @@
                             ConsensueMembers::[libp2p_crypto:pubkey_bin()],
                             Signatures::[signature()],
                             Threshold::pos_integer(),
-                            Key::ignore | binary()) ->
+                            Key :: ignore | binary() | [binary()]) ->
     false | {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 
 -include_lib("helium_proto/include/blockchain_block_pb.hrl").

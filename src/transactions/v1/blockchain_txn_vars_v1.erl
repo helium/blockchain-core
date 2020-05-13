@@ -20,8 +20,11 @@
          fee/1,
          is_valid/2,
          master_key/1,
+         multi_keys/1,
          key_proof/1, key_proof/2,
+         multi_key_proofs/1, multi_key_proofs/2,
          proof/1, proof/2,
+         multi_proofs/1, multi_proofs/2,
          vars/1,
          decoded_vars/1,
          version_predicate/1,
@@ -67,19 +70,22 @@
 -export_type([txn_vars/0]).
 
 %% message var_v1 {
-%%     string type = 1;
-%%     bytes value = 2;
+%%     string name = 1;
+%%     string type = 2;
+%%     bytes value = 3;
 %% }
 
 %% message txn_vars_v1 {
 %%     map<string, var> vars = 1;
 %%     uint32 version_predicate = 2;
-%%     bytes proof = 3;
 %%     bytes master_key = 4;
 %%     bytes key_proof = 5;
 %%     repeated bytes cancels = 6;
 %%     repeated bytes unsets = 7;
 %%     uint32 nonce = 8;
+%%     repeated bytes multi_keys = 9;
+%%     repeated bytes multi_proofs = 10;
+%%     repeated bytes multi_key_proof = 11;
 %% }
 
 
@@ -91,6 +97,8 @@ new(Vars, Nonce) ->
 new(Vars, Nonce, Optional) ->
     VersionP = maps:get(version_predicate, Optional, 0),
     MasterKey = maps:get(master_key, Optional, <<>>),
+    MultiKeys = maps:get(multi_keys, Optional, []),
+    MultiKeyProofs = maps:get(multi_key_proofs, Optional, []),
     KeyProof = maps:get(key_proof, Optional, <<>>),
     Unsets = maps:get(unsets, Optional, []),
     Cancels = maps:get(cancels, Optional, []),
@@ -99,12 +107,13 @@ new(Vars, Nonce, Optional) ->
 
     #blockchain_txn_vars_v1_pb{vars = lists:sort(encode_vars(Vars)),
                                version_predicate = VersionP,
-                               master_key = MasterKey,
-                               key_proof = KeyProof,
                                unsets = encode_unsets(Unsets),
                                cancels = Cancels,
-                               nonce = Nonce}.
-
+                               nonce = Nonce,
+                               master_key = MasterKey,
+                               key_proof = KeyProof,
+                               multi_keys = MultiKeys,
+                               multi_key_proofs = MultiKeyProofs}.
 
 encode_vars(Vars) ->
     V = maps:to_list(Vars),
@@ -165,11 +174,20 @@ fee(_Txn) ->
 master_key(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.master_key.
 
+multi_keys(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb.multi_keys.
+
 key_proof(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.key_proof.
 
 key_proof(Txn, Proof) ->
     Txn#blockchain_txn_vars_v1_pb{key_proof = Proof}.
+
+multi_key_proofs(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb.multi_key_proofs.
+
+multi_key_proofs(Txn, Proofs) ->
+    Txn#blockchain_txn_vars_v1_pb{multi_key_proofs = Proofs}.
 
 proof(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.proof.
@@ -177,9 +195,17 @@ proof(Txn) ->
 proof(Txn, Proof) ->
     Txn#blockchain_txn_vars_v1_pb{proof = Proof}.
 
+multi_proofs(Txn) ->
+    Txn#blockchain_txn_vars_v1_pb.multi_proofs.
+
+multi_proofs(Txn, Proofs) ->
+    Txn#blockchain_txn_vars_v1_pb{multi_proofs = Proofs}.
+
 unset_proofs(Txn) ->
     Txn#blockchain_txn_vars_v1_pb{proof = <<>>,
-                                  key_proof = <<>>}.
+                                  key_proof = <<>>,
+                                  multi_proofs = [],
+                                  multi_key_proofs = []}.
 
 vars(Txn) ->
     Txn#blockchain_txn_vars_v1_pb.vars.
@@ -239,39 +265,39 @@ is_valid(Txn, Chain) ->
                 end,
 
                 %% here we can accept a valid master key
-                case master_key(Txn) of
-                    <<>> when Gen == true ->
-                        throw({error, genesis_requires_master_key});
-                    <<>> ->
-                        ok;
-                    Key ->
-                        KeyProof =
-                            case key_proof(Txn) of
-                                <<>> ->
-                                    throw({error, no_master_key_proof}),
-                                    <<>>;
-                                P ->
-                                    P
-                            end,
-                        case verify_key(Artifact, Key, KeyProof) of
-                            true ->
-                                ok;
-                            _ ->
-                                throw({error, bad_master_key})
-                        end
-                end,
+                ok = validate_master_keys(Txn, Gen, Artifact, Ledger),
                 case Gen of
                     true ->
                         %% genesis block requires master key and has already
                         %% validated the proof if it has made it here.
                         ok;
                     _ ->
-                        {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-                        case verify_key(Artifact, MasterKey, proof(Txn)) of
-                            true ->
-                                ok;
+                        case blockchain:config(?use_multi_keys, Ledger) of
+                            {ok, true} ->
+                                %% handle the case where this gets set before
+                                %% the keys are set
+                                case blockchain_ledger_v1:multi_keys(Ledger) of
+                                    {ok, MultiKeys} ->
+                                        Proofs = multi_proofs(Txn),
+                                        case blockchain_utils:verify_multisig(Artifact, Proofs, MultiKeys) of
+                                            true -> ok;
+                                            false -> throw({error, insufficient_votes})
+                                        end;
+                                    {error, not_found} ->
+                                        {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                                        case verify_key(Artifact, MasterKey, proof(Txn)) of
+                                            true -> ok;
+                                            _ -> throw({error, bad_block_proof})
+                                        end
+                                end;
                             _ ->
-                                throw({error, bad_block_proof})
+                                {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+                                case verify_key(Artifact, MasterKey, proof(Txn)) of
+                                    true ->
+                                        ok;
+                                    _ ->
+                                        throw({error, bad_block_proof})
+                                end
                         end
                 end,
                 %% NB: validation errors MUST throw
@@ -356,10 +382,8 @@ legacy_is_valid(Txn, Chain) ->
             _ ->
                 {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
                 case verify_key(Artifact, MasterKey, proof(Txn)) of
-                    true ->
-                        ok;
-                    _ ->
-                        throw({error, bad_block_proof})
+                    true -> ok;
+                    _ -> throw({error, bad_block_proof})
                 end
         end,
         lists:foreach(
@@ -382,6 +406,55 @@ legacy_is_valid(Txn, Chain) ->
     catch throw:Ret ->
             lager:error("invalid chain var transaction: ~p reason ~p", [Txn, Ret]),
             Ret
+    end.
+
+validate_master_keys(Txn, Gen, Artifact, Ledger) ->
+    case blockchain:config(?use_multi_keys, Ledger) of
+        {ok, true} ->
+            case multi_keys(Txn) of
+                [] ->
+                    ok;
+                MultiKeys when length(MultiKeys) < 3 ->
+                    throw({error, too_few_keys});
+                MultiKeys ->
+                    KeyProofs =
+                        case multi_key_proofs(Txn) of
+                            [] ->
+                                throw({error, no_multi_keys_proofs});
+                            Ps ->
+                                Ps
+                        end,
+                    [case verify_key(Artifact, Key, KeyProof) of
+                        true ->
+                             ok;
+                         _ ->
+                             throw({error, bad_multi_key_proof})
+                     end
+                     || {Key, KeyProof} <- lists:zip(MultiKeys, KeyProofs)],
+                    ok
+            end;
+        _ ->
+            case master_key(Txn) of
+                <<>> when Gen == true ->
+                    throw({error, genesis_requires_master_key});
+                <<>> ->
+                    ok;
+                Key ->
+                    KeyProof =
+                        case key_proof(Txn) of
+                            <<>> ->
+                                throw({error, no_master_key_proof}),
+                                <<>>;
+                            P ->
+                                P
+                        end,
+                    case verify_key(Artifact, Key, KeyProof) of
+                        true ->
+                            ok;
+                        _ ->
+                            throw({error, bad_master_key})
+                    end
+            end
     end.
 
 %% TODO: we need a generalized hook here for when chain vars change
@@ -458,11 +531,21 @@ delayed_absorb(Txn, Ledger) ->
     Vars = decode_vars(vars(Txn)),
     Unsets = decode_unsets(unsets(Txn)),
     ok = blockchain_ledger_v1:vars(Vars, Unsets, Ledger),
-    case master_key(Txn) of
-        <<>> ->
-            ok;
-        Key ->
-            ok = blockchain_ledger_v1:master_key(Key, Ledger)
+    case blockchain:config(?use_multi_keys, Ledger) of
+        {ok, true} ->
+            case multi_keys(Txn) of
+                [] ->
+                    ok;
+                Keys ->
+                    ok = blockchain_ledger_v1:multi_keys(Keys, Ledger)
+            end;
+        _ ->
+            case master_key(Txn) of
+                <<>> ->
+                    ok;
+                Key ->
+                    ok = blockchain_ledger_v1:master_key(Key, Ledger)
+            end
     end.
 
 sum_higher(Target, Proplist) ->
@@ -485,10 +568,14 @@ decode_unsets(Unsets) ->
 print(undefined) -> <<"type=vars undefined">>;
 print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
                                  master_key = MasterKey, key_proof = KeyProof,
+                                 multi_keys = MultiKeys, multi_key_proofs = MultiKeyProofs,
                                  unsets = Unsets, cancels = Cancels,
                                  nonce = Nonce}) ->
-    io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p unsets=~p cancels=~p nonce=~p",
-                  [Vars, VersionP, MasterKey, KeyProof, Unsets, Cancels, Nonce]).
+    io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p "
+                  "multi_keys=~p multi_key_proofs=~p unsets=~p cancels=~p nonce=~p",
+                  [Vars, VersionP, MasterKey, KeyProof,
+                   MultiKeys, MultiKeyProofs,
+                   Unsets, Cancels, Nonce]).
 
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
@@ -567,7 +654,7 @@ validate_float(Value, Name, Min, Max) ->
     end.
 
 validate_oracle_public_keys_format(Str) when is_binary(Str) ->
-    PubKeys = blockchain_utils:vars_keys_to_list(Str),
+    PubKeys = blockchain_utils:bin_keys_to_list(Str),
     validate_oracle_keys(PubKeys).
 
 validate_oracle_keys([]) -> ok;
@@ -581,7 +668,7 @@ validate_oracle_keys([H|T]) ->
     end.
 
 validate_staking_keys_format(Str) when is_binary(Str) ->
-    PubKeys = blockchain_utils:vars_keys_to_list(Str),
+    PubKeys = blockchain_utils:bin_keys_to_list(Str),
     validate_staking_keys(PubKeys).
 
 validate_staking_keys([]) -> ok;
@@ -935,6 +1022,13 @@ validate_var(?txn_fee_multiplier, Value) ->
 %% Data aggregation vars
 validate_var(?data_aggregation_version, Value) ->
     validate_int(Value, "data_aggregation_version", 1, 3, false);
+
+validate_var(?use_multi_keys, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_multi_keys, Value}})
+    end;
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
