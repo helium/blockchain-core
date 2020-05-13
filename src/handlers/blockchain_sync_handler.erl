@@ -59,7 +59,7 @@ dial(Swarm, Chain, Peer) ->
                 lager:debug("dialing Sync stream failed, no compatible protocol versions",[]),
                 {error, no_supported_protocols};
             Dial([ProtocolVersion | Rest]) ->
-                case blockchain_sync_handler:dial(Chain, Swarm, Peer, ProtocolVersion) of
+                case blockchain_sync_handler:dial(Swarm, Chain, Peer, ProtocolVersion) of
                         {ok, Stream} ->
                             lager:debug("dialing Sync stream successful, stream pid: ~p, protocol version: ~p", [Stream, ProtocolVersion]),
                             {ok, Stream};
