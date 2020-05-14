@@ -110,9 +110,9 @@ txn_add_gateway_cmd() ->
                   {datatype, integer}, {validator, fun validate_pos/1}]}
       ],
       [
-       {payer, [{shortname, "p"}, {longname, "payer"},
+       {payer, [{longname, "payer"},
                 {datatype, string}, {validator, fun validate_b58/1}]},
-       {fee,   [{shortname, "f"}, {longname, "fee"},
+       {fee,   [{longname, "fee"},
                 {datatype, integer}, {validator, fun validate_non_neg/1}]}
       ],
       fun txn_add_gateway/3]
@@ -120,7 +120,7 @@ txn_add_gateway_cmd() ->
 
 txn_add_gateway_usage() ->
     [["txn", "add_gateway"],
-     ["txn add_gateway owner=<owner> amount=<amount> [--payer <payer>] [--fee <fee>]\n\n",
+     ["txn add_gateway owner=<owner> [--payer <payer>] [--fee <fee>] [--amount <amount>]\n\n",
       "  Creates a signed add gateway transaction required to add a new Gateway to the Helium network.\n"
       "  Requires an owner address, a cost (amount in Data Credits), and a transaction fee for the miners\n"
       "  (in Data Credits).  Optionally takes a payer address if the payer of the cost and fee is not the same\n"
@@ -130,14 +130,14 @@ txn_add_gateway_usage() ->
       "  final submission to the blockchain.\n\n"
       "Required:\n\n"
       "  <owner>\n"
-      "    The b58 address of the owner of the gateway to be added.\n"
-      "  <amount>\n"
-      "    The requried cost for adding the gateway, in data credits\n\n"
+      "    The b58 address of the owner of the gateway to be added.\n\n"
       "Options:\n\n"
-      "  -p, --payer <address>\n",
+      "  --payer <address>\n",
       "    The b58 address of the payer of the fees. Defaults to the provided owner address\n"
-      "  -f --fee <fee>\n"
-      "    The fee for the miners, in data credits. Defaults to 0 which is likely the wrong value\n"
+      "  --amount <amount>\n"
+      "    The required cost for adding the gateway, in data credits. (default 1)\n"
+      "  --fee <fee>\n"
+      "    The fee for the miners, in data credits. (default 1)\n"
      ]
     ].
 
@@ -147,13 +147,10 @@ txn_add_gateway(_CmdBase, Keys, Flags) ->
     try
         %% Get key arguments
         Owner = proplists:get_value(owner, Keys),
-        Amount = proplists:get_value(amount, Keys),
         %% Get options
-        Payer = case proplists:get_value(payer, Flags) of
-                    undefined -> Owner;
-                    V -> V
-                end,
-        Fee = proplists:get_value(fee, Flags, 0),
+        Payer = proplists:get_value(payer, Flags, <<>>),
+        Amount = proplists:get_value(amount, Flags, 1),
+        Fee = proplists:get_value(fee, Flags, 1),
 
         {ok, TxnBin} = blockchain:add_gateway_txn(Owner, Payer, Fee, Amount),
         TxnB64 = base64:encode_to_string(TxnBin),
@@ -172,27 +169,27 @@ txn_assert_location_cmd() ->
     [
      [["txn", "assert_location"],
       [
-       {location, [{shortname, "l"}, {longname, "location"},
+       {location, [{longname, "location"},
                    {typecast, fun list_to_location/1}, {validator, fun validate_location/1}]},
-       {owner, [{shortname, "o"}, {longname, "owner"},
-                {datatype, string}, {validator, fun validate_b58/1}]},
-       {nonce, [{shortname, "n"}, {longname, "nonce"},
-                {datatype, integer}, {validator, fun validate_non_neg/1}]},
-       {amount,  [{shortname, "a"}, {longname, "amount"},
-                  {datatype, integer}, {validator, fun validate_pos/1}]}
+       {owner, [{longname, "owner"},
+                {datatype, string}, {validator, fun validate_b58/1}]}
       ],
       [
-       {payer, [{shortname, "p"}, {longname, "payer"},
+       {payer, [{longname, "payer"},
                 {datatype, string}, {validator, fun validate_b58/1}]},
-       {fee,   [{shortname, "f"}, {longname, "fee"},
-                {datatype, integer}, {validator, fun validate_non_neg/1}]}
+       {amount,[{shortname, "a"}, {longname, "amount"},
+                {datatype, integer}, {validator, fun validate_pos/1}]},
+       {fee,   [{longname, "fee"},
+                {datatype, integer}, {validator, fun validate_non_neg/1}]},
+       {nonce, [{longname, "nonce"},
+                {datatype, integer}, {validator, fun validate_pos/1}]}
       ],
       fun txn_assert_location/3]
     ].
 
 txn_assert_location_usage() ->
     [["txn", "assert_location"],
-     ["txn assert_location owner=<owner> location=<location> nonce=<nonce> amount=<amount> [--fee <fee>] [--payer <payer>]\n\n",
+     ["txn assert_location owner=<owner> location=<location> [--fee <fee>] [--payer <payer>] [--nonce <nonce] [--amount <amount]\n\n",
       "  Creates a signed location assertion required to declare the location of a n Gateway on the Helium network.\n"
       "  Requires a location (in lat/lon or h3 form), an owner address, a cost (amount in Data Credits), \n"
       "  a transaction fee for the miners (in Data Credits), and a nonce to use. \n"
@@ -204,16 +201,16 @@ txn_assert_location_usage() ->
       "  <owner>\n"
       "    The b58 address of the owner of the gateway to be asserted.\n"
       "  <location>\n"
-      "    Either a h3 index or a comma separated geo location of the form <lat>,<lon>\n"
-      "  <nonce>\n"
-      "    The nonce to use for the location assertion\n"
-      "  <amount>\n"
-      "    The requried cost for asserting the gateway, in data credits\n\n"
+      "    Either a h3 index or a comma separated geo location of the form <lat>,<lon>\n\n"
       "Options:\n\n"
-      "  -p, --payer <address>\n"
+      "  --payer <address>\n"
       "    The b58 address of the payer of the fees. Defaults to the provided owner address\n"
-      "  -f --fee <fee>\n"
-      "    The fee for the miners, in data credits. Defaults to 0 which is likely the wrong value\n"
+      "  --amount <amount>\n"
+      "    The required cost for asserting the gateway, in data credits. (default 1)\n"
+      "  --fee <fee>\n"
+      "    The transaction fee for the miners, in data credits. (default 1)\n"
+      "  --nonce <nonce>\n"
+      "    The assert_location nonce use for the transaction. (default 1)\n"
      ]
     ].
 
@@ -223,15 +220,12 @@ txn_assert_location(_CmdBase, Keys, Flags) ->
     try
         %% Get keys
         Owner = proplists:get_value(owner, Keys),
-        Amount = proplists:get_value(amount, Keys),
-        Nonce = proplists:get_value(nonce, Keys),
         H3String = proplists:get_value(location, Keys),
         %% Get options
-        Payer = case proplists:get_value(payer, Flags) of
-                    undefined -> Owner;
-                    V -> V
-                end,
-        Fee = proplists:get_value(fee, Flags, 0),
+        Payer = proplists:get_value(payer, Flags, <<>>),
+        Amount = proplists:get_value(amount, Flags, 1),
+        Fee = proplists:get_value(fee, Flags, 1),
+        Nonce = proplists:get_value(nonce, Flags, 1),
         %% Construct txn and encode as b64
         {ok, TxnBin} = blockchain:assert_loc_txn(H3String, Owner, Payer, Nonce, Amount, Fee),
         TxnB64 = base64:encode_to_string(TxnBin),
