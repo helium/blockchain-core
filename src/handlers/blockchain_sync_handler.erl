@@ -110,6 +110,7 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
     #blockchain_sync_blocks_pb{blocks=BinBlocks} =
         blockchain_sync_handler_pb:decode_msg(Data, blockchain_sync_blocks_pb),
     Blocks = [blockchain_block:deserialize(B) || B <- BinBlocks],
+    lager:info("adding sync blocks ~p", [[blockchain_block:height(B) || B <- Blocks]]),
     case blockchain:add_blocks(Blocks, Chain) of
         ok ->
             {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
