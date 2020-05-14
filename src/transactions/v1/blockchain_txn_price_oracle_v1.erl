@@ -8,13 +8,17 @@
 -behavior(blockchain_txn).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
 
+-define(MAX_HEIGHT_DIFF, 10).
+
 -export([
-    new/2,
+    new/3,
     hash/1,
     price/1,
-    oracle_signature/1,
+    oracle_public_key/1,
+    block_height/1,
     signature/1,
     fee/1,
     sign/2,
@@ -34,11 +38,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(OracleSignature :: binary(), Price :: non_neg_integer()) -> txn_price_oracle().
-new(OracleSig, Price) ->
+-spec new(OraclePublicKey :: binary(), Price :: non_neg_integer(),
+          BlockHeight :: non_neg_integer()) -> txn_price_oracle().
+new(OraclePK, Price, BlockHeight) ->
     #blockchain_txn_price_oracle_v1_pb{
-       oracle_signature=OracleSig,
+       oracle_public_key=OraclePK,
        price=Price,
+       block_height = BlockHeight,
        signature = <<>>
       }.
 
@@ -72,9 +78,18 @@ signature(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec oracle_signature(txn_price_oracle()) -> binary().
-oracle_signature(Txn) ->
-    Txn#blockchain_txn_price_oracle_v1_pb.oracle_signature.
+-spec block_height(txn_price_oracle()) -> non_neg_integer().
+block_height(Txn) ->
+    Txn#blockchain_txn_price_oracle_v1_pb.block_height.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec oracle_public_key(txn_price_oracle()) -> binary().
+oracle_public_key(Txn) ->
+    Txn#blockchain_txn_price_oracle_v1_pb.oracle_public_key.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -90,7 +105,8 @@ fee(_Txn) ->
 %%--------------------------------------------------------------------
 -spec sign(txn_price_oracle(), libp2p_crypto:sig_fun()) -> txn_price_oracle().
 sign(Txn, SigFun) ->
-    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(Txn),
+    Zeroed = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
+    EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(Zeroed),
     Txn#blockchain_txn_price_oracle_v1_pb{signature=SigFun(EncodedTxn)}.
 
 %%--------------------------------------------------------------------
@@ -99,21 +115,30 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    _Ledger = blockchain:ledger(Chain),
+    Ledger = blockchain:ledger(Chain),
     Price = ?MODULE:price(Txn),
     Signature = ?MODULE:signature(Txn),
-    PubKey = ?MODULE:oracle_signature(Txn),
+    OraclePK = ?MODULE:oracle_public_key(Txn),
+    BlockHeight = ?MODULE:block_height(Txn),
     BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
-    case blockchain_txn:validate_fields([{{oracle_signature, PubKey}, {address, libp2p}}, %% XXX: validate its one of our accepted keys
+    case blockchain_txn:validate_fields([{{oracle_public_key, OraclePK},
+                                          {member, ?price_oracle_public_keys}}, % XXX: Implement
                                          {{price, Price}, {integer, 1, 100}}]) of
         ok ->
-            case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
+            %% maybe these tests should be reversed...
+            %% or maybe we should fold over a list of closures...
+            case libp2p_crypto:verify(EncodedTxn, Signature, OraclePK) of
                 false ->
                     {error, bad_signature};
                 true ->
-                    %% TODO: Implement
-                    ok
+                    case validate_block_height(BlockHeight,
+                                               blockchain_ledger:blockheight(Ledger)) of
+                        false ->
+                            {error, bad_block_height};
+                        true ->
+                            ok
+                    end
             end;
         Error ->
             Error
@@ -136,10 +161,18 @@ absorb(Txn, Chain) ->
 %%--------------------------------------------------------------------
 -spec print(txn_price_oracle()) -> iodata().
 print(undefined) -> <<"type=price_oracle, undefined">>;
-print(#blockchain_txn_price_oracle_v1_pb{oracle_signature=OracleSig,
-                                         price=Price, signature=Sig}) ->
-    io_lib:format("type=price_oracle oracle_signature=~p, price=~p, signature=~p",
-                  [OracleSig, Price, Sig]).
+print(#blockchain_txn_price_oracle_v1_pb{oracle_public_key=OraclePK,
+                                         price=Price, block_height = BH,
+                                         signature=Sig}) ->
+    io_lib:format("type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
+                  [OraclePK, Price, BH, Sig]).
+
+%% ------------------------------------------------------------------
+%% Private functions
+%% ------------------------------------------------------------------
+validate_block_height(MsgHeight, Current) when (Current - MsgHeight) < ?MAX_HEIGHT_DIFF ->
+    true;
+validate_block_height(_MsgHeight, _Current) -> false.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -148,17 +181,18 @@ print(#blockchain_txn_price_oracle_v1_pb{oracle_signature=OracleSig,
 
 new_test() ->
     Tx = #blockchain_txn_price_oracle_v1_pb{
-        oracle_signature = <<"oracle">>,
-        price = 1
+        oracle_public_key = <<"pk">>,
+        price = 1,
+        block_height = 2
     },
-    ?assertEqual(Tx, new(<<"oracle">>, 1)).
+    ?assertEqual(Tx, new(<<"pk">>, 1, 2)).
 
-oracle_signature_test() ->
-    Tx = new(<<"oracle">>, 1),
-    ?assertEqual(<<"oracle">>, oracle_signature(Tx)).
+oracle_public_key_test() ->
+    Tx = new(<<"pk">>, 1, 2),
+    ?assertEqual(<<"pk">>, oracle_public_key(Tx)).
 
 price_test() ->
-    Tx = new(<<"oracle">>, 1),
+    Tx = new(<<"pk">>, 1, 2),
     ?assertEqual(1, price(Tx)).
 
 -endif.
