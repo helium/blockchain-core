@@ -1436,12 +1436,16 @@ load_genesis(Dir) ->
 %% keys as the gateway, and the given owner, payer, fee and stacking
 %% fee.
 -spec add_gateway_txn(OwnerB58::string(),
-                      PayerB58::string(),
+                      PayerB58::string() | undefined,
                       Fee::pos_integer(),
                       StakingFee::non_neg_integer()) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
-    Payer = libp2p_crypto:b58_to_bin(PayerB58),
+    Payer = case PayerB58 of
+                undefined -> <<>>;
+                <<>> -> <<>>;
+                _ -> libp2p_crypto:b58_to_bin(PayerB58)
+            end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     Txn = blockchain_txn_add_gateway_v1:new(Owner, PubKeyBin, Payer, StakingFee, Fee),
@@ -1454,7 +1458,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 %% location, owner and payer.
 -spec assert_loc_txn(H3String::string(),
                      OwnerB58::string(),
-                     PayerB58::string(),
+                     PayerB58::string() | undefined,
                      Nonce::non_neg_integer(),
                      StakingFee::pos_integer(),
                      Fee::pos_integer()
@@ -1462,7 +1466,11 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
 assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, StakingFee, Fee) ->
     H3Index = h3:from_string(H3String),
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
-    Payer = libp2p_crypto:b58_to_bin(PayerB58),
+    Payer = case PayerB58 of
+                undefined -> <<>>;
+                <<>> -> <<>>;
+                _ -> libp2p_crypto:b58_to_bin(PayerB58)
+            end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     Txn = blockchain_txn_assert_location_v1:new(PubKeyBin, Owner, Payer, H3Index, Nonce, StakingFee, Fee),
