@@ -187,7 +187,7 @@ full_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -276,7 +276,7 @@ dup_packets_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [{16#deadbeef, 16#deadc0de}], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [{16#deadbeef, 16#deadc0de}], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -384,7 +384,7 @@ expired_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -464,7 +464,7 @@ replay_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -563,7 +563,7 @@ multiple_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -662,7 +662,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode2, Self),
 
     %% Create OUI txn for RouterNode1
-    SignedOUITxn1 = create_oui_txn(RouterNode1, [], 8),
+    SignedOUITxn1 = create_oui_txn(1, RouterNode1, [], 8),
 
     %% Create 3 SCs for RouterNode1
     Expiry = 20,
@@ -703,7 +703,7 @@ multi_owner_multi_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
 
     %% Create OUI txn for RouterNode2
-    SignedOUITxn2 = create_oui_txn(RouterNode2, [], 8),
+    SignedOUITxn2 = create_oui_txn(2, RouterNode2, [], 8),
     ID21 = crypto:strong_rand_bytes(24),
     ID22 = crypto:strong_rand_bytes(24),
 
@@ -814,7 +814,7 @@ multi_active_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -978,7 +978,7 @@ max_scs_open_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     ExpireWithin = 11,
@@ -1020,7 +1020,7 @@ oui_not_found_test(Config) ->
     RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1052,7 +1052,7 @@ unknown_owner_test(Config) ->
     PayerPubkeyBin = libp2p_crypto:pubkey_to_bin(PayerPubkey),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     {ok, B0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn]),
@@ -1098,7 +1098,7 @@ crash_single_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1216,7 +1216,7 @@ crash_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create first state channel open txn
@@ -1388,7 +1388,7 @@ sc_gc_test(Config) ->
     Self = self(),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1461,7 +1461,7 @@ multi_sc_gc_test(Config) ->
     Self = self(),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1556,7 +1556,7 @@ crash_sc_sup_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode, Self),
 
     %% Create OUI txn
-    SignedOUITxn = create_oui_txn(RouterNode, [], 8),
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
     ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
 
     %% Create state channel open txn
@@ -1691,11 +1691,11 @@ get_consensus_members(Config, ConsensusAddrs) ->
                                          end
                                  end, [], Nodes)).
 
-create_oui_txn(RouterNode, EUIs, SubnetSize) ->
+create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
     {Filter, _} = xor16:to_bin(xor16:new([ <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>> || {DevEUI, AppEUI} <- EUIs], fun xxhash:hash64/1)),
-    OUITxn = blockchain_txn_oui_v1:new(RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize, 1, 0),
+    OUITxn = blockchain_txn_oui_v1:new(OUI, RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize, 1, 0),
     blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun).
 
 create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->

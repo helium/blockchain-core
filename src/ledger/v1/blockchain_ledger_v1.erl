@@ -12,7 +12,7 @@
 
     check_key/2, mark_key/2,
 
-    new_context/1, delete_context/1, reset_context/1, commit_context/1,
+    new_context/1, delete_context/1, remove_context/1, reset_context/1, commit_context/1,
     get_context/1, context_cache/1,
 
     new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
@@ -77,8 +77,8 @@
     add_htlc/8,
     redeem_htlc/3,
 
-    get_oui_counter/1, increment_oui_counter/2,
-    add_oui/6,
+    get_oui_counter/1, increment_oui_counter/1,
+    add_oui/5,
     find_routing/2, find_routing_for_packet/2, find_router_ouis/2,
     update_routing/4,
 
@@ -268,6 +268,17 @@ delete_context(Ledger) ->
             Ledger;
         Cache ->
             ets:delete(Cache),
+            context_cache(undefined, Ledger)
+    end.
+
+%% @doc remove a context without deleting it, useful if you need a
+%% view of the actual ledger while absorbing
+-spec remove_context(ledger()) -> ledger().
+remove_context(Ledger) ->
+    case ?MODULE:context_cache(Ledger) of
+        undefined ->
+            Ledger;
+        _Cache ->
             context_cache(undefined, Ledger)
     end.
 
@@ -1672,22 +1683,20 @@ get_oui_counter(Ledger) ->
             Error
     end.
 
--spec increment_oui_counter(pos_integer(), ledger()) -> {ok, pos_integer()} | {error, any()}.
-increment_oui_counter(OUI, Ledger) ->
+-spec increment_oui_counter(ledger()) -> {ok, pos_integer()} | {error, any()}.
+increment_oui_counter(Ledger) ->
     case ?MODULE:get_oui_counter(Ledger) of
         {error, _}=Error ->
             Error;
-        {ok, OUICounter} when OUICounter + 1 == OUI ->
-            DefaultCF = default_cf(Ledger),
-            ok = cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<OUI:32/little-unsigned-integer>>),
-            {ok, OUI};
         {ok, OUICounter} ->
-            {error, {invalid_oui, OUI, OUICounter+1}}
+            DefaultCF = default_cf(Ledger),
+            ok = cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<(OUICounter+1):32/little-unsigned-integer>>),
+            {ok, OUICounter+1}
     end.
 
--spec add_oui(binary(), pos_integer(), [binary()], binary(), <<_:48>>, ledger()) -> ok | {error, any()}.
-add_oui(Owner, OUI, Addresses, Filter, Subnet, Ledger) ->
-    case ?MODULE:increment_oui_counter(OUI, Ledger) of
+-spec add_oui(binary(), [binary()], binary(), <<_:48>>, ledger()) -> ok | {error, any()}.
+add_oui(Owner, Addresses, Filter, Subnet, Ledger) ->
+    case ?MODULE:increment_oui_counter(Ledger) of
         {error, _}=Error ->
             Error;
         {ok, OUI} ->
@@ -2718,7 +2727,7 @@ routing_test() ->
     ?assertEqual([], ?MODULE:find_router_ouis(?KEY1, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_oui(<<"owner">>, 1, [?KEY1], <<>>, <<>>, Ledger2),
+    ok = add_oui(<<"owner">>, [?KEY1], <<>>, <<>>, Ledger2),
     ok = commit_context(Ledger2),
     {ok, Routing0} = find_routing(1, Ledger),
     ?assertEqual(<<"owner">>, blockchain_ledger_routing_v1:owner(Routing0)),
@@ -2728,7 +2737,7 @@ routing_test() ->
     ?assertEqual(0, blockchain_ledger_routing_v1:nonce(Routing0)),
 
     Ledger3 = new_context(Ledger),
-    ok = add_oui(<<"owner2">>, 2, [?KEY2], <<>>, <<>>, Ledger3),
+    ok = add_oui(<<"owner2">>, [?KEY2], <<>>, <<>>, Ledger3),
     ok = commit_context(Ledger3),
     {ok, Routing1} = find_routing(2, Ledger),
     ?assertEqual(<<"owner2">>, blockchain_ledger_routing_v1:owner(Routing1)),

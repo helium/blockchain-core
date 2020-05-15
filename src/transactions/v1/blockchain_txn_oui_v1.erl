@@ -11,7 +11,7 @@
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
-    new/6, new/7,
+    new/7, new/8,
     hash/1,
     owner/1,
     addresses/1,
@@ -20,6 +20,7 @@
     payer/1,
     staking_fee/1,
     fee/1,
+    oui/1,
     owner_signature/1,
     payer_signature/1,
     sign/2,
@@ -43,67 +44,61 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(Owner :: libp2p_crypto:pubkey_bin(),
-          Addresses :: [libp2p_crypto:pubkey_bin()],
-          Filter :: binary() | undefined,
-          RequestedSubnetSize :: pos_integer() | undefined,
-          StakingFee :: pos_integer(),
-          Fee :: non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
+-spec new(
+        OUI :: pos_integer(),
+        Owner :: libp2p_crypto:pubkey_bin(),
+        Addresses :: [libp2p_crypto:pubkey_bin()],
+        Filter :: binary() | undefined,
+        RequestedSubnetSize :: pos_integer() | undefined,
+        StakingFee :: pos_integer(),
+        Fee :: non_neg_integer()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
-        owner=Owner,
-        addresses=Addresses,
-        filter=Filter,
-        requested_subnet_size=RequestedSubnetSize,
-        payer= <<>>,
-        staking_fee=StakingFee,
-        fee=Fee,
-        owner_signature= <<>>,
-        payer_signature= <<>>
+       oui = OUI,
+       owner=Owner,
+       addresses=Addresses,
+       filter=Filter,
+       requested_subnet_size=RequestedSubnetSize,
+       payer= <<>>,
+       staking_fee=StakingFee,
+       fee=Fee,
+       owner_signature= <<>>,
+       payer_signature= <<>>
     }.
 
--spec new(Owner :: libp2p_crypto:pubkey_bin(),
-          Addresses :: [binary()],
-          Filter :: binary() | undefined,
-          RequestedSubnetSize :: pos_integer() | undefined,
-          Payer :: libp2p_crypto:pubkey_bin(),
-          StakingFee :: non_neg_integer(),
-          Fee :: non_neg_integer()) -> txn_oui().
-new(Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) ->
+-spec new(
+        OUI :: pos_integer(),
+        Owner :: libp2p_crypto:pubkey_bin(),
+        Addresses :: [binary()],
+        Filter :: binary() | undefined,
+        RequestedSubnetSize :: pos_integer() | undefined,
+        Payer :: libp2p_crypto:pubkey_bin(),
+        StakingFee :: non_neg_integer(),
+        Fee :: non_neg_integer()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) ->
     #blockchain_txn_oui_v1_pb{
-        owner=Owner,
-        addresses=Addresses,
-        filter=Filter,
-        requested_subnet_size=RequestedSubnetSize,
-        payer=Payer,
-        staking_fee=StakingFee,
-        fee=Fee,
-        owner_signature= <<>>,
-        payer_signature= <<>>
+       oui=OUI,
+       owner=Owner,
+       addresses=Addresses,
+       filter=Filter,
+       requested_subnet_size=RequestedSubnetSize,
+       payer=Payer,
+       staking_fee=StakingFee,
+       fee=Fee,
+       owner_signature= <<>>,
+       payer_signature= <<>>
     }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_oui()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_oui_v1_pb{owner_signature = <<>>, payer_signature = <<>>},
     EncodedTxn = blockchain_txn_oui_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner(txn_oui()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.owner.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec addresses(txn_oui()) -> [libp2p_crypto:pubkey_bin()].
 addresses(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.addresses.
@@ -127,6 +122,10 @@ staking_fee(Txn) ->
 -spec fee(txn_oui()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.fee.
+
+-spec oui(txn_oui()) -> pos_integer().
+oui(Txn) ->
+    Txn#blockchain_txn_oui_v1_pb.oui.
 
 -spec owner_signature(txn_oui()) -> binary().
 owner_signature(Txn) ->
@@ -189,6 +188,7 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
+    OUI = ?MODULE:oui(Txn),
     ActualPayer = case Payer == undefined orelse Payer == <<>> of
         true -> Owner;
         false -> Payer
@@ -197,18 +197,17 @@ absorb(Txn, Chain) ->
     SubnetSize = ?MODULE:requested_subnet_size(Txn),
     case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
         {ok, Subnet} ->
-            case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
-                {error, _}=Error ->
-                    Error;
-                ok ->
-                    Addresses = ?MODULE:addresses(Txn),
-                    Filter = ?MODULE:filter(Txn),
-
-                    case blockchain_ledger_v1:get_oui_counter(Ledger) of
-                        {error, _} ->
-                            {error, oui_lookup_failed};
-                        {ok, CurrOUI} ->
-                            blockchain_ledger_v1:add_oui(Owner, CurrOUI + 1, Addresses, Filter, Subnet, Ledger)
+            case validate_oui(OUI, Ledger) of
+                {false, LedgerOUI} ->
+                    {error, {invalid_oui, OUI, LedgerOUI}};
+                true ->
+                    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        ok ->
+                            Addresses = ?MODULE:addresses(Txn),
+                            Filter = ?MODULE:filter(Txn),
+                            blockchain_ledger_v1:add_oui(Owner, Addresses, Filter, Subnet, Ledger)
                     end
             end;
         Error ->
@@ -269,42 +268,65 @@ validate_filter(Filter) ->
         _ -> false
     end.
 
+-spec validate_oui(OUI :: pos_integer(), Ledger :: blockchain_ledger_v1:ledger()) -> true | {false, non_neg_integer()}.
+validate_oui(OUI, Ledger) ->
+    case blockchain_ledger_v1:get_oui_counter(blockchain_ledger_v1:remove_context(Ledger)) of
+        {error, _} ->
+            %% no existing oui on chain
+            true;
+        {ok, 0} ->
+            true;
+        {ok, 1} ->
+            true;
+        {ok, OUI} ->
+            true;
+        {ok, OtherOUI} ->
+            {false, OtherOUI}
+    end.
+
 -spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 do_oui_validation_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
+    OUI = ?MODULE:oui(Txn),
     Addresses = ?MODULE:addresses(Txn),
-    case validate_addresses(Addresses) of
-        false ->
-            {error, invalid_addresses};
+    case validate_oui(OUI, Ledger) of
+        {false, LedgerOUI} ->
+            {error, {invalid_oui, OUI, LedgerOUI}};
         true ->
-            case validate_subnet_size(?MODULE:requested_subnet_size(Txn)) of
+            case validate_addresses(Addresses) of
                 false ->
-                    {error, invalid_subnet_size};
+                    {error, invalid_addresses};
                 true ->
-                    case validate_filter(?MODULE:filter(Txn)) of
+                    case validate_subnet_size(?MODULE:requested_subnet_size(Txn)) of
                         false ->
-                            {error, invalid_filter};
+                            {error, invalid_subnet_size};
                         true ->
-                            StakingFee = ?MODULE:staking_fee(Txn),
-                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-                            case ExpectedStakingFee == StakingFee of
+                            case validate_filter(?MODULE:filter(Txn)) of
                                 false ->
-                                    {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                    {error, invalid_filter};
                                 true ->
-                                    Fee = ?MODULE:fee(Txn),
-                                    Owner = ?MODULE:owner(Txn),
-                                    Payer = ?MODULE:payer(Txn),
-                                    ActualPayer = case Payer == undefined orelse Payer == <<>> of
-                                                      true -> Owner;
-                                                      false -> Payer
-                                                  end,
                                     StakingFee = ?MODULE:staking_fee(Txn),
-                                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
+                                    case ExpectedStakingFee == StakingFee of
+                                        false ->
+                                            {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                        true ->
+                                            Fee = ?MODULE:fee(Txn),
+                                            Owner = ?MODULE:owner(Txn),
+                                            Payer = ?MODULE:payer(Txn),
+                                            ActualPayer = case Payer == undefined orelse Payer == <<>> of
+                                                              true -> Owner;
+                                                              false -> Payer
+                                                          end,
+                                            StakingFee = ?MODULE:staking_fee(Txn),
+                                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                    end
                             end
                     end
             end
     end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -322,6 +344,7 @@ do_oui_validation_checks(Txn, Chain) ->
 missing_payer_signature_new() ->
     #{public := PubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     #blockchain_txn_oui_v1_pb{
+       oui = 1,
        owner= <<"owner">>,
        addresses = [?KEY1],
        payer= libp2p_crypto:pubkey_to_bin(PubKey),
@@ -333,6 +356,7 @@ missing_payer_signature_new() ->
 
 new_test() ->
     Tx = #blockchain_txn_oui_v1_pb{
+        oui = 1,
         owner= <<"owner">>,
         addresses = [?KEY1],
         payer = <<>>,
@@ -341,34 +365,38 @@ new_test() ->
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"owner">>, [?KEY1], <<>>, 0,  2, 3)).
+    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0,  2, 3)).
 
 owner_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual([?KEY1], addresses(Tx)).
 
 staking_fee_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual(2, staking_fee(Tx)).
 
 fee_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual(3, fee(Tx)).
 
+oui_test() ->
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    ?assertEqual(1, oui(Tx)).
+
 payer_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 owner_signature_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 payer_signature_test() ->
-    Tx = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     ?assertEqual(<<>>, payer_signature(Tx)).
 
 missing_payer_signature_test() ->
@@ -377,7 +405,7 @@ missing_payer_signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = owner_signature(Tx1),
@@ -386,7 +414,7 @@ sign_test() ->
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_payer(Tx0, SigFun),
     Sig1 = payer_signature(Tx1),

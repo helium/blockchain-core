@@ -38,7 +38,8 @@
     negative_payment_v1_test/1,
     negative_amt_htlc_create_test/1,
     update_gateway_oui_test/1,
-    max_subnet_test/1
+    max_subnet_test/1,
+    replay_oui_test/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -84,7 +85,8 @@ all() ->
         negative_payment_v1_test,
         negative_amt_htlc_create_test,
         update_gateway_oui_test,
-        max_subnet_test
+        max_subnet_test,
+        replay_oui_test
     ].
 
 %%--------------------------------------------------------------------
@@ -961,7 +963,7 @@ routing_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -1082,7 +1084,7 @@ routing_test(Config) ->
 
     OUI2 = 2,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    OUITxn01 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn01 = blockchain_txn_oui_v1:new(OUI2, Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn01 = blockchain_txn_oui_v1:sign(OUITxn01, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -1117,7 +1119,7 @@ max_subnet_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8, 0, 0),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -1826,9 +1828,10 @@ payer_test(Config) ->
     ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
     % Step 3: Add OUI, gateway, assert_location and let payer pay for it
+    OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(Owner, Addresses0, Filter, 8, Payer, 1, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses0, Filter, 8, Payer, 1, 10),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
@@ -2150,7 +2153,7 @@ update_gateway_oui_test(Config) ->
     OUI1 = 1,
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn = blockchain_txn_oui_v1:new(Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses, Filter, 8, 1, 1),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
@@ -2165,6 +2168,144 @@ update_gateway_oui_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 25} == blockchain:height(Chain) end),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
+    ok.
+
+replay_oui_test(Config) ->
+    ConsensusMembers = proplists:get_value(consensus_members, Config),
+    Chain = proplists:get_value(chain, Config),
+    Swarm = proplists:get_value(swarm, Config),
+    Ledger = blockchain:ledger(Chain),
+
+    [_, {Owner, {_, OwnerPrivKey, _}}|_] = ConsensusMembers,
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(OwnerPrivKey),
+
+    % Step 1: Add exchange rate to ledger
+    Rate = 1000000,
+    {Priv, _} = proplists:get_value(master_key, Config),
+    Vars = #{token_burn_exchange_rate => Rate},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), Swarm),
+    lists:foreach(
+        fun(_) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+        end,
+        lists:seq(1, 20)
+    ),
+    ok = test_utils:wait_until(fun() -> {ok, 22} == blockchain:height(Chain) end),
+    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
+
+    % Step 2: Burn some token to get some DCs
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+
+    {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), Swarm),
+    ok = test_utils:wait_until(fun() -> {ok, 23} == blockchain:height(Chain) end),
+
+    %% construct oui txn
+    Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn1 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn1 = blockchain_txn_oui_v1:sign(OUITxn1, OwnerSigFun),
+
+    %% mine the oui txn
+    {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedOUITxn1]),
+    _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), Swarm),
+
+    %% wait 5 blocks, no good reason
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+           end,
+           lists:seq(1, 5)
+          ),
+    ok = test_utils:wait_until(fun() -> {ok, 29} == blockchain:height(Chain) end),
+
+    %% construct second oui txn
+    OUITxn2 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn2 = blockchain_txn_oui_v1:sign(OUITxn2, OwnerSigFun),
+
+    %% mine second oui txn
+    {ok, Block30} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
+    _ = blockchain_gossip_handler:add_block(Block30, Chain, self(), Swarm),
+
+    %% wait 5 blocks, no good reason
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+           end,
+           lists:seq(1, 5)
+          ),
+    ok = test_utils:wait_until(fun() -> {ok, 35} == blockchain:height(Chain) end),
+
+    ?assertEqual({ok, 2}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
+
+    %% construct third oui txn, current oui counter is 2
+    OUITxn3 = blockchain_txn_oui_v1:new(2, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, OwnerSigFun),
+
+    %% mine third oui txn
+    {ok, Block36} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
+    _ = blockchain_gossip_handler:add_block(Block36, Chain, self(), Swarm),
+
+    %% wait 5 blocks, no good reason
+    ok = lists:foreach(
+           fun(_) ->
+                   {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                   _ = blockchain_gossip_handler:add_block(Block, Chain, self(), Swarm)
+           end,
+           lists:seq(1, 5)
+          ),
+    ok = test_utils:wait_until(fun() -> {ok, 41} == blockchain:height(Chain) end),
+
+    ?assertEqual({ok, 3}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
+
+    %% mine third oui txn again, this should fail
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
+
+    %% mine first oui txn again
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn1]),
+
+    %% mine second oui txn again
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
+
+    %% construct fourth and fifth oui txn, current oui counter is 3
+    OUITxn4 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn4 = blockchain_txn_oui_v1:sign(OUITxn4, OwnerSigFun),
+
+    OUITxn5 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn5 = blockchain_txn_oui_v1:sign(OUITxn5, OwnerSigFun),
+
+    %% try a txn with a future oui
+    OUITxn6 = blockchain_txn_oui_v1:new(4, Owner, Addresses, Filter, 8, 1, 1),
+    SignedOUITxn6 = blockchain_txn_oui_v1:sign(OUITxn6, OwnerSigFun),
+
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6]),
+
+    %% mine fourth and fifth oui txn
+    {ok, Block41} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4, SignedOUITxn5]),
+    _ = blockchain_gossip_handler:add_block(Block41, Chain, self(), Swarm),
+
+    ?assertEqual({ok, 5}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
+
+    %% mine third oui txn again, this should fail
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3]),
+
+    %% mine first oui txn again
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn1]),
+
+    %% mine second oui txn again
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
+
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4]),
+    {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
+
     ok.
 
 %%--------------------------------------------------------------------

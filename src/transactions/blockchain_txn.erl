@@ -800,9 +800,9 @@ sc_depends_on_test() ->
     {Filter1, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
 
     %% oui for payer
-    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer, [Payer], Filter, 8, 1, 0), SigFun),
+    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(1, Payer, [Payer], Filter, 8, 1, 0), SigFun),
     %% oui for payer1
-    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(Payer1, [Payer1], Filter1, 8, 1, 0), SigFun1),
+    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(2, Payer1, [Payer1], Filter1, 8, 1, 0), SigFun1),
 
     %% routing for payer
     RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 1), SigFun),
