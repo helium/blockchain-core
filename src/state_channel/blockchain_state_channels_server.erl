@@ -440,7 +440,7 @@ delete_closed_sc(DB, ID) ->
                     %% not in db
                     ok;
                 true ->
-                    rocksdb:delete(DB, ?STATE_CHANNELS, ID, [{sync, true}])
+                    rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary(lists:delete(ID, SCIDs)), [{sync, true}])
             end
     end.
 
