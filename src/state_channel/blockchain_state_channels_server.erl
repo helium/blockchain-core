@@ -181,62 +181,21 @@ handle_info(post_init, #state{chain=undefined}=State) ->
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
     {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}},
-            #state{chain=Chain, owner={Owner, _}, state_channels=SCs, active_sc_id=ActiveSCID}=State0) ->
-
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State0) ->
     NewState = case blockchain:get_block(BlockHash, Chain) of
                    {error, Reason} ->
                        lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
                        State0;
                    {ok, Block} ->
                        BlockHeight = blockchain_block:height(Block),
-                       Txns = get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs),
+                       Txns = get_state_channels_txns_from_block(Chain, BlockHash, State0),
                        State1 = lists:foldl(
-                                  fun(Txn, #state{state_channels=SCs0}=State) ->
+                                  fun(Txn, State) ->
                                           case blockchain_txn:type(Txn) of
                                               blockchain_txn_state_channel_open_v1 ->
-                                                  case blockchain_txn_state_channel_open_v1:owner(Txn) of
-                                                      %% Do the map put when we are the owner of the state_channel
-                                                      Owner ->
-                                                          ID = blockchain_txn_state_channel_open_v1:id(Txn),
-                                                          ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-                                                          SC = blockchain_state_channel_v1:new(ID,
-                                                                                               Owner,
-                                                                                               BlockHash,
-                                                                                               (BlockHeight + ExpireWithin)),
-
-                                                          case ActiveSCID of
-                                                              undefined ->
-                                                                  %% Don't have any active state channel
-                                                                  %% Set this one to active
-                                                                  State#state{state_channels=maps:put(ID, SC, SCs0), active_sc_id=ID};
-                                                              _A ->
-                                                                  State#state{state_channels=maps:put(ID, SC, SCs0)}
-                                                          end;
-                                                      _ ->
-                                                          %% Don't do anything cuz we're not the owner
-                                                          State
-                                                  end;
+                                                  update_state_sc_open(Txn, BlockHash, BlockHeight, State);
                                               blockchain_txn_state_channel_close_v1 ->
-                                                  SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
-                                                  ID = blockchain_state_channel_v1:id(SC),
-
-                                                  NewActiveSCID = case ActiveSCID of
-                                                                      undefined ->
-                                                                          %% No sc was active
-                                                                          undefined;
-                                                                      ID ->
-                                                                          %% Our active state channel got closed,
-                                                                          %% set active to undefined
-                                                                          ExcludedActiveSCs = maps:without([ID], SCs),
-                                                                          maybe_get_new_active(ExcludedActiveSCs);
-                                                                      A ->
-                                                                          %% Some other sc was active, let it remain active
-                                                                          A
-                                                                  end,
-
-                                                  State#state{state_channels=maps:remove(ID, SCs0),
-                                                              active_sc_id=NewActiveSCID}
+                                                  update_state_sc_close(Txn, State)
                                           end
                                   end,
                                   State0,
@@ -258,6 +217,61 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec update_state_sc_open(
+        Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
+        BlockHash :: blockchain_block:hash(),
+        BlockHeight :: pos_integer(),
+        State :: state()) -> state().
+update_state_sc_open(Txn,
+                     BlockHash,
+                     BlockHeight,
+                     #state{owner={Owner, _}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+    case blockchain_txn_state_channel_open_v1:owner(Txn) of
+        %% Do the map put when we are the owner of the state_channel
+        Owner ->
+            ID = blockchain_txn_state_channel_open_v1:id(Txn),
+            ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
+            SC = blockchain_state_channel_v1:new(ID,
+                                                 Owner,
+                                                 BlockHash,
+                                                 (BlockHeight + ExpireWithin)),
+
+            case ActiveSCID of
+                undefined ->
+                    %% Don't have any active state channel
+                    %% Set this one to active
+                    State#state{state_channels=maps:put(ID, SC, SCs), active_sc_id=ID};
+                _A ->
+                    State#state{state_channels=maps:put(ID, SC, SCs)}
+            end;
+        _ ->
+            %% Don't do anything cuz we're not the owner
+            State
+    end.
+
+-spec update_state_sc_close(
+        Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
+        State :: state()) -> state().
+update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+    SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+    ID = blockchain_state_channel_v1:id(SC),
+
+    NewActiveSCID = case ActiveSCID of
+                        undefined ->
+                            %% No sc was active
+                            undefined;
+                        ID ->
+                            %% Our active state channel got closed,
+                            %% Delete it from our database
+                            ExcludedActiveSCs = maps:without([ID], SCs),
+                            ok = delete_closed_sc(DB, ID),
+                            maybe_get_new_active(ExcludedActiveSCs);
+                        A ->
+                            %% Some other sc was active, let it remain active
+                            A
+                    end,
+
+    State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -321,10 +335,12 @@ close_state_channel(SC, Owner, OwnerSigFun) ->
 %% Get Block and open/close transactions
 %% @end
 %%--------------------------------------------------------------------
--spec get_state_channels_txns_from_block(blockchain:blockchain(), binary(), binary(), map()) ->
-    [blockchain_txn_state_channel_open_v1:txn_state_channel_open() |
-     blockchain_txn_state_channel_close_v1:txn_state_channel_close()].
-get_state_channels_txns_from_block(Chain, BlockHash, Owner, SCs) ->
+-spec get_state_channels_txns_from_block(
+        Chain :: blockchain:blockchain(),
+        BlockHash :: blockchain_block:hash(),
+        State :: state()) -> [blockchain_txn_state_channel_open_v1:txn_state_channel_open() |
+                              blockchain_txn_state_channel_close_v1:txn_state_channel_close()].
+get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, owner={Owner, _}}) ->
     case blockchain:get_block(BlockHash, Chain) of
         {error, _Reason} ->
             lager:error("failed to get block:~p ~p", [BlockHash, _Reason]),
@@ -404,6 +420,22 @@ save_state_channels(DB, ID) ->
                     ok;
                 false ->
                     rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID|SCIDs]), [{sync, true}])
+            end
+    end.
+
+-spec delete_closed_sc(DB :: rocksdb:db_handle(),
+                       ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
+delete_closed_sc(DB, ID) ->
+    case get_state_channels(DB) of
+        {error, _}=E ->
+            E;
+        {ok, SCIDs} ->
+            case lists:member(ID, SCIDs) of
+                false ->
+                    %% not in db
+                    ok;
+                true ->
+                    rocksdb:delete(DB, ?STATE_CHANNELS, ID, [{sync, true}])
             end
     end.
 
