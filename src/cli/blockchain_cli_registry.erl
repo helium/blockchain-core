@@ -5,7 +5,8 @@
                       blockchain_cli_ledger,
                       blockchain_cli_repair,
                       blockchain_cli_trace,
-                      blockchain_cli_txn
+                      blockchain_cli_txn,
+                      blockchain_cli_sc
                      ]).
 
 -export([register_cli/0]).
