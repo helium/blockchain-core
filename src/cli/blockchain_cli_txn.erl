@@ -148,7 +148,7 @@ txn_add_gateway(_CmdBase, Keys, Flags) ->
         %% Get key arguments
         Owner = proplists:get_value(owner, Keys),
         %% Get options
-        Payer = proplists:get_value(payer, Flags, <<>>),
+        Payer = proplists:get_value(payer, Flags, undefined),
         Amount = proplists:get_value(amount, Flags, 1),
         Fee = proplists:get_value(fee, Flags, 1),
 
@@ -222,7 +222,7 @@ txn_assert_location(_CmdBase, Keys, Flags) ->
         Owner = proplists:get_value(owner, Keys),
         H3String = proplists:get_value(location, Keys),
         %% Get options
-        Payer = proplists:get_value(payer, Flags, <<>>),
+        Payer = proplists:get_value(payer, Flags, undefined),
         Amount = proplists:get_value(amount, Flags, 1),
         Fee = proplists:get_value(fee, Flags, 1),
         Nonce = proplists:get_value(nonce, Flags, 1),
