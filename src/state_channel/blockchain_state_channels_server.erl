@@ -389,7 +389,12 @@ load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
             end,
 
     lager:info("ConvertedSCs: ~p, DBSCs: ~p", [ConvertedSCs, DBSCs]),
-    SCs = maps:merge(ConvertedSCs, DBSCs),
+    %% Merge DBSCs with ConvertedSCs with only matching IDs
+    SCs = maps:merge(ConvertedSCs, maps:with(maps:keys(ConvertedSCs), DBSCs)),
+    %% These don't exist in the ledger but we have them in the sc db
+    ClosedSCIDs = maps:keys(maps:without(maps:keys(ConvertedSCs), DBSCs)),
+    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, CID) end, ClosedSCIDs),
+
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("SCs: ~p, NewActiveSCID: ~p", [SCs, NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
