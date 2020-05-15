@@ -33,15 +33,17 @@
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
 
-server(Connection, Path, _TID, Args) ->
-    libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
+server(Connection, _Path, _TID, Args) ->
+    %% NOTE: server/4 in the handler is never called.
+    %% When spawning a server its handled only in libp2p_framed_stream
+    libp2p_framed_stream:server(?MODULE, Connection, [_Path | Args]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(client, _Conn, [Parent, TxnHash]) ->
     {ok, #state{parent=Parent, txn_hash=TxnHash}};
-init(server, _Conn, [_Path, _Parent, Callback]) ->
+init(server, _Conn, [_Path, _Parent, Callback] = _Args) ->
     {ok, #state{callback = Callback}}.
 
 handle_data(client, <<"ok">>, State=#state{parent=Parent, txn_hash=TxnHash}) ->

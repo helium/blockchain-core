@@ -117,7 +117,7 @@ gossip_test(Config) ->
     GossipGroup = ct_rpc:call(FirstNode, libp2p_swarm, gossip_group, [Swarm]),
     GossipData = ct_rpc:call(FirstNode, blockchain_gossip_handler, gossip_data, [Swarm, Block]),
 
-    ct_rpc:call(FirstNode, libp2p_group_gossip, send, [GossipGroup, ?GOSSIP_PROTOCOL, GossipData]),
+    ct_rpc:call(FirstNode, libp2p_group_gossip, send, [GossipGroup, ?GOSSIP_PROTOCOL_V1, GossipData]),
 
     ok = lists:foreach(fun(Node) ->
         ok = blockchain_ct_utils:wait_until(fun() ->
