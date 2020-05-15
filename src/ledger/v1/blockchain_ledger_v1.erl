@@ -1,4 +1,4 @@
-%%%-------------------------------------------------------------------
+
 %% @doc
 %% == Blockchain Ledger ==
 %% @end
@@ -95,6 +95,8 @@
     raw_fingerprint/2, %% does not use cache
     cf_fold/4,
 
+    add_oracle_price/3,
+
     apply_raw_changes/2,
 
     set_hexes/2, get_hexes/1,
@@ -178,6 +180,7 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
+-define(ORACLE_PRICE, <<"oracle_price">>).
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
 
@@ -1976,6 +1979,11 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
                       end,
             {ok, <<NewBase:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>}
     end.
+
+-spec add_oracle_price(libp2p_crypto:pubkey_bin(), non_neg_integer(), ledger()) -> ok.
+add_oracle_price(PubKey, Price, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, {?ORACLE_PRICE, PubKey}, <<Price:64/integer-unsigned-big>>).
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),

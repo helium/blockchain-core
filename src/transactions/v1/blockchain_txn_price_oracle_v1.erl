@@ -11,7 +11,11 @@
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
 
--define(MAX_HEIGHT_DIFF, 10).
+%% Controls how old the price is allowed to be.
+%%
+%% If the current block height differs from the recorded block height
+%% in the message, reject the price.
+-define(MAX_HEIGHT_DIFF, 20).
 
 -export([
     new/3,
@@ -126,14 +130,12 @@ is_valid(Txn, Chain) ->
                                           {member, ?price_oracle_public_keys}}, % XXX: Implement
                                          {{price, Price}, {integer, 1, 100}}]) of
         ok ->
-            %% maybe these tests should be reversed...
-            %% or maybe we should fold over a list of closures...
             case libp2p_crypto:verify(EncodedTxn, Signature, OraclePK) of
                 false ->
                     {error, bad_signature};
                 true ->
                     case validate_block_height(BlockHeight,
-                                               blockchain_ledger:blockheight(Ledger)) of
+                                               blockchain_ledger_v1:current_height(Ledger)) of
                         false ->
                             {error, bad_block_height};
                         true ->
@@ -150,10 +152,19 @@ is_valid(Txn, Chain) ->
 %%--------------------------------------------------------------------
 -spec absorb(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
-    _Ledger = blockchain:ledger(Chain),
-    _Fee = ?MODULE:fee(Txn),
-    %% TODO: Implement
-    ok.
+    Ledger = blockchain:ledger(Chain),
+    Price = ?MODULE:price(Txn),
+    OraclePK = ?MODULE:oracle_public_key(Txn),
+
+    blockchain_ledger_v1:add_oracle_price(OraclePK, Price, Ledger),
+
+    %% potentially recalculate price
+    Ht = blockchain_ledget_v1:current_height(Ledger),
+    case blockchain:get_block(Ht) of
+        {ok, Block} -> recalc_price(Block, Chain);
+        Other -> Other
+    end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -174,6 +185,35 @@ validate_block_height(MsgHeight, Current) when (Current - MsgHeight) < ?MAX_HEIG
     true;
 validate_block_height(_MsgHeight, _Current) -> false.
 
+recalc_price(Start, Chain) ->
+    CurrentTime = erlang:system_time(seconds),
+    HrAgo = CurrentTime - 3600,
+    DayAgo = CurrentTime - 86400,
+
+    EligibleBlocks = blockchain:fold_chain(fun(Block, Acc) ->
+                                                   BlockT = blockchain_block:time(Block),
+                                                   if
+                                                       BlockT > HrAgo andalso BlockT < DayAgo -> [ Block | Acc ];
+                                                       BlockT > DayAgo -> return;
+                                                       true -> Acc
+                                                   end
+                                           end, [], Start, Chain),
+
+    median(lists:sort(lists:flatten(
+                 [ [ lists:foldl(fun(T, A) ->
+                          %% isolate price oracle txns
+                                         case blockchain_txn:type(T) of
+                                             price_oracle -> [ price(T) | A ];
+                                             _ -> A
+                                         end
+                  end,
+                  [], Ts) || Ts <- blockchain_block:transactions(Block) ] || Block <- EligibleBlocks ]))).
+
+
+median(L) ->
+    Middle = length(L) div 2,
+    lists:nth(Middle, L).
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -181,18 +221,18 @@ validate_block_height(_MsgHeight, _Current) -> false.
 
 new_test() ->
     Tx = #blockchain_txn_price_oracle_v1_pb{
-        oracle_public_key = <<"pk">>,
+        oracle_public_key = <<"oracle">>,
         price = 1,
         block_height = 2
     },
-    ?assertEqual(Tx, new(<<"pk">>, 1, 2)).
+    ?assertEqual(Tx, new(<<"oracle">>, 1, 2)).
 
 oracle_public_key_test() ->
-    Tx = new(<<"pk">>, 1, 2),
-    ?assertEqual(<<"pk">>, oracle_public_key(Tx)).
+    Tx = new(<<"oracle">>, 1, 2),
+    ?assertEqual(<<"oracle">>, oracle_public_key(Tx)).
 
 price_test() ->
-    Tx = new(<<"pk">>, 1, 2),
+    Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(1, price(Tx)).
 
 -endif.

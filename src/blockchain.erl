@@ -1049,7 +1049,10 @@ build_hash_chain_(StopHash, CF, Blockchain = #blockchain{db=DB}, [ParentHash|Tai
             end
     end.
 
-
+-spec fold_chain(fun((Blk :: blockchain_block:block(), AccIn :: any()) -> NewAcc :: any()),
+                     Acc0 :: any(),
+                    Block :: blockchain_block:block(),
+                    Chain :: blockchain()) -> AccOut :: any().
 %% @doc fold blocks in the chain `Chain' backwards from `Block' until a hole in the chain, the genesis block or the function returns `return'.
 fold_chain(Fun, Acc0, Block, Chain) ->
     case Fun(Block, Acc0) of
