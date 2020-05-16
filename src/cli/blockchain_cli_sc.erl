@@ -40,7 +40,7 @@ register_all_cmds() ->
 sc_usage() ->
     [["sc"],
      ["blockchain state channel commands\n\n",
-      "  sc active             - Show currently active state channel id.\n"
+      "  sc active             - Show currently active state channel id (base64).\n"
       "  sc list               - Show list of currently active state channels.\n"
      ]
     ].
@@ -61,7 +61,7 @@ sc_active_cmd() ->
 sc_active_usage() ->
     [["sc", "active"],
      ["sc active\n\n",
-      "  Show currently active state channel id.\n"
+      "  Show currently active state channel id (base64).\n"
      ]
     ].
 
@@ -73,7 +73,7 @@ sc_active(["sc", "active"], [], []) ->
             [clique_status:text("none")];
         BinActiveID ->
             R = format_active_id(BinActiveID),
-            [clique_status:text(R)]
+            [clique_status:text(io_lib:format("~p", [R]))]
     end;
 sc_active([], [], []) ->
     usage.
