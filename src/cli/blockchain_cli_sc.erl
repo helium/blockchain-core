@@ -79,7 +79,7 @@ sc_active([], [], []) ->
     usage.
 
 format_active_id(BinActiveID) ->
-    base64:encode(BinActiveID).
+    binary_to_list(base64:encode(BinActiveID)).
 
 %%--------------------------------------------------------------------
 %% sc list
@@ -114,18 +114,19 @@ format_sc_list(SCs) ->
                       ID = base64:encode(SCID),
                       {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
                       SCNonce = blockchain_state_channel_v1:nonce(SC),
-                      RootHash = base64:encode(blockchain_state_channel_v1:root_hash(SC)),
+                      RootHash = binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
+                      State = atom_to_list(blockchain_state_channel_v1:state(SC)),
                       Summaries = format_sc_summaries(blockchain_state_channel_v1:summaries(SC)),
                       ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
                       [
-                       [{sc_id, io_lib:format("~p", [ID])},
-                        {sc_owner, io_lib:format("~p", [SCOwnerName])},
-                        {sc_nonce, io_lib:format("~p", [SCNonce])},
-                        {sc_root_hash, io_lib:format("~p", [RootHash])},
-                        {sc_expire_at, io_lib:format("~p", [ExpireAtBlock])},
-                        {sc_summaries, io_lib:format("~p", [Summaries])}
-                       ]
-                       | Acc]
+                       [{id, io_lib:format("~p", [ID])},
+                        {owner, io_lib:format("~p", [SCOwnerName])},
+                        {nonce, io_lib:format("~p", [SCNonce])},
+                        {state, io_lib:format("~p", [State])},
+                        {root_hash, io_lib:format("~p", [RootHash])},
+                        {expire_at, io_lib:format("~p", [ExpireAtBlock])},
+                        {summaries, io_lib:format("~p", [Summaries])}
+                       ] | Acc]
               end, [], SCs).
 
 format_sc_summaries(Summaries) ->
@@ -133,7 +134,7 @@ format_sc_summaries(Summaries) ->
                         {ok, ClientName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_summary_v1:client_pubkeybin(Summary))),
                         NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
                         NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-                        [ {client, io_lib:format("~p", [ClientName])},
+                        [ {receiver, io_lib:format("~p", [ClientName])},
                           {num_dcs, io_lib:format("~p", [NumDCs])},
                           {num_packets, io_lib:format("~p", [NumPackets])}
                           | Acc]
