@@ -156,7 +156,7 @@ handle_cast({packet, SCPacket},
 
     %% Save state channel to db
     ok = blockchain_state_channel_v1:save(DB, NewSC),
-    ok = save_state_channels(DB, ActiveSCID),
+    ok = store_active_sc_id(DB, ActiveSCID),
 
     %% Put new state_channel in our map
     lager:info("packet: ~p successfully validated, updating state",
@@ -262,14 +262,15 @@ update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=Active
                             undefined;
                         ID ->
                             %% Our active state channel got closed,
-                            %% Delete it from our database
                             ExcludedActiveSCs = maps:without([ID], SCs),
-                            ok = delete_closed_sc(DB, ID),
                             maybe_get_new_active(ExcludedActiveSCs);
                         A ->
                             %% Some other sc was active, let it remain active
                             A
                     end,
+
+    %% Delete closed state channel from sc database
+    ok = delete_closed_sc(DB, ID),
 
     State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID}.
 
@@ -389,10 +390,13 @@ load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
             end,
 
     lager:info("ConvertedSCs: ~p, DBSCs: ~p", [ConvertedSCs, DBSCs]),
+    ConvertedSCKeys = maps:keys(ConvertedSCs),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
-    SCs = maps:merge(ConvertedSCs, maps:with(maps:keys(ConvertedSCs), DBSCs)),
-    %% These don't exist in the ledger but we have them in the sc db
-    ClosedSCIDs = maps:keys(maps:without(maps:keys(ConvertedSCs), DBSCs)),
+    SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
+    %% These don't exist in the ledger but we have them in the sc db,
+    %% presumably these have been closed
+    ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
+    %% Delete these from sc db
     ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
@@ -413,9 +417,9 @@ get_state_channels(DB) ->
             Error
     end.
 
--spec save_state_channels(DB :: rocksdb:db_handle(),
-                          ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
-save_state_channels(DB, ID) ->
+-spec store_active_sc_id(DB :: rocksdb:db_handle(),
+                         ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
+store_active_sc_id(DB, ID) ->
     case get_state_channels(DB) of
         {error, _}=Error ->
             Error;
@@ -429,11 +433,12 @@ save_state_channels(DB, ID) ->
     end.
 
 -spec delete_closed_sc(DB :: rocksdb:db_handle(),
-                       ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
+                       ID :: blockchain_state_channel_v1:id()) -> ok.
 delete_closed_sc(DB, ID) ->
     case get_state_channels(DB) of
-        {error, _}=E ->
-            E;
+        {error, _} ->
+            %% Can't delete anything
+            ok;
         {ok, SCIDs} ->
             case lists:member(ID, SCIDs) of
                 false ->
