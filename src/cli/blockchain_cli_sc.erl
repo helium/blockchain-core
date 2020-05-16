@@ -112,14 +112,14 @@ sc_list([], [], []) ->
 format_sc_list(SCs) ->
     maps:fold(fun(SCID, SC, Acc) ->
                       ID = base64:encode(SCID),
-                      SCOwner = libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC)),
+                      {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
                       SCNonce = blockchain_state_channel_v1:nonce(SC),
                       RootHash = base64:encode(blockchain_state_channel_v1:root_hash(SC)),
                       Summaries = format_sc_summaries(blockchain_state_channel_v1:summaries(SC)),
                       ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
                       [
                        [{sc_id, io_lib:format("~p", [ID])},
-                        {sc_owner, io_lib:format("~p", [SCOwner])},
+                        {sc_owner, io_lib:format("~p", [SCOwnerName])},
                         {sc_nonce, io_lib:format("~p", [SCNonce])},
                         {sc_root_hash, io_lib:format("~p", [RootHash])},
                         {sc_expire_at, io_lib:format("~p", [ExpireAtBlock])},
@@ -130,10 +130,10 @@ format_sc_list(SCs) ->
 
 format_sc_summaries(Summaries) ->
     lists:foldl(fun(Summary, Acc) ->
-                        Client = libp2p_crypto:bin_to_b58(blockchain_state_channel_summary_v1:client_pubkeybin(Summary)),
+                        {ok, ClientName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_summary_v1:client_pubkeybin(Summary))),
                         NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
                         NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-                        [ {client, io_lib:format("~p", [Client])},
+                        [ {client, io_lib:format("~p", [ClientName])},
                           {num_dcs, io_lib:format("~p", [NumDCs])},
                           {num_packets, io_lib:format("~p", [NumPackets])}
                           | Acc]
