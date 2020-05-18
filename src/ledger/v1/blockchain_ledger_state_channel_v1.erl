@@ -80,7 +80,7 @@ nonce(Nonce, SC) ->
 %%--------------------------------------------------------------------
 -spec serialize(state_channel()) -> binary().
 serialize(SC) ->
-    BinSC = erlang:term_to_binary(SC),
+    BinSC = erlang:term_to_binary(SC, [compressed]),
     <<1, BinSC/binary>>.
 
 %%--------------------------------------------------------------------

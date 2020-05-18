@@ -76,7 +76,7 @@ balance(Balance, Entry) ->
 %%--------------------------------------------------------------------
 -spec serialize(entry()) -> binary().
 serialize(Entry) ->
-    BinEntry = erlang:term_to_binary(Entry),
+    BinEntry = erlang:term_to_binary(Entry, [compressed]),
     <<1, BinEntry/binary>>.
 
 %%--------------------------------------------------------------------

@@ -156,7 +156,7 @@ timelock(Timelock, HTLC) ->
 %%--------------------------------------------------------------------
 -spec serialize(htlc()) -> binary().
 serialize(HTLC) ->
-    BinHTLC = erlang:term_to_binary(HTLC),
+    BinHTLC = erlang:term_to_binary(HTLC, [compressed]),
     <<1, BinHTLC/binary>>.
 
 %%--------------------------------------------------------------------
