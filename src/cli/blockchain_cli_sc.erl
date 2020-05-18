@@ -111,7 +111,7 @@ sc_list([], [], []) ->
 
 format_sc_list(SCs) ->
     maps:fold(fun(SCID, SC, Acc) ->
-                      ID = base64:encode(SCID),
+                      ID = binary_to_list(base64:encode(SCID)),
                       {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
                       SCNonce = blockchain_state_channel_v1:nonce(SC),
                       RootHash = binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
