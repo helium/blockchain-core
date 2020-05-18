@@ -1040,7 +1040,8 @@ update_gateway_oui(Gateway, OUI, Ledger) ->
         {error, _}=Error ->
             Error;
         {ok, Gw} ->
-            NewGw = blockchain_ledger_gateway_v2:oui(OUI, Gw),
+            NewGw0 = blockchain_ledger_gateway_v2:oui(OUI, Gw),
+            NewGw = blockchain_ledger_gateway_v2:nonce(0, NewGw0),
             Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, Gateway, Bin)
