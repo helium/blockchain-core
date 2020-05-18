@@ -136,9 +136,9 @@ format_sc_summaries(Summaries) ->
                         {ok, ClientName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_summary_v1:client_pubkeybin(Summary))),
                         NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
                         NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-                        [ {receiver, io_lib:format("~p", [ClientName])},
-                          {num_dcs, io_lib:format("~p", [NumDCs])},
-                          {num_packets, io_lib:format("~p", [NumPackets])}
+                        [ {receiver, ClientName},
+                          {num_dcs, NumDCs},
+                          {num_packets, NumPackets}
                           | Acc]
                 end,
                 [], Summaries).
