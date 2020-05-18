@@ -1310,7 +1310,8 @@ fp_to_cf(<<"entries_fingerprint">>) -> entries;
 fp_to_cf(<<"dc_entries_fingerprint">>) -> dc_entries;
 fp_to_cf(<<"securities_fingerprint">>) -> securities;
 fp_to_cf(<<"htlc_fingerprint">>) -> htlcs;
-fp_to_cf(<<"routings_fingerprint">>) -> routing.
+fp_to_cf(<<"routings_fingerprint">>) -> routing;
+fp_to_cf(<<"state_channels_fingerprint">>) -> state_channels.
 
 repair(#blockchain{db=DB, default=DefaultCF} = Blockchain) ->
     case crosscheck(Blockchain) of
