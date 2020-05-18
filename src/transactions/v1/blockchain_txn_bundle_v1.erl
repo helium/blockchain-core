@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
 
@@ -20,7 +23,8 @@
     fee/1,
     txns/1,
     is_valid/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -type txn_bundle() :: #blockchain_txn_bundle_v1_pb{}.
@@ -92,6 +96,14 @@ print(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
                                            [blockchain_txn:print(T) || T <- Txns]
                                           ]).
 
+-spec to_json(txn_bundle(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, Opts) ->
+    #{
+      type => <<"bundle_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      fee => fee(Txn),
+      txns => [blockchain_txn:to_json(T, Opts) || T <- txns(Txn)]
+     }.
 
 -spec max_bundle_size(blockchain:blockchain()) -> pos_integer().
 max_bundle_size(Chain) ->

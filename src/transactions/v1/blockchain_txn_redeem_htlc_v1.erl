@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
@@ -21,7 +24,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -219,6 +223,17 @@ print(#blockchain_txn_redeem_htlc_v1_pb{payee=Payee, address=Address,
     io_lib:format("type=redeem_htlc payee=~p, address=~p, preimage=~p, fee=~p, signature=~p",
                   [?TO_B58(Payee), Address, PreImage, Fee, Sig]).
 
+-spec to_json(txn_redeem_htlc(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"redeem_htlc_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      payee => ?BIN_TO_B58(payee(Txn)),
+      address => ?BIN_TO_B58(address(Txn)),
+      preimage => ?BIN_TO_B64(preimage(Txn)),
+      fee => fee(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -249,5 +264,12 @@ preimage_test() ->
 fee_test() ->
     Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
     ?assertEqual(1, fee(Tx)).
+
+to_json_test() ->
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, payee, address, preimage, fee])).
+
 
 -endif.

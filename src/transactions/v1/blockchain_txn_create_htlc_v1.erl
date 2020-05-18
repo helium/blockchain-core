@@ -10,6 +10,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
@@ -29,7 +32,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -274,6 +278,22 @@ print(#blockchain_txn_create_htlc_v1_pb{
     io_lib:format("type=create_htlc payer=~p payee=~p, address=~p, hashlock=~p, timelock=~p, amount=~p, fee=~p, signature=~p",
                   [?TO_B58(Payer), ?TO_B58(Payee), Address, Hashlock, Timelock, Amount, Fee, Sig]).
 
+-spec to_json(txn_create_htlc(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"create_htlc_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      payer => ?BIN_TO_B58(payer(Txn)),
+      payee => ?BIN_TO_B58(payee(Txn)),
+      address => ?BIN_TO_B58(address(Txn)),
+      hashlock => ?BIN_TO_B64(hashlock(Txn)),
+      timelock => timelock(Txn),
+      amount => amount(Txn),
+      fee => fee(Txn),
+      nonce => nonce(Txn)
+     }.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -333,5 +353,11 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_create_htlc_v1_pb:encode_msg(Tx1#blockchain_txn_create_htlc_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+
+to_json_test() ->
+    Tx = new(<<"payer">>, <<"payee">>, <<"address">>, <<"c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2">>, 0, 666, 1, 1),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, payer, payee, address, hashlock, timelock, amount, fee, nonce])).
 
 -endif.

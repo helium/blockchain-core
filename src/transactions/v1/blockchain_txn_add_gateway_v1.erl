@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
@@ -30,7 +33,8 @@
     is_valid/2,
     absorb/2,
     calculate_staking_fee/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -254,7 +258,7 @@ is_valid(Txn, Chain) ->
                             ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
                             case ExpectedStakingFee == StakingFee of
                                 false ->
-                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}}; 
+                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
                                 true ->
                                     Payer = ?MODULE:payer(Txn),
                                     Owner = ?MODULE:owner(Txn),
@@ -316,6 +320,18 @@ print(#blockchain_txn_add_gateway_v1_pb{
     io_lib:format("type=add_gateway, owner=~p, gateway=~p, payer=~p, staking_fee=~p, fee=~p",
                   [?TO_B58(O), ?TO_ANIMAL_NAME(GW), ?TO_B58(P), SF, F]).
 
+
+-spec to_json(txn_add_gateway(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"add_gateway_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      gateway => ?BIN_TO_B58(gateway(Txn)),
+      owner => ?BIN_TO_B58(owner(Txn)),
+      payer => ?MAYBE_B58(payer(Txn)),
+      staking_fee => staking_fee(Txn),
+      fee => fee(Txn)
+     }.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -429,5 +445,12 @@ sign_payer_test() ->
     Sig2 = payer_signature(Tx2),
     BaseTx1 = Tx3#blockchain_txn_add_gateway_v1_pb{gateway_signature = <<>>, owner_signature = <<>>, payer_signature= <<>>},
     ?assert(libp2p_crypto:verify(blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTx1), Sig2, PubKey)).
+
+to_json_test() ->
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, gateway, owner, payer, fee, staking_fee])).
+
 
 -endif.

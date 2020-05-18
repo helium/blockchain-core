@@ -5,12 +5,16 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channel_summary_v1).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -export([
     new/1, new/3,
     client_pubkeybin/1,
     num_dcs/1, num_dcs/2,
     num_packets/1, num_packets/2,
-    update/3, validate/1
+    update/3, validate/1,
+    to_json/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -86,6 +90,15 @@ validate(Summary) ->
             {error, invalid_address_in_summary}
     end.
 
+
+-spec to_json(summary(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Summary, _Opts) ->
+    #{
+       client => ?BIN_TO_B58(client_pubkeybin(Summary)),
+       num_dcs => num_dcs(Summary),
+       num_packets => num_packets(Summary)
+     }.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -146,5 +159,13 @@ update_test() ->
     ?assertEqual(ClientPubkeyBin, client_pubkeybin(UpdatedSummary)),
     ?assertEqual(20, num_dcs(UpdatedSummary)),
     ?assertEqual(20, num_packets(UpdatedSummary)).
+
+to_json_test() ->
+    ClientPubkeyBin = <<"client">>,
+    Summary = new(ClientPubkeyBin, 10, 10),
+    Json = to_json(Summary, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [client, num_dcs, num_packets])).
+
 
 -endif.

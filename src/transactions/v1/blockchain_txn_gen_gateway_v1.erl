@@ -6,6 +6,8 @@
 -module(blockchain_txn_gen_gateway_v1).
 
 -behavior(blockchain_txn).
+-behaviot(blockchain_json).
+-include("blockchain_json.hrl").
 
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_gen_gateway_v1_pb.hrl").
@@ -21,7 +23,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -154,6 +157,19 @@ print(#blockchain_txn_gen_gateway_v1_pb{
     io_lib:format("type=genesis_gateway gateway=~p, owner=~p, location=~p, nonce=~p",
                   [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), L, Nonce]).
 
+
+-spec to_json(txn_genesis_gateway(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"gen_gateway_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      gateway => ?BIN_TO_B58(gateway(Txn)),
+      owner => ?BIN_TO_B58(owner(Txn)),
+      location => ?MAYBE_H3(location(Txn)),
+      nonce => nonce(Txn)
+     }.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -183,5 +199,12 @@ location_test() ->
 nonce_test() ->
     Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
     ?assertEqual(10, nonce(Tx)).
+
+json_test() ->
+    Tx = new(<<"0">>, <<"1">>, ?TEST_LOCATION, 10),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, gateway, owner, location, nonce])).
+
 
 -endif.

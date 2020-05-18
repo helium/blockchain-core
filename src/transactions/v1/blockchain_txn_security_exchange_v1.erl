@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_security_exchange_v1_pb.hrl").
 
@@ -22,7 +25,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -60,6 +64,18 @@ print(#blockchain_txn_security_exchange_v1_pb{payer=Payer, payee=Recipient,
     io_lib:format("type=security_exchange payer=~p payee=~p amount=~p fee=~p nonce=~p signature=~p",
                   [?TO_B58(Payer), ?TO_B58(Recipient), Amount, Fee, Nonce, Sig]).
 
+
+-spec to_json(txn_security_exchange(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"security_exchange_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      payer => ?BIN_TO_B58(payer(Txn)),
+      payee => ?BIN_TO_B58(payee(Txn)),
+      amount => amount(Txn),
+      fee => fee(Txn),
+      nonce => nonce(Txn)
+     }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -238,5 +254,11 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_security_exchange_v1_pb:encode_msg(Tx1#blockchain_txn_security_exchange_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+
+to_json_test() ->
+    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, payer, payee, amount, fee, nonce])).
 
 -endif.

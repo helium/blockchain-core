@@ -35,6 +35,8 @@
 
 -include_lib("helium_proto/include/blockchain_block_pb.hrl").
 
+-behavior(blockchain_json).
+
 -export([new_genesis_block/1, new_genesis_block/2,
          prev_hash/1,
          hash_block/1,
@@ -48,7 +50,8 @@
          transactions/1,
          serialize/1,
          deserialize/1,
-         is_rescue_block/1
+         is_rescue_block/1,
+         to_json/2
         ]).
 
 new_genesis_block(Transactions) ->
@@ -131,6 +134,10 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, Key) ->
 -spec transactions(block()) -> blockchain_txn:txns().
 transactions(Block) ->
     (type(Block)):transactions(Block).
+
+-spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Block, Opts) ->
+    (type(Block)):to_json(Block, Opts).
 
 -spec type(block()) -> atom().
 type(#blockchain_block_v1_pb{}) ->

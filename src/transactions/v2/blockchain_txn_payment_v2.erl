@@ -10,6 +10,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
@@ -28,7 +31,8 @@
          sign/2,
          is_valid/2,
          absorb/2,
-         print/1
+         print/1,
+         to_json/2
         ]).
 
 -ifdef(TEST).
@@ -152,6 +156,15 @@ print_payments(Payments) ->
                           end,
                           Payments), "\n\t").
 
+-spec to_json(txn_payment_v2(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"payment_v2">>,
+      payer => ?BIN_TO_B58(payer(Txn)),
+      payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],
+      fee => fee(Txn),
+      nonce => nonce(Txn)
+     }.
 
 %% ------------------------------------------------------------------
 %% Internal Functions
@@ -325,5 +338,21 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_payment_v2_pb:encode_msg(Tx1#blockchain_txn_payment_v2_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+
+to_json_test() ->
+    Payments = [blockchain_payment_v2:new(<<"x">>, 10),
+                blockchain_payment_v2:new(<<"y">>, 20),
+                blockchain_payment_v2:new(<<"z">>, 30)],
+    Tx = #blockchain_txn_payment_v2_pb{
+            payer= <<"payer">>,
+            payments=Payments,
+            fee=10,
+            nonce=1,
+            signature = <<>>
+           },
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, payer, payments, fee, nonce])).
+
 
 -endif.

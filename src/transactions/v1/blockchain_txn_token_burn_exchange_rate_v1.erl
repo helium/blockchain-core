@@ -8,6 +8,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_token_burn_exchange_rate_v1_pb.hrl").
 
 -export([
@@ -18,7 +21,8 @@
     is_valid/2,
     absorb/2,
     sign/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -104,6 +108,14 @@ print(undefined) -> <<"type=burn_exchange_rate undefined">>;
 print(#blockchain_txn_token_burn_exchange_rate_v1_pb{rate=Amount}) ->
     io_lib:format("type=burn_exchange_rate rate=~p", [Amount]).
 
+-spec to_json(txn_token_burn_exchange_rate(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"token_burn_exchange_rate_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      rate => rate(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -116,5 +128,11 @@ new_test() ->
 rate_test() ->
     Tx = new(666),
     ?assertEqual(666, rate(Tx)).
+
+to_json_test() ->
+    Tx = new(666),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, rate])).
 
 -endif.

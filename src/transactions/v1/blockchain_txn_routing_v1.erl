@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
@@ -26,7 +29,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -288,6 +292,34 @@ print(#blockchain_txn_routing_v1_pb{oui=OUI, owner=Owner,
     io_lib:format("type=routing oui=~p owner=~p update=~p fee=~p nonce=~p signature=~p",
                   [OUI, ?TO_B58(Owner), Update, Fee, Nonce, Sig]).
 
+
+-spec action_to_json(action(), blockchain_json:opts()) -> blockcahin_json:json_object().
+action_to_json({update_routers, RouterAddresses}, _Opts) ->
+    #{action => <<"update_routers">>,
+      addresses =>[?BIN_TO_B58(A) || A <- RouterAddresses]};
+action_to_json({new_xor, Filter}, _Opts) ->
+    #{action => <<"new_xor">>,
+      filter => ?BIN_TO_B64(Filter)};
+action_to_json({update_xor, Index, Filter}, _Opts) ->
+    #{action => <<"update_xor">>,
+      index => Index,
+      filter => ?BIN_TO_B64(Filter)};
+action_to_json({request_subnet, SubnetSize}, _Opts) ->
+    #{action => <<"request_subnet">>,
+      subnet_size => SubnetSize}.
+
+-spec to_json(txn_routing(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"routing_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      oui => oui(Txn),
+      owner => ?BIN_TO_B58(owner(Txn)),
+      fee => fee(Txn),
+      action => action_to_json(action(Txn), []),
+      nonce => nonce(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -463,5 +495,11 @@ validate_addresses_test() ->
     ?assertNot(validate_addresses([?KEY1, <<"http://test.com">>])),
     ?assertNot(validate_addresses([?KEY1, ?KEY2, <<"http://test.com">>])),
     ok.
+
+to_json_test() ->
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2],  1, 0),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, oui, owner, fee, action, nonce])).
 
 -endif.

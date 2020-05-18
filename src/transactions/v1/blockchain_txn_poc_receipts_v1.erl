@@ -6,6 +6,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
@@ -27,6 +30,7 @@
     deltas/1, deltas/2,
     check_path_continuation/1,
     print/1,
+    to_json/2,
     hex_poc_id/1,
     good_quality_witnesses/2
 ]).
@@ -838,6 +842,18 @@ print_path(Path) ->
                           end,
                           Path), "\n\t").
 
+-spec to_json(txn_poc_receipts(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"poc_receipts_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      secret => ?BIN_TO_B64(secret(Txn)),
+      onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
+      path => [blockchain_poc_path_element_v1:to_json(E, []) || E <- path(Txn)],
+      fee => fee(Txn),
+      challenger => ?BIN_TO_B58(challenger(Txn))
+     }.
+
 
 check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
     %% all the witnesses should have the right LayerHash
@@ -1040,5 +1056,31 @@ duplicate_delta_test() ->
     {SecondAlphas, _} = lists:unzip(SecondDeltas),
     ?assert(lists:sum(SecondAlphas) > 1),
     ok.
+
+to_json_test() ->
+    Txn = {blockchain_txn_poc_receipts_v1_pb,<<"a">>,<<"b">>,<<"c">>,
+           [{blockchain_poc_path_element_v1_pb,<<"first">>,
+             {blockchain_poc_receipt_v1_pb,<<"d">>,
+              123,0,<<"e">>,p2p,
+              <<"f">>},
+             [{blockchain_poc_witness_v1_pb,<<"g">>,
+               456,-100,
+               <<"h">>,
+               <<"i">>},
+              {blockchain_poc_witness_v1_pb,<<"j">>,
+               789,-114,
+               <<"k">>,
+               <<"l">>}]},
+            {blockchain_poc_path_element_v1_pb,<<"second">>, undefined,[]},
+            {blockchain_poc_path_element_v1_pb,<<"m">>, undefined,[]},
+            {blockchain_poc_path_element_v1_pb,<<"n">>, undefined,[]},
+            {blockchain_poc_path_element_v1_pb,<<"i">>, undefined,[]}],
+           0,
+           <<"impala">>},
+    Json = to_json(Txn, []),
+
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, secret, onion_key_hash, path, fee, challenger])).
+
 
 -endif.
