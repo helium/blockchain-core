@@ -118,11 +118,13 @@ format_sc_list(SCs) ->
                       State = atom_to_list(blockchain_state_channel_v1:state(SC)),
                       Summaries = format_sc_summaries(blockchain_state_channel_v1:summaries(SC)),
                       ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
+                      IsActive = is_active(SC),
                       [
                        [{id, io_lib:format("~p", [ID])},
                         {owner, io_lib:format("~p", [SCOwnerName])},
                         {nonce, io_lib:format("~p", [SCNonce])},
                         {state, io_lib:format("~p", [State])},
+                        {is_active, io_lib:format("~p", [IsActive])},
                         {root_hash, io_lib:format("~p", [RootHash])},
                         {expire_at, io_lib:format("~p", [ExpireAtBlock])},
                         {summaries, io_lib:format("~p", [Summaries])}
@@ -140,3 +142,8 @@ format_sc_summaries(Summaries) ->
                           | Acc]
                 end,
                 [], Summaries).
+
+is_active(SC) ->
+    ActiveSCID = blockchain_state_channels_server:active_sc_id(),
+    SCID = blockchain_state_channel_v1:id(SC),
+    ActiveSCID == SCID.
