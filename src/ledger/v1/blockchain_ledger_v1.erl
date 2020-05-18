@@ -1170,7 +1170,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
 
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
-    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)]),
+    BinPoCs = erlang:term_to_binary([PoCBin|lists:map(fun blockchain_ledger_poc_v2:serialize/1, PoCs)], [compressed]),
     PoCsCF = pocs_cf(Ledger),
     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs).
 
@@ -1192,7 +1192,7 @@ delete_poc(OnionKeyHash, Challenger, Ledger) ->
                 [] ->
                     ?MODULE:delete_pocs(OnionKeyHash, Ledger);
                 _ ->
-                    BinPoCs = erlang:term_to_binary(lists:map(fun blockchain_ledger_poc_v2:serialize/1, FilteredPoCs)),
+                    BinPoCs = erlang:term_to_binary(lists:map(fun blockchain_ledger_poc_v2:serialize/1, FilteredPoCs), [compressed]),
                     PoCsCF = pocs_cf(Ledger),
                     cache_put(Ledger, PoCsCF, OnionKeyHash, BinPoCs)
             end
@@ -1261,7 +1261,7 @@ maybe_gc_pocs(Chain) ->
                  ({KeyHash, NewPoCs}) ->
                       BinPoCs = erlang:term_to_binary(
                                   lists:map(fun blockchain_ledger_poc_v2:serialize/1,
-                                            NewPoCs)),
+                                            NewPoCs), [compressed]),
                       cache_put(Ledger, PoCsCF, KeyHash, BinPoCs)
               end,
               Alters),

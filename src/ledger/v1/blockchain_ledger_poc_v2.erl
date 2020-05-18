@@ -124,6 +124,8 @@ block_hash(Challenger, PoC) ->
 %%--------------------------------------------------------------------
 -spec serialize(poc()) -> binary().
 serialize(PoC) ->
+    %% intentionally don't compress here, we compress these in batches
+    %% in the ledger code, which should get better compression anyway
     BinPoC = erlang:term_to_binary(PoC),
     <<2, BinPoC/binary>>.
 

@@ -432,7 +432,7 @@ oui(OUI, Gateway) ->
 serialize(Gw) ->
     Neighbors = neighbors(Gw),
     Gw1 = neighbors(lists:usort(Neighbors), Gw),
-    BinGw = erlang:term_to_binary(Gw1),
+    BinGw = erlang:term_to_binary(Gw1, [compressed]),
     <<2, BinGw/binary>>.
 
 %%--------------------------------------------------------------------
