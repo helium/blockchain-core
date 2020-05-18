@@ -557,10 +557,19 @@ validate_float(Value, Name, Min, Max) ->
             end
     end.
 
-%% TODO: make this actually validate the public key format
-validate_public_key_format(Key) when is_binary(Key) ->
-    ok.
+validate_oracle_public_keys_format(Str) when is_binary(Str) ->
+    PubKeys = blockchain_utils:vars_oracle_keys_to_list(Str),
+    validate_oracle_keys(PubKeys).
 
+validate_oracle_keys([]) -> ok;
+validate_oracle_keys([H|T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(H),
+        validate_oracle_keys(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_oracle_pubkey, H}})
+    end.
 
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
@@ -829,7 +838,7 @@ validate_var(?snapshot_interval, Value) -> % half day to two weeks
     validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
 
 validate_var(?price_oracle_public_keys, Value) ->
-    validate_public_key_format(Value);
+    validate_oracle_public_keys_format(Value);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
