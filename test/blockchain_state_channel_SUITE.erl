@@ -924,6 +924,7 @@ multi_active_sc_test(Config) ->
     Packet2 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload2),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, []]),
     Payload3 = crypto:strong_rand_bytes(120),
+    timer:sleep(timer:seconds(1)),
     Packet3 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload3),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, []]),
 
