@@ -51,7 +51,7 @@
     find_poc/2,
     request_poc/5,
     delete_poc/3, delete_pocs/2,
-    maybe_gc_pocs/1,
+    maybe_gc_pocs/2,
     maybe_gc_scs/1,
 
     find_entry/2,
@@ -1078,46 +1078,40 @@ remove_gateway_witness(GatewayPubkeyBin, Ledger) ->
     end.
 
 -spec refresh_gateway_witnesses(blockchain_block:hash(), ledger()) -> ok | {error, any()}.
-refresh_gateway_witnesses(Hash, Ledger0) ->
-    case ?MODULE:config(?witness_refresh_interval, Ledger0) of
+refresh_gateway_witnesses(Hash, Ledger) ->
+    case ?MODULE:config(?witness_refresh_interval, Ledger) of
         {ok, RefreshInterval} when is_integer(RefreshInterval) ->
-            case ?MODULE:config(?witness_refresh_rand_n, Ledger0) of
+            case ?MODULE:config(?witness_refresh_rand_n, Ledger) of
                 {ok, RandN} when is_integer(RandN) ->
                     %% We need to do all the calculation within this context
                     %% create a new context if we don't already have one
-                    {NewContext, LedgerContext} = case ?MODULE:get_context(Ledger0) of
-                                                      undefined ->
-                                                          {true, blockchain_ledger_v1:new_context(Ledger0)};
-                                                      _ ->
-                                                          {false, Ledger0}
-                                                  end,
+                    case ?MODULE:get_context(Ledger) of
+                        undefined ->
+                            error(refresh_out_of_context);
+                        _ ->
+                            ok
+                    end,
 
-                    case ?MODULE:get_hexes(LedgerContext) of
+                    case ?MODULE:get_hexes(Ledger) of
                         {error, _}=Error ->
                             Error;
                         {ok, HexMap} ->
                             ZoneList = maps:keys(HexMap),
-                            GatewayPubkeyBins = zone_list_to_pubkey_bins(ZoneList, LedgerContext),
+                            GatewayPubkeyBins = zone_list_to_pubkey_bins(ZoneList, Ledger),
                             GatewayOffsets = pubkey_bins_to_offset(GatewayPubkeyBins),
                             GatewaysToRefresh = filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN),
-                            lager:info("Refreshing witnesses for: ~p", [GatewaysToRefresh]),
+                            lager:debug("Refreshing witnesses for: ~p", [GatewaysToRefresh]),
 
                             Res = lists:map(fun({_, GwPubkeyBin}) ->
-                                                    remove_gateway_witness(GwPubkeyBin, LedgerContext)
+                                                    remove_gateway_witness(GwPubkeyBin, Ledger)
                                             end,
                                             GatewaysToRefresh),
 
                             case lists:all(fun(T) -> T == ok end, Res) of
                                 false ->
-                                    lager:error("Witness refresh failed for: ~p", [GatewaysToRefresh]),
+                                    lager:warning("Witness refresh failed for: ~p", [GatewaysToRefresh]),
                                     {error, witness_refresh_failed};
                                 true ->
-                                    case NewContext of
-                                        true ->
-                                            commit_context(LedgerContext);
-                                        false ->
-                                            ok
-                                    end,
                                     ok
                             end
                     end;
@@ -1214,18 +1208,16 @@ delete_pocs(OnionKeyHash, Ledger) ->
     PoCsCF = pocs_cf(Ledger),
     cache_delete(Ledger, PoCsCF, OnionKeyHash).
 
-maybe_gc_pocs(Chain) ->
-    Ledger0 = blockchain:ledger(Chain),
-    {ok, Height} = current_height(Ledger0),
-    Version = case ?MODULE:config(?poc_version, Ledger0) of
+maybe_gc_pocs(Chain, Ledger) ->
+    {ok, Height} = current_height(Ledger),
+    Version = case ?MODULE:config(?poc_version, Ledger) of
                   {ok, V} -> V;
                   _ -> 1
               end,
     case Version > 3 andalso Height rem 100 == 0 of
         true ->
             lager:debug("gcing old pocs"),
-            PoCInterval = blockchain_utils:challenge_interval(Ledger0),
-            Ledger = new_context(Ledger0),
+            PoCInterval = blockchain_utils:challenge_interval(Ledger),
             PoCsCF = pocs_cf(Ledger),
             Alters =
                 cache_fold(
@@ -1276,7 +1268,6 @@ maybe_gc_pocs(Chain) ->
                       cache_put(Ledger, PoCsCF, KeyHash, BinPoCs)
               end,
               Alters),
-            commit_context(Ledger),
             ok;
         _ ->
             ok
@@ -1317,16 +1308,14 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
-maybe_gc_scs(Chain) ->
-    Ledger0 = blockchain:ledger(Chain),
-    {ok, Height} = current_height(Ledger0),
+maybe_gc_scs(Ledger) ->
+    {ok, Height} = current_height(Ledger),
 
-    case ?MODULE:config(?sc_grace_blocks, Ledger0) of
+    case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
             case Height rem 100 == 0 of
                 true ->
                     lager:info("gcing old state_channels..."),
-                    Ledger = new_context(Ledger0),
                     SCsCF = state_channels_cf(Ledger),
                     Alters = cache_fold(
                                Ledger,
@@ -1345,7 +1334,6 @@ maybe_gc_scs(Chain) ->
                                                cache_delete(Ledger, SCsCF, KeyHash)
                                        end,
                                        Alters),
-                    commit_context(Ledger),
                     ok;
                 _ ->
                     ok

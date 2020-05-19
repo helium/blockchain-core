@@ -622,7 +622,10 @@ absorb_delayed_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
             Hash = blockchain_block:hash_block(Block),
-            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, blockchain:ledger(Chain0)),
+            Ledger0 = blockchain:ledger(Chain0),
+            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
+            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok;
         Error ->
             Ledger = blockchain:ledger(Chain0),
