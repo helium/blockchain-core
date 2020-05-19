@@ -1084,7 +1084,13 @@ refresh_gateway_witnesses(Hash, Ledger0) ->
             case ?MODULE:config(?witness_refresh_rand_n, Ledger0) of
                 {ok, RandN} when is_integer(RandN) ->
                     %% We need to do all the calculation within this context
-                    LedgerContext = blockchain_ledger_v1:new_context(Ledger0),
+                    %% create a new context if we don't already have one
+                    {NewContext, LedgerContext} = case ?MODULE:get_context(Ledger0) of
+                                                      undefined ->
+                                                          {true, blockchain_ledger_v1:new_context(Ledger0)};
+                                                      _ ->
+                                                          {false, Ledger0}
+                                                  end,
 
                     case ?MODULE:get_hexes(LedgerContext) of
                         {error, _}=Error ->
@@ -1106,7 +1112,12 @@ refresh_gateway_witnesses(Hash, Ledger0) ->
                                     lager:error("Witness refresh failed for: ~p", [GatewaysToRefresh]),
                                     {error, witness_refresh_failed};
                                 true ->
-                                    commit_context(LedgerContext),
+                                    case NewContext of
+                                        true ->
+                                            commit_context(LedgerContext);
+                                        false ->
+                                            ok
+                                    end,
                                     ok
                             end
                     end;
