@@ -1093,6 +1093,8 @@ refresh_gateway_witnesses(Hash, Ledger) ->
                     end,
 
                     case ?MODULE:get_hexes(Ledger) of
+                        {error, not_found} ->
+                            ok;
                         {error, _}=Error ->
                             Error;
                         {ok, HexMap} ->
