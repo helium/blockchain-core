@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
@@ -30,7 +33,8 @@
     is_valid/2,
     absorb/2,
     calculate_staking_fee/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -236,6 +240,20 @@ print(#blockchain_txn_oui_v1_pb{owner=Owner, addresses=Addresses,
     io_lib:format("type=oui, owner=~p, addresses=~p, payer=~p, staking_fee=~p, fee=~p",
                   [?TO_B58(Owner), [?TO_B58(A) || A <- Addresses], ?TO_B58(Payer), StakingFee, Fee]).
 
+-spec to_json(txn_oui(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"oui_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      owner => ?BIN_TO_B58(owner(Txn)),
+      addresses => [?BIN_TO_B58(Addr) || Addr <- addresses(Txn)],
+      payer => ?BIN_TO_B58(payer(Txn)),
+      staking_fee => staking_fee(Txn),
+      fee => fee(Txn),
+      filter => ?MAYBE_B64(filter(Txn)),
+      requested_subnet_size => requested_subnet_size(Txn)
+     }.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -433,5 +451,11 @@ validate_addresses_test() ->
     ?assertNot(validate_addresses([?KEY1, ?KEY1, <<"http://test.com">>])),
     ok.
 
--endif.
+to_json_test() ->
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size ])).
 
+
+-endif.

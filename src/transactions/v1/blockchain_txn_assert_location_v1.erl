@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
@@ -34,7 +37,8 @@
     is_valid/2,
     absorb/2,
     calculate_staking_fee/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -433,6 +437,20 @@ print(#blockchain_txn_assert_location_v1_pb{
                   [?TO_ANIMAL_NAME(Gateway), ?TO_B58(Owner), ?TO_B58(Payer),
 		   Loc, GS, OS, PS, Nonce, StakingFee, Fee]).
 
+-spec to_json(txn_assert_location(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"assert_location_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      gateway => ?BIN_TO_B58(gateway(Txn)),
+      owner => ?BIN_TO_B58(owner(Txn)),
+      payer => ?MAYBE_B58(payer(Txn)),
+      location => ?MAYBE_H3(location(Txn)),
+      nonce => nonce(Txn),
+      staking_fee => staking_fee(Txn),
+      fee => fee(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -570,5 +588,11 @@ valid_location_test() ->
 invalid_location_test() ->
     Tx = invalid_new(),
     ?assertNot(is_valid_location(Tx, 12)).
+
+to_json_test() ->
+    Tx = new(),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, gateway, owner, payer, location, nonce, staking_fee, fee])).
 
 -endif.

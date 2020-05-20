@@ -50,6 +50,8 @@
 
 -optional_callbacks([rescue_absorb/2, print/2]).
 
+-behavior(blockchain_json).
+
 -export([
     block_delay/0,
     hash/1,
@@ -70,7 +72,8 @@
     unwrap_txn/1,
     is_valid/2,
     validate_fields/1,
-    depends_on/2
+    depends_on/2,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -117,6 +120,10 @@ serialize(Txn) ->
 
 deserialize(Bin) ->
     unwrap_txn(blockchain_txn_pb:decode_msg(Bin, blockchain_txn_pb)).
+
+-spec to_json(txn(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, Opts) ->
+    (type(Txn)):to_json(Txn, Opts).
 
 %% Since the proto file for the transaction union includes the
 %% definitions of the underlying protobufs for each transaction we

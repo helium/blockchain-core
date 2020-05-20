@@ -7,6 +7,9 @@
 
 -behavior(blockchain_block).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -export([
     new/1,
     rescue/1,
@@ -25,7 +28,8 @@
     seen_votes/1,
     bba_completion/1,
     verify_signatures/4, verify_signatures/5,
-    is_rescue_block/1
+    is_rescue_block/1,
+    to_json/2
 ]).
 
 -include("blockchain.hrl").
@@ -311,6 +315,16 @@ is_rescue_block(Block) ->
     Block#blockchain_block_v1_pb.signatures == [] andalso
         Block#blockchain_block_v1_pb.rescue_signature /= <<>>.
 
+-spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Block, _Opts) ->
+    #{
+      height => height(Block),
+      time => time(Block),
+      hash => ?BIN_TO_B64(hash_block(Block)),
+      prev_hash => ?BIN_TO_B64(prev_hash(Block)),
+      transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
+     }.
+
 %%
 %% Internal
 %%
@@ -438,6 +452,19 @@ verify_signature_test() ->
     ?assertMatch(false, verify_signatures(Block1, ConsensusMembers, Signatures, 20)),
     ?assertMatch(false, verify_signatures(Block1, [], Signatures, 7)),
     ok.
+
+
+json_test() ->
+    Loc = h3:from_geo({37.780586, -122.469471}, 13),
+    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1),
+           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1)],
+    Block = new_genesis_block(Txs),
+    Json = to_json(Block, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [height, time, hash, prev_hash, transactions])),
+    ?assertEqual(3, length(maps:get(transactions, Json))).
+
 
 generate_keys(N) ->
     lists:foldl(

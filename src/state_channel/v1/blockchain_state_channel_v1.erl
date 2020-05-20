@@ -5,6 +5,9 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channel_v1).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -export([
     new/2, new/4,
     id/1,
@@ -21,7 +24,9 @@
     add_payload/2,
     skewed/1, skewed/2,
     get_summary/2,
-    num_packets_for/2, num_dcs_for/2
+    num_packets_for/2, num_dcs_for/2,
+
+    to_json/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -247,6 +252,22 @@ add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
             NewRootHash = skewed:root_hash(NewSkewed),
             SC#blockchain_state_channel_v1_pb{skewed=NewSkewed, root_hash=NewRootHash}
     end.
+
+
+-spec to_json(state_channel(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(SC, _Opts) ->
+    #{
+      id => ?BIN_TO_B64(id(SC)),
+      owner => ?BIN_TO_B58(owner(SC)),
+      nonce => nonce(SC),
+      summaries => [blockchain_state_channel_summary_v1:to_json(B, []) || B <- summaries(SC)],
+      root_hash => ?BIN_TO_B64(root_hash(SC)),
+      state => case(state(SC)) of
+                   open -> <<"open">>;
+                   closed -> <<"closed">>
+               end,
+      expire_at_block => expire_at_block(SC)
+     }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

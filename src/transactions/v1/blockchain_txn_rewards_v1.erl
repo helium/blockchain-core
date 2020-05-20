@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v1_pb.hrl").
 
@@ -21,7 +24,8 @@
     is_valid/2,
     absorb/2,
     calculate_rewards/3,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -211,6 +215,16 @@ print(#blockchain_txn_rewards_v1_pb{start_epoch=Start, end_epoch=End,
                                     rewards=Rewards}) ->
     io_lib:format("type=rewards start_epoch=~p end_epoch=~p rewards=~p",
                   [Start, End, Rewards]).
+
+-spec to_json(txn_rewards(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"rewards_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      start_epoch => start_epoch(Txn),
+      end_epoch => end_epoch(Txn),
+      rewards => [blockchain_txn_reward_v1:to_json(R, []) || R <- rewards(Txn)]
+     }.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -1058,6 +1072,13 @@ old_poc_witnesses_rewards_test() ->
     },
     ?assertEqual(Rewards, poc_witnesses_rewards(Txns, EpochVars, Ledger)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+to_json_test() ->
+    Tx = #blockchain_txn_rewards_v1_pb{start_epoch=1, end_epoch=30, rewards=[]},
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, start_epoch, end_epoch, rewards])).
+
 
 common_poc_vars() ->
     #{

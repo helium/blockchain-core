@@ -4,6 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_txn_reward_v1).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_rewards_v1_pb.hrl").
 
@@ -15,7 +18,8 @@
     amount/1,
     type/1,
     is_valid/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -113,6 +117,15 @@ print(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
                   [?TO_B58(Account), ?TO_ANIMAL_NAME(Gateway), Amount, Type]).
 
 
+-spec to_json(reward(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Reward, _Opts) ->
+    #{
+      account => ?BIN_TO_B58(account(Reward)),
+      gateway => ?MAYBE_B58(gateway(Reward)),
+      amount => amount(Reward),
+      type => type(Reward)
+     }.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -143,5 +156,11 @@ amount_test() ->
 type_test() ->
     Reward = new(<<"account">>, <<"gateway">>, 12, poc_challengees),
     ?assertEqual(poc_challengees, type(Reward)).
+
+to_json_test() ->
+    Reward = new(<<"account">>, <<"gateway">>, 12, poc_challengees),
+    Json = to_json(Reward, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [account, gateway, amount, type])).
 
 -endif.

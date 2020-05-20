@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
@@ -25,7 +28,8 @@
     is_valid_oui_owner/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -include("blockchain_utils.hrl").
@@ -198,6 +202,18 @@ print(undefined) -> <<"type=update_gateway_oui, undefined">>;
 print(#blockchain_txn_update_gateway_oui_v1_pb{gateway=GW, oui=OUI, nonce=Nonce, fee=Fee}) ->
     io_lib:format("type=update_gateway_oui, gateway=~p, oui=~p, nonce=~p, fee=~p", [?TO_ANIMAL_NAME(GW), OUI, Nonce, Fee]).
 
+-spec to_json(txn_update_gateway_oui(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"update_gateway_oui_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      gateway => ?BIN_TO_B58(gateway(Txn)),
+      oui => oui(Txn),
+      fee => fee(Txn),
+      nonce => nonce(Txn)
+     }.
+
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -253,5 +269,11 @@ is_valid_oui_owner_test() ->
     Update0 = new(<<"gateway">>, 1, 0, 12),
     Update1 = oui_owner_sign(Update0, SigFun),
     ?assert(is_valid_oui_owner(PubKeyBin, Update1)).
+
+to_json_test() ->
+    Tx = new(<<"gateway">>, 1, 0, 12),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, gateway, oui, fee, nonce])).
 
 -endif.

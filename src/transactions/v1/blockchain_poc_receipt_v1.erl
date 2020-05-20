@@ -4,6 +4,9 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_receipt_v1).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
@@ -17,7 +20,8 @@
     signature/1,
     sign/2,
     is_valid/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -134,6 +138,18 @@ print(#blockchain_poc_receipt_v1_pb{
                    Origin
                   ]).
 
+-spec to_json(poc_receipt() | undefined, blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(undefined, _Opts) ->
+    undefined;
+to_json(Receipt, _Opts) ->
+    #{
+      gateway => ?BIN_TO_B58(gateway(Receipt)),
+      timestamp => timestamp(Receipt),
+      signal => signal(Receipt),
+      data => ?BIN_TO_B64(data(Receipt)),
+      origin => origin(Receipt)
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -191,5 +207,10 @@ encode_decode_test() ->
     Receipt2 = new(<<"gateway">>, 0, 13, <<"data">>, radio),
     ?assertEqual({receipt, Receipt2}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Receipt2))).
 
+to_json_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p),
+    Json = to_json(Receipt, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [gateway, timestamp, data, signal, origin])).
 
 -endif.

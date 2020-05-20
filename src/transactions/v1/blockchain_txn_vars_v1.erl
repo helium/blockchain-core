@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 
@@ -27,7 +30,8 @@
          absorb/2,
          rescue_absorb/2,
          sign/2,
-         print/1
+         print/1,
+         to_json/2
         ]).
 
 %% helper API
@@ -479,6 +483,21 @@ print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
     io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p unsets=~p cancels=~p nonce=~p",
                   [Vars, VersionP, MasterKey, KeyProof, Unsets, Cancels, Nonce]).
 
+-spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"vars_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      vars => decoded_vars(Txn),
+      version_predicate => version_predicate(Txn),
+      proof => ?BIN_TO_B64(proof(Txn)),
+      master_key => ?MAYBE_B58(master_key(Txn)),
+      key_proof => ?BIN_TO_B64(key_proof(Txn)),
+      cancels => cancels(Txn),
+      unsets => unsets(Txn),
+      nonce => nonce(Txn)
+     }.
+
 %%%
 %%% Helper API
 %%%
@@ -839,5 +858,21 @@ legacy_key_test() ->
     Vars2 = decode_vars(Vars1),
     B = term_to_binary(Vars2, [{compressed, 9}]),
     ?assert(verify_key(B, BPub, Proof)).
+
+to_json_test() ->
+    #{secret := _Priv, public := Pub} =
+        libp2p_crypto:generate_keys(ecc_compact),
+    BPub = libp2p_crypto:pubkey_to_bin(Pub),
+    Vars = #{a => 1,
+             b => 2000,
+             c => 2.5,
+             d => <<"have to include a string">>},
+
+    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BPub}),
+    Json = to_json(Txn, []),
+
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])).
+
 
 -endif.

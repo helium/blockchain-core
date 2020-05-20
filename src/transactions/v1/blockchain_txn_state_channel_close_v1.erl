@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
@@ -20,7 +23,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -123,6 +127,15 @@ print(undefined) -> <<"type=state_channel_close, undefined">>;
 print(#blockchain_txn_state_channel_close_v1_pb{state_channel=SC, closer=Closer}) ->
     io_lib:format("type=state_channel_close, state_channel=~p, closer=~p", [SC, ?TO_B58(Closer)]).
 
+-spec to_json(txn_state_channel_close(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"state_channel_close_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      closer => ?BIN_TO_B58(closer(Txn)),
+      state_channel => blockchain_state_channel_v1:to_json(state_channel(Txn), [])
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -161,5 +174,13 @@ sign_test() ->
     Sig1 = signature(Tx1),
     EncodedTx1 = blockchain_txn_state_channel_close_v1_pb:encode_msg(Tx1#blockchain_txn_state_channel_close_v1_pb{signature = <<>>}),
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
+
+to_json_test() ->
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    Tx = new(SC, <<"closer">>),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, closer, state_channel])).
+
 
 -endif.

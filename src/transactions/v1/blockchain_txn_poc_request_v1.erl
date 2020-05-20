@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_poc_request_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
@@ -25,7 +28,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -223,6 +227,20 @@ print(#blockchain_txn_poc_request_v1_pb{challenger=Challenger, secret_hash=Secre
     io_lib:format("type=poc_request challenger=~p, secret_hash=~p, onion_key_hash=~p, block_hash=~p, fee=~p, signature=~p, version=~p",
                   [?TO_ANIMAL_NAME(Challenger), SecretHash, ?TO_B58(OnionKeyHash), BlockHash, Fee, Sig, Version]).
 
+
+-spec to_json(txn_poc_request(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"poc_request_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      challenger => ?BIN_TO_B58(challenger(Txn)),
+      secret_hash => ?BIN_TO_B64(secret_hash(Txn)),
+      onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
+      block_hash => ?BIN_TO_B64(block_hash(Txn)),
+      version => version(Txn),
+      fee => fee(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -273,6 +291,13 @@ sign_test() ->
         Tx1#blockchain_txn_poc_request_v1_pb{signature = <<>>}
     ),
     ?assert(libp2p_crypto:verify(EncodedTx1, signature(Tx1), PubKey)).
+
+
+to_json_test() ->
+    Tx = new(<<"gateway">>, <<"hash">>, <<"onion">>, <<"block">>, 1),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, challenger, secret_hash, onion_key_hash, block_hash, version, fee])).
 
 
 -endif.

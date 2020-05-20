@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_coinbase_v1_pb.hrl").
 
@@ -19,7 +22,8 @@
     is_valid/2,
     absorb/2,
     sign/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -121,6 +125,16 @@ print(#blockchain_txn_coinbase_v1_pb{payee=Payee, amount=Amount}) ->
     io_lib:format("txn_coinbase: payee: ~p, amount: ~p",
                   [?TO_B58(Payee), Amount]).
 
+
+-spec to_json(txn_coinbase(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"coinbase_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      payee => ?BIN_TO_B58(payee(Txn)),
+      amount=> amount(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -137,5 +151,11 @@ payee_test() ->
 amount_test() ->
     Tx = new(<<"payee">>, 666),
     ?assertEqual(666, amount(Tx)).
+
+to_json_test() ->
+    Tx = #blockchain_txn_coinbase_v1_pb{payee= <<"payee">>, amount=666},
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, payee, amount])).
 
 -endif.

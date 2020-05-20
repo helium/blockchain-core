@@ -7,6 +7,9 @@
 
 -behavior(blockchain_txn).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include_lib("helium_proto/include/blockchain_txn_consensus_group_v1_pb.hrl").
 
 -export([
@@ -20,7 +23,8 @@
     fee/1,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -include("blockchain_vars.hrl").
@@ -220,6 +224,17 @@ print(#blockchain_txn_consensus_group_v1_pb{height = Height,
                    lists:map(fun blockchain_utils:addr2name/1, Members),
                    erlang:phash2(Proof)]).
 
+-spec to_json(txn_consensus_group(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{
+      type => <<"consensus_group_v1">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
+      members => [?BIN_TO_B58(M) || M <- members(Txn)],
+      proof => ?BIN_TO_B64(proof(Txn)),
+      height => height(Txn),
+      delay => delay(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -273,5 +288,11 @@ new_test() ->
 members_test() ->
     Tx = new([<<"1">>], <<"proof">>, 1, 0),
     ?assertEqual([<<"1">>], members(Tx)).
+
+to_json_test() ->
+    Tx = new([<<"1">>], <<"proof">>, 1, 0),
+    Json = to_json(Tx, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [type, hash, members, proof, height, delay])).
 
 -endif.

@@ -3,6 +3,9 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_path_element_v1).
 
+-behavior(blockchain_json).
+-include("blockchain_json.hrl").
+
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
@@ -11,7 +14,8 @@
     challengee/1,
     receipt/1,
     witnesses/1,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -78,6 +82,14 @@ print(#blockchain_poc_path_element_v1_pb{
                                          Witnesses), "\n\t\t")
                   ]).
 
+-spec to_json(poc_element(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Elem, _Opts) ->
+    #{
+      challengee => ?BIN_TO_B58(challengee(Elem)),
+      receipt => blockchain_poc_receipt_v1:to_json(receipt(Elem), []),
+      witnesses => [blockchain_poc_witness_v1:to_json(W, []) || W <- witnesses(Elem)]
+     }.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -103,5 +115,12 @@ receipt_test() ->
 witnesses_test() ->
     Element = new(<<"challengee">>, undefined, []),
     ?assertEqual([], witnesses(Element)).
+
+to_json_test() ->
+    Element = new(<<"challengee">>, undefined, []),
+    Json = to_json(Element, []),
+    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
+                      [challengee, receipt, witnesses])).
+
 
 -endif.
