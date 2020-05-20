@@ -27,6 +27,7 @@
     rescue_signature/1,
     seen_votes/1,
     bba_completion/1,
+    snapshot_hash/1,
     verify_signatures/4, verify_signatures/5,
     is_rescue_block/1,
     to_json/2
@@ -50,7 +51,8 @@
                        epoch_start => non_neg_integer(),
                        rescue_signature => binary(),
                        seen_votes => [{pos_integer(), binary()}],
-                       bba_completion => binary()
+                       bba_completion => binary(),
+                       snapshot_hash => binary()
                       }.
 
 -export_type([block/0, block_map/0]).
@@ -69,7 +71,7 @@ new(#{prev_hash := PrevHash,
       election_epoch := ElectionEpoch,
       epoch_start := EpochStart,
       seen_votes := Votes,
-      bba_completion := Completion}) ->
+      bba_completion := Completion} = Map) ->
     #blockchain_block_v1_pb{
        prev_hash = PrevHash,
        height = Height,
@@ -80,7 +82,8 @@ new(#{prev_hash := PrevHash,
        election_epoch = ElectionEpoch,
        epoch_start = EpochStart,
        seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
-       bba_completion = Completion
+       bba_completion = Completion,
+       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)
       }.
 
 -spec rescue(block_map())-> block().
@@ -157,6 +160,10 @@ seen_votes(Block) ->
 -spec bba_completion(block()) -> binary().
 bba_completion(Block) ->
     Block#blockchain_block_v1_pb.bba_completion.
+
+-spec snapshot_hash(block()) -> binary().
+snapshot_hash(Block) ->
+    Block#blockchain_block_v1_pb.snapshot_hash.
 
 %%--------------------------------------------------------------------
 %% @doc

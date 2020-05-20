@@ -35,7 +35,7 @@ basic(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
@@ -51,7 +51,7 @@ basic(Config) ->
     )),
     LastBlock = lists:last(Blocks),
 
-    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
+    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
 
     plausible = blockchain:can_add_block(LastBlock, Chain),
     %% check we return the plausible message to the caller
@@ -94,7 +94,7 @@ definitely_invalid(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
@@ -114,7 +114,7 @@ definitely_invalid(Config) ->
 
     %% boot an entirely disjoint chain
     {ok, _Sup1, {PrivKey1, PubKey1}, _Opts1} = test_utils:init(BaseDir++"extra"),
-    {ok, _GenesisMembers1, _ConsensusMembers1, _} = test_utils:init_chain(Balance, {PrivKey1, PubKey1}),
+    {ok, _GenesisMembers1, _GenesisBlock2, _ConsensusMembers1, _} = test_utils:init_chain(Balance, {PrivKey1, PubKey1}),
     Chain1 = blockchain_worker:blockchain(),
 
     % Add some blocks
@@ -129,7 +129,7 @@ definitely_invalid(Config) ->
     )),
     LastBlock = lists:last(Blocks1),
 
-    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
+    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
 
     {error, disjoint_chain} = blockchain:can_add_block(LastBlock, Chain),
     {error, disjoint_chain} = blockchain:add_block(hd(Blocks1), Chain),
@@ -160,7 +160,7 @@ ultimately_invalid(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
@@ -180,7 +180,7 @@ ultimately_invalid(Config) ->
 
     %% boot an entirely disjoint chain
     {ok, _Sup1, {PrivKey, PubKey}, _Opts1} = test_utils:init(BaseDir++"extra", {PrivKey, PubKey}),
-    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, GenesisMembers, #{}),
+    {ok, _GenesisMembers, _GenesisBlock2, ConsensusMembers, _} = test_utils:init_chain(Balance, GenesisMembers, #{}),
     Chain1 = blockchain_worker:blockchain(),
 
     % Add some blocks
@@ -195,7 +195,7 @@ ultimately_invalid(Config) ->
     )),
     LastBlock = lists:last(Blocks1),
 
-    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined),
+    {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
 
     plausible = blockchain:can_add_block(LastBlock, Chain),
     %% check we return the plausible message to the caller

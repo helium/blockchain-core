@@ -80,12 +80,12 @@ basic(Config) ->
     Balance = 5000,
     BlocksN = 100,
     {ok, Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, _GenesisMembers, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Simulate other chain with sync handler only
-    _Chain = blockchain:new(SimDir, Genesis, undefined),
+    _Chain = blockchain:new(SimDir, Genesis, undefined, undefined),
 
     % Add some blocks
     Blocks = lists:reverse(lists:foldl(

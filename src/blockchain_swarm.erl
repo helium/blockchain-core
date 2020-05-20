@@ -90,7 +90,6 @@ gossip_peers() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Pid} = libp2p_swarm:start(?SWARM_NAME, Args),
     true = erlang:link(Pid),

@@ -44,7 +44,8 @@ init_per_testcase(TestCase, Config) ->
 
     ExtraVars = #{?max_payments => ?MAX_PAYMENTS, ?allow_zero_amount => false},
 
-    {ok, GenesisMembers, ConsensusMembers, Keys} = test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
+    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
+        test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
 
     Chain = blockchain_worker:blockchain(),
     Swarm = blockchain_swarm:swarm(),

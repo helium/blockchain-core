@@ -17,19 +17,19 @@
 
     new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
 
-    current_height/1, increment_height/2,
-    transaction_fee/1, update_transaction_fee/1,
+    current_height/1, current_height/2, increment_height/2,
+    transaction_fee/1, update_transaction_fee/1, update_transaction_fee/2,
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
     process_delayed_txns/3,
 
-    active_gateways/1,
+    active_gateways/1, load_gateways/2,
     entries/1,
     htlcs/1,
 
     master_key/1, master_key/2,
-    all_vars/1,
+
     vars/3,
     config/2,  % no version with default, use the set value or fail
     vars_nonce/1, vars_nonce/2,
@@ -77,8 +77,9 @@
     add_htlc/8,
     redeem_htlc/3,
 
-    get_oui_counter/1, increment_oui_counter/1,
+    get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
+
     find_routing/2, find_routing_for_packet/2, find_router_ouis/2,
     update_routing/4,
 
@@ -103,6 +104,33 @@
     remove_from_hex/3,
 
     clean_all_hexes/1,
+
+    %% snapshot save/restore stuff
+
+    snapshot_vars/1,
+    load_vars/2,
+    snapshot_pocs/1,
+    load_pocs/2,
+    snapshot_accounts/1,
+    load_accounts/2,
+    snapshot_dc_accounts/1,
+    load_dc_accounts/2,
+    snapshot_security_accounts/1,
+    load_security_accounts/2,
+    snapshot_htlcs/1,
+    load_htlcs/2,
+    snapshot_ouis/1,
+    load_ouis/2,
+    snapshot_subnets/1,
+    load_subnets/2,
+    snapshot_state_channels/1,
+    load_state_channels/2,
+    snapshot_hexes/1,
+    load_hexes/2,
+    snapshot_delayed_vars/1,
+    load_delayed_vars/2,
+    snapshot_threshold_txns/1,
+    load_threshold_txns/2,
 
     clean/1, close/1,
     compact/1
@@ -504,6 +532,11 @@ current_height(Ledger) ->
             Error
     end.
 
+-spec current_height(pos_integer(), ledger()) -> ok | {error, any()}.
+current_height(Height, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height:64/integer-unsigned-big>>).
+
 -spec increment_height(blockchain_block:block(), ledger()) -> ok | {error, any()}.
 increment_height(Block, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -515,7 +548,6 @@ increment_height(Block, Ledger) ->
             Height1 = erlang:max(BlockHeight, Height0),
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
-
 
 -spec transaction_fee(ledger()) -> {ok, pos_integer()} | {error, any()}.
 transaction_fee(Ledger) ->
@@ -535,6 +567,11 @@ update_transaction_fee(Ledger) ->
     %% TODO - based on the average of usage fees
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<0:64/integer-unsigned-big>>).
+
+-spec update_transaction_fee(pos_integer(), ledger()) -> ok.
+update_transaction_fee(Fee, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<Fee:64/integer-unsigned-big>>).
 
 -spec consensus_members(ledger()) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 consensus_members(Ledger) ->
@@ -616,6 +653,7 @@ process_delayed_txns(Block, Ledger, Chain) ->
               end
       end,
       PendingTxns),
+    cache_delete(Ledger, DefaultCF, block_name(Block)),
     ok.
 
 delay_vars(Effective, Vars, Ledger) ->
@@ -686,6 +724,17 @@ active_gateways(Ledger) ->
       #{}
      ).
 
+-spec load_gateways(active_gateways(), ledger()) -> ok | {error, _}.
+load_gateways(Gws, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    maps:map(
+      fun(Address, Gw) ->
+              Bin = blockchain_ledger_gateway_v2:serialize(Gw),
+              cache_put(Ledger, AGwsCF, Address, Bin)
+      end,
+      Gws),
+    ok.
+
 -spec entries(ledger()) -> entries().
 entries(Ledger) ->
     EntriesCF = entries_cf(Ledger),
@@ -741,16 +790,6 @@ master_key(Ledger) ->
 master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
-
-all_vars(Ledger) ->
-    CF = default_cf(Ledger),
-    cache_fold(Ledger, CF,
-               fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
-                       Value = binary_to_term(BValue),
-                       maps:put(Name, Value, Acc)
-               end, #{},
-               [{start, {seek, <<"$var_">>}},
-                {iterate_upper_bound, <<"$var`">>}]).
 
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1684,6 +1723,11 @@ get_oui_counter(Ledger) ->
             Error
     end.
 
+-spec set_oui_counter(pos_integer(), ledger()) -> ok | {error, _}.
+set_oui_counter(Count, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?OUI_COUNTER, <<Count:32/little-unsigned-integer>>).
+
 -spec increment_oui_counter(ledger()) -> {ok, pos_integer()} | {error, any()}.
 increment_oui_counter(Ledger) ->
     case ?MODULE:get_oui_counter(Ledger) of
@@ -1936,7 +1980,7 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
-    ok = rocksdb:close(DB),
+    catch ok = rocksdb:close(DB),
     rocksdb:destroy(DBDir, []).
 
 close(#ledger_v1{db=DB}) ->
@@ -1979,8 +2023,11 @@ state_channel_key(ID, Owner) ->
 %% need to prefix to keep people from messing with existing names on accident
 %% @end
 %%--------------------------------------------------------------------
-var_name(Name) ->
-    <<"$var_", (atom_to_binary(Name, utf8))/binary>>.
+var_name(Name) when is_atom(Name) ->
+    <<"$var_", (atom_to_binary(Name, utf8))/binary>>;
+%% binary clause for snapshot import
+var_name(Name) when is_binary(Name) ->
+    <<"$var_", Name/binary>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -2370,6 +2417,252 @@ subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer
     end;
 subnet_lookup(_, _, _) ->
     error.
+
+%% extract and load section for snapshots.  note that for determinism
+%% reasons, we need to not use maps, but sorted lists
+
+snapshot_vars(Ledger) ->
+    CF = default_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, CF,
+          fun({<<"$var_", Name/binary>>, BValue}, Acc) ->
+                  Value = binary_to_term(BValue),
+                  maps:put(Name, Value, Acc)
+          end, #{},
+          [{start, {seek, <<"$var_">>}},
+           {iterate_upper_bound, <<"$var`">>}]))).
+
+load_vars(Vars, Ledger) ->
+    vars(maps:from_list(Vars), [], Ledger),
+    ok.
+
+snapshot_delayed_vars(Ledger) ->
+    CF = default_cf(Ledger),
+    {ok, Height} = current_height(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, CF,
+          fun({<<"$block_", HashHeightBin/binary>>, BP}, Acc) ->
+                  %% there is a long standing bug not deleting
+                  %% these lists once processed, just fixed as
+                  %% this code was written, so we need to ignore
+                  %% old ones till we're past all of this
+                  HashHeight = binary_to_integer(HashHeightBin),
+                  case HashHeight >= Height of
+                      true ->
+                          Hashes = binary_to_term(BP),
+                          Val = lists:sort(
+                                  lists:map(
+                                    fun(Hash) ->
+                                            {ok, Bin} = cache_get(Ledger, CF, Hash, []),
+                                            {Hash, binary_to_term(Bin)}
+                                    end,
+                                    Hashes)),
+                          maps:put(HashHeight, Val, Acc);
+                      false ->
+                          Acc
+                  end
+          end, #{},
+          %% we could iterate from the correct block if I had
+          %% encoded the blocks correctly, but I didn't
+          [{start, {seek, <<"$block_">>}},
+           {iterate_upper_bound, <<"$block`">>}]))).
+
+load_delayed_vars(DVars, Ledger) ->
+    CF = default_cf(Ledger),
+    maps:map(
+      fun(Height, HashesAndVars) ->
+              {Hashes, _Vars} = lists:unzip(HashesAndVars),
+              BHashes = term_to_binary(Hashes),
+              ok = cache_put(Ledger, CF, block_name(Height), BHashes),
+              lists:foreach(
+                fun({Hash, Vars}) ->
+                        cache_put(Ledger, CF, Hash, term_to_binary(Vars))
+                end, HashesAndVars)
+      end, maps:from_list(DVars)),
+    ok.
+
+snapshot_threshold_txns(Ledger) ->
+    CF = default_cf(Ledger),
+    lists:sort(scan_threshold_txns(Ledger, CF)).
+
+load_threshold_txns(Txns, Ledger) ->
+    lists:map(fun(T) -> save_threshold_txn(T, Ledger) end, Txns),
+    ok.
+
+snapshot_pocs(Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, PoCsCF,
+          fun({OnionKeyHash, BValue}, Acc) ->
+                  List = binary_to_term(BValue),
+                  Value = lists:map(fun blockchain_ledger_poc_v2:deserialize/1, List),
+                  maps:put(OnionKeyHash, Value, Acc)
+          end, #{},
+          []))).
+
+load_pocs(PoCs, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    maps:map(
+      fun(OnionHash, P) ->
+              BPoC = term_to_binary(lists:map(fun blockchain_ledger_poc_v2:serialize/1, P)),
+              cache_put(Ledger, PoCsCF, OnionHash, BPoC)
+      end,
+      maps:from_list(PoCs)),
+    ok.
+
+snapshot_accounts(Ledger) ->
+    lists:sort(maps:to_list(entries(Ledger))).
+
+load_accounts(Accounts, Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    maps:map(
+      fun(Address, Entry) ->
+              BEntry = blockchain_ledger_entry_v1:serialize(Entry),
+              cache_put(Ledger, EntriesCF, Address, BEntry)
+      end,
+      maps:from_list(Accounts)),
+    ok.
+
+snapshot_dc_accounts(Ledger) ->
+    lists:sort(maps:to_list(dc_entries(Ledger))).
+
+load_dc_accounts(DCAccounts, Ledger) ->
+    EntriesCF = dc_entries_cf(Ledger),
+    maps:map(
+      fun(Address, Entry) ->
+              BEntry = blockchain_ledger_data_credits_entry_v1:serialize(Entry),
+              cache_put(Ledger, EntriesCF, Address, BEntry)
+      end,
+      maps:from_list(DCAccounts)),
+    ok.
+
+snapshot_security_accounts(Ledger) ->
+    lists:sort(maps:to_list(securities(Ledger))).
+
+load_security_accounts(SecAccounts, Ledger) ->
+    EntriesCF = securities_cf(Ledger),
+    maps:map(
+      fun(Address, Entry) ->
+              BEntry = blockchain_ledger_security_entry_v1:serialize(Entry),
+              cache_put(Ledger, EntriesCF, Address, BEntry)
+      end,
+      maps:from_list(SecAccounts)),
+    ok.
+
+snapshot_htlcs(Ledger) ->
+    lists:sort(maps:to_list(htlcs(Ledger))).
+
+load_htlcs(HTLCs, Ledger) ->
+    HTLCsCF = htlcs_cf(Ledger),
+    maps:map(
+      fun(Address, Entry) ->
+              BEntry = blockchain_ledger_htlc_v1:serialize(Entry),
+              cache_put(Ledger, HTLCsCF, Address, BEntry)
+      end,
+      maps:from_list(HTLCs)),
+    ok.
+
+snapshot_ouis(Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, RoutingCF,
+          fun({OUI0, BValue}, Acc) ->
+                  <<OUI:32/little-unsigned-integer>> = OUI0,
+                  Value = blockchain_ledger_routing_v1:serialize(BValue),
+                  maps:put(OUI, Value, Acc)
+          end, #{},
+          []))).
+
+load_ouis(OUIs, Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    maps:map(
+      fun(OUI, Routing) ->
+              BRouting = blockchain_ledger_routing_v1:serialize(Routing),
+              cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, BRouting)
+      end,
+      maps:from_list(OUIs)),
+    ok.
+
+snapshot_subnets(Ledger) ->
+    SubnetsCF = subnets_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, SubnetsCF,
+          fun({Subnet, OUI0}, Acc) ->
+                  <<OUI:32/little-unsigned-integer>> = OUI0,
+                  maps:put(Subnet, OUI, Acc)
+          end, #{},
+          []))).
+
+load_subnets(Subnets, Ledger) ->
+    SubnetsCF = routing_cf(Ledger),
+    maps:map(
+      fun(Subnet, OUI) ->
+              cache_put(Ledger, SubnetsCF, Subnet, <<OUI:32/little-unsigned-integer>>)
+      end,
+      maps:from_list(Subnets)),
+    ok.
+
+snapshot_state_channels(Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    lists:sort(
+      maps:to_list(
+        cache_fold(
+          Ledger, SCsCF,
+          fun({ID, V}, Acc) ->
+                  %% do we need to decompose the ID here into Key and Owner?
+                  maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc)
+          end, #{},
+          []))).
+
+load_state_channels(SCs, Ledger) ->
+    SCsCF = state_channels_cf(Ledger),
+    maps:map(
+      fun(ID, Channel) ->
+              BChannel = blockchain_ledger_state_channel_v1:serialize(Channel),
+              cache_put(Ledger, SCsCF, ID, BChannel)
+      end,
+      maps:from_list(SCs)),
+    ok.
+
+snapshot_hexes(Ledger) ->
+    case blockchain_ledger_v1:get_hexes(Ledger) of
+        {ok, HexMap} ->
+            lists:sort(
+              maps:to_list(
+                maps:fold(
+                  fun(HexAddr, _Ct, Acc) ->
+                          {ok, Hex} = get_hex(HexAddr, Ledger),
+                          Acc#{HexAddr => Hex}
+                  end,
+                  #{list => HexMap},
+                  HexMap)));
+        {error, not_found} ->
+            []
+    end.
+
+load_hexes(Hexes0, Ledger) ->
+    case maps:take(list, maps:from_list(Hexes0)) of
+        {HexMap, Hexes} ->
+            ok = set_hexes(HexMap, Ledger),
+            maps:map(
+              fun(HexAddr, Hex) ->
+                      set_hex(HexAddr, Hex, Ledger)
+              end,
+              Hexes),
+            ok;
+        error ->
+            ok
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

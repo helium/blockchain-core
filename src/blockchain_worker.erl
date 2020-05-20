@@ -1,4 +1,3 @@
-
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain Core Worker ==
@@ -41,7 +40,12 @@
 
     set_absorbing/3,
     absorb_done/0,
-    is_absorbing/0
+    is_absorbing/0,
+
+    snapshot_sync/2,
+    install_snapshot/2,
+    reset_ledger_to_snap/2,
+    async_reset/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -59,7 +63,11 @@
 -include("blockchain.hrl").
 
 -define(SERVER, ?MODULE).
+-ifdef(TEST).
+-define(SYNC_TIME, 1000).
+-else.
 -define(SYNC_TIME, 75000).
+-endif.
 
 -record(state,
         {
@@ -70,11 +78,13 @@
          sync_ref = make_ref() :: reference(),
          sync_pid :: undefined | pid(),
          sync_paused = false :: boolean(),
+         snapshot_info :: undefined | {binary(), integer()},
          gossip_ref = make_ref() :: reference(),
          absorb_info :: undefined | {pid(), reference()},
          absorb_retries = 3 :: pos_integer(),
          resync_info :: undefined | {pid(), reference()},
-         resync_retries = 3 :: pos_integer()
+         resync_retries = 3 :: pos_integer(),
+         mode :: snapshot | normal | reset
         }).
 
 %% ------------------------------------------------------------------
@@ -139,6 +149,19 @@ load(BaseDir, GenDir) ->
 -spec set_absorbing(blockchain_block:block(), blockchain:blockchain(), boolean()) -> ok.
 set_absorbing(Block, Blockchain, Syncing) ->
     gen_server:cast(?SERVER, {set_absorbing, Block, Blockchain, Syncing}).
+
+-spec reset_ledger_to_snap(binary(), pos_integer()) -> ok.
+reset_ledger_to_snap(Hash, Height) ->
+    gen_server:call(?SERVER, {reset_ledger_to_snap, Hash, Height}, infinity).
+
+snapshot_sync(Hash, Height) ->
+    %% needs to be a cast to break a deadlock loop
+    %% mostly doing this to keep the code paths similar, but they
+    %% might want a more extensive reworking?
+    gen_server:cast(?SERVER, {snapshot_sync, Hash, Height}).
+
+install_snapshot(Hash, Snapshot) ->
+    gen_server:call(?SERVER, {install_snapshot, Hash, Snapshot}, infinity).
 
 absorb_done() ->
     gen_server:call(?SERVER, absorb_done, infinity).
@@ -205,6 +228,9 @@ notify(Msg) ->
 mismatch() ->
     gen_server:cast(?SERVER, mismatch).
 
+-spec async_reset(pos_integer()) -> ok.
+async_reset(Height) ->
+    gen_server:cast(?SERVER, {async_reset, Height}).
 
 signed_metadata_fun() ->
     %% cache the chain handle in the peerbook processes' dictionary
@@ -264,7 +290,6 @@ signed_metadata_fun() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    erlang:process_flag(trap_exit, true),
     ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
@@ -288,7 +313,24 @@ init(Args) ->
         end,
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
-    {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain, gossip_ref = Ref}}.
+    QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
+    {Mode, Info} =
+        case application:get_env(blockchain, sync_mode, quick) of
+            quick ->
+                case QuickSyncMode of
+                    assumed_valid -> {normal, undefined};
+                    blessed_snapshot ->
+                        {ok, Hash} = application:get_env(blockchain, blessed_snapshot_block_hash),
+                        {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
+                        {snapshot, {Hash, Height}}
+                end;
+            full ->
+                %% full sync only ever syncs blocks, so just sync blocks
+                {normal, undefined}
+        end,
+
+    {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
+                gossip_ref = Ref, mode = Mode, snapshot_info = Info}}.
 
 handle_call(_, _From, #state{blockchain={no_genesis, _}}=State) ->
     {reply, undefined, State};
@@ -313,6 +355,39 @@ handle_call({new_ledger, Dir}, _From, State) ->
     Ledger1 = blockchain_ledger_v1:new(Dir),
     {reply, {ok, Ledger1}, State};
 
+handle_call({install_snapshot, Hash, Snapshot}, _From,
+            #state{blockchain = Chain, mode = Mode, swarm = Swarm} = State) ->
+    %% I don't think that we want to auto-repair right now, do default
+    %% this to disabled.  nothing currently will ever set the mode to
+    %% reset, so we should never go into the `true` clause here.
+    Halt = application:get_env(blockchain, halt_on_reset, true),
+    case Mode == reset andalso Halt of
+        false ->
+            ok = blockchain_lock:acquire(),
+            OldLedger = blockchain:ledger(Chain),
+            blockchain_ledger_v1:clean(OldLedger),
+            %% TODO proper error checking and recovery/retry
+            {ok, NewLedger} = blockchain_ledger_snapshot_v1:import(Chain, Hash, Snapshot),
+            Chain1 = blockchain:ledger(NewLedger, Chain),
+            notify({new_chain, Chain1}),
+            remove_handlers(Swarm),
+            {ok, GossipRef} = add_handlers(Swarm, Chain1),
+            {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
+            {ok, ChainHeight} = blockchain:height(Chain1),
+            case LedgerHeight >= ChainHeight of
+                true -> ok;
+                false ->
+                    %% we likely retain some old blocks, and we should absorb them
+                    blockchain:replay_blocks(Chain1, false, LedgerHeight, ChainHeight)
+            end,
+            blockchain_lock:release(),
+            {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
+                                               blockchain = Chain1, gossip_ref = GossipRef})};
+        true ->
+            %% if we don't want to auto-clean the ledger, stop
+            {stop, shutdown, State}
+        end;
+
 handle_call(sync, _From, State) ->
     %% if sync is paused, unpause it
     {reply, ok, maybe_sync(State#state{sync_paused = false})};
@@ -334,6 +409,9 @@ handle_call(resync_done, _From, #state{resync_info = {_Pid, Ref}} = State) ->
     {reply, ok, maybe_sync(State#state{resync_info = undefined, sync_paused = false})};
 handle_call(is_resyncing, _From, State) ->
     {reply, State#state.resync_info /= undefined, State};
+
+handle_call({reset_ledger_to_snap, Hash, Height}, _From, State) ->
+    {reply, ok, reset_ledger_to_snap(Hash, Height, State)};
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -414,6 +492,13 @@ handle_cast({peer_height, Height, Head, _Sender}, #state{blockchain=Chain}=State
                 end
         end,
     {noreply, NewState};
+handle_cast({snapshot_sync, Hash, Height}, State) ->
+    State1 = snapshot_sync(Hash, Height, State),
+    {noreply, State1};
+handle_cast({async_reset, _Height}, State) ->
+    lager:info("got async_reset at height ~p, ignoring", [_Height]),
+    {noreply, State};
+
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -426,6 +511,9 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, _Ledger}}, State) ->
 handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             #state{sync_ref = SyncRef, blockchain = Chain} = State0) ->
     State = State0#state{sync_pid = undefined},
+    %% TODO: this sometimes we're gonna have a failed snapshot sync
+    %% and we need to handle that here somehow.
+
     %% we're done with our sync.  determine if we're very far behind,
     %% and should resync immediately, or if we're relatively close to
     %% the present and can afford to retry later.
@@ -462,7 +550,7 @@ handle_info({'DOWN', AbsorbRef, process, AbsorbPid, Reason},
             {noreply, State#state{absorb_info=undefined}};
         Reason when Retries > 0 ->
             lager:warning("Absorb process exited with reason ~p, retrying ~p more times", [Reason, Retries]),
-            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            blockchain:init_assumed_valid(State#state.blockchain, get_assumed_valid_height_and_hash()),
             {noreply, State#state{absorb_info=undefined, absorb_retries = Retries - 1}};
         Reason ->
             lager:warning("Absorb process exited with reason ~p, stopping", [Reason]),
@@ -475,7 +563,7 @@ handle_info({'DOWN', ResyncRef, process, ResyncPid, Reason},
         normal ->
             lager:info("Resync process completed successfully"),
             %% check if we have any pending assume valids to take care of
-            blockchain:init_assumed_valid(State#state.blockchain, get_assume_valid_height_and_hash()),
+            blockchain:init_assumed_valid(State#state.blockchain, get_assumed_valid_height_and_hash()),
             {noreply, schedule_sync(State#state{sync_paused=false, resync_info=undefined})};
         shutdown ->
             {noreply, State#state{resync_info=undefined}};
@@ -498,11 +586,14 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 terminate(_Reason, #state{blockchain=undefined}) ->
+    lager:debug("blockchain terminate ~p", [_Reason]),
     ok;
 terminate(_Reason, #state{blockchain={no_genesis, Chain}}) ->
+    lager:debug("blockchain terminate ~p", [_Reason]),
     catch blockchain:close(Chain),
     ok;
 terminate(_Reason, #state{blockchain=Chain}) ->
+    lager:debug("blockchain terminate ~p", [_Reason]),
     catch blockchain:close(Chain),
     ok.
 
@@ -511,12 +602,31 @@ terminate(_Reason, #state{blockchain=Chain}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-maybe_sync(#state{sync_paused = true} = State) ->
+maybe_sync(#state{mode = normal} = State) ->
+    maybe_sync_blocks(State);
+maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_height(Ledger) of
+        %% still waiting for the background process to download and
+        %% install the ledger snapshot
+        {ok, 1} when Pid /= undefined ->
+            reset_sync_timer(State);
+        {ok, 1} ->
+            {Hash, Height} = State#state.snapshot_info,
+            snapshot_sync(Hash, Height, State);
+        %% for now, just sync blocks from the blessed snapshot
+        {ok, _N} ->
+            maybe_sync_blocks(State);
+        {error, Error} ->
+            lager:info("couldn't get current height: ~p", [Error]),
+            reset_sync_timer(State)
+    end.
+
+maybe_sync_blocks(#state{sync_paused = true} = State) ->
     State;
-maybe_sync(#state{sync_pid = Pid} = State) when Pid /= undefined ->
+maybe_sync_blocks(#state{sync_pid = Pid} = State) when Pid /= undefined ->
     State;
-maybe_sync(#state{blockchain = Chain} = State) ->
-    erlang:cancel_timer(State#state.sync_timer),
+maybe_sync_blocks(#state{blockchain = Chain} = State) ->
     %% last block add time is relative to the system clock so as long as the local
     %% clock mostly increments this will eventually be true on a stuck node
     SyncCooldownTime = application:get_env(blockchain, sync_cooldown_time, 60),
@@ -541,26 +651,55 @@ maybe_sync(#state{blockchain = Chain} = State) ->
             schedule_sync(State)
     end.
 
+snapshot_sync(_Hash, _Height, #state{sync_pid = Pid} = State) when Pid /= undefined ->
+    State;
+snapshot_sync(Hash, Height, #state{blockchain = Chain, swarm_tid = SwarmTID, swarm=Swarm} = State) ->
+    case get_peer(SwarmTID) of
+        [] ->
+            lager:info("no snapshot peers yet"),
+            %% try again later when there's peers
+            reset_sync_timer(State#state{snapshot_info = {Hash, Height}, mode = snapshot});
+        Peers ->
+            RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
+            {Pid, Ref} = start_snapshot_sync(Hash, Height, Swarm, Chain, RandomPeer),
+            lager:info("snapshot_sync starting ~p ~p", [Pid, Ref]),
+            State#state{sync_pid = Pid, sync_ref = Ref, mode = snapshot,
+                        snapshot_info = {Hash, Height}}
+    end.
+
+reset_ledger_to_snap(Hash, Height, State) ->
+    lager:info("clearing the ledger now"),
+    State1 = pause_sync(State),
+    snapshot_sync(Hash, Height, State1).
+
 start_sync(#state{blockchain = Chain, swarm = Swarm, swarm_tid = SwarmTID} = State) ->
-    %% figure out who we're connected to
-    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(SwarmTID)),
-    %% Get the p2p addresses of our peers, so we will connect on existing sessions
-    Peers = lists:filter(fun(E) ->
-                                 case libp2p_transport_p2p:p2p_addr(E) of
-                                     {ok, _} -> true;
-                                     _       -> false
-                                 end
-                         end, Peers0),
-    case Peers of
+    case get_peer(SwarmTID) of
         [] ->
             %% try again later when there's peers
             schedule_sync(State);
         Peers ->
             RandomPeer = lists:nth(rand:uniform(length(Peers)), Peers),
-            {Pid, Ref} = sync(Swarm, Chain, RandomPeer),
+            {Pid, Ref} = start_block_sync(Swarm, Chain, RandomPeer),
             lager:info("new sync starting with Pid: ~p, Ref: ~p", [Pid, Ref]),
             State#state{sync_pid = Pid, sync_ref = Ref}
     end.
+
+get_peer(SwarmTID) ->
+    %% figure out who we're connected to
+    {Peers0, _} = lists:unzip(libp2p_config:lookup_sessions(SwarmTID)),
+    %% Get the p2p addresses of our peers, so we will connect on existing sessions
+    lists:filter(fun(E) ->
+                         case libp2p_transport_p2p:p2p_addr(E) of
+                             {ok, _} -> true;
+                             _       -> false
+                         end
+                 end, Peers0).
+
+reset_sync_timer(State)  ->
+    lager:info("try again in ~p", [?SYNC_TIME]),
+    erlang:cancel_timer(State#state.sync_timer),
+    Ref = erlang:send_after(?SYNC_TIME, self(), maybe_sync),
+    State#state{sync_timer=Ref}.
 
 cancel_sync(#state{sync_pid = undefined} = State, _Restart) ->
     State;
@@ -599,6 +738,11 @@ add_handlers(SwarmTID, Blockchain) ->
                         ok = libp2p_swarm:add_stream_handler(SwarmTID, ProtocolVersion,
                                 {libp2p_framed_stream, server, [blockchain_fastforward_handler, ?SERVER, [ProtocolVersion, Blockchain]]}) end,
     lists:foreach(FFAddFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS),
+    ok = libp2p_swarm:add_stream_handler(
+        SwarmTID,
+        ?SNAPSHOT_PROTOCOL,
+        {libp2p_framed_stream, server, [blockchain_snapshot_handler, ?SERVER, Blockchain]}
+    ),
     {ok, Ref}.
 
 -spec remove_handlers(ets:tab()) -> ok.
@@ -613,14 +757,17 @@ remove_handlers(SwarmTID) ->
     %% remove the FF handlers
     FFRemoveFun = fun(ProtocolVersion) ->
                         libp2p_swarm:remove_stream_handler(SwarmTID, ProtocolVersion) end,
-    lists:foreach(FFRemoveFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS).
+    lists:foreach(FFRemoveFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS),
+    libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec sync(Swarm::pid(), Chain::blockchain:blockchain(), Peer::libp2p_crypto:pubkey_bin())-> {pid(), reference()} | ok.
-sync(Swarm, Chain, Peer) ->
+-spec start_block_sync(Swarm::pid(), Chain::blockchain:blockchain(),
+                       Peer::libp2p_crypto:pubkey_bin()) ->
+                              {pid(), reference()} | ok.
+start_block_sync(Swarm, Chain, Peer) ->
     DialFun =
         fun() ->
             case blockchain_sync_handler:dial(Swarm, Chain, Peer) of
@@ -643,8 +790,34 @@ sync(Swarm, Chain, Peer) ->
                         ok
             end
         end,
-    spawn_monitor(fun()->DialFun() end).
+    spawn_monitor(fun() -> DialFun() end).
 
+
+
+
+start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
+    lager:info("attempting snapshot sync with ~p", [Peer]),
+    spawn_monitor(fun() ->
+        case libp2p_swarm:dial_framed_stream(Swarm,
+                                             Peer,
+                                             ?SNAPSHOT_PROTOCOL,
+                                             blockchain_snapshot_handler,
+                                             [Hash, Height, Chain])
+        of
+            {ok, Stream} ->
+                Ref1 = erlang:monitor(process, Stream),
+                receive
+                    cancel ->
+                        libp2p_framed_stream:close(Stream);
+                    {'DOWN', Ref1, process, Stream, _} ->
+                        ok
+                after timer:minutes(15) ->
+                        ok
+                end;
+            _ ->
+                ok
+        end
+    end).
 
 
 send_txn(Txn) ->
@@ -661,16 +834,33 @@ send_txn(Txn) ->
 send_txn(Txn, Callback) ->
     ok = blockchain_txn_mgr:submit(Txn, Callback).
 
-get_assume_valid_height_and_hash() ->
-    case {application:get_env(blockchain, assumed_valid_block_hash, undefined),
-          application:get_env(blockchain, assumed_valid_block_height, undefined)} of
+get_assumed_valid_height_and_hash() ->
+    {application:get_env(blockchain, assumed_valid_block_hash, undefined),
+     application:get_env(blockchain, assumed_valid_block_height, undefined)}.
+
+get_blessed_snapshot_height_and_hash() ->
+    {application:get_env(blockchain, blessed_snapshot_block_hash, undefined),
+     application:get_env(blockchain, blessed_snapshot_block_height, undefined)}.
+
+get_quick_sync_height_and_hash(Mode) ->
+
+    HashHeight =
+        case Mode of
+            assumed_valid ->
+                get_assumed_valid_height_and_hash();
+            blessed_snapshot ->
+                get_blessed_snapshot_height_and_hash()
+        end,
+
+    case HashHeight of
         {undefined, _} ->
             undefined;
         {_, undefined} ->
             undefined;
         BlockHashAndHeight ->
-            case application:get_env(blockchain, honor_assumed_valid, false) of
+            case application:get_env(blockchain, honor_quick_sync, false) of
                 true ->
+                    lager:info("quick syncing with ~p: ~p", [Mode, BlockHashAndHeight]),
                     BlockHashAndHeight;
                 _ ->
                     undefined
@@ -678,8 +868,9 @@ get_assume_valid_height_and_hash() ->
     end.
 
 load_chain(SwarmTID, BaseDir, GenDir) ->
-    AssumedValidBlockHashAndHeight = get_assume_valid_height_and_hash(),
-    case blockchain:new(BaseDir, GenDir, AssumedValidBlockHashAndHeight) of
+    QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
+    QuickSyncData = get_quick_sync_height_and_hash(QuickSyncMode),
+    case blockchain:new(BaseDir, GenDir, QuickSyncMode, QuickSyncData) of
         {no_genesis, _Chain}=R ->
             %% mark all upgrades done
             {R, make_ref()};

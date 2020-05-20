@@ -221,9 +221,9 @@ is_valid(Txn, Chain) ->
                                                                     StartLA = erlang:monotonic_time(millisecond),
                                                                     {ok, OldLedger} = blockchain:ledger_at(blockchain_block:height(Block1), Chain),
                                                                     maybe_log_duration(ledger_at, StartLA),
+                                                                    Vars = vars(OldLedger),
                                                                     Path = case blockchain:config(?poc_version, OldLedger) of
                                                                                {ok, V} when V >= 8 ->
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    %% Targeting phase
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    %% Find the original target
@@ -237,7 +237,6 @@ is_valid(Txn, Chain) ->
                                                                                    RetB;
 
                                                                                {ok, V} when V >= 7 ->
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    StartFT = erlang:monotonic_time(millisecond),
                                                                                    %% If we make it to this point, we are bound to have a target.
                                                                                    {ok, Target} = blockchain_poc_target_v2:target_v2(Entropy, OldLedger, Vars),
@@ -251,7 +250,6 @@ is_valid(Txn, Chain) ->
                                                                                {ok, V} when V >= 4 ->
                                                                                    StartS = erlang:monotonic_time(millisecond),
                                                                                    GatewayScoreMap = blockchain_utils:score_gateways(OldLedger),
-                                                                                   Vars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(OldLedger)),
                                                                                    maybe_log_duration(scored, StartS),
 
                                                                                    Time = blockchain_block:time(Block1),
@@ -887,6 +885,10 @@ hex_poc_id(Txn) ->
     #{secret := _OnionPrivKey, public := OnionPubKey} = libp2p_crypto:keys_from_bin(?MODULE:secret(Txn)),
     <<POCID:10/binary, _/binary>> = libp2p_crypto:pubkey_to_bin(OnionPubKey),
     blockchain_utils:bin_to_hex(POCID).
+
+vars(Ledger) ->
+    blockchain_utils:vars_binary_keys_to_atoms(
+      maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

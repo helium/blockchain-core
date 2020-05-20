@@ -93,6 +93,9 @@ add_block(Block, Chain, Sender, SwarmTID) ->
         {error, block_higher_than_assumed_valid_height} ->
             %% harmless
             ok;
+        {error, no_ledger} ->
+            %% just ignore this, we don't care right now
+            ok;
         Error ->
             %% Uhm what is this?
             lager:error("Something bad happened: ~p", [Error])
