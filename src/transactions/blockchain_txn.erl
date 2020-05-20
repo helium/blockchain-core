@@ -515,7 +515,11 @@ type(#blockchain_txn_state_channel_close_v1_pb{}) ->
 type(#blockchain_txn_price_oracle_v1_pb{}) ->
     blockchain_txn_price_oracle_v1.
 
--spec validate_fields([{{atom(), iodata() | undefined}, {binary, pos_integer()} | {binary, pos_integer(), pos_integer()} |
+-spec validate_fields([{{atom(), iodata() | undefined},
+                        {binary, pos_integer()} |
+                        {binary, pos_integer(), pos_integer()} |
+                        {is_integer, non_neg_integer()} |
+                        {member, list()} |
                         {address, libp2p}}]) -> ok | {error, any()}.
 validate_fields([]) ->
     ok;
@@ -541,6 +545,22 @@ validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field)
         _:_ ->
             {error, {invalid_address, Name}}
     end;
+validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
+                                                            is_binary(Field) ->
+    case lists:member(List, Field) of
+        true ->
+            validate_fields(Tail);
+        false ->
+            {error, {not_a_member, Name, Field, List}}
+    end;
+validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
+                                                         andalso Field >= Min ->
+    validate_fields(Tail);
+validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
+                                                         andalso Field < Min ->
+    {error, {integer_too_small, Name, Field, Min}};
+validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
+    {error, {not_an_integer, Name, Field}};
 validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
