@@ -31,6 +31,8 @@
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
 
+-define(MAX_UNIQ_CLIENTS, 1000).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -104,11 +106,17 @@ update_summaries(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{su
         {error, not_found} ->
             SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]};
         {ok, _Summary} ->
-            NewSummaries = lists:keyreplace(ClientPubkeyBin,
-                                            #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
-                                            Summaries,
-                                            NewSummary),
-            SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}
+            case can_fit(ClientPubkeyBin, Summaries) of
+                false ->
+                    %% Cannot fit this into summaries
+                    SC;
+                true ->
+                    NewSummaries = lists:keyreplace(ClientPubkeyBin,
+                                                    #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
+                                                    Summaries,
+                                                    NewSummary),
+                    SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}
+            end
     end.
 
 -spec get_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -272,6 +280,25 @@ to_json(SC, _Opts) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec can_fit(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+              Summaries :: summaries()) -> boolean().
+can_fit(ClientPubkeyBin, Summaries) ->
+    Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
+    CanFit = length(lists:usort(Clients)) =< ?MAX_UNIQ_CLIENTS,
+    IsKnownClient = lists:member(ClientPubkeyBin, Clients),
+
+    case {CanFit, IsKnownClient} of
+        {false, false} ->
+            %% Cannot fit, do not have this client either
+            false;
+        {false, true} ->
+            %% Cannot fit any new ones, but know about this client
+            true;
+        {true, _} ->
+            %% Can fit, doesn't matter if we don't know this client
+            true
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
