@@ -43,7 +43,7 @@
          vars_nonce :: pos_integer(),
          vars :: [any()],
 
-         gateways :: #{},
+         gateways :: [any()],
          pocs :: [any()],
 
          accounts :: [any()],
@@ -82,7 +82,7 @@ snapshot(Ledger0, Blocks) ->
         ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
         Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
-        Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+        Gateways = blockchain_ledger_v1:snapshot_gateways(Ledger),
         %% need to write these on the ledger side
         PoCs = blockchain_ledger_v1:snapshot_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_accounts(Ledger),

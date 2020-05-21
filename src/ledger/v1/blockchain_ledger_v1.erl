@@ -24,7 +24,7 @@
     election_epoch/1, election_epoch/2,
     process_delayed_txns/3,
 
-    active_gateways/1, load_gateways/2,
+    active_gateways/1, snapshot_gateways/1, load_gateways/2,
     entries/1,
     htlcs/1,
 
@@ -724,6 +724,9 @@ active_gateways(Ledger) ->
       #{}
      ).
 
+snapshot_gateways(Ledger) ->
+    lists:sort(maps:to_list(active_gateways(Ledger))).
+
 -spec load_gateways(active_gateways(), ledger()) -> ok | {error, _}.
 load_gateways(Gws, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
@@ -732,7 +735,7 @@ load_gateways(Gws, Ledger) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
-      Gws),
+      maps:from_list(Gws)),
     ok.
 
 -spec entries(ledger()) -> entries().
