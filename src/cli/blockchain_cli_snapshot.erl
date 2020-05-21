@@ -109,14 +109,9 @@ snapshot_load(_, _, _) ->
 
 snapshot_load(Filename) ->
     {ok, BinSnap} = file:read_file(Filename),
-    %% no reason to hang this forever
-    ok = blockchain_lock:acquire(15000),
-    try
-        {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
-        Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
-        ok = blockchain_worker:install_snapshot(Hash, Snapshot)
-    after
-            blockchain_lock:release()
-    end,
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
+
+    ok = blockchain_worker:install_snapshot(Hash, Snapshot),
     ok.
