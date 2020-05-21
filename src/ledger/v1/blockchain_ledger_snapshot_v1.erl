@@ -409,7 +409,7 @@ minimize_gw(A, B) ->
                           [{Fn, AVal, BVal}]
                   end
           end,
-          [location, version, last_poc_challenge, last_poc_onion_hash,
+          [location, version, last_poc_challenge, last_poc_onion_key_hash,
            nonce, alpha, beta, delta, oui]),
     %% but for witnesses, we want to do additional minimization
     AWits = blockchain_ledger_gateway_v2:witnesses(A),
