@@ -2604,7 +2604,7 @@ snapshot_subnets(Ledger) ->
           []))).
 
 load_subnets(Subnets, Ledger) ->
-    SubnetsCF = routing_cf(Ledger),
+    SubnetsCF = subnets_cf(Ledger),
     maps:map(
       fun(Subnet, OUI) ->
               cache_put(Ledger, SubnetsCF, Subnet, <<OUI:32/little-unsigned-integer>>)
