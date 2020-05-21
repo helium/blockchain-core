@@ -23,6 +23,7 @@ register_all_usage() ->
                   [
                    snapshot_take_usage(),
                    snapshot_load_usage(),
+                   snapshot_diff_usage(),
                    snapshot_usage()
                   ]).
 
@@ -33,6 +34,7 @@ register_all_cmds() ->
                   [
                    snapshot_take_cmd(),
                    snapshot_load_cmd(),
+                   snapshot_diff_cmd(),
                    snapshot_cmd()
                   ]).
 %%
@@ -44,6 +46,7 @@ snapshot_usage() ->
      ["blockchain snapshot commands\n\n",
       "  snapshot take   - Take a snapshot at the current ledger height.\n",
       "  snapshot load   - Load a snapshot from a file.\n"
+      "  snapshot diff   - Load two snapshots from files and find changes.\n"
      ]
     ].
 
@@ -89,7 +92,7 @@ snapshot_load_cmd() ->
 
 snapshot_load_usage() ->
     [["snapshot", "load"],
-     ["blockchain snapshot take <filename>\n\n",
+     ["blockchain snapshot load <filename>\n\n",
       "  Take a ledger snapshot at the current height and write it to filename\n"]
     ].
 
@@ -107,3 +110,29 @@ snapshot_load(Filename) ->
 
     ok = blockchain_worker:install_snapshot(Hash, Snapshot),
     ok.
+
+snapshot_diff_cmd() ->
+    [
+     [["snapshot", "diff", '*', '*'], [], [], fun snapshot_diff/3]
+    ].
+
+snapshot_diff_usage() ->
+    [["snapshot", "diff"],
+     ["blockchain snapshot diff <filename> <filename>\n\n",
+      "  Take a ledger snapshot at the current height and write it to filename\n"]
+    ].
+
+snapshot_diff(["snapshot", "diff", AFilename, BFilename], [], []) ->
+    Ret = snapshot_diff(AFilename, BFilename),
+    [clique_status:text(io_lib:format("~p", [Ret]))];
+snapshot_diff(_, _, _) ->
+    usage.
+
+snapshot_diff(AFilename, BFilename) ->
+    {ok, ABinSnap} = file:read_file(AFilename),
+    {ok, BBinSnap} = file:read_file(BFilename),
+
+    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(ABinSnap),
+    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(BBinSnap),
+
+    blockchain_ledger_snapshot_v1:diff(A, B).
