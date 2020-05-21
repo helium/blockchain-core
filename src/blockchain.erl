@@ -47,7 +47,9 @@
 
     add_gateway_txn/4, assert_loc_txn/6,
 
-    add_snapshot/2, get_snapshot/2, find_last_snapshot/1
+    add_snapshot/2, get_snapshot/2, find_last_snapshot/1,
+
+    mark_upgrades/2
 ]).
 
 -include("blockchain.hrl").
@@ -83,17 +85,9 @@
 -define(ASSUMED_VALID, blockchain_core_assumed_valid_block_hash_and_height).
 -define(LAST_BLOCK_ADD_TIME, <<"last_block_add_time">>).
 
-%% upgrades are listed here as a two-tuple of a key (stored in the
-%% ledger), and a function to run with the ledger as an argument.  if
-%% the key is already true, then the function will not be run.  when
-%% we start a clean chain, we mark all existing keys are true and do
-%% not run their code later.
--define(upgrades,
-        [{<<"gateway_v2">>, fun upgrade_gateways_v2/1},
-         {<<"hex_targets">>, fun bootstrap_hexes/1},
-         {<<"gateway_oui">>, fun upgrade_gateways_oui/1}]).
-%% NB: we need to keep this in sync with the filter in the fingerprints
-
+-define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
+                          fun bootstrap_hexes/1,
+                          fun upgrade_gateways_oui/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -136,7 +130,8 @@ new(Dir, undefined, QuickSyncMode, QuickSyncData) ->
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, _GenBlock}} ->
             Ledger = blockchain:ledger(Blockchain),
-            process_upgrades(?upgrades, Ledger),
+            Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
+            process_upgrades(Upgrades, Ledger),
             lager:info("stuff is ok"),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)}
     end;
@@ -155,12 +150,13 @@ new(Dir, GenBlock, QuickSyncMode, QuickSyncData) ->
             lager:warning("failed to load genesis block ~p, integrating new one", [Reason]),
             ok = ?MODULE:integrate_genesis(GenBlock, Blockchain),
             Ledger = blockchain:ledger(Blockchain),
-            mark_upgrades(?upgrades, Ledger),
+            mark_upgrades(?BC_UPGRADE_NAMES, Ledger),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, GenBlock}} ->
             lager:info("new gen = old gen"),
             Ledger = blockchain:ledger(Blockchain),
-            process_upgrades(?upgrades, Ledger),
+            Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
+            process_upgrades(Upgrades, Ledger),
             {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, _OldGenBlock}} ->
             lager:info("replacing old genesis block with new one"),
@@ -184,7 +180,7 @@ process_upgrades([{Key, Fun} | Tail], Ledger) ->
 
 mark_upgrades(Upgrades, Ledger) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
-    lists:foreach(fun({Key, _}) ->
+    lists:foreach(fun(Key) ->
                           blockchain_ledger_v1:mark_key(Key, Ledger1)
                   end, Upgrades),
     blockchain_ledger_v1:commit_context(Ledger1),
@@ -765,7 +761,7 @@ add_block_(Block, Blockchain, Syncing) ->
                             ok;
                         ConsensusHash ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
-                                             Ledger, Height, LedgerHeight, Blockchain)
+                                             Ledger, Height, Blockchain)
                     end,
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
@@ -798,7 +794,7 @@ add_block_(Block, Blockchain, Syncing) ->
     end.
 
 process_snapshot(ConsensusHash, MyAddress, Signers,
-                 Ledger, Height, LedgerHeight, Blockchain) ->
+                 Ledger, Height, Blockchain) ->
     case lists:member(MyAddress, Signers) of
         true ->
             %% signers add the snapshot as when the block is created?
@@ -806,15 +802,8 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
             ok;
         false ->
             %% hash here is *pre*absorb.
-            DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
             try
-                Blocks =
-                    [begin
-                         {ok, B} = blockchain:get_block(N, Blockchain),
-                         B
-                     end
-                     || N <- lists:seq(DHeight, LedgerHeight)],
+                Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
                 case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
                     {ok, Snap} ->
                         case blockchain_ledger_snapshot_v1:hash(Snap) of
@@ -1753,43 +1742,51 @@ init_quick_sync(assumed_valid, Blockchain, Data) ->
 init_quick_sync(blessed_snapshot, Blockchain, Data) ->
     init_blessed_snapshot(Blockchain, Data).
 
-init_assumed_valid(Blockchain, undefined) ->
-    maybe_continue_resync(Blockchain);
 init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
     case ?MODULE:get_block(Hash, Blockchain) of
         {ok, _} ->
             %% already got it, chief
             maybe_continue_resync(delete_temp_blocks(Blockchain));
         _ ->
-            %% set this up here, it will get cleared if we're able to add all the assume valid blocks
-            ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
-            #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
-            %% the chain and the ledger need to be in sync for this to have any chance of working
-            IsInSync = blockchain:height(Blockchain) == blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
-            case rocksdb:get(DB, TempBlocksCF, Hash, []) of
-                {ok, BinBlock} when IsInSync == true ->
-                    %% we already have it, try to process it
-                    Block = blockchain_block:deserialize(BinBlock),
-                    case blockchain_block:height(Block) == Height of
-                        true ->
-                            absorb_temp_blocks(Block, Blockchain, true),
-                            Blockchain;
-                        false ->
-                            %% block must be bad somehow
-                            rocksdb:delete(DB, TempBlocksCF, Hash, []),
-                            maybe_continue_resync(Blockchain)
-                    end;
-                _ ->
-                    %% need to wait for it
+            {ok, CurrentHeight} = height(Blockchain),
+            case CurrentHeight > Height of
+                %% we loaded a snapshot, clean up just in case
+                true ->
+                    maybe_continue_resync(delete_temp_blocks(Blockchain));
+                false ->
+                    %% set this up here, it will get cleared if we're able to add all the assume valid blocks
                     ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
-                    maybe_continue_resync(Blockchain)
+                    #blockchain{db=DB, temp_blocks=TempBlocksCF} = Blockchain,
+                    %% the chain and the ledger need to be in sync for this to have any chance of working
+                    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(blockchain:ledger(Blockchain)),
+                    IsInSync = CurrentHeight == LedgerHeight,
+                    case rocksdb:get(DB, TempBlocksCF, Hash, []) of
+                        {ok, BinBlock} when IsInSync == true ->
+                            %% we already have it, try to process it
+                            Block = blockchain_block:deserialize(BinBlock),
+                            case blockchain_block:height(Block) == Height of
+                                true ->
+                                    absorb_temp_blocks(Block, Blockchain, true),
+                                    Blockchain;
+                                false ->
+                                    %% block must be bad somehow
+                                    rocksdb:delete(DB, TempBlocksCF, Hash, []),
+                                    maybe_continue_resync(Blockchain)
+                            end;
+                        _ ->
+                            %% need to wait for it
+                            ok = persistent_term:put(?ASSUMED_VALID, HashAndHeight),
+                            maybe_continue_resync(Blockchain)
+                    end
             end
-    end.
+    end;
+init_assumed_valid(Blockchain, _) ->
+    maybe_continue_resync(Blockchain).
 
-init_blessed_snapshot(Blockchain, undefined) ->
-    Blockchain;
 init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
     blockchain_worker:snapshot_sync(Hash, Height),
+    Blockchain;
+init_blessed_snapshot(Blockchain, _) ->
     Blockchain.
 
 delete_temp_blocks(Blockchain=#blockchain{db=DB, temp_blocks=TempBlocksCF, default=DefaultCF}) ->

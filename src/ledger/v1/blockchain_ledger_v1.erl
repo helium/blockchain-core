@@ -24,7 +24,7 @@
     election_epoch/1, election_epoch/2,
     process_delayed_txns/3,
 
-    active_gateways/1, load_gateways/2,
+    active_gateways/1, snapshot_gateways/1, load_gateways/2,
     entries/1,
     htlcs/1,
 
@@ -481,7 +481,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            subnets = SubnetsCF
           } = SubLedger,
         %% NB: keep in sync with upgrades macro in blockchain.erl
-        Filter = [<<"gateway_v2">>],
+        Filter = ?BC_UPGRADE_NAMES,
         DefaultVals = cache_fold(
                         Ledger, DefaultCF,
                         fun({K, _} = X, Acc) ->
@@ -724,7 +724,11 @@ active_gateways(Ledger) ->
       #{}
      ).
 
--spec load_gateways(active_gateways(), ledger()) -> ok | {error, _}.
+snapshot_gateways(Ledger) ->
+    lists:sort(maps:to_list(active_gateways(Ledger))).
+
+-spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
+                    ledger()) -> ok | {error, _}.
 load_gateways(Gws, Ledger) ->
     AGwsCF = active_gateways_cf(Ledger),
     maps:map(
@@ -732,7 +736,7 @@ load_gateways(Gws, Ledger) ->
               Bin = blockchain_ledger_gateway_v2:serialize(Gw),
               cache_put(Ledger, AGwsCF, Address, Bin)
       end,
-      Gws),
+      maps:from_list(Gws)),
     ok.
 
 -spec entries(ledger()) -> entries().
@@ -2575,8 +2579,8 @@ snapshot_ouis(Ledger) ->
         cache_fold(
           Ledger, RoutingCF,
           fun({OUI0, BValue}, Acc) ->
-                  <<OUI:32/little-unsigned-integer>> = OUI0,
-                  Value = blockchain_ledger_routing_v1:serialize(BValue),
+                  <<OUI:32/integer-unsigned-big>> = OUI0,
+                  Value = blockchain_ledger_routing_v1:deserialize(BValue),
                   maps:put(OUI, Value, Acc)
           end, #{},
           []))).
@@ -2586,7 +2590,7 @@ load_ouis(OUIs, Ledger) ->
     maps:map(
       fun(OUI, Routing) ->
               BRouting = blockchain_ledger_routing_v1:serialize(Routing),
-              cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, BRouting)
+              cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, BRouting)
       end,
       maps:from_list(OUIs)),
     ok.
@@ -2604,7 +2608,7 @@ snapshot_subnets(Ledger) ->
           []))).
 
 load_subnets(Subnets, Ledger) ->
-    SubnetsCF = routing_cf(Ledger),
+    SubnetsCF = subnets_cf(Ledger),
     maps:map(
       fun(Subnet, OUI) ->
               cache_put(Ledger, SubnetsCF, Subnet, <<OUI:32/little-unsigned-integer>>)

@@ -7,12 +7,18 @@
          snapshot/2,
          import/3,
 
+         get_blocks/1,
+
          height/1,
          hash/1,
 
          diff/2
         ]).
 
+%% this assumes that everything will have loaded the genesis block
+%% already.  I'm not sure that's totally safe in all cases, but it's
+%% the right thing for the spots and easy to work around elsewhere.
+-define(min_height, 2).
 
 %% this is temporary, something to work with easily while we nail the
 %% format and functionality down.  once it's final we can move on to a
@@ -41,7 +47,7 @@
          vars_nonce :: pos_integer(),
          vars :: [any()],
 
-         gateways :: #{},
+         gateways :: [any()],
          pocs :: [any()],
 
          accounts :: [any()],
@@ -52,7 +58,6 @@
          security_accounts :: [any()],
 
          htlcs :: [any()],
-         %% htlc_nonce :: pos_integer(),
 
          ouis :: [any()],
          subnets :: [any()],
@@ -80,7 +85,7 @@ snapshot(Ledger0, Blocks) ->
         ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
         Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
-        Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+        Gateways = blockchain_ledger_v1:snapshot_gateways(Ledger),
         %% need to write these on the ledger side
         PoCs = blockchain_ledger_v1:snapshot_pocs(Ledger),
         Accounts = blockchain_ledger_v1:snapshot_accounts(Ledger),
@@ -90,8 +95,6 @@ snapshot(Ledger0, Blocks) ->
         %%{ok, TokenBurnRate} = blockchain_ledger_v1:token_burn_exchange_rate(Ledger),
 
         HTLCs = blockchain_ledger_v1:snapshot_htlcs(Ledger),
-        %% add once this is added
-        %% {ok, HTLCNonce} = blockchain_ledger_v1:htlc_nonce(Ledger),
 
         OUIs = blockchain_ledger_v1:snapshot_ouis(Ledger),
         Subnets = blockchain_ledger_v1:snapshot_subnets(Ledger),
@@ -132,7 +135,6 @@ snapshot(Ledger0, Blocks) ->
                security_accounts = SecurityAccounts,
 
                htlcs = HTLCs,
-               %% htlc_nonce = HTLCNonce,
 
                ouis = OUIs,
                subnets = Subnets,
@@ -207,7 +209,6 @@ import(Chain, SHA,
           security_accounts = SecurityAccounts,
 
           htlcs = HTLCs,
-          %% htlc_nonce = HTLCNonce,
 
           ouis = OUIs,
           subnets = Subnets,
@@ -215,7 +216,7 @@ import(Chain, SHA,
 
           hexes = Hexes,
 
-          %% state_channels = StateChannels
+          state_channels = StateChannels,
 
           blocks = Blocks
          } = Snapshot) ->
@@ -233,7 +234,7 @@ import(Chain, SHA,
                         blockchain_ledger_v1:new(Dir)
                 end,
 
-            %% we load up both with the same snapshot here, then sync the next 50
+            %% we load up both with the same snapshot here, then sync the next N
             %% blocks and check that we're valid.
             [begin
                  Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
@@ -259,7 +260,6 @@ import(Chain, SHA,
 
                  ok = blockchain_ledger_v1:load_htlcs(HTLCs, Ledger),
                  %% add once this is added
-                 %% {ok, HTLCNonce} = blockchain_ledger_v1:htlc_nonce(Ledger),
 
                  ok = blockchain_ledger_v1:load_ouis(OUIs, Ledger),
                  ok = blockchain_ledger_v1:load_subnets(Subnets, Ledger),
@@ -267,7 +267,7 @@ import(Chain, SHA,
 
                  ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
 
-                 %% ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
+                 ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
                  blockchain_ledger_v1:commit_context(Ledger)
              end
              || Mode <- [delayed, active]],
@@ -279,27 +279,38 @@ import(Chain, SHA,
 
             case Blocks of
                 [] ->
-                    %%ignore blocks in testing
+                    %% ignore blocks in testing
                     ok;
-                [Head | Tail] ->
+                Blocks ->
                     %% just store the head, we'll need it sometimes
-                    Ht = blockchain_block:height(Head),
-                    case blockchain:get_block(Ht, Chain) of
-                        {ok, _Block} ->
-                            %% already have it, don't need to store it again.
-                            ok;
-                        _ ->
-                            ok = blockchain:save_block(Head, Chain)
-                    end,
                     lists:foreach(
                       fun(Block) ->
-                              lager:info("loading block ~p", [blockchain_block:height(Block)]),
-                              Rescue = blockchain_block:is_rescue_block(Block),
-                              {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                              ok = blockchain:save_block(Block, Chain1)
+                              Ht = blockchain_block:height(Block),
+                              case blockchain:get_block(Ht, Chain) of
+                                  {ok, _Block} ->
+                                      %% already have it, don't need to store it again.
+                                      ok;
+                                  _ ->
+                                      ok = blockchain:save_block(Block, Chain)
+                              end,
+                              case Ht > Curr2 of
+                                  %% we need some blocks before for history, only absorb if they're
+                                  %% not on the ledger already
+                                  true ->
+                                      lager:info("loading block ~p", [Ht]),
+                                      Rescue = blockchain_block:is_rescue_block(Block),
+                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+                                      Hash = blockchain_block:hash_block(Block),
+                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger2),
+
+                                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
+
+                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
+                                  _ ->
+                                      ok
+                              end
                       end,
-                      %% XXX we get one too many blocks
-                      Tail)
+                      Blocks)
             end,
             blockchain_ledger_v1:commit_context(Ledger2),
             {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
@@ -308,6 +319,17 @@ import(Chain, SHA,
         _ ->
             {error, bad_snapshot_checksum}
     end.
+
+get_blocks(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
+    [begin
+         {ok, B} = blockchain:get_block(N, Chain),
+         B
+     end
+     || N <- lists:seq(max(?min_height, DHeight - 181), Height)].
 
 height(#blockchain_snapshot_v1{current_height = Height}) ->
     Height.
@@ -330,6 +352,13 @@ diff(A, B) ->
                       case Field of
                           F when F == vars; F == security_accounts ->
                               [{Field, AI, BI} | Acc];
+                          %% we experience the most drift here, so
+                          %% it's worth some effort.
+                          gateways ->
+                              AUniq = AI -- BI,
+                              BUniq = BI -- AI,
+                              Diff = diff_gateways(AUniq, BUniq, []),
+                              [{gateways, Diff} | Acc];
                           _ ->
                               [Field | Acc]
                       end
@@ -337,3 +366,82 @@ diff(A, B) ->
       end,
       [],
       Comp).
+
+diff_gateways([] , [], Acc) ->
+    Acc;
+diff_gateways(AList , [], Acc) ->
+    [lists:map(fun({Addr, _}) -> {Addr, b_missing} end, AList)
+     | Acc];
+diff_gateways([] , BList, Acc) ->
+    [lists:map(fun({Addr, _}) -> {Addr, a_missing} end, BList)
+     | Acc];
+diff_gateways([{Addr, A} | T] , BList, Acc) ->
+    case gwget(Addr, BList) of
+        missing ->
+            diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                          [{Addr, b_missing} | Acc]);
+        B ->
+            diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                          [{Addr, minimize_gw(A, B)} | Acc])
+    end.
+
+gwget(Addr, L) ->
+    case lists:keyfind(Addr, 1, L) of
+        {_, GW} ->
+            GW;
+        false ->
+            missing
+    end.
+
+minimize_gw(A, B) ->
+    %% We can directly compare some fields
+    Compare =
+        lists:flatmap(
+          fun(Fn) ->
+                  AVal = blockchain_ledger_gateway_v2:Fn(A),
+                  BVal = blockchain_ledger_gateway_v2:Fn(B),
+                  case AVal == BVal of
+                      true ->
+                          [];
+                      false ->
+                          [{Fn, AVal, BVal}]
+                  end
+          end,
+          [location, version, last_poc_challenge, last_poc_onion_key_hash,
+           nonce, alpha, beta, delta, oui]),
+    %% but for witnesses, we want to do additional minimization
+    AWits = blockchain_ledger_gateway_v2:witnesses(A),
+    BWits = blockchain_ledger_gateway_v2:witnesses(B),
+    [{witnesses, minimize_witnesses(AWits, BWits)} | Compare].
+
+minimize_witnesses(A, B) ->
+    Compare =
+        maps:fold(
+          fun(Addr, AWit, Acc) ->
+                  case maps:get(Addr, B, missing) of
+                      missing ->
+                          [{Addr, b_missing} | Acc];
+                      BWit ->
+                          case BWit == AWit of
+                              true ->
+                                  Acc;
+                              false ->
+                                  %% we could probably do more here,
+                                  %% narrowing down to counts/histograms/whatever
+                                  [{Addr, AWit, BWit} | Acc]
+                          end
+                  end
+          end,
+          [], A),
+    AKeys = maps:keys(A),
+    B1 = maps:without(AKeys, B),
+    case maps:size(B1) of
+        0 ->
+            Compare;
+        _ ->
+            AMissing =
+                maps:fold(fun(K, _V, Acc) ->
+                                  [{K, a_missing} | Acc]
+                          end, [], B1),
+            [AMissing | Compare]
+    end.
