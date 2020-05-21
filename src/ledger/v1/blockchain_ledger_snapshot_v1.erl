@@ -279,27 +279,32 @@ import(Chain, SHA,
 
             case Blocks of
                 [] ->
-                    %%ignore blocks in testing
+                    %% ignore blocks in testing
                     ok;
-                [Head | Tail] ->
+                Blocks ->
                     %% just store the head, we'll need it sometimes
-                    Ht = blockchain_block:height(Head),
-                    case blockchain:get_block(Ht, Chain) of
-                        {ok, _Block} ->
-                            %% already have it, don't need to store it again.
-                            ok;
-                        _ ->
-                            ok = blockchain:save_block(Head, Chain)
-                    end,
                     lists:foreach(
                       fun(Block) ->
-                              lager:info("loading block ~p", [blockchain_block:height(Block)]),
-                              Rescue = blockchain_block:is_rescue_block(Block),
-                              {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                              ok = blockchain:save_block(Block, Chain1)
+                              Ht = blockchain_block:height(Block),
+                              case blockchain:get_block(Ht, Chain) of
+                                  {ok, _Block} ->
+                                      %% already have it, don't need to store it again.
+                                      ok;
+                                  _ ->
+                                      ok = blockchain:save_block(Block, Chain)
+                              end,
+                              case Ht > Curr2 of
+                                  %% we need some blocks before for history, only absorb if they're
+                                  %% not on the ledger already
+                                  true ->
+                                      lager:info("loading block ~p", [Ht]),
+                                      Rescue = blockchain_block:is_rescue_block(Block),
+                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1);
+                                  _ ->
+                                      ok
+                              end
                       end,
-                      %% XXX we get one too many blocks
-                      Tail)
+                      Blocks)
             end,
             blockchain_ledger_v1:commit_context(Ledger2),
             {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
@@ -330,6 +335,13 @@ diff(A, B) ->
                       case Field of
                           F when F == vars; F == security_accounts ->
                               [{Field, AI, BI} | Acc];
+                          %% we experience the most drift here, so
+                          %% it's worth some effort.
+                          gateways ->
+                              AUniq = AI -- BI,
+                              BUniq = BI -- AI,
+                              Diff = diff_gateways(AUniq, BUniq, []),
+                              [{gateways, Diff} | Acc];
                           _ ->
                               [Field | Acc]
                       end
@@ -337,3 +349,81 @@ diff(A, B) ->
       end,
       [],
       Comp).
+
+diff_gateways([] , [], Acc) ->
+    Acc;
+diff_gateways(AList , [], Acc) ->
+    [lists:map(fun({Addr, _}) -> {Addr, b_missing} end, AList)
+     | Acc];
+diff_gateways([] , BList, Acc) ->
+    [lists:map(fun({Addr, _}) -> {Addr, a_missing} end, BList)
+     | Acc];
+diff_gateways([{Addr, A} | T] , BList, Acc) ->
+    case gwget(Addr, BList) of
+        missing ->
+            diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                          [{Addr, b_missing} | Acc]);
+        B ->
+            diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                          [{Addr, minimize_gw(A, B)} | Acc])
+    end.
+
+gwget(Addr, L) ->
+    case lists:keyfind(Addr, 1, L) of
+        {_, GW} ->
+            GW;
+        false ->
+            missing
+    end.
+
+minimize_gw(A, B) ->
+    %% We can directly compare some fields
+    Compare =
+        lists:flatmap(
+          fun(Fn) ->
+                  AVal = blockchain_ledger_gateway_v2:Fn(A),
+                  BVal = blockchain_ledger_gateway_v2:Fn(B),
+                  case AVal == BVal of
+                      true ->
+                          [];
+                      false ->
+                          [{Fn, AVal, BVal}]
+                  end
+          end,
+          [location, version, last_poc_challenge, last_poc_onion_hash,
+           nonce, alpha, beta, delta, oui]),
+    %% but for witnesses, we want to do additional minimization
+    AWits = blockchain_ledger_gateway_v2:witnesses(A),
+    BWits = blockchain_ledger_gateway_v2:witnesses(B),
+    [{witnesses, minimize_witnesses(AWits, BWits)} | Compare].
+
+minimize_witnesses(A, B) ->
+    Compare =
+        maps:fold(
+          fun(Addr, AWit, Acc) ->
+                  case maps:get(Addr, B, missing) of
+                      missing ->
+                          [{Addr, b_missing} | Acc];
+                      BWit ->
+                          case BWit == AWit of
+                              true ->
+                                  Acc;
+                              false ->
+                                  %% we could probably do more here,
+                                  %% narrowing down to counts/histograms/whatever
+                                  [{Addr, AWit, BWit} | Acc]
+                          end
+                  end
+          end,
+          [], A),
+    AKeys = maps:keys(A),
+    case maps:without(AKeys, B) of
+        #{} ->
+            Compare;
+        B1 ->
+            AMissing =
+                maps:fold(fun(K, _V, Acc) ->
+                                  [{K, a_missing} | Acc]
+                          end, [], B1),
+            [AMissing | Compare]
+    end.

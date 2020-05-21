@@ -85,7 +85,7 @@ snapshot_take(Filename) ->
              {ok, B} = blockchain:get_block(N, Chain),
              B
          end
-         || N <- lists:seq(DHeight, Height)],
+         || N <- lists:seq(DHeight - 50, Height)],
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks),
     {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
     file:write_file(Filename, BinSnap).
