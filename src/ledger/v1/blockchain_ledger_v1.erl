@@ -2574,9 +2574,8 @@ snapshot_ouis(Ledger) ->
       maps:to_list(
         cache_fold(
           Ledger, RoutingCF,
-          fun({OUI0, BValue}, Acc) ->
+          fun({OUI0, Value}, Acc) ->
                   <<OUI:32/little-unsigned-integer>> = OUI0,
-                  Value = blockchain_ledger_routing_v1:serialize(BValue),
                   maps:put(OUI, Value, Acc)
           end, #{},
           []))).
@@ -2585,8 +2584,7 @@ load_ouis(OUIs, Ledger) ->
     RoutingCF = routing_cf(Ledger),
     maps:map(
       fun(OUI, Routing) ->
-              BRouting = blockchain_ledger_routing_v1:serialize(Routing),
-              cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, BRouting)
+              cache_put(Ledger, RoutingCF, <<OUI:32/little-unsigned-integer>>, Routing)
       end,
       maps:from_list(OUIs)),
     ok.

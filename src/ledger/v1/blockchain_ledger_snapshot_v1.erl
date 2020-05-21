@@ -215,7 +215,7 @@ import(Chain, SHA,
 
           hexes = Hexes,
 
-          %% state_channels = StateChannels
+          state_channels = StateChannels,
 
           blocks = Blocks
          } = Snapshot) ->
@@ -267,7 +267,7 @@ import(Chain, SHA,
 
                  ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
 
-                 %% ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
+                 ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
                  blockchain_ledger_v1:commit_context(Ledger)
              end
              || Mode <- [delayed, active]],
@@ -299,7 +299,13 @@ import(Chain, SHA,
                                   true ->
                                       lager:info("loading block ~p", [Ht]),
                                       Rescue = blockchain_block:is_rescue_block(Block),
-                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1);
+                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
+                                      Hash = blockchain_block:hash_block(Block),
+                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger2),
+
+                                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
+
+                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
                                   _ ->
                                       ok
                               end
