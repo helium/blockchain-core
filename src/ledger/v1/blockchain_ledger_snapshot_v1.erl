@@ -233,7 +233,7 @@ import(Chain, SHA,
                         blockchain_ledger_v1:new(Dir)
                 end,
 
-            %% we load up both with the same snapshot here, then sync the next 50
+            %% we load up both with the same snapshot here, then sync the next N
             %% blocks and check that we're valid.
             [begin
                  Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
