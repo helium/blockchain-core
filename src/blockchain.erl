@@ -765,7 +765,7 @@ add_block_(Block, Blockchain, Syncing) ->
                             ok;
                         ConsensusHash ->
                             process_snapshot(ConsensusHash, MyAddress, Signers,
-                                             Ledger, Height, LedgerHeight, Blockchain)
+                                             Ledger, Height, Blockchain)
                     end,
                     case blockchain_txn:Fun(Block, Blockchain, BeforeCommit, IsRescue) of
                         {error, Reason}=Error ->
@@ -798,7 +798,7 @@ add_block_(Block, Blockchain, Syncing) ->
     end.
 
 process_snapshot(ConsensusHash, MyAddress, Signers,
-                 Ledger, Height, LedgerHeight, Blockchain) ->
+                 Ledger, Height, Blockchain) ->
     case lists:member(MyAddress, Signers) of
         true ->
             %% signers add the snapshot as when the block is created?
@@ -806,15 +806,8 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
             ok;
         false ->
             %% hash here is *pre*absorb.
-            DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-            {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
             try
-                Blocks =
-                    [begin
-                         {ok, B} = blockchain:get_block(N, Blockchain),
-                         B
-                     end
-                     || N <- lists:seq(DHeight, LedgerHeight)],
+                Blocks = blockchain_ledger_snapshot_v1:get_blocks(Blockchain),
                 case blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks) of
                     {ok, Snap} ->
                         case blockchain_ledger_snapshot_v1:hash(Snap) of

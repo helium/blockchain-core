@@ -7,6 +7,8 @@
          snapshot/2,
          import/3,
 
+         get_blocks/1,
+
          height/1,
          hash/1,
 
@@ -319,6 +321,17 @@ import(Chain, SHA,
         _ ->
             {error, bad_snapshot_checksum}
     end.
+
+get_blocks(Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
+    [begin
+         {ok, B} = blockchain:get_block(N, Chain),
+         B
+     end
+     || N <- lists:seq(max(2, DHeight - 181), Height)].
 
 height(#blockchain_snapshot_v1{current_height = Height}) ->
     Height.
