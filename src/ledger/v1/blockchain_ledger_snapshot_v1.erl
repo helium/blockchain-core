@@ -298,14 +298,7 @@ import(Chain, SHA,
                                   %% not on the ledger already
                                   true ->
                                       lager:info("loading block ~p", [Ht]),
-                                      Rescue = blockchain_block:is_rescue_block(Block),
-                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
-                                      Hash = blockchain_block:hash_block(Block),
-                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger2),
-
-                                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
-
-                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
+                                      {ok, _Chain} = blockchain_txn:absorb_block(Block, Chain1);
                                   _ ->
                                       ok
                               end
