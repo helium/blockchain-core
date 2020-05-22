@@ -59,9 +59,9 @@
     absorb/2,
     print/1, print/2,
     sign/2,
-    absorb_and_commit/3, absorb_and_commit/4,
-    unvalidated_absorb_and_commit/4,
-    absorb_block/2, absorb_block/3,
+    absorb_and_commit/3,
+    unvalidated_absorb_and_commit/3,
+    absorb_block/2,
     absorb_txns/3,
     absorb_delayed/2,
     sort/2,
@@ -309,19 +309,14 @@ types(L) ->
 -spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) ->
                                ok | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit) ->
-    absorb_and_commit(Block, Chain0, BeforeCommit, false).
-
--spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
-                               ok | {error, any()}.
-absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
-    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+    case ?MODULE:validate(Transactions, Chain1, blockchain_block:is_rescue_block(Block)) of
         {_ValidTxns, []} ->
-            case ?MODULE:absorb_block(Block, Rescue, Chain1) of
+            case ?MODULE:absorb_block(Block, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     case BeforeCommit() of
@@ -341,18 +336,18 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             {error, invalid_txns}
     end.
 
--spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
+-spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) ->
                                ok | {error, any()}.
-unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
+unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
     Transactions0 = blockchain_block:transactions(Block),
     %% chain vars must always be validated so we don't accidentally sync past a change we don't understand
     Transactions = lists:filter(fun(T) -> ?MODULE:type(T) == blockchain_txn_vars_v1 end, (Transactions0)),
-    case ?MODULE:validate(Transactions, Chain1, Rescue) of
+    case ?MODULE:validate(Transactions, Chain1, blockchain_block:is_rescue_block(Block)) of
         {_ValidTxns, []} ->
-            case ?MODULE:absorb_block(Block, Rescue, Chain1) of
+            case ?MODULE:absorb_block(Block, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     case BeforeCommit() of
@@ -379,11 +374,7 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
 -spec absorb_block(blockchain_block:block(), blockchain:blockchain()) ->
                           {ok, blockchain:blockchain()} | {error, any()}.
 absorb_block(Block, Chain) ->
-    absorb_block(Block, false, Chain).
-
--spec absorb_block(blockchain_block:block(), boolean(), blockchain:blockchain()) ->
-                          {ok, blockchain:blockchain()} | {error, any()}.
-absorb_block(Block, Rescue, Chain) ->
+    Rescue = blockchain_block:is_rescue_block(Block),
     Ledger = blockchain:ledger(Chain),
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
@@ -393,6 +384,11 @@ absorb_block(Block, Rescue, Chain) ->
             ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain),
+            %% run GCs
+            Hash = blockchain_block:hash_block(Block),
+            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Ledger),
+            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger),
             {ok, Chain};
         Error ->
             Error
@@ -628,11 +624,6 @@ absorb_delayed(Block0, Chain0) ->
 absorb_delayed_(Block, Chain0) ->
     case ?MODULE:absorb_block(Block, Chain0) of
         {ok, _} ->
-            Hash = blockchain_block:hash_block(Block),
-            Ledger0 = blockchain:ledger(Chain0),
-            ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
-            ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok;
         Error ->
             Ledger = blockchain:ledger(Chain0),
