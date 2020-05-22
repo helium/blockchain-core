@@ -6,17 +6,13 @@
 -module(blockchain_txn_price_oracle_v1).
 
 -behavior(blockchain_txn).
-%-behavior(blockchain_json).
+-behavior(blockchain_json).
 
+-include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_price_entry.hrl").
 -include_lib("helium_proto/include/blockchain_txn_price_oracle_v1_pb.hrl").
-
-%% Controls how old the price is allowed to be.
-%%
-%% If the current block height differs from the recorded block height
-%% in the message, reject the price.
--define(MAX_HEIGHT_DIFF, 20).
 
 -export([
     new/3,
@@ -29,7 +25,8 @@
     sign/2,
     is_valid/2,
     absorb/2,
-    print/1
+    print/1,
+    to_json/2
 ]).
 
 -ifdef(TEST).
@@ -152,6 +149,7 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_price_oracle_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_price_oracle_v1_pb:encode_msg(BaseTxn),
     {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    {ok, MaxHeight} = blockchain:config(?price_oracle_height_delta, Ledger),
     OracleKeys = blockchain_utils:vars_keys_to_list(RawOracleKeys),
     case blockchain_txn:validate_fields([{{oracle_public_key, BinTxnPK}, {member, OracleKeys}},
                                          {{price, Price}, {is_integer, 0}}]) of
@@ -160,7 +158,7 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
-                    case validate_block_height(BlockHeight, LedgerHeight) of
+                    case validate_block_height(BlockHeight, LedgerHeight, MaxHeight) of
                         false ->
                             {error, bad_block_height};
                         true ->
@@ -177,18 +175,18 @@ is_valid(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
-absorb(_Txn, Chain) ->
+absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    Blk = blockchain:get_block(LedgerHeight),
+    Time = blockchain_block:time(Blk),
 
+    Entry = #oracle_price_entry{
+               price = ?MODULE:price(Txn),
+               public_key = ?MODULE:public_key(Txn),
+               timestamp = Time },
 
-    %% potentially recalculate price
-    {ok, Ht} = blockchain_ledger_v1:current_height(Ledger),
-    case blockchain:get_block(Ht) of
-        {ok, Block} ->
-            NewPrice = recalc_price(Block, Chain),
-            blockchain_ledger_v1:add_oracle_price(NewPrice, Ledger);
-        Other -> Other
-    end.
+    blockchain_ledger_v1:add_oracle_price(Entry, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -203,44 +201,22 @@ print(#blockchain_txn_price_oracle_v1_pb{public_key=OraclePK,
     io_lib:format("type=price_oracle oracle_signature=~p, price=~p, block_height=~p, signature=~p",
                   [OraclePK, Price, BH, Sig]).
 
+-spec to_json(txn_price_oracle(), blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, _Opts) ->
+    #{ type => <<"price_oracle_v1">>,
+       hash => ?BIN_TO_B64(hash(Txn)),
+       fee => fee(Txn),
+       public_key => public_key(Txn),
+       price => price(Txn),
+       block_height => block_height(Txn)
+     }.
+
 %% ------------------------------------------------------------------
 %% Private functions
 %% ------------------------------------------------------------------
-validate_block_height(MsgHeight, Current) when (Current - MsgHeight) < ?MAX_HEIGHT_DIFF ->
+validate_block_height(MsgHeight, Current, MaxHeight) when (Current - MsgHeight) =< MaxHeight ->
     true;
-validate_block_height(_MsgHeight, _Current) -> false.
-
-select_blocks_by_time(HrAgo, DayAgo, Block, Acc) ->
-    BlockT = blockchain_block:time(Block),
-    if
-        BlockT > HrAgo andalso BlockT < DayAgo -> [ Block | Acc ];
-        BlockT > DayAgo -> return;
-        true -> Acc
-    end.
-
-recalc_price(Start, Chain) ->
-    CurrentTime = erlang:system_time(seconds),
-    HrAgo = CurrentTime - 3600, % seconds in an hour
-    DayAgo = CurrentTime - 86400, % seconds in a day
-
-    EligibleBlocks = blockchain:fold_chain(
-                       fun(Block, Acc) -> select_blocks_by_time(HrAgo, DayAgo, Block, Acc) end,
-                       [], Start, Chain),
-
-    median(lists:sort(lists:flatten(
-                 [ [ lists:foldl(fun(T, A) ->
-                          %% isolate price oracle txns
-                                         case blockchain_txn:type(T) of
-                                             price_oracle -> [ price(T) | A ];
-                                             _ -> A
-                                         end
-                  end,
-                  [], Ts) || Ts <- blockchain_block:transactions(Block) ] || Block <- EligibleBlocks ]))).
-
-
-median(L) ->
-    Middle = length(L) div 2,
-    lists:nth(Middle, L).
+validate_block_height(_MsgHeight, _Current, _MaxHeight) -> false.
 
 decode_public_key(B64) ->
     <<Len/integer, Key/bytes>> = base64:decode(B64),

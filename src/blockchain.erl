@@ -483,6 +483,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
                               ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger0),
                               ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
                               ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+                              ok = blockchain_ledget_v1:maybe_recalc_price(Ledger0),
                               {ok, Chain1};
                           {error, Reason} ->
                               {error, {block_absorb_failed, H, Reason}}
@@ -1995,6 +1996,8 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
         ok = blockchain_ledger_v1:maybe_gc_pocs(Blockchain, Ledger1),
 
         ok = blockchain_ledger_v1:maybe_gc_scs(Ledger1),
+
+        ok = blockchain_ledger_v1:maybe_recalc_price(Ledger1),
 
         case blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger1) of
             {error, Reason0}=Error0 ->

@@ -95,7 +95,8 @@
     raw_fingerprint/2, %% does not use cache
     cf_fold/4,
 
-    add_oracle_price/3,
+    maybe_recalc_price/1,
+    add_oracle_price/2,
 
     apply_raw_changes/2,
 
@@ -140,6 +141,7 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_price_entry.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -180,7 +182,8 @@
 -define(MASTER_KEY, <<"master_key">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
--define(ORACLE_PRICE, <<"oracle_price">>).
+-define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
+-define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
 
@@ -188,6 +191,7 @@
 
 -define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
 -define(BITS_25, 33554431). %% biggest unsigned number in 25 bits
+-define(DEFAULT_ORACLE_PRICE, 0).
 
 -type ledger() :: #ledger_v1{}.
 -type sub_ledger() :: #sub_ledger_v1{}.
@@ -1388,6 +1392,92 @@ maybe_gc_scs(Ledger) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Maybe recalculate the median of the oracle prices that are valid
+%% in a sliding window over 24 hours.
+%%
+%% Prices are calculated every so many blocks, frequency controlled by
+%% the chain_var called `price_oracle_refresh_interval'
+%%
+%% Prices are considered valid if they are:
+%% <ul>
+%%      <li>Older than one hour, and,</li>
+%%      <li>No more than 24 hours old</li>
+%% </ul>
+%%
+%% More recent prices from the same oracle replace older prices.
+%%
+%% Additionally there must be valid prices from a majority of the
+%% oracles. Example: If there are 9 oracles, there must be valid
+%% prices from <u>at least</u> 5 different oracles.
+%%
+%% If there are less prices than a majority, then the last calculated
+%% price is reused.
+%% @end
+%%--------------------------------------------------------------------
+-spec maybe_recalc_price( Ledger :: ledger() ) -> ok.
+maybe_recalc_price(Ledger) ->
+    {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
+    DefaultCF = default_cf(Ledger),
+    {ok, CurrentHeight} = current_height(Ledger),
+    {LastHeight, LastPrice} =
+        case cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []) of
+            not_found ->
+                %% set up a new cache situation
+                cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, {CurrentHeight, 0}),
+                {CurrentHeight, 0};
+            {ok, Last} -> Last
+    end,
+
+    case CurrentHeight - LastHeight of
+        X when X < Interval -> ok;
+        X when X >= Interval ->
+            NewPrice = recalc_price(LastPrice, DefaultCF, Ledger),
+            cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, {CurrentHeight, NewPrice})
+    end.
+
+recalc_price(LastPrice, DefaultCF, Ledger) ->
+    CurrentTime = erlang:system_time(seconds), %% XXX: probably should be time in head block...
+    HrAgo = CurrentTime - 3600, % seconds in an hour
+    DayAgo = CurrentTime - 86400, % seconds in a day
+    {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
+    {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
+    Maximum = length(blockchain_utils:vars_keys_to_list(RawOracleKeys)),
+    Minimum = (Maximum div 2) + 1,
+
+    ValidPrices = lists:foldl(
+                    fun(E, Acc) ->
+                            select_prices_by_time(HrAgo, DayAgo, E, Acc)
+                    end, #{}, Prices),
+
+    NumPrices = maps:size(ValidPrices),
+
+    case NumPrices >= Minimum andalso NumPrices =< Maximum of
+        true -> median(lists:sort(maps:values(ValidPrices)));
+        false -> LastPrice
+    end.
+
+select_prices_by_time(HrAgo, DayAgo,
+                      #oracle_price_entry{ timestamp = T,
+                                           public_key = PK,
+                                           price = P }, Acc) ->
+    if
+        T > HrAgo andalso T < DayAgo -> Acc#{ PK => P };
+        T > DayAgo -> Acc;
+        true -> Acc
+    end.
+
+median(L) ->
+    Len = length(L),
+    case Len rem 2 of
+        0 -> lists:nth(Len div 2, L);
+        1 ->
+            Div = Len div 2,
+            Div1 = Div+1,
+            (lists:nth(Div, L) + lists:nth(Div1, L)) div 2 %% no floats
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec find_entry(libp2p_crypto:pubkey_bin(), ledger()) -> {ok, blockchain_ledger_entry_v1:entry()}
@@ -1980,10 +2070,11 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
             {ok, <<NewBase:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>}
     end.
 
--spec add_oracle_price(libp2p_crypto:pubkey_bin(), non_neg_integer(), ledger()) -> ok.
-add_oracle_price(PubKey, Price, Ledger) ->
+-spec add_oracle_price(oracle_price_entry(), ledger()) -> ok.
+add_oracle_price(PriceEntry, Ledger) ->
     DefaultCF = default_cf(Ledger),
-    cache_put(Ledger, DefaultCF, {?ORACLE_PRICE, PubKey}, <<Price:64/integer-unsigned-big>>).
+    {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
+    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, [ PriceEntry | Prices ]).
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
