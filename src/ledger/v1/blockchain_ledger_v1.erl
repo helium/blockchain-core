@@ -481,7 +481,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            subnets = SubnetsCF
           } = SubLedger,
         %% NB: keep in sync with upgrades macro in blockchain.erl
-        Filter = [<<"gateway_v2">>],
+        Filter = [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>],
         DefaultVals = cache_fold(
                         Ledger, DefaultCF,
                         fun({K, _} = X, Acc) ->

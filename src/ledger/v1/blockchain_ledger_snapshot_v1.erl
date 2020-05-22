@@ -15,6 +15,10 @@
          diff/2
         ]).
 
+%% this assumes that everything will have loaded the genesis block
+%% already.  I'm not sure that's totally safe in all cases, but it's
+%% the right thing for the spots and easy to work around elsewhere.
+-define(min_height, 2).
 
 %% this is temporary, something to work with easily while we nail the
 %% format and functionality down.  once it's final we can move on to a
@@ -54,7 +58,6 @@
          security_accounts :: [any()],
 
          htlcs :: [any()],
-         %% htlc_nonce :: pos_integer(),
 
          ouis :: [any()],
          subnets :: [any()],
@@ -92,8 +95,6 @@ snapshot(Ledger0, Blocks) ->
         %%{ok, TokenBurnRate} = blockchain_ledger_v1:token_burn_exchange_rate(Ledger),
 
         HTLCs = blockchain_ledger_v1:snapshot_htlcs(Ledger),
-        %% add once this is added
-        %% {ok, HTLCNonce} = blockchain_ledger_v1:htlc_nonce(Ledger),
 
         OUIs = blockchain_ledger_v1:snapshot_ouis(Ledger),
         Subnets = blockchain_ledger_v1:snapshot_subnets(Ledger),
@@ -134,7 +135,6 @@ snapshot(Ledger0, Blocks) ->
                security_accounts = SecurityAccounts,
 
                htlcs = HTLCs,
-               %% htlc_nonce = HTLCNonce,
 
                ouis = OUIs,
                subnets = Subnets,
@@ -209,7 +209,6 @@ import(Chain, SHA,
           security_accounts = SecurityAccounts,
 
           htlcs = HTLCs,
-          %% htlc_nonce = HTLCNonce,
 
           ouis = OUIs,
           subnets = Subnets,
@@ -261,7 +260,6 @@ import(Chain, SHA,
 
                  ok = blockchain_ledger_v1:load_htlcs(HTLCs, Ledger),
                  %% add once this is added
-                 %% {ok, HTLCNonce} = blockchain_ledger_v1:htlc_nonce(Ledger),
 
                  ok = blockchain_ledger_v1:load_ouis(OUIs, Ledger),
                  ok = blockchain_ledger_v1:load_subnets(Subnets, Ledger),
@@ -331,7 +329,7 @@ get_blocks(Chain) ->
          {ok, B} = blockchain:get_block(N, Chain),
          B
      end
-     || N <- lists:seq(max(2, DHeight - 181), Height)].
+     || N <- lists:seq(max(?min_height, DHeight - 181), Height)].
 
 height(#blockchain_snapshot_v1{current_height = Height}) ->
     Height.
