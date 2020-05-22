@@ -2159,7 +2159,12 @@ update_gateway_oui_test(Config) ->
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
     ok = test_utils:wait_until(fun() -> {ok, 24} == blockchain:height(Chain) end),
 
-    % Step 3: Updating a Gateway's OUI
+    %% Step 3: Check initial gateway info
+    {ok, GwInfo0} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    ?assertEqual(undefined, blockchain_ledger_gateway_v2:oui(GwInfo0)),
+    ?assertEqual(0, blockchain_ledger_gateway_v2:nonce(GwInfo0)),
+
+    % Step 4: Updating a Gateway's OUI
 
     UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(Gateway, OUI1, 1, 1),
     SignedUpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun), OwnerSigFun),
@@ -2168,7 +2173,7 @@ update_gateway_oui_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 25} == blockchain:height(Chain) end),
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
-    ?assertEqual(0, blockchain_ledger_gateway_v2:nonce(GwInfo)),
+    ?assertEqual(1, blockchain_ledger_gateway_v2:nonce(GwInfo)),
     ok.
 
 replay_oui_test(Config) ->
