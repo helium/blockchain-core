@@ -95,7 +95,7 @@
     raw_fingerprint/2, %% does not use cache
     cf_fold/4,
 
-    maybe_recalc_price/1,
+    maybe_recalc_price/2,
     add_oracle_price/2,
 
     apply_raw_changes/2,
@@ -1401,7 +1401,7 @@ maybe_gc_scs(Ledger) ->
 %% Prices are considered valid if they are:
 %% <ul>
 %%      <li>Older than one hour, and,</li>
-%%      <li>No more than 24 hours old</li>
+%%      <li>No more than 25 hours old</li>
 %% </ul>
 %%
 %% More recent prices from the same oracle replace older prices.
@@ -1414,8 +1414,9 @@ maybe_gc_scs(Ledger) ->
 %% price is reused.
 %% @end
 %%--------------------------------------------------------------------
--spec maybe_recalc_price( Ledger :: ledger() ) -> ok.
-maybe_recalc_price(Ledger) ->
+-spec maybe_recalc_price( Blockchain :: blockchain:blockchain(),
+                          Ledger :: ledger() ) -> ok.
+maybe_recalc_price(Blockchain, Ledger) ->
     {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
     DefaultCF = default_cf(Ledger),
     {ok, CurrentHeight} = current_height(Ledger),
@@ -1423,6 +1424,7 @@ maybe_recalc_price(Ledger) ->
         case cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []) of
             not_found ->
                 %% set up a new cache situation
+                cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, []),
                 cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, {CurrentHeight, 0}),
                 {CurrentHeight, 0};
             {ok, Last} -> Last
@@ -1431,15 +1433,18 @@ maybe_recalc_price(Ledger) ->
     case CurrentHeight - LastHeight of
         X when X < Interval -> ok;
         X when X >= Interval ->
-            NewPrice = recalc_price(LastPrice, DefaultCF, Ledger),
+            {ok, Block} = blockchain:get_block(CurrentHeight, Blockchain),
+            BlockT = blockchain_block:time(Block),
+            {NewPrice, NewPriceList} = recalc_price(LastPrice, BlockT, DefaultCF, Ledger),
+            cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, NewPriceList),
             cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, {CurrentHeight, NewPrice})
     end.
 
-recalc_price(LastPrice, DefaultCF, Ledger) ->
-    CurrentTime = erlang:system_time(seconds), %% XXX: probably should be time in head block...
-    HrAgo = CurrentTime - 3600, % seconds in an hour
-    DayAgo = CurrentTime - 86400, % seconds in a day
+recalc_price(LastPrice, BlockT, DefaultCF, Ledger) ->
+    HrAgo = BlockT - 3600, % seconds in an hour
+    DayAgo = BlockT - 90000, % seconds in a day + 1 hour
     {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
+    NewPriceList = trim_price_list(Prices, DayAgo),
     {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
     Maximum = length(blockchain_utils:vars_keys_to_list(RawOracleKeys)),
     Minimum = (Maximum div 2) + 1,
@@ -1447,13 +1452,13 @@ recalc_price(LastPrice, DefaultCF, Ledger) ->
     ValidPrices = lists:foldl(
                     fun(E, Acc) ->
                             select_prices_by_time(HrAgo, DayAgo, E, Acc)
-                    end, #{}, Prices),
+                    end, #{}, NewPriceList),
 
     NumPrices = maps:size(ValidPrices),
 
     case NumPrices >= Minimum andalso NumPrices =< Maximum of
-        true -> median(lists:sort(maps:values(ValidPrices)));
-        false -> LastPrice
+        true -> {median(lists:sort(maps:values(ValidPrices))), NewPriceList};
+        false -> {LastPrice, NewPriceList}
     end.
 
 select_prices_by_time(HrAgo, DayAgo,
@@ -1461,7 +1466,7 @@ select_prices_by_time(HrAgo, DayAgo,
                                            public_key = PK,
                                            price = P }, Acc) ->
     if
-        T > HrAgo andalso T < DayAgo -> Acc#{ PK => P };
+        T > HrAgo andalso T =< DayAgo -> Acc#{ PK => P };
         T > DayAgo -> Acc;
         true -> Acc
     end.
@@ -1475,6 +1480,12 @@ median(L) ->
             Div1 = Div+1,
             (lists:nth(Div, L) + lists:nth(Div1, L)) div 2 %% no floats
     end.
+
+trim_price_list(DayAgo, Prices) ->
+    lists:dropwhile(fun
+                        (#oracle_price_entry{ timestamp = T }) when T > DayAgo -> true;
+                        (_) -> false
+                    end, Prices).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -132,8 +132,13 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 %% @doc
 %% Validate that this txn has a valid oracle public key, that the
-%% price is an integer and not negative, and that the signature is
-%% valid
+%% price is an integer and not negative, that the public key for
+%% this price is a member of the list of approved oracles, and
+%% that this transaction is within an "acceptable" distance from
+%% when the transaction was submitted vs. the current block height.
+%%
+%% The acceptable distance is controlled by the
+%% `price_oracle_height_delta' chain variable.
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.

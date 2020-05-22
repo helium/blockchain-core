@@ -303,7 +303,7 @@
 %% base64:encode(<<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>)
 -define(price_oracle_public_keys, price_oracle_public_keys).
 %% How many blocks between price recalculations
--define(price_oracle_refresh_interval, price_oracle_refresh_oracle).
+-define(price_oracle_refresh_interval, price_oracle_refresh_interval).
 %% How much delta between the current blockchain height and the transaction is allowed
 -define(price_oracle_height_delta, price_oracle_height_delta).
 %% ------------------------------------------------------------------
