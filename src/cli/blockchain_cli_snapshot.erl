@@ -23,6 +23,7 @@ register_all_usage() ->
                   [
                    snapshot_take_usage(),
                    snapshot_load_usage(),
+                   snapshot_diff_usage(),
                    snapshot_usage()
                   ]).
 
@@ -33,6 +34,7 @@ register_all_cmds() ->
                   [
                    snapshot_take_cmd(),
                    snapshot_load_cmd(),
+                   snapshot_diff_cmd(),
                    snapshot_cmd()
                   ]).
 %%
@@ -44,6 +46,7 @@ snapshot_usage() ->
      ["blockchain snapshot commands\n\n",
       "  snapshot take   - Take a snapshot at the current ledger height.\n",
       "  snapshot load   - Load a snapshot from a file.\n"
+      "  snapshot diff   - Load two snapshots from files and find changes.\n"
      ]
     ].
 
@@ -77,15 +80,7 @@ snapshot_take(_, _, _) ->
 snapshot_take(Filename) ->
     Chain = blockchain_worker:blockchain(),
     Ledger = blockchain:ledger(Chain),
-    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
-    Blocks =
-        [begin
-             {ok, B} = blockchain:get_block(N, Chain),
-             B
-         end
-         || N <- lists:seq(DHeight, Height)],
+    Blocks = blockchain_ledger_snapshot_v1:get_blocks(Chain),
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, Blocks),
     {ok, BinSnap} = blockchain_ledger_snapshot_v1:serialize(Snapshot),
     file:write_file(Filename, BinSnap).
@@ -97,7 +92,7 @@ snapshot_load_cmd() ->
 
 snapshot_load_usage() ->
     [["snapshot", "load"],
-     ["blockchain snapshot take <filename>\n\n",
+     ["blockchain snapshot load <filename>\n\n",
       "  Take a ledger snapshot at the current height and write it to filename\n"]
     ].
 
@@ -109,14 +104,35 @@ snapshot_load(_, _, _) ->
 
 snapshot_load(Filename) ->
     {ok, BinSnap} = file:read_file(Filename),
-    %% no reason to hang this forever
-    ok = blockchain_lock:acquire(15000),
-    try
-        {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
-        Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
 
-        ok = blockchain_worker:install_snapshot(Hash, Snapshot)
-    after
-            blockchain_lock:release()
-    end,
+    {ok, Snapshot} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
+
+    ok = blockchain_worker:install_snapshot(Hash, Snapshot),
     ok.
+
+snapshot_diff_cmd() ->
+    [
+     [["snapshot", "diff", '*', '*'], [], [], fun snapshot_diff/3]
+    ].
+
+snapshot_diff_usage() ->
+    [["snapshot", "diff"],
+     ["blockchain snapshot diff <filename> <filename>\n\n",
+      "  Take a ledger snapshot at the current height and write it to filename\n"]
+    ].
+
+snapshot_diff(["snapshot", "diff", AFilename, BFilename], [], []) ->
+    Ret = snapshot_diff(AFilename, BFilename),
+    [clique_status:text(io_lib:format("~p", [Ret]))];
+snapshot_diff(_, _, _) ->
+    usage.
+
+snapshot_diff(AFilename, BFilename) ->
+    {ok, ABinSnap} = file:read_file(AFilename),
+    {ok, BBinSnap} = file:read_file(BFilename),
+
+    {ok, A} = blockchain_ledger_snapshot_v1:deserialize(ABinSnap),
+    {ok, B} = blockchain_ledger_snapshot_v1:deserialize(BBinSnap),
+
+    blockchain_ledger_snapshot_v1:diff(A, B).

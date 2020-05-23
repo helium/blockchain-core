@@ -60,7 +60,7 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} ::  witnesses(),
+    witnesses = #{} :: witnesses(),
     oui = undefined :: undefined | pos_integer()
 }).
 
