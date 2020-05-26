@@ -1286,9 +1286,17 @@ maybe_gc_pocs(Chain, Ledger) ->
                                                 %% pre-upgrade pocs are ancient
                                                 false;
                                             _ ->
-                                                {ok, B} = blockchain:get_block(H, Chain),
-                                                BH = blockchain_block:height(B),
-                                                (Height - BH) < PoCInterval * 2
+                                                case blockchain:get_block(H, Chain) of
+                                                    {ok, B} ->
+                                                        BH = blockchain_block:height(B),
+                                                        (Height - BH) < PoCInterval * 2;
+                                                    {error, not_found} ->
+                                                        %% we assume that if we can't find the
+                                                        %% origin block in a snapshotted build, we
+                                                        %% can just get rid of it, it's guaranteed
+                                                        %% to be too old.
+                                                        false
+                                                end
                                         end
                                 end, PoCs),
                           case FPoCs == PoCs of
