@@ -306,4 +306,9 @@
 -define(price_oracle_refresh_interval, price_oracle_refresh_interval).
 %% How much delta between the current blockchain height and the transaction is allowed
 -define(price_oracle_height_delta, price_oracle_height_delta).
+%% How many seconds to delay scanning for prices.
+-define(price_oracle_price_scan_delay, price_oracle_price_scan_delay).
+%% How many seconds to stop scanning for oracle prices.
+%% (Will also affect what prices get dropped from the cached list of prices.)
+-define(price_oracle_price_scan_max, price_oracle_price_scan_max).
 %% ------------------------------------------------------------------

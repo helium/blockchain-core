@@ -1441,17 +1441,19 @@ maybe_recalc_price(Blockchain, Ledger) ->
     end.
 
 recalc_price(LastPrice, BlockT, DefaultCF, Ledger) ->
-    HrAgo = BlockT - 3600, % seconds in an hour
-    DayAgo = BlockT - 90000, % seconds in a day + 1 hour
+    {ok, DelaySecs} = blockchain:config(?price_oracle_price_scan_delay, Ledger),
+    {ok, MaxSecs} = blockchain:config(?price_oracle_price_scan_max, Ledger),
+    StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
+    EndScan = BlockT - MaxSecs, % typically 1 day + 1 hour (in seconds)
     {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
-    NewPriceList = trim_price_list(Prices, DayAgo),
+    NewPriceList = trim_price_list(Prices, EndScan),
     {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
     Maximum = length(blockchain_utils:vars_keys_to_list(RawOracleKeys)),
     Minimum = (Maximum div 2) + 1,
 
     ValidPrices = lists:foldl(
                     fun(E, Acc) ->
-                            select_prices_by_time(HrAgo, DayAgo, E, Acc)
+                            select_prices_by_time(StartScan, EndScan, E, Acc)
                     end, #{}, NewPriceList),
 
     NumPrices = maps:size(ValidPrices),
@@ -1461,13 +1463,13 @@ recalc_price(LastPrice, BlockT, DefaultCF, Ledger) ->
         false -> {LastPrice, NewPriceList}
     end.
 
-select_prices_by_time(HrAgo, DayAgo,
+select_prices_by_time(Start, End,
                       #oracle_price_entry{ timestamp = T,
                                            public_key = PK,
                                            price = P }, Acc) ->
     if
-        T > HrAgo andalso T =< DayAgo -> Acc#{ PK => P };
-        T > DayAgo -> Acc;
+        T > Start andalso T =< End -> Acc#{ PK => P };
+        T > End -> Acc;
         true -> Acc
     end.
 
