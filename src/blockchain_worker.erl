@@ -375,6 +375,7 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
             {ok, GossipRef} = add_handlers(Swarm, Chain1),
             {ok, LedgerHeight} = blockchain_ledger_v1:current_height(NewLedger),
             {ok, ChainHeight} = blockchain:height(Chain1),
+            blockchain:delete_temp_blocks(Chain1),
             case LedgerHeight >= ChainHeight of
                 true -> ok;
                 false ->
