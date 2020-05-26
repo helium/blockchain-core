@@ -379,7 +379,7 @@ handle_call({install_snapshot, Hash, Snapshot}, _From,
                 true -> ok;
                 false ->
                     %% we likely retain some old blocks, and we should absorb them
-                    blockchain:replay_blocks(Chain1, false, LedgerHeight, ChainHeight)
+                    set_resyncing(ChainHeight, LedgerHeight, Chain1)
             end,
             blockchain_lock:release(),
             {reply, ok, maybe_sync(State#state{mode = normal, sync_paused = false,
