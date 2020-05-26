@@ -146,6 +146,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),
+    Nonce = ?MODULE:nonce(Txn),
     case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
         {error, _Reason}=Error ->
             Error;
@@ -157,7 +158,7 @@ absorb(Txn, Chain) ->
                     Error;
                 ok ->
                     OUI = ?MODULE:oui(Txn),
-                    blockchain_ledger_v1:update_gateway_oui(Gateway, OUI, Ledger)
+                    blockchain_ledger_v1:update_gateway_oui(Gateway, OUI, Nonce, Ledger)
             end
     end.
 

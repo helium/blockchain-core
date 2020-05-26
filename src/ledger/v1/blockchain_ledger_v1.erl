@@ -46,7 +46,7 @@
     gateway_versions/1,
 
     update_gateway_score/3, gateway_score/2,
-    update_gateway_oui/3,
+    update_gateway_oui/4,
 
     find_poc/2,
     request_poc/5,
@@ -1077,13 +1077,15 @@ gateway_score(GatewayAddress, Ledger) ->
 
 -spec update_gateway_oui(Gateway :: libp2p_crypto:pubkey_bin(),
                          OUI :: pos_integer() | undefined,
+                         Nonce :: non_neg_integer(),
                          Ledger :: ledger()) -> ok | {error, any()}.
-update_gateway_oui(Gateway, OUI, Ledger) ->
+update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
     case ?MODULE:find_gateway_info(Gateway, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, Gw} ->
-            NewGw = blockchain_ledger_gateway_v2:oui(OUI, Gw),
+            NewGw0 = blockchain_ledger_gateway_v2:oui(OUI, Gw),
+            NewGw = blockchain_ledger_gateway_v2:nonce(Nonce, NewGw0),
             Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
             AGwsCF = active_gateways_cf(Ledger),
             cache_put(Ledger, AGwsCF, Gateway, Bin)
