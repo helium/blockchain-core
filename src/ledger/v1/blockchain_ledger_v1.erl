@@ -497,6 +497,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                     [cache_fold(Ledger, CF,
                                 fun({K, V}, Acc) when Mod /= undefined ->
                                         [{K, Mod:deserialize(V)} | Acc];
+                                   ({K, V}, Acc) when Mod == t2b ->
+                                        [{K, erlang:binary_to_term(V)} | Acc];
                                    (X, Acc) -> [X | Acc]
                                 end,
                                 [])
@@ -505,7 +507,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                              {EntriesCF, blockchain_ledger_entry_v1},
                              {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
                              {HTLCsCF, blockchain_ledger_htlc_v1},
-                             {PoCsCF, blockchain_ledger_poc_v2},
+                             {PoCsCF, t2b},
                              {SecuritiesCF, blockchain_ledger_security_entry_v1},
                              {RoutingCF, blockchain_ledger_routing_v1},
                              {SCsCF, blockchain_ledger_state_channel_v1},
