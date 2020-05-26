@@ -160,6 +160,7 @@ print_payments(Payments) ->
 to_json(Txn, _Opts) ->
     #{
       type => <<"payment_v2">>,
+      hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       payments => [blockchain_payment_v2:to_json(Payment, []) || Payment <- payments(Txn)],
       fee => fee(Txn),
