@@ -484,7 +484,10 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
         Filter = ?BC_UPGRADE_NAMES,
         DefaultVals = cache_fold(
                         Ledger, DefaultCF,
-                        fun({K, _} = X, Acc) ->
+                        %% these are nonsense, ignore them
+                        fun({<<"$block_", _/binary>>, _}, Acc) ->
+                                Acc;
+                           ({K, _} = X, Acc) ->
                                 case lists:member(K, Filter) of
                                     true -> Acc;
                                     _ -> [X | Acc]
@@ -495,10 +498,10 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             case Extended of
                 decompress ->
                     [cache_fold(Ledger, CF,
-                                fun({K, V}, Acc) when Mod /= undefined ->
-                                        [{K, Mod:deserialize(V)} | Acc];
-                                   ({K, V}, Acc) when Mod == t2b ->
+                                fun({K, V}, Acc) when Mod == t2b ->
                                         [{K, erlang:binary_to_term(V)} | Acc];
+                                   ({K, V}, Acc) when Mod /= undefined ->
+                                        [{K, Mod:deserialize(V)} | Acc];
                                    (X, Acc) -> [X | Acc]
                                 end,
                                 [])
