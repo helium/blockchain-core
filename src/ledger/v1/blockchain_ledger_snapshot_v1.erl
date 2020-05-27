@@ -359,6 +359,15 @@ diff(A, B) ->
                               BUniq = BI -- AI,
                               Diff = diff_gateways(AUniq, BUniq, []),
                               [{gateways, Diff} | Acc];
+                          blocks ->
+                              AHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- AI],
+                              BHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- BI],
+                              case {AHeightAndHash -- BHeightAndHash, BHeightAndHash -- AHeightAndHash} of
+                                  {[], []} ->
+                                      Acc;
+                                  {ADiffs, BDiffs} ->
+                                      [{Field, [Height || {Height, _Hash} <- ADiffs], [Height || {Height, _Hash} <- BDiffs]} | Acc]
+                              end;
                           _ ->
                               [Field | Acc]
                       end
