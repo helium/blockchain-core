@@ -484,7 +484,9 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
         Filter = ?BC_UPGRADE_NAMES,
         DefaultVals = cache_fold(
                         Ledger, DefaultCF,
-                        %% these are nonsense, ignore them
+                        %% if any of these are in the CF, it's a
+                        %% result of an old, fixed bug, they're safe
+                        %% to ignore.
                         fun({<<"$block_", _/binary>>, _}, Acc) ->
                                 Acc;
                            ({K, _} = X, Acc) ->
@@ -495,32 +497,25 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                         end, []),
         L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
               PoCs, Securities, Routings, StateChannels, Subnets] =
-            case Extended of
-                decompress ->
-                    [cache_fold(Ledger, CF,
-                                fun({K, V}, Acc) when Mod == t2b ->
-                                        [{K, erlang:binary_to_term(V)} | Acc];
-                                   ({K, V}, Acc) when Mod /= undefined ->
-                                        [{K, Mod:deserialize(V)} | Acc];
-                                   (X, Acc) -> [X | Acc]
-                                end,
-                                [])
-                     || {CF, Mod} <-
-                            [{AGwsCF, blockchain_ledger_gateway_v2},
-                             {EntriesCF, blockchain_ledger_entry_v1},
-                             {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
-                             {HTLCsCF, blockchain_ledger_htlc_v1},
-                             {PoCsCF, t2b},
-                             {SecuritiesCF, blockchain_ledger_security_entry_v1},
-                             {RoutingCF, blockchain_ledger_routing_v1},
-                             {SCsCF, blockchain_ledger_state_channel_v1},
-                             {SubnetsCF, undefined}
-                            ]];
-                _ ->
-                    [cache_fold(Ledger, CF, fun(X, Acc) -> [X | Acc] end, [])
-                     || CF <- [AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF,
-                               PoCsCF, SecuritiesCF, RoutingCF, SCsCF, SubnetsCF]]
-            end,
+            [cache_fold(Ledger, CF,
+                        fun({K, V}, Acc) when Mod == t2b ->
+                                [{K, erlang:binary_to_term(V)} | Acc];
+                           ({K, V}, Acc) when Mod /= undefined ->
+                                [{K, Mod:deserialize(V)} | Acc];
+                           (X, Acc) -> [X | Acc]
+                        end,
+                        [])
+             || {CF, Mod} <-
+                    [{AGwsCF, blockchain_ledger_gateway_v2},
+                     {EntriesCF, blockchain_ledger_entry_v1},
+                     {DCEntriesCF, blockchain_ledger_data_credits_entry_v1},
+                     {HTLCsCF, blockchain_ledger_htlc_v1},
+                     {PoCsCF, t2b},
+                     {SecuritiesCF, blockchain_ledger_security_entry_v1},
+                     {RoutingCF, blockchain_ledger_routing_v1},
+                     {SCsCF, blockchain_ledger_state_channel_v1},
+                     {SubnetsCF, undefined}
+                    ]],
         L = lists:append(L0, DefaultVals),
         case Extended of
             false ->
