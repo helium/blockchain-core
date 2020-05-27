@@ -43,7 +43,7 @@
 %% <code>
 %% base64:encode(<<Len/integer, Key/binary>>)
 %% </code>
-%% Price should be provided in 1/1000ths of a cent: 100000=$1
+%% Price should be provided in 1/100,000,000ths of a cent: 100000000=$1
 %% Blockheight is expected to be the current height of the chain when
 %% txn is submitted
 %% @end
@@ -71,8 +71,9 @@ hash(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% The price estimate in thousandths of a cent (1/1000th cent). $1=100_000
-%% This is a uint64 under the hood.
+%% The price estimate in one hundred millionth of a cent (1/100_000_000th cent).
+%% USD$1=100000000
+%% %% This is a uint64 under the hood.
 %% @end
 %%--------------------------------------------------------------------
 -spec price(txn_price_oracle()) -> non_neg_integer().
@@ -189,6 +190,7 @@ absorb(Txn, Chain) ->
     Entry = #oracle_price_entry{
                price = ?MODULE:price(Txn),
                public_key = ?MODULE:public_key(Txn),
+               block_height = LedgerHeight,
                timestamp = Time },
 
     blockchain_ledger_v1:add_oracle_price(Entry, Ledger).
@@ -211,7 +213,7 @@ to_json(Txn, _Opts) ->
     #{ type => <<"price_oracle_v1">>,
        hash => ?BIN_TO_B64(hash(Txn)),
        fee => fee(Txn),
-       public_key => public_key(Txn),
+       public_key => ?BIN_TO_B58(public_key(Txn)),
        price => price(Txn),
        block_height => block_height(Txn)
      }.
@@ -219,9 +221,14 @@ to_json(Txn, _Opts) ->
 %% ------------------------------------------------------------------
 %% Private functions
 %% ------------------------------------------------------------------
+
 validate_block_height(MsgHeight, Current, MaxHeight) when (Current - MsgHeight) =< MaxHeight ->
     true;
 validate_block_height(_MsgHeight, _Current, _MaxHeight) -> false.
+
+%% XXX TODO: Also need to validate if the PK already has a price at this height, although
+%% the way the that prices are handled, we should have exactly 1 price per key when they're
+%% calculated
 
 decode_public_key(B64) ->
     <<Len/integer, Key/bytes>> = base64:decode(B64),
@@ -250,5 +257,9 @@ oracle_public_key_test() ->
 price_test() ->
     Tx = new(<<"oracle">>, 1, 2),
     ?assertEqual(1, price(Tx)).
+
+block_height_test() ->
+    Tx = new(<<"oracle">>, 1, 2),
+    ?assertEqual(2, block_height(Tx)).
 
 -endif.

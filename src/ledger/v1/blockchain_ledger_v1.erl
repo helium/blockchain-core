@@ -97,6 +97,8 @@
 
     maybe_recalc_price/2,
     add_oracle_price/2,
+    current_oracle_price/1,
+    current_oracle_price_list/1,
 
     apply_raw_changes/2,
 
@@ -2088,6 +2090,16 @@ add_oracle_price(PriceEntry, Ledger) ->
     DefaultCF = default_cf(Ledger),
     {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
     cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, [ PriceEntry | Prices ]).
+
+-spec current_oracle_price(ledger()) -> {ok, non_neg_integer()} | not_found.
+current_oracle_price(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []).
+
+-spec current_oracle_price_list(ledger()) -> {ok, [ non_neg_integer() ]} | not_found.
+current_oracle_price_list(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []).
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),
