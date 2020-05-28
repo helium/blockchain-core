@@ -2088,18 +2088,24 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
 -spec add_oracle_price(oracle_price_entry(), ledger()) -> ok.
 add_oracle_price(PriceEntry, Ledger) ->
     DefaultCF = default_cf(Ledger),
-    {ok, Prices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
-    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, [ PriceEntry | Prices ]).
+    {ok, BinPrices} = cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []),
+    Prices = binary_to_term(BinPrices),
+    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary([ PriceEntry | Prices ])).
 
 -spec current_oracle_price(ledger()) -> {ok, non_neg_integer()} | not_found.
 current_oracle_price(Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []).
 
--spec current_oracle_price_list(ledger()) -> {ok, [ non_neg_integer() ]} | not_found.
+-spec current_oracle_price_list(ledger()) -> {ok, [ oracle_price_entry() ]} | not_found.
 current_oracle_price_list(Ledger) ->
     DefaultCF = default_cf(Ledger),
-    cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []).
+    case cache_get(Ledger, DefaultCF, ?ORACLE_PRICES, []) of
+        {ok, BinPrices} ->
+            {ok, binary_to_term(BinPrices)};
+        Other ->
+            Other
+    end.
 
 clean(#ledger_v1{dir=Dir, db=DB}=L) ->
     delete_context(L),

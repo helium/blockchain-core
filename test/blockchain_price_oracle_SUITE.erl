@@ -147,4 +147,4 @@ make_oracle_txns(N, Keys, BlockHeight) ->
                 || _ <- lists:seq(1, N) ]).
 
 prep_public_key(K) ->
-    base64:encode(<<byte_size(K):8/unsigned-integer, K/binary>>).
+    base64:encode(<<(byte_size(K)):8/unsigned-integer, K/binary>>).

@@ -358,7 +358,7 @@ oracle_keys_test() ->
     #{ public := RawEdPK } = libp2p_crypto:generate_keys(ed25519),
     EccPK = libp2p_crypto:pubkey_to_bin(RawEccPK),
     EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
-    TestStr = base64:encode(<<byte_size(Key):8/integer, Key/binary || Key <- [EccPk, EdPk]>>),
+    TestStr = base64:encode(<< <<(byte_size(Key)):8/integer, Key/binary>> || Key <- [EccPK, EdPK] >>),
     Results = vars_keys_to_list(TestStr),
     ?assertEqual([EccPK, EdPK], Results),
     Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],

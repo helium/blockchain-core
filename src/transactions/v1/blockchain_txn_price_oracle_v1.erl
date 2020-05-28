@@ -164,7 +164,7 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
-                    case validate_block_height(BlockHeight, LedgerHeight, MaxHeight) of
+                    case validate_block_height(RawTxnPK, BlockHeight, LedgerHeight, MaxHeight, Ledger) of
                         false ->
                             {error, bad_block_height};
                         true ->
@@ -222,13 +222,22 @@ to_json(Txn, _Opts) ->
 %% Private functions
 %% ------------------------------------------------------------------
 
-validate_block_height(MsgHeight, Current, MaxHeight) when (Current - MsgHeight) =< MaxHeight ->
-    true;
-validate_block_height(_MsgHeight, _Current, _MaxHeight) -> false.
+validate_block_height(PK, MsgHeight, Current, MaxHeight, Ledger) when (Current - MsgHeight) =< MaxHeight ->
+    %% Also need to validate if the PK already has a price at this height, although
+    %% the way the that prices are handled, we should have exactly 1 price per key when they're
+    %% calculated
+    case blockchain_ledger_v1:current_oracle_price_list(Ledger) of
+        {ok, Prices} ->
+            MyReportingHeights = [ Price#oracle_price_entry.block_height || Price <- Prices, Price#oracle_price_entry.public_key == PK],
+            %% make sure this is not the empty list if we have not reported lately by prepending a 0 to the list
+            MaxReportedHeight = [0 | MyReportingHeights],
+            MsgHeight > MaxReportedHeight;
+        not_found ->
+            %% nobody has reported lately
+            true
+    end;
+validate_block_height(_PK, _MsgHeight, _Current, _MaxHeight, _Ledger) -> false.
 
-%% XXX TODO: Also need to validate if the PK already has a price at this height, although
-%% the way the that prices are handled, we should have exactly 1 price per key when they're
-%% calculated
 
 decode_public_key(B64) ->
     <<Len/integer, Key/bytes>> = base64:decode(B64),
