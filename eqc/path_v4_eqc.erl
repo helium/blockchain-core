@@ -5,8 +5,8 @@
 -import(eqc_utils,
         [ledger/1,
          dead_hotspots/0,
-         find_challenger/2,
-         maybe_output_paths/3
+         find_challenger/2
+         %% maybe_output_paths/3
         ]).
 
 -export([prop_path_check/0]).
@@ -28,7 +28,7 @@ prop_path_check() ->
                 {ChallengerPubkeyBin, _ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
                 {ok, {TargetPubkeyBin, TargetRandState}} = blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars),
-                {Time, Path} = timer:tc(fun() ->
+                {_Time, Path} = timer:tc(fun() ->
                                                 blockchain_poc_path_v4:build(TargetPubkeyBin,
                                                                              TargetRandState,
                                                                              Ledger,
@@ -38,7 +38,7 @@ prop_path_check() ->
 
                 PathLength = length(Path),
 
-                ok = maybe_output_paths(TargetPubkeyBin, Path, Time),
+                %% ok = maybe_output_paths(TargetPubkeyBin, Path, Time),
 
                 %% Checks:
                 %% - honor path limit
