@@ -59,7 +59,7 @@
 -ifdef(TEST).
 -define(min_snap_interval, 1).
 -else.
--define(min_snap_interval, 720).
+-define(min_snap_interval, 4*60).
 -endif.
 
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
@@ -819,7 +819,7 @@ validate_var(?snapshot_version, Value) ->
 %% -ifdef(TEST).
 %% -define(min_snap_interval, 1).
 %% -else.
-%% -define(min_snap_interval, 720).
+%% -define(min_snap_interval, 4 * 60).
 %% -endif.
 validate_var(?snapshot_interval, Value) -> % half day to two weeks
     validate_int(Value, "snapshot_interval", ?min_snap_interval, 20160, false);
