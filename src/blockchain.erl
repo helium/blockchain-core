@@ -473,7 +473,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
         lists:foldl(
           fun(_, Acc) when is_tuple(Acc) ->
                   Acc;
-             (H, none) when H == DelayedHeight ->
+             (H, none) when H == (DelayedHeight+1) ->
                   {DelayedHeight, DelayedLedger};
              (H, none) ->
                   case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
