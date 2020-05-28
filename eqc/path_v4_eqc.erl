@@ -5,7 +5,8 @@
 -import(eqc_utils,
         [ledger/1,
          dead_hotspots/0,
-         find_challenger/2
+         find_challenger/2,
+         ledger_vars/1
          %% maybe_output_paths/3
         ]).
 
@@ -19,7 +20,7 @@ prop_path_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
+                LedgerVars = ledger_vars(Ledger),
 
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
