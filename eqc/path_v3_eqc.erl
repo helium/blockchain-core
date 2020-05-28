@@ -3,6 +3,11 @@
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-import(eqc_utils,
+        [
+         ledger_vars/1
+        ]).
+
 -export([prop_path_check/0]).
 
 prop_path_check() ->
@@ -13,7 +18,7 @@ prop_path_check() ->
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
-                LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
+                LedgerVars = ledger_vars(Ledger),
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
 
@@ -23,7 +28,7 @@ prop_path_check() ->
                                 true;
                             {ok, TargetPubkeyBin} ->
 
-                                {Time, Path} = timer:tc(fun() ->
+                                {_Time, Path} = timer:tc(fun() ->
                                                                 blockchain_poc_path_v3:build(TargetPubkeyBin,
                                                                                              Ledger,
                                                                                              block_time(),
@@ -33,17 +38,17 @@ prop_path_check() ->
 
                                 PathLength = length(Path),
 
-                                B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
-                                HumanPath = [name(P) || P <- Path],
-                                io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
+                                %% B58Path = #{libp2p_crypto:bin_to_b58(TargetPubkeyBin) => [[libp2p_crypto:bin_to_b58(P) || P <- Path]]},
+                                %% HumanPath = [name(P) || P <- Path],
+                                %% io:format("Time: ~p\t Path: ~p~n", [erlang:convert_time_unit(Time, microsecond, millisecond), HumanPath]),
 
-                                case length(Path) > 1 of
-                                    true ->
-                                        ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
-                                        ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
-                                    false ->
-                                        ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
-                                end,
+                                %% case length(Path) > 1 of
+                                %%     true ->
+                                %%         ok = file:write_file("/tmp/paths_js", io_lib:fwrite("~p.\n", [B58Path]), [append]),
+                                %%         ok = file:write_file("/tmp/paths_target", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append]);
+                                %%     false ->
+                                %%         ok = file:write_file("/tmp/paths_beacon", io_lib:fwrite("~p: ~p.\n", [name(TargetPubkeyBin), HumanPath]), [append])
+                                %% end,
 
                                 %% Checks:
                                 %% - honor path limit
@@ -141,9 +146,9 @@ check_next_hop([H | T], ActiveGateways) ->
             false
     end.
 
-name(PubkeyBin) ->
-    {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
-    Name.
+%% name(PubkeyBin) ->
+%%     {ok, Name} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(PubkeyBin)),
+%%     Name.
 
 targeting_vars() ->
     #{poc_v4_target_prob_score_wt => 0.0,

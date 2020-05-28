@@ -27,22 +27,22 @@ prop_target_check() ->
 
                                 GatewayScores = blockchain_poc_target_v2:filter(GatewayScoreMap, Challenger, ChallengerLoc, Height, Vars),
 
-                                {Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
+                                {_Time, {ok, TargetPubkeyBin}} = timer:tc(fun() ->
                                                                                  blockchain_poc_target_v2:target(Hash, GatewayScores, Vars)
                                                                          end),
-                                io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))),
-                                                                     erlang:convert_time_unit(Time, microsecond, millisecond)]),
+                                %% io:format("Target: ~p, Time: ~p~n", [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin))),
+                                %%                                      erlang:convert_time_unit(Time, microsecond, millisecond)]),
 
-                                {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
-                                {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
-                                {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
-                                TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
-                                {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
-                                ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
-                                ok = file:write_file("/tmp/challenger_targets",
-                                                     io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p.\n",
-                                                                   [ChallengerName, ChallengerLoc, TargetName, TargetLoc, TargetScore, Dist]),
-                                                     [append]),
+                                %% {ok, TargetName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(TargetPubkeyBin)),
+                                %% {ok, ChallengerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(Challenger)),
+                                %% {ok, TargetScore} = blockchain_ledger_v1:gateway_score(TargetPubkeyBin, Ledger),
+                                %% TargetLoc = blockchain_ledger_gateway_v2:location(maps:get(TargetPubkeyBin, ActiveGateways)),
+                                %% {ok, Dist} = vincenty:distance(h3:to_geo(TargetLoc), h3:to_geo(ChallengerLoc)),
+                                %% ok = file:write_file("/tmp/targets", io_lib:fwrite("~p: ~p.\n", [TargetName, TargetScore]), [append]),
+                                %% ok = file:write_file("/tmp/challenger_targets",
+                                %%                      io_lib:fwrite("~p, ~p, ~p, ~p, ~p, ~p.\n",
+                                %%                                    [ChallengerName, ChallengerLoc, TargetName, TargetLoc, TargetScore, Dist]),
+                                %%                      [append]),
                                 maps:is_key(TargetPubkeyBin, ActiveGateways)
                         end,
 

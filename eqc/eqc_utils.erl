@@ -4,7 +4,8 @@
          dead_hotspots/0,
          ledger/1,
          name/1,
-         maybe_output_paths/3
+         maybe_output_paths/3,
+         ledger_vars/1
         ]).
 
 find_challenger(ChallengerIndex, ActiveGateways) ->
@@ -59,7 +60,7 @@ ledger(ExtraVars) ->
     %% Get the ledger
     Ledger = blockchain_ledger_v1:new(PrivDir),
     %% Get current ledger vars
-    LedgerVars = blockchain_utils:vars_binary_keys_to_atoms(blockchain_ledger_v1:all_vars(Ledger)),
+    LedgerVars = ledger_vars(Ledger),
     %% Ensure the ledger has the vars we're testing against
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     blockchain_ledger_v1:vars(maps:merge(LedgerVars, ExtraVars), [], Ledger1),
@@ -67,6 +68,9 @@ ledger(ExtraVars) ->
     blockchain:bootstrap_hexes(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
+
+ledger_vars(Ledger) ->
+    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
 extract_ledger_tar(PrivDir, LedgerTar) ->
     case filelib:is_file(LedgerTar) of
