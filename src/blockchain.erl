@@ -1597,6 +1597,13 @@ load(Dir, Mode) ->
                 ledger=Ledger
             },
             compact(Blockchain),
+            %% pre-calculate the missing snapshots
+            case height(Blockchain) of
+                {ok, ChainHeight} when ChainHeight > 2 ->
+                    ledger_at(ChainHeight - 1, Blockchain);
+                _ ->
+                    ok
+            end,
             {Blockchain, ?MODULE:genesis_block(Blockchain)}
     end.
 
