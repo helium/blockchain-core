@@ -474,9 +474,9 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
           fun(_, Acc) when is_tuple(Acc) ->
                   Acc;
              (H, none) when H == (DelayedHeight+1) ->
-                  {DelayedHeight, DelayedLedger};
+                  {DelayedHeight, blockchain_ledger_v1:new_context(DelayedLedger)};
              (H, none) ->
-                  case blockchain_ledger_v1:has_snapshot(Height, DelayedLedger) of
+                  case blockchain_ledger_v1:has_snapshot(H, DelayedLedger) of
                       {ok, Snap} ->
                           {H, Snap};
                       _ ->
@@ -514,7 +514,7 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
             %% keep returning the error
             Error
       end,
-      {ok, ?MODULE:ledger(blockchain_ledger_v1:new_context(HighestLedger), Chain0)},
+      {ok, ?MODULE:ledger(HighestLedger, Chain0)},
       lists:seq(HighestSnapHeight+1, Height)
      ).
 
