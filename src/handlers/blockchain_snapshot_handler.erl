@@ -48,9 +48,9 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, [Hash, Height, Chain]) ->
     case blockchain_worker:sync_paused() of
-        false ->
-            {stop, sync_not_paused};
         true ->
+            {stop, normal};
+        false ->
             Msg = #blockchain_snapshot_req_pb{height = Height, hash = Hash},
             {ok, #state{chain = Chain, hash = Hash},
              blockchain_snapshot_handler_pb:encode_msg(Msg)}
