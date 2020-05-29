@@ -468,6 +468,23 @@ ledger_at(Height, Chain0, ForceRecalc) ->
     end.
 
 fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
+    %% to minimize work, check backwards for snapshots
+    {HighestSnapHeight, HighestLedger} =
+        lists:foldl(
+          fun(_, Acc) when is_tuple(Acc) ->
+                  Acc;
+             (H, none) when H == (DelayedHeight+1) ->
+                  {DelayedHeight, blockchain_ledger_v1:new_context(DelayedLedger)};
+             (H, none) ->
+                  case blockchain_ledger_v1:has_snapshot(H, DelayedLedger) of
+                      {ok, Snap} ->
+                          {H, Snap};
+                      _ ->
+                          none
+                  end
+          end,
+          none,
+          lists:seq(Height, DelayedHeight+1, -1)),
     lists:foldl(
       fun(H, {ok, ChainAcc}) ->
               case ?MODULE:get_block(H, Chain0) of
@@ -479,6 +496,13 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
                               ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger0),
                               ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
                               ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+
+                              %% take an intermediate snapshot here to
+                              %% make things faster in the future
+                              Ledger1 = ?MODULE:ledger(Chain1),
+                              Ctxt = blockchain_ledger_v1:get_context(Ledger1),
+                              blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
+
                               {ok, Chain1};
                           {error, Reason} ->
                               {error, {block_absorb_failed, H, Reason}}
@@ -490,8 +514,8 @@ fold_blocks(Chain0, DelayedHeight, DelayedLedger, Height) ->
             %% keep returning the error
             Error
       end,
-      {ok, ?MODULE:ledger(blockchain_ledger_v1:new_context(DelayedLedger), Chain0)},
-      lists:seq(DelayedHeight+1, Height)
+      {ok, ?MODULE:ledger(HighestLedger, Chain0)},
+      lists:seq(HighestSnapHeight+1, Height)
      ).
 
 %%--------------------------------------------------------------------
@@ -1573,6 +1597,13 @@ load(Dir, Mode) ->
                 ledger=Ledger
             },
             compact(Blockchain),
+            %% pre-calculate the missing snapshots
+            case height(Blockchain) of
+                {ok, ChainHeight} when ChainHeight > 2 ->
+                    ledger_at(ChainHeight - 1, Blockchain);
+                _ ->
+                    ok
+            end,
             {Blockchain, ?MODULE:genesis_block(Blockchain)}
     end.
 
