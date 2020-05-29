@@ -626,9 +626,11 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
         %% install the ledger snapshot
         {ok, _N} when Pid /= undefined ->
             reset_sync_timer(State);
-        {ok, N} ->
+        {ok, CurrHeight} ->
             case State#state.snapshot_info of
-                {Hash, Height} when Height < N ->
+                %% when the current height is *lower* than than the
+                %% snap height, start the sync
+                {Hash, Height} when CurrHeight < Height ->
                     snapshot_sync(Hash, Height, State);
                 _ ->
                     reset_sync_timer(State)
