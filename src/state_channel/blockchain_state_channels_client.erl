@@ -12,7 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
          start_link/1,
-         packet/2,
+         packet/3,
          state/0,
          response/1
         ]).
@@ -64,9 +64,9 @@ response(Resp) ->
             Mod:handle_response(Resp)
     end.
 
--spec packet(blockchain_helium_packet_v1:packet(), [string()]) -> ok.
-packet(Packet, DefaultRouters) ->
-    gen_server:cast(?SERVER, {packet, Packet, DefaultRouters}).
+-spec packet(blockchain_helium_packet_v1:packet(), [string()], binary()) -> ok.
+packet(Packet, DefaultRouters, Region) ->
+    gen_server:cast(?SERVER, {packet, Packet, DefaultRouters, Region}).
 
 -spec state() -> state().
 state() ->
@@ -91,8 +91,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
-handle_cast({packet, Packet, DefaultRouters}, State) ->
-    NewState = handle_packet(Packet, DefaultRouters, State),
+handle_cast({packet, Packet, DefaultRouters, Region}, State) ->
+    NewState = handle_packet(Packet, DefaultRouters, Region, State),
     {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
@@ -117,8 +117,9 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     DefaultRouters :: [string()],
+                    Region :: binary(),
                     State :: state()) -> state().
-handle_packet(Packet, DefaultRouters, State=#state{swarm=Swarm}) ->
+handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
     case find_routing(Packet) of
         {error, _Reason} ->
             lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
@@ -132,17 +133,17 @@ handle_packet(Packet, DefaultRouters, State=#state{swarm=Swarm}) ->
                                             {ok, NewStream} ->
                                                 unlink(NewStream),
                                                 erlang:monitor(process, NewStream),
-                                                ok = send_packet(Packet, Swarm, NewStream),
+                                                ok = send_packet(Packet, Swarm, NewStream, Region),
                                                 add_stream(Router, NewStream, State)
                                         end;
                                     Stream ->
-                                        ok = send_packet(Packet, Swarm, Stream),
+                                        ok = send_packet(Packet, Swarm, Stream, Region),
                                         StateAcc
                                 end
                         end, State, DefaultRouters);
         {ok, Routes} ->
             lists:foldl(fun(Route, StateAcc) ->
-                                send_to_route(Packet, Route, StateAcc)
+                                send_to_route(Packet, Route, Region, StateAcc)
                         end, State, Routes)
     end.
 
@@ -152,10 +153,11 @@ handle_packet(Packet, DefaultRouters, State=#state{swarm=Swarm}) ->
 
 -spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Swarm :: pid(),
-                  Stream :: pid()) -> ok.
-send_packet(Packet, Swarm, Stream) ->
+                  Stream :: pid(),
+                  Region :: binary()  ) -> ok.
+send_packet(Packet, Swarm, Stream, Region) ->
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin),
+    PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
@@ -179,8 +181,8 @@ find_routing(Packet) ->
             {error, oui_routing_disabled}
     end.
 
--spec send_to_route(blockchain_helium_packet_v1:packet(), blockchain_ledger_routing_v1:routing(), state()) -> state().
-send_to_route(Packet, Route, State=#state{swarm=Swarm}) ->
+-spec send_to_route(blockchain_helium_packet_v1:packet(), blockchain_ledger_routing_v1:routing(), binary(), state()) -> state().
+send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
     OUI = blockchain_ledger_routing_v1:oui(Route),
     case find_stream(OUI, State) of
         undefined ->
@@ -198,13 +200,13 @@ send_to_route(Packet, Route, State=#state{swarm=Swarm}) ->
                                                     {ok, NewStream} ->
                                                         unlink(NewStream),
                                                         erlang:monitor(process, NewStream),
-                                                        ok = send_packet(Packet, Swarm, NewStream),
+                                                        ok = send_packet(Packet, Swarm, NewStream, Region),
                                                         {done, add_stream(OUI, NewStream, State)}
                                                 end
                                         end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
             NewState;
         Stream ->
-            ok = send_packet(Packet, Swarm, Stream),
+            ok = send_packet(Packet, Swarm, Stream, Region),
             State
     end.
 
