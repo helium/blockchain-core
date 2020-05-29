@@ -1784,8 +1784,18 @@ init_assumed_valid(Blockchain, _) ->
     maybe_continue_resync(Blockchain).
 
 init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
-    blockchain_worker:snapshot_sync(Hash, Height),
-    Blockchain;
+    {ok, CurrHeight} = blockchain:height(Blockchain),
+    case CurrHeight >= Height of
+        %% already loaded the snapshot
+        true ->
+            lager:info("ch ~p h ~p: std sync", [CurrHeight, Height]),
+            blockchain_worker:maybe_sync(),
+            Blockchain;
+        false ->
+            lager:info("ch ~p h ~p: snap sync", [CurrHeight, Height]),
+            blockchain_worker:snapshot_sync(Hash, Height),
+            Blockchain
+    end;
 init_blessed_snapshot(Blockchain, _) ->
     Blockchain.
 
