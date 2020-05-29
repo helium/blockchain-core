@@ -49,7 +49,7 @@ unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
 
 encode_decode_test() ->
     Packet = blockchain_helium_packet_v1:new({devaddr, 16#deadbeef}, <<"yolo">>),
-    SCPacket = blockchain_state_channel_packet_v1:new(Packet, <<"hotspot">>, <<"US902-928">>),
+    SCPacket = blockchain_state_channel_packet_v1:new(Packet, <<"hotspot">>, 'US915'),
     ?assertEqual({packet, SCPacket}, decode(encode(SCPacket))).
 
 -endif.
