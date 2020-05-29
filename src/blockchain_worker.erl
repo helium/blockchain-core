@@ -322,7 +322,17 @@ init(Args) ->
                     blessed_snapshot ->
                         {ok, Hash} = application:get_env(blockchain, blessed_snapshot_block_hash),
                         {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
-                        {snapshot, {Hash, Height}}
+                        case Blockchain of
+                            undefined ->
+                                {snapshot, {Hash, Height}};
+                            _Chain ->
+                                {ok, CurrHeight} = blockchain:height(Blockchain),
+                                case CurrHeight >= Height of
+                                    %% already loaded the snapshot
+                                    true -> {normal, undefined};
+                                    false -> {snapshot, {Hash, Height}}
+                                end
+                        end
                 end;
             full ->
                 %% full sync only ever syncs blocks, so just sync blocks
@@ -511,7 +521,7 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, _Ledger}}, State) ->
     %% nothing to do here, block re-gossip is handled by the gossip handler
     {noreply, State};
 handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
-            #state{sync_ref = SyncRef, blockchain = Chain} = State0) ->
+            #state{sync_ref = SyncRef, blockchain = Chain, mode = Mode} = State0) ->
     State = State0#state{sync_pid = undefined},
     %% TODO: this sometimes we're gonna have a failed snapshot sync
     %% and we need to handle that here somehow.
@@ -530,6 +540,9 @@ handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
         N when N < 60 * 60 ->
             %% relatively recent
             {noreply, schedule_sync(State)};
+        _ when Mode == snapshot ->
+            {Hash, Height} = State#state.snapshot_info,
+            {noreply, snapshot_sync(Hash, Height, State)};
         _ ->
             %% we're deep in the past here, so just start the next sync
             {noreply, start_sync(State)}
@@ -611,14 +624,15 @@ maybe_sync(#state{mode = snapshot, blockchain = Chain, sync_pid = Pid} = State) 
     case blockchain_ledger_v1:current_height(Ledger) of
         %% still waiting for the background process to download and
         %% install the ledger snapshot
-        {ok, 1} when Pid /= undefined ->
+        {ok, _N} when Pid /= undefined ->
             reset_sync_timer(State);
-        {ok, 1} ->
-            {Hash, Height} = State#state.snapshot_info,
-            snapshot_sync(Hash, Height, State);
-        %% for now, just sync blocks from the blessed snapshot
-        {ok, _N} ->
-            maybe_sync_blocks(State);
+        {ok, N} ->
+            case State#state.snapshot_info of
+                {Hash, Height} when Height < N ->
+                    snapshot_sync(Hash, Height, State);
+                _ ->
+                    reset_sync_timer(State)
+            end;
         {error, Error} ->
             lager:info("couldn't get current height: ~p", [Error]),
             reset_sync_timer(State)
