@@ -119,7 +119,7 @@ snapshot_diff_cmd() ->
 snapshot_diff_usage() ->
     [["snapshot", "diff"],
      ["blockchain snapshot diff <filename> <filename>\n\n",
-      "  Take a ledger snapshot at the current height and write it to filename\n"]
+      "  Compare two snapshot files for equality, returns the list of differences or [] if identical\n"]
     ].
 
 snapshot_diff(["snapshot", "diff", AFilename, BFilename], [], []) ->
