@@ -367,6 +367,7 @@ handle_call({new_ledger, Dir}, _From, State) ->
 
 handle_call({install_snapshot, Hash, Snapshot}, _From,
             #state{blockchain = Chain, mode = Mode, swarm = Swarm} = State) ->
+    lager:info("installing snapshot ~p", [Hash]),
     %% I don't think that we want to auto-repair right now, do default
     %% this to disabled.  nothing currently will ever set the mode to
     %% reset, so we should never go into the `true` clause here.
@@ -826,8 +827,12 @@ start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
                 Ref1 = erlang:monitor(process, Stream),
                 receive
                     cancel ->
+                        lager:info("snapshot sync cancelled"),
                         libp2p_framed_stream:close(Stream);
-                    {'DOWN', Ref1, process, Stream, _} ->
+                    {'DOWN', Ref1, process, Stream, normal} ->
+                        ok;
+                    {'DOWN', Ref1, process, Stream, Reason} ->
+                        lager:info("snapshot sync failed with error ~p", [Reason]),
                         ok
                 after timer:minutes(15) ->
                         ok
@@ -909,6 +914,13 @@ schedule_sync(State) ->
               true ->
                   make_ref();
               false ->
-                  erlang:send_after(?SYNC_TIME, self(), maybe_sync)
+                  case erlang:read_timer(State#state.sync_timer) of
+                      false ->
+                          %% timer is expired or invalid
+                          erlang:send_after(?SYNC_TIME, self(), maybe_sync);
+                      _Time ->
+                          %% existing timer still has some time left
+                          State#state.sync_timer
+                  end
           end,
     State#state{sync_timer=Ref}.
