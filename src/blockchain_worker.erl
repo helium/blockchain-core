@@ -325,6 +325,8 @@ init(Args) ->
                         case Blockchain of
                             undefined ->
                                 {snapshot, {Hash, Height}};
+                            {no_genesis, _} ->
+                                {snapshot, {Hash, Height}};
                             _Chain ->
                                 {ok, CurrHeight} = blockchain:height(Blockchain),
                                 case CurrHeight >= Height of

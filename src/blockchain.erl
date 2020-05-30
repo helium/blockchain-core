@@ -123,11 +123,9 @@ new(Dir, undefined, QuickSyncMode, QuickSyncData) ->
             lager:error("DB corrupted cleaning up ~p", [_Corrupted]),
             ok = clean(Blockchain),
             new(Dir, undefined, QuickSyncMode, QuickSyncData);
-        {Blockchain, {error, _Reason}} when QuickSyncMode /= blessed_snapshot ->
+        {Blockchain, {error, _Reason}} ->
             lager:info("no genesis block found: ~p", [_Reason]),
             {no_genesis, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
-        {Blockchain, {error, _Reason}} ->
-            {ok, init_quick_sync(QuickSyncMode, Blockchain, QuickSyncData)};
         {Blockchain, {ok, _GenBlock}} ->
             Ledger = blockchain:ledger(Blockchain),
             Upgrades = lists:zip(?BC_UPGRADE_NAMES, ?BC_UPGRADE_FUNS),
