@@ -46,16 +46,18 @@ server(Connection, Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(client, _Conn, [Hash, Height, Chain]) ->
+init(client, Conn, [Hash, Height, Chain]) ->
     case blockchain_worker:sync_paused() of
         true ->
             {stop, normal};
         false ->
+            ok = libp2p_connection:set_idle_timeout(Conn, timer:minutes(15)),
             Msg = #blockchain_snapshot_req_pb{height = Height, hash = Hash},
             {ok, #state{chain = Chain, hash = Hash},
              blockchain_snapshot_handler_pb:encode_msg(Msg)}
     end;
-init(server, _Conn, [_Path, _, Chain]) ->
+init(server, Conn, [_Path, _, Chain]) ->
+    ok = libp2p_connection:set_idle_timeout(Conn, timer:minutes(15)),
     {ok, #state{chain = Chain}}.
 
 handle_data(client, Data, #state{chain = Chain, hash = Hash} = State) ->
