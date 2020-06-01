@@ -22,7 +22,7 @@
 -type packet() :: #blockchain_state_channel_packet_v1_pb{}.
 -export_type([packet/0]).
 
--spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), binary()) -> packet().
+-spec new(blockchain_helium_packet_v1:packet(), libp2p_crypto:pubkey_bin(), atom()) -> packet().
 new(Packet, Hotspot, Region) ->
     #blockchain_state_channel_packet_v1_pb{
         packet=Packet,
@@ -38,7 +38,7 @@ packet(#blockchain_state_channel_packet_v1_pb{packet=Packet}) ->
 hotspot(#blockchain_state_channel_packet_v1_pb{hotspot=Hotspot}) ->
     Hotspot.
 
--spec region(packet()) -> binary().
+-spec region(packet()) -> atom().
 region(#blockchain_state_channel_packet_v1_pb{region=Region}) ->
     Region.
 

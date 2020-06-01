@@ -64,7 +64,7 @@ response(Resp) ->
             Mod:handle_response(Resp)
     end.
 
--spec packet(blockchain_helium_packet_v1:packet(), [string()], binary()) -> ok.
+-spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
 packet(Packet, DefaultRouters, Region) ->
     gen_server:cast(?SERVER, {packet, Packet, DefaultRouters, Region}).
 
@@ -117,7 +117,7 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     DefaultRouters :: [string()],
-                    Region :: binary(),
+                    Region :: atom(),
                     State :: state()) -> state().
 handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
     case find_routing(Packet) of
@@ -154,7 +154,7 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
 -spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Swarm :: pid(),
                   Stream :: pid(),
-                  Region :: binary()  ) -> ok.
+                  Region :: atom()  ) -> ok.
 send_packet(Packet, Swarm, Stream, Region) ->
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
@@ -181,7 +181,7 @@ find_routing(Packet) ->
             {error, oui_routing_disabled}
     end.
 
--spec send_to_route(blockchain_helium_packet_v1:packet(), blockchain_ledger_routing_v1:routing(), binary(), state()) -> state().
+-spec send_to_route(blockchain_helium_packet_v1:packet(), blockchain_ledger_routing_v1:routing(), atom(), state()) -> state().
 send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
     OUI = blockchain_ledger_routing_v1:oui(Route),
     case find_stream(OUI, State) of
