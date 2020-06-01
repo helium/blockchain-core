@@ -14,12 +14,15 @@
     subnets/1,
     update/3,
     nonce/1, nonce/2,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    subnet_mask_to_size/1, subnet_size_to_mask/1
 ]).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+
+-define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
 
 -record(routing_v1, {
     oui :: non_neg_integer(),
@@ -145,6 +148,15 @@ serialize(Entry) ->
 -spec deserialize(binary()) -> routing().
 deserialize(<<_:1/binary, Bin/binary>>) ->
     erlang:binary_to_term(Bin).
+
+
+-spec subnet_mask_to_size(integer()) -> integer().
+subnet_mask_to_size(Mask) ->
+    (((Mask bxor ?BITS_23) bsl 2) + 2#11) + 1.
+
+-spec subnet_size_to_mask(integer()) -> integer().
+subnet_size_to_mask(Size) ->
+    ?BITS_23 bxor ((Size bsr 2) - 1).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
