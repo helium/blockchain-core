@@ -315,8 +315,8 @@ init(Args) ->
                      [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
     QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
     {Mode, Info} =
-        case application:get_env(blockchain, sync_mode, quick) of
-            quick ->
+        case application:get_env(blockchain, honor_quick_sync, false) of
+            true ->
                 case QuickSyncMode of
                     assumed_valid -> {normal, undefined};
                     blessed_snapshot ->
@@ -324,6 +324,8 @@ init(Args) ->
                         {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
                         case Blockchain of
                             undefined ->
+                                {snapshot, {Hash, Height}};
+                            {no_genesis, _} ->
                                 {snapshot, {Hash, Height}};
                             _Chain ->
                                 {ok, CurrHeight} = blockchain:height(Blockchain),
@@ -334,7 +336,7 @@ init(Args) ->
                                 end
                         end
                 end;
-            full ->
+            false ->
                 %% full sync only ever syncs blocks, so just sync blocks
                 {normal, undefined}
         end,
