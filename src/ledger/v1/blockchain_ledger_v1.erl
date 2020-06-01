@@ -2693,6 +2693,7 @@ load_hexes(Hexes0, Ledger) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 
 find_entry_test() ->
     BaseDir = test_utils:tmp_dir("find_entry_test"),
