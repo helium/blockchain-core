@@ -139,11 +139,6 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--export([blockchain_ledger_routing_v1:subnet_size_to_mask/1]).
--endif.
-
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
