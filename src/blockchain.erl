@@ -48,6 +48,7 @@
     add_gateway_txn/4, assert_loc_txn/6,
 
     add_snapshot/2, get_snapshot/2, find_last_snapshot/1,
+    find_last_snapshots/2,
 
     mark_upgrades/2
 ]).
@@ -834,6 +835,13 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                             OtherHash ->
                                 lager:info("bad snapshot hash: ~p good ~p",
                                            [OtherHash, ConsensusHash]),
+                                case application:get_env(blockchain, save_bad_snapshot, false) of
+                                    true ->
+                                        lager:info("saving bad snapshot ~p", [OtherHash]),
+                                        ok = blockchain:add_snapshot(Snap, Blockchain);
+                                    false ->
+                                        ok
+                                end,
                                 %% TODO: this is currently called basically for the
                                 %% logging. it does not reset, or halt
                                 blockchain_worker:async_reset(Height)
@@ -1509,19 +1517,31 @@ get_snapshot(Height, #blockchain{db=DB, snapshots=SnapshotsCF}=Blockchain) ->
 
 -spec find_last_snapshot(blockchain()) -> undefined | {non_neg_integer(), blockchain_block:hash(), binary()} | {error, any()}.
 find_last_snapshot(Blockchain) ->
-    {ok, Head} = head_block(Blockchain),
-    fold_chain(fun(_, {Height,BHash, SHash}) when is_integer(Height), is_binary(BHash), is_binary(SHash) ->
-                       return;
-                   (B, undefined) ->
-                       case blockchain_block_v1:snapshot_hash(B) of
-                           <<>> -> undefined;
-                           SnapshotHash ->
-                               Height = blockchain_block:height(B),
-                               BlockHash = blockchain_block:hash_block(B),
-                               {Height, BlockHash, SnapshotHash}
-                       end
-               end, undefined, Head, Blockchain).
+    case find_last_snapshots(Blockchain, 1) of
+        undefined -> undefined;
+        [Res] -> Res
+    end.
 
+
+find_last_snapshots(Blockchain, Count0) ->
+    {ok, Head} = head_block(Blockchain),
+    Res = fold_chain(fun(_, {0, _Acc}) ->
+                             return;
+                        (B, {Count, Acc}) ->
+                             case blockchain_block_v1:snapshot_hash(B) of
+                                 <<>> -> {Count, Acc};
+                                 SnapshotHash ->
+                                     Height = blockchain_block:height(B),
+                                     BlockHash = blockchain_block:hash_block(B),
+                                     {Count - 1, [{Height, BlockHash, SnapshotHash} | Acc]}
+                             end
+                     end, {Count0, []}, Head, Blockchain),
+    case Res of
+        {_, []} ->
+            undefined;
+        {_, List} ->
+            lists:reverse(List)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
