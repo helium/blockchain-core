@@ -24,6 +24,7 @@ register_all_usage() ->
                    snapshot_take_usage(),
                    snapshot_load_usage(),
                    snapshot_diff_usage(),
+                   snapshot_info_usage(),
                    snapshot_usage()
                   ]).
 
@@ -35,6 +36,7 @@ register_all_cmds() ->
                    snapshot_take_cmd(),
                    snapshot_load_cmd(),
                    snapshot_diff_cmd(),
+                   snapshot_info_cmd(),
                    snapshot_cmd()
                   ]).
 %%
@@ -47,6 +49,7 @@ snapshot_usage() ->
       "  snapshot take   - Take a snapshot at the current ledger height.\n",
       "  snapshot load   - Load a snapshot from a file.\n"
       "  snapshot diff   - Load two snapshots from files and find changes.\n"
+      "  snapshot info   - Show information about a snapshot in a file.\n"
      ]
     ].
 
@@ -136,3 +139,22 @@ snapshot_diff(AFilename, BFilename) ->
     {ok, B} = blockchain_ledger_snapshot_v1:deserialize(BBinSnap),
 
     blockchain_ledger_snapshot_v1:diff(A, B).
+
+snapshot_info_cmd() ->
+    [
+     [["snapshot", "info", '*'], [], [], fun snapshot_info/3]
+    ].
+
+snapshot_info_usage() ->
+    [["snapshot", "info"],
+     ["snapshot info <file>\n\n",
+      "  Show information about snapshot in file <file>\n"]
+    ].
+
+snapshot_info(["snapshot", "info", Filename], [], []) ->
+    {ok, BinSnap} = file:read_file(Filename),
+    {ok, Snap} = blockchain_ledger_snapshot_v1:deserialize(BinSnap),
+    [clique_status:text(io_lib:format("Height ~p\nHash ~p\n", [blockchain_ledger_snapshot_v1:height(Snap),
+                                                              blockchain_ledger_snapshot_v1:hash(Snap)]))];
+snapshot_info(_, _, _) ->
+    usage.
