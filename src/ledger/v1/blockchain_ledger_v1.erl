@@ -2145,7 +2145,7 @@ add_oracle_price(PriceEntry, Ledger) ->
              end,
     cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary([ PriceEntry | Prices ])).
 
--spec current_oracle_price(ledger()) -> {ok, {non_neg_integer(), non_neg_integer()}} | {error, any()}.
+-spec current_oracle_price(ledger()) -> {ok, Price :: non_neg_integer()} | {error, any()}.
 current_oracle_price(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, []) of
