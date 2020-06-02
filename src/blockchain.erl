@@ -1471,7 +1471,6 @@ missing_block(#blockchain{db=DB, default=DefaultCF}) ->
 -spec add_snapshot(blockchain_ledger_snapshot:snapshot(), blockchain()) ->
                           ok | {error, any()}.
 add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
-    blockchain_lock:acquire(),
     try
         Height = blockchain_ledger_snapshot_v1:height(Snapshot),
         Hash = blockchain_ledger_snapshot_v1:hash(Snapshot),
@@ -1482,12 +1481,9 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
         %% lexiographic ordering works better with big endian
         ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
         ok = rocksdb:write_batch(DB, Batch, [])
-
     catch What:Why:Stack ->
             lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
             {error, Why}
-    after
-        blockchain_lock:release()
     end.
 
 -spec get_snapshot(blockchain_block:hash() | integer(), blockchain()) ->

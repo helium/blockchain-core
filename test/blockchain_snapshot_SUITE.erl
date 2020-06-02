@@ -45,9 +45,7 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
-basic_test(Config) ->
-    GenesisBlock = ?config(genesis_block, Config),
-
+basic_test(_Config) ->
     Ledger = ledger(),
     {ok, Snapshot} = blockchain_ledger_snapshot_v1:snapshot(Ledger, []),
 
@@ -60,6 +58,12 @@ basic_test(Config) ->
     Size = byte_size(element(2, blockchain_ledger_snapshot_v1:serialize(Snapshot))),
     SHA = blockchain_ledger_snapshot_v1:hash(Snapshot),
     ct:pal("size ~p", [Size]),
+
+    ct:pal("dir: ~p", [os:cmd("pwd")]),
+
+    {ok, BinGen} = file:read_file("../../../../test/genesis"),
+
+    GenesisBlock = blockchain_block:deserialize(BinGen),
 
     {ok, Chain} = blockchain:new(NewDir, GenesisBlock, blessed_snapshot, undefined),
 
@@ -75,7 +79,11 @@ basic_test(Config) ->
 ledger() ->
     %% Ledger at height: 194196
     %% ActiveGateway Count: 3023
-    {ok, Dir} = file:get_cwd(),
+    {ok, TestDir} = file:get_cwd(),  % this is deep in the test hierarchy
+
+    Comps = filename:split(TestDir),
+    Trimmed = lists:reverse(lists:sublist(lists:reverse(Comps), 5, length(Comps))),
+    Dir = filename:join(Trimmed),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
     ok = filelib:ensure_dir(PrivDir ++ "/"),
