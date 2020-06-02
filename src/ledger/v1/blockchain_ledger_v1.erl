@@ -1456,7 +1456,12 @@ maybe_gc_scs(Ledger) ->
 -spec maybe_recalc_price( Blockchain :: blockchain:blockchain(),
                           Ledger :: ledger() ) -> ok.
 maybe_recalc_price(Blockchain, Ledger) ->
-    {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
+    case blockchain:config(?price_oracle_refresh_interval, Ledger) of
+        not_found -> ok;
+        {ok, I} -> do_maybe_recalc_price(I, Blockchain, Ledger)
+    end.
+
+do_maybe_recalc_price(Interval, Blockchain, Ledger) ->
     DefaultCF = default_cf(Ledger),
     {ok, CurrentHeight} = current_height(Ledger),
     {ok, LastPrice} = current_oracle_price(Ledger),
