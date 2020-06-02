@@ -226,6 +226,13 @@ submit_bad_public_key(Config) ->
     {ok, [BadKey]} = make_oracles(1),
     BadTxn = make_and_sign_txn(BadKey, 50, 50),
     ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [BadTxn])),
+
+    %% check that a bad signature is invalid
+    RawTxn = blockchain_txn_price_oracle_v1:new( libp2p_crypto:pubkey_to_bin(maps:get(public, hd(OracleKeys))), 50, 50),
+    SignFun = libp2p_crypto:mk_sig_fun(maps:get(secret, BadKey)),
+    BadlySignedTxn = blockchain_txn_price_oracle_v1:sign(RawTxn, SignFun),
+    ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [BadlySignedTxn])),
+
     ok.
 
 double_submit_prices(Config) ->
@@ -346,13 +353,23 @@ replay_txn(Config) ->
                 {ok, Block} = test_utils:create_block(ConsensusMembers, []),
                 blockchain:add_block(Block, Chain),
                 Block
+               end || _ <- lists:seq(1, 5) ],
+
+    %% and resubmit the Txns from earlier now (they are less than the height delta)
+    ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, Txns)),
+
+    %% add some more blocks to push us over the height delta
+    _Blocks2 = [
+               begin
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain),
+                Block
                end || _ <- lists:seq(1, BlocksN) ],
 
-    %% this block was already added 25 blocks ago, let's try to submit it
-    %% again.
-    ?assertMatch(exists, blockchain:add_block(PriceBlock, Chain)),
-    %% and resubmit the Txns from earlier now...
+
+    %% try to replay them one more time
     ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, Txns)),
+
     ok.
 
 
