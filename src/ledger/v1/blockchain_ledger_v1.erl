@@ -137,6 +137,9 @@
     snapshot_threshold_txns/1,
     load_threshold_txns/2,
 
+    load_oracle_price/2,
+    load_oracle_price_list/2,
+
     clean/1, close/1,
     compact/1
 ]).
@@ -2139,6 +2142,18 @@ add_oracle_price(PriceEntry, Ledger) ->
                      []
              end,
     cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary([ PriceEntry | Prices ])).
+
+-spec load_oracle_price(Price :: non_neg_integer(), Ledger :: ledger()) -> ok.
+load_oracle_price(Price, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?CURRENT_ORACLE_PRICE, term_to_binary(Price)).
+
+-spec load_oracle_price_list(
+        PriceEntries :: [blockchain_ledger_oracle_price_entry:oracle_price_entry()],
+        Ledger :: ledger()) -> ok.
+load_oracle_price_list(PriceEntries, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?ORACLE_PRICES, term_to_binary(PriceEntries)).
 
 -spec current_oracle_price(ledger()) -> {ok, {non_neg_integer(), non_neg_integer()}} | {error, any()}.
 current_oracle_price(Ledger) ->
