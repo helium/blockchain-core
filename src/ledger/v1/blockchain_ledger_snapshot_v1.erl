@@ -315,6 +315,14 @@ import(Chain, SHA,
             blockchain_ledger_v1:commit_context(Ledger2),
             {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
             lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
+
+            %% store the snapshot if we don't have it already
+            case blockchain:get_snapshot(SHA, Chain) of
+                {ok, _Snap} -> ok;
+                {error, not_found} ->
+                    blockchain:add_snapshot(Snapshot, Chain)
+            end,
+
             {ok, Ledger0};
         _ ->
             {error, bad_snapshot_checksum}
