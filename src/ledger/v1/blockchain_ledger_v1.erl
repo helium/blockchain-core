@@ -139,11 +139,6 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--export([subnet_size_to_mask/1]).
--endif.
-
 -record(ledger_v1, {
     dir :: file:filename_all(),
     db :: rocksdb:db_handle(),
@@ -1960,26 +1955,26 @@ allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
 
 allocate_subnet(Size, _Itr, {error, invalid_iterator}, none) ->
     %% we don't have any allocations at all
-    Mask = subnet_size_to_mask(Size),
+    Mask = blockchain_ledger_routing_v1:subnet_size_to_mask(Size),
     {ok, <<0:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>};
 allocate_subnet(Size, Itr, {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _}, none) ->
     %% just record the actual 'last' allocation and continue
-    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, blockchain_ledger_routing_v1:subnet_mask_to_size(AMask)});
 allocate_subnet(Size, Itr, {ok, <<ABase:25/integer-unsigned-big, AMask:23/integer-unsigned-big>>, _}, {LastBase, LastSize}) ->
     %% check if the last allocation was contiguous with this one
     case LastBase + LastSize == ABase of
         true ->
             %% ok, no gaps here, keep on truckin'
-            allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+            allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, blockchain_ledger_routing_v1:subnet_mask_to_size(AMask)});
         false ->
             %% check if there's enough room
             case ABase - (LastBase + LastSize) >= Size of
                 false ->
                     %% no room at the inn, sorry
-                    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, subnet_mask_to_size(AMask)});
+                    allocate_subnet(Size, Itr, rocksdb:iterator_move(Itr, next), {ABase, blockchain_ledger_routing_v1:subnet_mask_to_size(AMask)});
                 true ->
                     %% compute the base of the new allocation
-                    Mask = subnet_size_to_mask(Size),
+                    Mask = blockchain_ledger_routing_v1:subnet_size_to_mask(Size),
                     NewBase = case ((LastBase + LastSize) band (Mask bsl 2)) == (LastBase + Size) of
                                   true ->
                                       %% we're on the right alignment boundary
@@ -2001,7 +1996,7 @@ allocate_subnet(Size, _Itr, {error, invalid_iterator}, {LastBase, LastSize}) ->
             {error, no_space};
         true ->
             %% still room
-            Mask = subnet_size_to_mask(Size),
+            Mask = blockchain_ledger_routing_v1:subnet_size_to_mask(Size),
             NewBase = case ((LastBase + LastSize) band (Mask bsl 2)) == (LastBase + LastSize) of
                           true ->
                               %% we're on the right alignment boundary
@@ -2438,12 +2433,6 @@ increment_bin(Binary) ->
     NewSize = max(Size, BitsNeeded),
     <<(BinAsInt+1):NewSize/integer-unsigned-big>>.
 
-subnet_mask_to_size(Mask) ->
-    (((Mask bxor ?BITS_23) bsl 2) + 2#11) + 1.
-
-subnet_size_to_mask(Size) ->
-    ?BITS_23 bxor ((Size bsr 2) - 1).
-
 subnet_lookup(Itr, DevAddr, {ok, <<Base:25/integer-unsigned-big, Mask:23/integer-unsigned-big>>, <<Dest:32/integer-unsigned-little>>}) ->
     case (DevAddr band (Mask bsl 2)) == Base of
         true ->
@@ -2704,6 +2693,7 @@ load_hexes(Hexes0, Ledger) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
 
 find_entry_test() ->
     BaseDir = test_utils:tmp_dir("find_entry_test"),
@@ -3155,10 +3145,10 @@ subnet_allocation_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation_test"),
     Ledger = new(BaseDir),
     SubnetCF = subnets_cf(Ledger),
-    Mask8 = subnet_size_to_mask(8),
-    Mask16 = subnet_size_to_mask(16),
-    Mask32 = subnet_size_to_mask(32),
-    Mask64 = subnet_size_to_mask(64),
+    Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
+    Mask16 = blockchain_ledger_routing_v1:subnet_size_to_mask(16),
+    Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
+    Mask64 = blockchain_ledger_routing_v1:subnet_size_to_mask(64),
     {ok, Subnet} = allocate_subnet(8, Ledger),
     ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),
@@ -3200,8 +3190,8 @@ subnet_allocation2_test() ->
     BaseDir = test_utils:tmp_dir("subnet_allocation2_test"),
     Ledger = new(BaseDir),
     SubnetCF = subnets_cf(Ledger),
-    Mask8 = subnet_size_to_mask(8),
-    Mask32 = subnet_size_to_mask(32),
+    Mask8 = blockchain_ledger_routing_v1:subnet_size_to_mask(8),
+    Mask32 = blockchain_ledger_routing_v1:subnet_size_to_mask(32),
     {ok, Subnet} = allocate_subnet(8, Ledger),
     ?assertEqual(<<0:25/integer-unsigned-big, Mask8:23/integer-unsigned-big>>, Subnet),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet, <<1:32/little-unsigned-integer>>, []),

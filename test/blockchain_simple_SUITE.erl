@@ -993,7 +993,7 @@ routing_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
     Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
@@ -1006,7 +1006,7 @@ routing_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
     Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, 2),
@@ -1025,8 +1025,8 @@ routing_test(Config) ->
 
     {ok, Routing2} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
     %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
-    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
-                  <<32:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
+    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+                  <<32:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
                  blockchain_ledger_routing_v1:subnets(Routing2)),
     ?assertEqual([Filter2, Filter2a], blockchain_ledger_routing_v1:filters(Routing2)),
     ?assertEqual(4, blockchain_ledger_routing_v1:nonce(Routing2)),
@@ -1089,8 +1089,8 @@ routing_test(Config) ->
 
     {ok, Routing3} = blockchain_ledger_v1:find_routing(OUI1, Ledger),
     %Routing2 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter2, <<0,0,0,127,255,254>>, 3),
-    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
-                  <<32:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
+    ?assertEqual([<<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>,
+                  <<32:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(32)):23/integer-unsigned-big>>],
                  blockchain_ledger_routing_v1:subnets(Routing3)),
     ?assertEqual([Filter2, Filter2a, Filter2b, Filter2c, Filter2d], blockchain_ledger_routing_v1:filters(Routing3)),
     ?assertEqual(7, blockchain_ledger_routing_v1:nonce(Routing3)),
@@ -1149,7 +1149,7 @@ max_subnet_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 2} == blockchain:height(Chain) end),
 
     Routing0 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses0, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 0),
     ?assertEqual({ok, Routing0}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
@@ -1162,7 +1162,7 @@ max_subnet_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 3} == blockchain:height(Chain) end),
 
     Routing1 = blockchain_ledger_routing_v1:new(OUI1, Payer, Addresses1, Filter,
-                                                <<0:25/integer-unsigned-big, (blockchain_ledger_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
+                                                <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     RoutingTxns = lists:foldl(fun(I, Acc) ->
