@@ -834,6 +834,13 @@ process_snapshot(ConsensusHash, MyAddress, Signers,
                             OtherHash ->
                                 lager:info("bad snapshot hash: ~p good ~p",
                                            [OtherHash, ConsensusHash]),
+                                case application:get_env(blockchain, save_bad_snapshot, false) of
+                                    true ->
+                                        lager:info("saving bad snapshot ~p", [OtherHash]),
+                                        ok = blockchain:add_snapshot(Snap, Blockchain);
+                                    false ->
+                                        ok
+                                end,
                                 %% TODO: this is currently called basically for the
                                 %% logging. it does not reset, or halt
                                 blockchain_worker:async_reset(Height)
