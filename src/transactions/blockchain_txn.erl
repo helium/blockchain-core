@@ -34,6 +34,7 @@
              | blockchain_txn_payment_v2:txn_payment_v2()
              | blockchain_txn_state_channel_open_v1:txn_state_channel_open()
              | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui()
+             | blockchain_txn_price_oracle_submission_v1:txn_price_oracle_submission()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
 -type txns() :: [txn()].
@@ -127,7 +128,7 @@ to_json(Txn, Opts) ->
 
 %% Since the proto file for the transaction union includes the
 %% definitions of the underlying protobufs for each transaction we
-%% break encapsulation here and do no tuse the txn modules themselves.
+%% break encapsulation here and do not use the txn modules themselves.
 -spec wrap_txn(blockchain_txn:txn()) -> #blockchain_txn_pb{}.
 wrap_txn(#blockchain_txn_assert_location_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={assert_location, Txn}};
@@ -176,7 +177,9 @@ wrap_txn(#blockchain_txn_state_channel_open_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_update_gateway_oui_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={update_gateway_oui, Txn}};
 wrap_txn(#blockchain_txn_state_channel_close_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={state_channel_close, Txn}}.
+    #blockchain_txn_pb{txn={state_channel_close, Txn}};
+wrap_txn(#blockchain_txn_price_oracle_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={price_oracle_submission, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -510,9 +513,15 @@ type(#blockchain_txn_state_channel_open_v1_pb{}) ->
 type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
     blockchain_txn_update_gateway_oui_v1;
 type(#blockchain_txn_state_channel_close_v1_pb{}) ->
-    blockchain_txn_state_channel_close_v1.
+    blockchain_txn_state_channel_close_v1;
+type(#blockchain_txn_price_oracle_v1_pb{}) ->
+    blockchain_txn_price_oracle_v1.
 
--spec validate_fields([{{atom(), iodata() | undefined}, {binary, pos_integer()} | {binary, pos_integer(), pos_integer()} |
+-spec validate_fields([{{atom(), iodata() | undefined},
+                        {binary, pos_integer()} |
+                        {binary, pos_integer(), pos_integer()} |
+                        {is_integer, non_neg_integer()} |
+                        {member, list()} |
                         {address, libp2p}}]) -> ok | {error, any()}.
 validate_fields([]) ->
     ok;
@@ -538,6 +547,22 @@ validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field)
         _:_ ->
             {error, {invalid_address, Name}}
     end;
+validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
+                                                            is_binary(Field) ->
+    case lists:member(Field, List) of
+        true ->
+            validate_fields(Tail);
+        false ->
+            {error, {not_a_member, Name, Field, List}}
+    end;
+validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
+                                                         andalso Field >= Min ->
+    validate_fields(Tail);
+validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
+                                                         andalso Field < Min ->
+    {error, {integer_too_small, Name, Field, Min}};
+validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
+    {error, {not_an_integer, Name, Field}};
 validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
@@ -633,6 +658,7 @@ absorb_delayed_(Block, Chain0) ->
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
             ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
             ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
+            ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
             ok;
         Error ->
             Ledger = blockchain:ledger(Chain0),

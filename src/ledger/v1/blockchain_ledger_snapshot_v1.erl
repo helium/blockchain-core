@@ -67,7 +67,10 @@
 
          state_channels :: [any()],
 
-         blocks :: [blockchain_block:block()]
+         blocks :: [blockchain_block:block()],
+
+         oracle_price :: non_neg_integer(),
+         oracle_price_list :: [any()]
         }).
 
 snapshot(Ledger0, Blocks) ->
@@ -103,6 +106,9 @@ snapshot(Ledger0, Blocks) ->
         Hexes = blockchain_ledger_v1:snapshot_hexes(Ledger),
 
         StateChannels = blockchain_ledger_v1:snapshot_state_channels(Ledger),
+
+        {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
+        {ok, OraclePriceList} = blockchain_ledger_v1:current_oracle_price_list(Ledger),
 
         Snapshot =
             #blockchain_snapshot_v1{
@@ -144,7 +150,10 @@ snapshot(Ledger0, Blocks) ->
 
                state_channels = StateChannels,
 
-               blocks = Blocks
+               blocks = Blocks,
+
+               oracle_price = OraclePrice,
+               oracle_price_list = OraclePriceList
               },
 
         {ok, Snapshot}
@@ -164,11 +173,24 @@ serialize(Snapshot, BlocksP) ->
     BinSz = byte_size(Bin),
 
     %% do some simple framing with version, size, & snap
-    Snap = <<1, %% version
+    Snap = <<2, %% version
              BinSz:32/little-unsigned-integer, Bin/binary>>,
     {ok, Snap}.
 
 deserialize(<<1,
+              %%SHASz:16/little-unsigned-integer, SHA:SHASz/binary,
+              BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
+    try binary_to_term(BinSnap) of
+        OldSnapshot ->
+            ListSnap = tuple_to_list(OldSnapshot),
+            %% add safe defaults for price oracles
+            ListSnap1 = lists:append(ListSnap, [0, []]),
+            Snapshot = list_to_tuple(ListSnap1),
+            {ok, Snapshot}
+    catch _:_ ->
+            {error, bad_snapshot_binary}
+    end;
+deserialize(<<2,
               %%SHASz:16/little-unsigned-integer, SHA:SHASz/binary,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
     try binary_to_term(BinSnap) of
@@ -218,7 +240,10 @@ import(Chain, SHA,
 
           state_channels = StateChannels,
 
-          blocks = Blocks
+          blocks = Blocks,
+
+          oracle_price = OraclePrice,
+          oracle_price_list = OraclePriceList
          } = Snapshot) ->
     Dir = blockchain:dir(Chain),
     case hash(Snapshot) of
@@ -268,6 +293,10 @@ import(Chain, SHA,
                  ok = blockchain_ledger_v1:load_hexes(Hexes, Ledger),
 
                  ok = blockchain_ledger_v1:load_state_channels(StateChannels, Ledger),
+
+                 ok = blockchain_ledger_v1:load_oracle_price(OraclePrice, Ledger),
+                 ok = blockchain_ledger_v1:load_oracle_price_list(OraclePriceList, Ledger),
+
                  blockchain_ledger_v1:commit_context(Ledger)
              end
              || Mode <- [delayed, active]],
