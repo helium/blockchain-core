@@ -313,4 +313,6 @@
 %% POC Txn V2 vars
 %% Total allowed witnesses in a poc path
 -define(total_allowed_witnesses, total_allowed_witnesses).
+%% Max elements in the rssi/snr/tof histogram
+-define(hist_limit, hist_limit).
 %% ------------------------------------------------------------------

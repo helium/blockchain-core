@@ -868,6 +868,8 @@ validate_var(?price_oracle_height_delta, Value) ->
 %% PoC transaction V2 vars
 validate_var(?total_allowed_witnesses, Value) ->
     validate_int(Value, "total_allowed_witnesses", 5, 100, false);
+validate_var(?hist_limit, Value) ->
+    validate_int(Value, "hist_limit", 5, 50, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

@@ -3,7 +3,9 @@
 %% == Blockchain Ledger Gateway Witness ==
 %% @end
 %%%-------------------------------------------------------------------
--module(blockchain_ledger_gateway_witness_v1).
+-module(blockchain_ledger_gateway_witness_v2).
+
+-include("blockchain_vars.hrl").
 
 -export([
          new/0, new/2,
@@ -28,11 +30,9 @@
          tof_hist_stack/1,
          snr_hist_stack/1,
 
-         %% TODO: add funcs for updating histogram stacks
-         %% by pushing the new one(s) to the head and shifting
-         %% others to the tail. Remove the last from the
-         %% tail if length of any categorical stack reaches 7 or
-         %% whatever we configure in the ledger.
+         update_rssi_hist_stack/3,
+         update_tof_hist_stack/3,
+         update_snr_hist_stack/3,
 
          serialize/1, deserialize/1
         ]).
@@ -41,7 +41,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--record(witness_v1, {
+-record(witness_v2, {
           nonce = 0 :: non_neg_integer(),
           count = 0 :: non_neg_integer(),
 
@@ -53,89 +53,149 @@
           recent_time :: undefined | non_neg_integer()
          }).
 
--type witness() :: #witness_v1{}.
+-type witness() :: #witness_v2{}.
 
 -export_type([witness/0]).
 
 -spec new() -> witness().
 new() ->
-    #witness_v1{}.
+    #witness_v2{}.
 
 -spec new(Nonce :: non_neg_integer(), Count :: non_neg_integer()) -> witness().
 new(Nonce, Count) ->
-    #witness_v1{nonce=Nonce, count=Count}.
+    #witness_v2{nonce=Nonce, count=Count}.
 
 -spec nonce(witness()) -> non_neg_integer().
-nonce(#witness_v1{nonce=Nonce}) ->
+nonce(#witness_v2{nonce=Nonce}) ->
     Nonce.
 
 -spec nonce(Witness :: witness(),
             Nonce :: non_neg_integer()) -> witness().
 nonce(Witness, Nonce) ->
-    Witness#witness_v1{nonce=Nonce}.
+    Witness#witness_v2{nonce=Nonce}.
 
 -spec count(Witness :: witness()) -> non_neg_integer().
-count(#witness_v1{count=Count}) ->
+count(#witness_v2{count=Count}) ->
     Count.
 
 -spec count(Witness :: witness(),
             Count :: non_neg_integer()) -> witness().
 count(Witness, Count) ->
-    Witness#witness_v1{count=Count}.
+    Witness#witness_v2{count=Count}.
 
 -spec first_time(Witness :: witness()) -> non_neg_integer().
-first_time(#witness_v1{first_time=FirstTime}) ->
+first_time(#witness_v2{first_time=FirstTime}) ->
     FirstTime.
 
 -spec first_time(Witness :: witness(),
                  FirstTime :: non_neg_integer()) -> witness().
 first_time(Witness, FirstTime) ->
-    Witness#witness_v1{first_time=FirstTime}.
+    Witness#witness_v2{first_time=FirstTime}.
 
 -spec recent_time(Witness :: witness()) -> non_neg_integer().
-recent_time(#witness_v1{recent_time=RecentTime}) ->
+recent_time(#witness_v2{recent_time=RecentTime}) ->
     RecentTime.
 
 -spec recent_time(Witness :: witness(),
                   RecentTime :: non_neg_integer()) -> witness().
 recent_time(Witness, RecentTime) ->
-    Witness#witness_v1{recent_time=RecentTime}.
+    Witness#witness_v2{recent_time=RecentTime}.
 
 -spec rssi_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-rssi_hist(#witness_v1{rssi_hist_stack=Stack}) ->
+rssi_hist(#witness_v2{rssi_hist_stack=Stack}) ->
     blockchain_ledger_hist:merge(Stack).
 
 -spec tof_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-tof_hist(#witness_v1{tof_hist_stack=Stack}) ->
+tof_hist(#witness_v2{tof_hist_stack=Stack}) ->
     blockchain_ledger_hist:merge(Stack).
 
 -spec snr_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-snr_hist(#witness_v1{tof_hist_stack=Stack}) ->
+snr_hist(#witness_v2{tof_hist_stack=Stack}) ->
     blockchain_ledger_hist:merge(Stack).
 
 -spec current_rssi_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-current_rssi_hist(#witness_v1{rssi_hist_stack=[Head | _]}) ->
+current_rssi_hist(#witness_v2{rssi_hist_stack=[Head | _]}) ->
     Head.
 
 -spec current_tof_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-current_tof_hist(#witness_v1{tof_hist_stack=[Head | _]}) ->
+current_tof_hist(#witness_v2{tof_hist_stack=[Head | _]}) ->
     Head.
 
 -spec current_snr_hist(Witness :: witness()) -> blockchain_ledger_hist:hist().
-current_snr_hist(#witness_v1{snr_hist_stack=[Head | _]}) ->
+current_snr_hist(#witness_v2{snr_hist_stack=[Head | _]}) ->
     Head.
 
 -spec rssi_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
 rssi_hist_stack(Witness) ->
-    Witness#witness_v1.rssi_hist_stack.
+    Witness#witness_v2.rssi_hist_stack.
 
 -spec tof_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
 tof_hist_stack(Witness) ->
-    Witness#witness_v1.tof_hist_stack.
+    Witness#witness_v2.tof_hist_stack.
 
 -spec snr_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
 snr_hist_stack(Witness) ->
-    Witness#witness_v1.snr_hist_stack.
+    Witness#witness_v2.snr_hist_stack.
+
+-spec update_rssi_hist_stack(Hist :: blockchain_ledger_hist:hist(),
+                             Witness :: witness(),
+                             Ledger :: blockchain_ledger_v1:ledger()) -> witness().
+update_rssi_hist_stack(Hist, #witness_v2{rssi_hist_stack=Stack}=Witness, Ledger) ->
+    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
+        {ok, HistLimit} when is_integer(HistLimit) ->
+            case length(Stack) < HistLimit of
+                false ->
+                    %% Insert at head of the stack directly
+                    Witness#witness_v2{rssi_hist_stack=[Hist | Stack]};
+                true ->
+                    %% Remove from tail, insert at head
+                    [_Popped | Rest] = lists:reverse(Stack),
+                    NewStack = [Hist | lists:reverse(Rest)],
+                    Witness#witness_v2{rssi_hist_stack=NewStack}
+            end;
+        _ ->
+            Witness
+    end.
+
+-spec update_tof_hist_stack(Hist :: blockchain_ledger_hist:hist(),
+                            Witness :: witness(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> witness().
+update_tof_hist_stack(Hist, #witness_v2{tof_hist_stack=Stack}=Witness, Ledger) ->
+    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
+        {ok, HistLimit} when is_integer(HistLimit) ->
+            case length(Stack) < HistLimit of
+                false ->
+                    %% Insert at head of the stack directly
+                    Witness#witness_v2{tof_hist_stack=[Hist | Stack]};
+                true ->
+                    %% Remove from tail, insert at head
+                    [_Popped | Rest] = lists:reverse(Stack),
+                    NewStack = [Hist | lists:reverse(Rest)],
+                    Witness#witness_v2{tof_hist_stack=NewStack}
+            end;
+        _ ->
+            Witness
+    end.
+
+-spec update_snr_hist_stack(Hist :: blockchain_ledger_hist:hist(),
+                            Witness :: witness(),
+                            Ledger :: blockchain_ledger_v1:ledger()) -> witness().
+update_snr_hist_stack(Hist, #witness_v2{snr_hist_stack=Stack}=Witness, Ledger) ->
+    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
+        {ok, HistLimit} when is_integer(HistLimit) ->
+            case length(Stack) < HistLimit of
+                false ->
+                    %% Insert at head of the stack directly
+                    Witness#witness_v2{snr_hist_stack=[Hist | Stack]};
+                true ->
+                    %% Remove from tail, insert at head
+                    [_Popped | Rest] = lists:reverse(Stack),
+                    NewStack = [Hist | lists:reverse(Rest)],
+                    Witness#witness_v2{snr_hist_stack=NewStack}
+            end;
+        _ ->
+            Witness
+    end.
 
 -spec serialize(Witness :: witness()) -> binary().
 serialize(Witness) ->
@@ -156,9 +216,9 @@ deserialize(<<_:1/binary, Bin/binary>>) ->
 -ifdef(TEST).
 
 new_test() ->
-    Witness0 = #witness_v1{},
+    Witness0 = #witness_v2{},
     ?assertEqual(Witness0, new()),
-    Witness1 = #witness_v1{
+    Witness1 = #witness_v2{
                   nonce = 1,
                   count = 1
                  },
