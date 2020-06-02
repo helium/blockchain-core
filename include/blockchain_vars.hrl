@@ -298,8 +298,8 @@
 %% ------------------------------------------------------------------
 %% Price oracle variables
 %%
-%% Oracle public keys - Base64 encoded like so...
-%% base64:encode(<<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>)
+%% Oracle public keys - encoded like so...
+%% <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
 -define(price_oracle_public_keys, price_oracle_public_keys).
 %% How many blocks between price recalculations
 -define(price_oracle_refresh_interval, price_oracle_refresh_interval).

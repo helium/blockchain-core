@@ -292,13 +292,13 @@ approx_blocks_in_week(Ledger) ->
 -spec vars_keys_to_list( Base64String :: binary() ) -> [ binary() ].
 %% @doc Price oracle public keys are encoded like this
 %% <code>
-%% base64:encode(<<KeyLen1/integer, Key1/binary, KeyLen2/integer, Key2/binary, ...>>)
+%% <<KeyLen1/integer, Key1/binary, KeyLen2/integer, Key2/binary, ...>>
 %% </code>
 %% This function takes the encoded string and deserializes
 %% it into a list of binary keys
 %% @end
-vars_keys_to_list(B64Data) when is_binary(B64Data) ->
-    [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <= base64:decode(B64Data) ].
+vars_keys_to_list(Data) when is_binary(Data) ->
+    [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <=Data ].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

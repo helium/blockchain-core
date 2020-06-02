@@ -390,7 +390,7 @@ prep_public_key(#{public := K}) ->
     <<(byte_size(BinPK)):8/unsigned-integer, BinPK/binary>>.
 
 make_encoded_oracle_keys(Keys) ->
-    {ok, base64:encode(<< <<(prep_public_key(K))/binary>> || K <- Keys >>) }.
+    {ok, << <<(prep_public_key(K))/binary>> || K <- Keys >> }.
 
 get_prices({ok, Ps}) ->
     {ok, lists:sort([ blockchain_ledger_oracle_price_entry:price(P) || P <- Ps ])}.
