@@ -313,9 +313,7 @@ import(Chain, SHA,
                       Blocks)
             end,
             blockchain_ledger_v1:commit_context(Ledger2),
-            %% use the height of the newly constructed leading ledger
-            Ledger3 = blockchain_ledger_v1:mode(active, Ledger0),
-            {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger3),
+            {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
             lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
 
             %% store the snapshot if we don't have it already
@@ -325,7 +323,7 @@ import(Chain, SHA,
                     blockchain:add_snapshot(Snapshot, Chain)
             end,
 
-            {ok, Ledger3};
+            {ok, Ledger0};
         _ ->
             {error, bad_snapshot_checksum}
     end.
