@@ -25,6 +25,7 @@ register_all_usage() ->
                    snapshot_load_usage(),
                    snapshot_diff_usage(),
                    snapshot_info_usage(),
+                   snapshot_list_usage(),
                    snapshot_usage()
                   ]).
 
@@ -37,6 +38,7 @@ register_all_cmds() ->
                    snapshot_load_cmd(),
                    snapshot_diff_cmd(),
                    snapshot_info_cmd(),
+                   snapshot_list_cmd(),
                    snapshot_cmd()
                   ]).
 %%
@@ -50,6 +52,7 @@ snapshot_usage() ->
       "  snapshot load   - Load a snapshot from a file.\n"
       "  snapshot diff   - Load two snapshots from files and find changes.\n"
       "  snapshot info   - Show information about a snapshot in a file.\n"
+      "  snapshot list   - Show information about the last 5 snapshots.\n"
      ]
     ].
 
@@ -157,4 +160,27 @@ snapshot_info(["snapshot", "info", Filename], [], []) ->
     [clique_status:text(io_lib:format("Height ~p\nHash ~p\n", [blockchain_ledger_snapshot_v1:height(Snap),
                                                               blockchain_ledger_snapshot_v1:hash(Snap)]))];
 snapshot_info(_, _, _) ->
+    usage.
+
+
+snapshot_list_cmd() ->
+    [
+     [["snapshot", "list"], [], [], fun snapshot_list/3]
+    ].
+
+snapshot_list_usage() ->
+    [["snapshot", "list"],
+     ["snapshot list\n\n",
+      "  Show information about the last 5 snapshots\n"]
+    ].
+
+snapshot_list(["snapshot", "list"], [], []) ->
+    Chain = blockchain_worker:blockchain(),
+    Snapshots = blockchain:find_last_snapshots(Chain, 5),
+    case Snapshots of
+        undefined -> ok;
+        _ ->
+            [ clique_status:text(io_lib:format("Height ~p\nHash ~p\nHave ~p\n", [Height, Hash, element(1, blockchain:get_snapshot(Hash, Chain)) == ok])) || {Height, _, Hash} <- Snapshots ]
+    end;
+snapshot_list(_, _, _) ->
     usage.
