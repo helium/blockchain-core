@@ -18,11 +18,10 @@
     expire_at_block/1, expire_at_block/2,
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
-    save/2, fetch/2,
+    save/3, fetch/2,
     summaries/1, summaries/2, update_summaries/3,
 
-    add_payload/2,
-    skewed/1, skewed/2,
+    add_payload/3,
     get_summary/2,
     num_packets_for/2, num_dcs_for/2,
 
@@ -52,7 +51,6 @@ new(ID, Owner) ->
         nonce=0,
         summaries=[],
         root_hash= <<>>,
-        skewed=undefined,
         state=open,
         expire_at_block=0
     }.
@@ -60,18 +58,19 @@ new(ID, Owner) ->
 -spec new(ID :: binary(),
           Owner :: libp2p_crypto:pubkey_bin(),
           BlockHash :: binary(),
-          ExpireAtBlock :: pos_integer()) -> state_channel().
+          ExpireAtBlock :: pos_integer()) -> {state_channel(), skewed:skewed()}.
 new(ID, Owner, BlockHash, ExpireAtBlock) ->
-    #blockchain_state_channel_v1_pb{
-        id=ID,
-        owner=Owner,
-        nonce=0,
-        summaries=[],
-        root_hash= <<>>,
-        skewed=skewed:new(BlockHash),
-        state=open,
-        expire_at_block=ExpireAtBlock
-    }.
+    SC = #blockchain_state_channel_v1_pb{
+            id=ID,
+            owner=Owner,
+            nonce=0,
+            summaries=[],
+            root_hash= <<>>,
+            state=open,
+            expire_at_block=ExpireAtBlock
+           },
+    Skewed = skewed:new(BlockHash),
+    {SC, Skewed}.
 
 -spec id(state_channel()) -> binary().
 id(#blockchain_state_channel_v1_pb{id=ID}) ->
@@ -216,49 +215,37 @@ encode(#blockchain_state_channel_v1_pb{}=SC) ->
 decode(Binary) ->
     blockchain_state_channel_v1_pb:decode_msg(Binary, blockchain_state_channel_v1_pb).
 
--spec save(rocksdb:db_handle(), state_channel()) -> ok.
-save(DB, SC0) ->
-    ID = ?MODULE:id(SC0),
-    SC = skewed(blockchain_skewed_v1:serialize(skewed(SC0)), SC0),
+-spec save(DB :: rocksdb:db_handle(),
+           SC :: state_channel(),
+           Skewed :: skewed:skewed()) -> ok.
+save(DB, SC, Skewed) ->
+    ID = ?MODULE:id(SC),
     lager:info("saving state_channel: ~p", [SC]),
-    ok = rocksdb:put(DB, ID, ?MODULE:encode(SC), [{sync, true}]).
+    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, true}]).
 
--spec fetch(rocksdb:db_handle(), id()) -> {ok, state_channel()} | {error, any()}.
+-spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->
     case rocksdb:get(DB, ID, [{sync, true}]) of
-        {ok, BinarySC} ->
-            SC0 = ?MODULE:decode(BinarySC),
-            {ok, ?MODULE:skewed(blockchain_skewed_v1:deserialize(skewed(SC0)), SC0)};
+        {ok, Bin} ->
+            {BinarySC, Skewed} = binary_to_term(Bin),
+            SC = ?MODULE:decode(BinarySC),
+            {ok, {SC, Skewed}};
         not_found -> {error, not_found};
         Error -> Error
     end.
 
--spec skewed(state_channel()) -> skewed:skewed().
-skewed(#blockchain_state_channel_v1_pb{skewed=Skewed}) ->
-    Skewed.
-
--spec skewed(undefined | skewed:skewed(), state_channel()) -> state_channel().
-skewed(Skewed, SC) ->
-    SC#blockchain_state_channel_v1_pb{skewed=Skewed}.
-
--spec add_payload(Payload :: binary(), state_channel()) -> state_channel().
-add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=undefined}=SC) ->
-    %% Don't have a skewed, create new one
-    Skewed0 = skewed:new(),
-    Skewed = skewed:add(Payload, Skewed0),
-    RootHash = skewed:root_hash(Skewed),
-    SC#blockchain_state_channel_v1_pb{skewed=Skewed, root_hash=RootHash};
-add_payload(Payload, #blockchain_state_channel_v1_pb{skewed=Skewed}=SC) ->
-    %% Already have a skewed
+-spec add_payload(Payload :: binary(), SC :: state_channel(), Skewed :: skewed:skewed()) -> {state_channel(),
+                                                                                             skewed:skewed()}.
+add_payload(Payload, SC, Skewed) ->
     %% Check if we have already seen this payload in skewed
     %% If yes, don't do anything, otherwise, add to skewed and return new state_channel
     case skewed:contains(Skewed, Payload) of
         true ->
-            SC;
+            {SC, Skewed};
         false ->
             NewSkewed = skewed:add(Payload, Skewed),
             NewRootHash = skewed:root_hash(NewSkewed),
-            SC#blockchain_state_channel_v1_pb{skewed=NewSkewed, root_hash=NewRootHash}
+            {SC#blockchain_state_channel_v1_pb{root_hash=NewRootHash}, NewSkewed}
     end.
 
 
@@ -312,11 +299,24 @@ new_test() ->
         nonce=0,
         summaries=[],
         root_hash= <<>>,
-        skewed=undefined,
         state=open,
         expire_at_block=0
     },
     ?assertEqual(SC, new(<<"1">>, <<"owner">>)).
+
+new2_test() ->
+    SC = #blockchain_state_channel_v1_pb{
+        id= <<"1">>,
+        owner= <<"owner">>,
+        nonce=0,
+        summaries=[],
+        root_hash= <<>>,
+        state=open,
+        expire_at_block=100
+    },
+    BlockHash = <<"yolo">>,
+    Skewed = skewed:new(BlockHash),
+    ?assertEqual({SC, Skewed}, new(<<"1">>, <<"owner">>, <<"yolo">>, 100)).
 
 id_test() ->
     SC = new(<<"1">>, <<"owner">>),
@@ -397,8 +397,9 @@ save_fetch_test() ->
     BaseDir = test_utils:tmp_dir("save_fetch_test"),
     {ok, DB} = open_db(BaseDir),
     SC = new(<<"1">>, <<"owner">>),
-    ?assertEqual(ok, save(DB, SC)),
-    ?assertEqual({ok, SC}, fetch(DB, <<"1">>)).
+    Skewed = skewed:new(<<"yolo">>),
+    ?assertEqual(ok, save(DB, SC, Skewed)),
+    ?assertEqual({ok, {SC, Skewed}}, fetch(DB, <<"1">>)).
 
 open_db(Dir) ->
     DBDir = filename:join(Dir, "state_channels.db"),

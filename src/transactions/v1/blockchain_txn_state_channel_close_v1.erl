@@ -101,13 +101,10 @@ is_valid(Txn, Chain) ->
                                     case blockchain_state_channel_v1:get_summary(Closer, SC) of
                                         {error, _Reason}=E ->
                                             E;
-                                        {ok, _} ->
-                                            case blockchain_state_channel_v1:skewed(SC) of
-                                                undefined ->
-                                                    ok;
-                                                _ ->
-                                                    {error, skewed_merkle_tree_present}
-                                            end
+                                        {ok, _Summary} ->
+                                            %% This closer was part of the state channel
+                                            %% Is therefore allowed to close said state channel
+                                            ok
                                     end
                             end
                     end
