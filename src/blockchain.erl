@@ -1576,9 +1576,10 @@ load(Dir, Mode) ->
         {error, _Reason}=Error ->
             Error;
         {ok, DB, [DefaultCF, BlocksCF, HeightsCF, TempBlocksCF, PlausibleBlocksCF, SnapshotCF]} ->
+            HonorQuickSync = application:get_env(blockchain, honor_quick_sync, false),
             Ledger =
                 case Mode of
-                    blessed_snapshot ->
+                    blessed_snapshot when HonorQuickSync == true ->
                         %% use 1 as a noop, but this combo is poorly defined
                         Height = application:get_env(blockchain, blessed_snapshot_block_height, 1),
                         L = blockchain_ledger_v1:new(Dir),
