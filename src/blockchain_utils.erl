@@ -289,16 +289,16 @@ approx_blocks_in_week(Ledger) ->
             10000
     end.
 
--spec vars_keys_to_list( Base64String :: binary() ) -> [ binary() ].
+-spec vars_keys_to_list( Data :: binary() ) -> [ binary() ].
 %% @doc Price oracle public keys are encoded like this
 %% <code>
 %% <<KeyLen1/integer, Key1/binary, KeyLen2/integer, Key2/binary, ...>>
 %% </code>
-%% This function takes the encoded string and deserializes
-%% it into a list of binary keys
+%% This function takes the length tagged binary keys, removes the length tag
+%% and returns a list of binary keys
 %% @end
 vars_keys_to_list(Data) when is_binary(Data) ->
-    [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <=Data ].
+    [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <= Data ].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -358,8 +358,8 @@ oracle_keys_test() ->
     #{ public := RawEdPK } = libp2p_crypto:generate_keys(ed25519),
     EccPK = libp2p_crypto:pubkey_to_bin(RawEccPK),
     EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
-    TestStr = base64:encode(<< <<(byte_size(Key)):8/integer, Key/binary>> || Key <- [EccPK, EdPK] >>),
-    Results = vars_keys_to_list(TestStr),
+    TestOracleKeys = << <<(byte_size(Key)):8/integer, Key/binary>> || Key <- [EccPK, EdPK] >>,
+    Results = vars_keys_to_list(TestOracleKeys),
     ?assertEqual([EccPK, EdPK], Results),
     Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],
     ?assertEqual([RawEccPK, RawEdPK], Results1).
