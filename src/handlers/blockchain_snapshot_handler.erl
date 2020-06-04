@@ -25,7 +25,7 @@
 -export([
     init/3,
     handle_data/3,
-    handle_info/3
+    handle_info/3, terminate/1
 ]).
 
 -record(state,
@@ -57,6 +57,7 @@ init(client, Conn, [Hash, Height, Chain]) ->
              blockchain_snapshot_handler_pb:encode_msg(Msg)}
     end;
 init(server, Conn, [_Path, _, Chain]) ->
+    lager:info("started with conn ~p", [Conn]),
     ok = libp2p_connection:set_idle_timeout(Conn, timer:minutes(15)),
     {ok, #state{chain = Chain}}.
 
@@ -104,3 +105,7 @@ handle_data(server, Data, #state{chain = Chain} = State) ->
 handle_info(_Type, _Msg, State) ->
     lager:info("unhandled message ~p ~p", [_Type, _Msg]),
     {noreply, State}.
+
+terminate(State) ->
+    lager:info("terminating ~p", [State#state.hash]),
+    ok.
