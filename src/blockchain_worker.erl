@@ -45,7 +45,9 @@
     snapshot_sync/2,
     install_snapshot/2,
     reset_ledger_to_snap/2,
-    async_reset/1
+    async_reset/1,
+
+    force_sync/3
 ]).
 
 %% ------------------------------------------------------------------
@@ -814,7 +816,11 @@ start_block_sync(Swarm, Chain, Peer) ->
     spawn_monitor(fun() -> DialFun() end).
 
 
-
+%% we should probably delete this once our teething issues are done with
+force_sync(Hash, Height, Peer) ->
+    Swarm = blockchain_swarm:swarm(),
+    Chain = blockchain_worker:blockchain(),
+    start_snapshot_sync(Hash, Height, Swarm, Chain, Peer).
 
 start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
     lager:info("attempting snapshot sync with ~p", [Peer]),
