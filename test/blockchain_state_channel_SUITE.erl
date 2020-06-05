@@ -219,7 +219,7 @@ full_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -229,7 +229,7 @@ full_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -308,7 +308,7 @@ dup_packets_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({eui, 16#deadbeef, 16#deadc0de}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -318,7 +318,7 @@ dup_packets_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -328,7 +328,7 @@ dup_packets_test(Config) ->
     %% Sending the same packet again
     Payload2 = crypto:strong_rand_bytes(120),
     Packet2 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload2),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -336,7 +336,7 @@ dup_packets_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending Packet1 again
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -416,7 +416,7 @@ expired_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -496,7 +496,7 @@ replay_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -506,7 +506,7 @@ replay_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -847,7 +847,7 @@ multi_active_sc_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -887,7 +887,7 @@ multi_active_sc_test(Config) ->
     %% Sending 1 packet, this should use the previously opened state channel
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Add more fake blocks so that the first state_channel expires
     MoreFakeBlocks = 25,
@@ -922,11 +922,11 @@ multi_active_sc_test(Config) ->
     %% Send more packets, this should use the newly active state channel
     Payload2 = crypto:strong_rand_bytes(120),
     Packet2 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload2),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
     Payload3 = crypto:strong_rand_bytes(120),
     timer:sleep(timer:seconds(1)),
     Packet3 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload3),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, [], 'US915']),
 
     %% Add more fake blocks to get the second sc to expire
     EvenMoreFakeBlocks = 100,
@@ -1140,7 +1140,7 @@ crash_single_sc_test(Config) ->
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
     ct:pal("Packet0: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet0))]),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1169,7 +1169,7 @@ crash_single_sc_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
     ct:pal("Packet1: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet1))]),
 
     %% Checking state channel on server/client
@@ -1265,7 +1265,7 @@ crash_multi_sc_test(Config) ->
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
     ct:pal("Packet0: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet0))]),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1296,7 +1296,7 @@ crash_multi_sc_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
     ct:pal("Packet1: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet1))]),
 
     %% Checking state channel on server/client
@@ -1418,7 +1418,7 @@ sc_gc_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1428,7 +1428,7 @@ sc_gc_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1500,7 +1500,7 @@ multi_sc_gc_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1511,7 +1511,7 @@ multi_sc_gc_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1589,7 +1589,7 @@ crash_sc_sup_test(Config) ->
     %% Sending 1 packet
     Payload0 = crypto:strong_rand_bytes(120),
     Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1630,7 +1630,7 @@ crash_sc_sup_test(Config) ->
     %% Sending another packet
     Payload1 = crypto:strong_rand_bytes(120),
     Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, []]),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
