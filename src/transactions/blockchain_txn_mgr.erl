@@ -505,15 +505,15 @@ reject_actions({Txn, TxnData},
                 _CurBlockHeight) ->
     cache_txn(Txn, TxnData).
 
--spec handle_undecided_txn(blockchain_txn:txn(), cached_txn_type()) -> ok.
+-spec handle_undecided_txn(blockchain_txn:txn(), #txn_data{})-> ok.
 handle_undecided_txn(Txn, #txn_data{dialers = Dialers, callback = Callback,
                                     undecided_count = UndecidedCount})  when UndecidedCount > ?TXN_MAX_BLOCK_LIFE ->
     lager:warning("deleting undecided txn as it exceeded max block life: ~p", [blockchain_txn:hash(Txn)]),
     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
     ok = invoke_callback(Callback, {error, invalid}),
     delete_cached_txn(Txn);
-handle_undecided_txn(Txn, TxnData = #txn_data{undecided_count = UndecidedCount}) ->
-    cache_txn(Txn, TxnData#txn_data{ undecided_count = UndecidedCount + 1}).
+handle_undecided_txn(Txn, #txn_data{undecided_count = UndecidedCount} = TxnData) ->
+    cache_txn(Txn, TxnData#txn_data{undecided_count = UndecidedCount + 1}).
 
 -spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> dialers().
 submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections, Dialers)->
