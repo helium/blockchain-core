@@ -494,7 +494,15 @@ to_json(Txn, _Opts) ->
     #{
       type => <<"vars_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
-      vars => decoded_vars(Txn),
+      vars => maps:map(fun(_, V) when is_binary(V) ->
+                               case lists:all(fun(C) -> C >= 32 andalso  C =< 127 end, binary_to_list(V)) of
+                                   true ->
+                                       V;
+                                   false ->
+                                       base64:encode(V)
+                               end;
+                          (_, V) -> V
+                       end, decoded_vars(Txn)),
       version_predicate => version_predicate(Txn),
       proof => ?BIN_TO_B64(proof(Txn)),
       master_key => ?MAYBE_B58(master_key(Txn)),
@@ -922,13 +930,16 @@ to_json_test() ->
     Vars = #{a => 1,
              b => 2000,
              c => 2.5,
-             d => <<"have to include a string">>},
+             d => <<"have to include a string">>,
+             %% we didn't add a binary type but accidentally put binary vars in
+             f => <<"f is for ffffff\0">>},
 
     Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BPub}),
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])).
+                      [type, hash, vars, version_predicate, proof, master_key, key_proof, cancels, unsets, nonce])),
+    ?assertEqual(<<"f is for ffffff\0">>, base64:decode(maps:get(f, maps:get(vars, Json)))).
 
 
 -endif.
