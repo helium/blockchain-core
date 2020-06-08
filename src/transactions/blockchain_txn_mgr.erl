@@ -9,6 +9,7 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 -define(TXN_CACHE, txn_cache).
+-define(TXN_MAX_BLOCK_LIFE, 200).
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -48,7 +49,8 @@
             recv_block_height=undefined :: undefined | integer(),
             acceptions=[] :: [libp2p_crypto:pubkey_bin()],
             rejections=[] :: [libp2p_crypto:pubkey_bin()],
-            dialers=[] :: dialers()
+            dialers=[] :: dialers(),
+            undecided_count=0 :: integer()
         }).
 
 -type cached_txn_type() :: {Txn :: blockchain_txn:txn(), TxnData :: #txn_data{}}.
@@ -352,7 +354,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     %% we need to keep dialers open to ensure we receive responses from the CG members
                     %% who may not yet have responded to any previous submit
                     lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
-                    ok;
+                    handle_undecided_txn(Txn, TxnData);
                 {true, _, _} ->
                     %% the txn is invalid, remove from cache and invoke callback
                     %% any txn in the invalid list is considered unrecoverable, it will never become valid
@@ -380,7 +382,8 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                                                 TxnData#txn_data{recv_block_height = RecvBlockHeight0,
                                                                  acceptions = NewAcceptions,
                                                                  rejections = NewRejections,
-                                                                 dialers = RemainingDialers});
+                                                                 dialers = RemainingDialers,
+                                                                 undecided_count = 0});
                 {_, true, _} ->
                     %% the txn is valid and there has not been a new election
                     %% if we dont have sufficient acceptions at this point, resubmit to additional members
@@ -390,12 +393,12 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                             RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
                             %% check if the txn has any dependencies and resubmit as required
                             check_for_deps_and_resubmit(Txn, Txns, Chain, SubmitF,
-                                                        TxnData#txn_data{recv_block_height = RecvBlockHeight0});
+                                                        TxnData#txn_data{recv_block_height = RecvBlockHeight0, undecided_count = 0});
                         false ->
-                            %% the txn remains valid and the txn has sufficient acceptions, so do nothing
+                            %% the txn remains valid and the txn has sufficient acceptions, so do nothing other than zeroing the undecided count
                             lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",
                                 [blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
-                            ok
+                            cache_txn(Txn, TxnData#txn_data{undecided_count = 0})
                     end
             end
         end, CachedTxns).
@@ -501,6 +504,16 @@ reject_actions({Txn, TxnData},
                 _RejectF,
                 _CurBlockHeight) ->
     cache_txn(Txn, TxnData).
+
+-spec handle_undecided_txn(blockchain_txn:txn(), cached_txn_type()) -> ok.
+handle_undecided_txn(Txn, #txn_data{dialers = Dialers, callback = Callback,
+                                    undecided_count = UndecidedCount})  when UndecidedCount > ?TXN_MAX_BLOCK_LIFE ->
+    lager:warning("deleting undecided txn as it exceeded max block life: ~p", [blockchain_txn:hash(Txn)]),
+    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+    ok = invoke_callback(Callback, {error, invalid}),
+    delete_cached_txn(Txn);
+handle_undecided_txn(Txn, TxnData = #txn_data{undecided_count = UndecidedCount}) ->
+    cache_txn(Txn, TxnData#txn_data{ undecided_count = UndecidedCount + 1}).
 
 -spec submit_txn_to_cg(blockchain:blockchain(), blockchain_txn:txn(), integer(), [libp2p_crypto:pubkey_bin()], [libp2p_crypto:pubkey_bin()], dialers()) -> dialers().
 submit_txn_to_cg(Chain, Txn, SubmitCount, Acceptions, Rejections, Dialers)->
