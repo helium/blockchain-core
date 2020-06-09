@@ -107,7 +107,7 @@ init([]) ->
                     {ok, #state{cache = Cache}};
                 Chain ->
                     ok = blockchain_event:add_handler(self()),
-                    {ok, Height} = blockchain:height(Chain),
+                    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
                     {ok, #state{height = Height, cache = Cache}}
             catch _:_ ->
                       erlang:send_after(500, self(), chain_init),
@@ -148,14 +148,13 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, Height} ->
             ets:select_delete(?MODULE, [{{{'_','$1'},'_'},[{'<','$1', Height - 51}],[true]}]),
-            ok;
+            {noreply, State#state{height = Height}};
         {error, _Err} ->
-            ok
-    end,
-    {noreply, State};
+            {noreply, State}
+    end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     ets:delete_all_objects(?MODULE),
-    {ok, Height} = blockchain:height(NC),
+    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:leger(NC)),
     {noreply, State#state{height = Height}};
 handle_info(chain_init, State) ->
     try blockchain_worker:blockchain() of
@@ -164,7 +163,7 @@ handle_info(chain_init, State) ->
             {noreply, State};
         Chain ->
             ok = blockchain_event:add_handler(self()),
-            {ok, Height} = blockchain:height(Chain),
+            {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
             {noreply, State#state{height = Height}}
     catch _:_ ->
               erlang:send_after(500, self(), chain_init),
