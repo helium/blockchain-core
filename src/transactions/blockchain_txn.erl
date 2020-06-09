@@ -581,11 +581,11 @@ dc_to_hnt(DCAmount, Chain)->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_oracle_price(Ledger) of
         {ok, 0} ->
-            0;
+            {ok, 0};
         {ok, OracleHNTPrice} ->
             DCInUSD = DCAmount * ?DC_PRICE,
             %% need to put USD amount into 1/100_000_000th cents, same as oracle price
-            trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)
+            {ok, trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)}
     end.
 
 %% ------------------------------------------------------------------
