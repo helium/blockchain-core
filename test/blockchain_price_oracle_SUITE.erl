@@ -97,8 +97,8 @@ submit_prices(Config) ->
       price_oracle_public_keys => EncodedOracleKeys,
       price_oracle_refresh_interval => 25,
       price_oracle_height_delta => 10,
-      price_oracle_price_scan_delay => 50,
-      price_oracle_price_scan_max => 0
+      price_oracle_price_scan_delay => 0,
+      price_oracle_price_scan_max => 50
     },
     Balance = 5000,
     BlocksN = 50,
@@ -149,8 +149,8 @@ calculate_price_even(Config) ->
       price_oracle_public_keys => EncodedOracleKeys,
       price_oracle_refresh_interval => 25,
       price_oracle_height_delta => 10,
-      price_oracle_price_scan_delay => 50, % seconds
-      price_oracle_price_scan_max => 0 % seconds
+      price_oracle_price_scan_delay => 0, % seconds
+      price_oracle_price_scan_max => 50 % seconds
     },
     Balance = 5000,
     BlocksN = 50,
@@ -326,8 +326,8 @@ replay_txn(Config) ->
       price_oracle_public_keys => EncodedOracleKeys,
       price_oracle_refresh_interval => 10,
       price_oracle_height_delta => 10,
-      price_oracle_price_scan_delay => 25, % seconds
-      price_oracle_price_scan_max => 0 % seconds
+      price_oracle_price_scan_delay => 0, % seconds
+      price_oracle_price_scan_max => 25 % seconds
     },
     Balance = 5000,
     BlocksN = 25,
