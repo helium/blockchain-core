@@ -50,7 +50,8 @@
 }).
 
 -type state() :: #state{}.
--type state_channels() ::  #{blockchain_state_channel_v1:id() => blockchain_state_channel_v1:state_channel()}.
+-type state_channels() ::  #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
+                                                                  skewed:skewed()}}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -103,9 +104,9 @@ init(Args) ->
 
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
-        undefined -> {error, not_found};
-        SC -> {ok, blockchain_state_channel_v1:nonce(SC)}
-    end,
+                undefined -> {error, not_found};
+                {SC, _} -> {ok, blockchain_state_channel_v1:nonce(SC)}
+            end,
     {reply, Reply, State};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
@@ -134,11 +135,11 @@ handle_cast({packet, SCPacket},
             %% Get raw packet
             Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
             %% ActiveSCID should always be in our state_channels map
-            SC = maps:get(ActiveSCID, SCs),
+            {SC, Skewed} = maps:get(ActiveSCID, SCs),
             %% Get payload from packet
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
-            SC1 = blockchain_state_channel_v1:add_payload(Payload, SC),
+            {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
             SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
                       {error, not_found} ->
                           NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
@@ -162,13 +163,13 @@ handle_cast({packet, SCPacket},
             NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
 
             %% Save state channel to db
-            ok = blockchain_state_channel_v1:save(DB, NewSC),
+            ok = blockchain_state_channel_v1:save(DB, NewSC, Skewed1),
             ok = store_active_sc_id(DB, ActiveSCID),
 
             %% Put new state_channel in our map
             lager:info("packet: ~p successfully validated, updating state",
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, NewSC, SCs)}}
+            {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -238,18 +239,18 @@ update_state_sc_open(Txn,
         Owner ->
             ID = blockchain_txn_state_channel_open_v1:id(Txn),
             ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
-            SC = blockchain_state_channel_v1:new(ID,
-                                                 Owner,
-                                                 BlockHash,
-                                                 (BlockHeight + ExpireWithin)),
+            {SC, Skewed} = blockchain_state_channel_v1:new(ID,
+                                                           Owner,
+                                                           BlockHash,
+                                                           (BlockHeight + ExpireWithin)),
 
             case ActiveSCID of
                 undefined ->
                     %% Don't have any active state channel
                     %% Set this one to active
-                    State#state{state_channels=maps:put(ID, SC, SCs), active_sc_id=ID};
+                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs), active_sc_id=ID};
                 _A ->
-                    State#state{state_channels=maps:put(ID, SC, SCs)}
+                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs)}
             end;
         _ ->
             %% Don't do anything cuz we're not the owner
@@ -292,17 +293,16 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                                    active_sc_id=ActiveSCID,
                                                    state_channels=SCs}=State) ->
     NewStateChannels = maps:map(
-                        fun(_ID, SC) ->
+                        fun(_ID, {SC, Skewed}) ->
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
                                 case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
                                     false ->
-                                        SC;
+                                        {SC, Skewed};
                                     true ->
                                         SC0 = blockchain_state_channel_v1:state(closed, SC),
-                                        SC1 = blockchain_state_channel_v1:skewed(undefined, SC0),
-                                        SC2 = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
-                                        ok = close_state_channel(SC2, Owner, OwnerSigFun),
-                                        SC2
+                                        SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                                        ok = close_state_channel(SC1, Owner, OwnerSigFun),
+                                        {SC1, Skewed}
                                 end
                         end,
                         SCs
@@ -312,7 +312,7 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                         undefined ->
                             undefined;
                         _ ->
-                            ActiveSC = maps:get(ActiveSCID, NewStateChannels),
+                            {ActiveSC, _ActiveSCSkewed} = maps:get(ActiveSCID, NewStateChannels),
                             case blockchain_state_channel_v1:state(ActiveSC) of
                                 closed ->
                                     maybe_get_new_active(maps:without([ActiveSCID], NewStateChannels));
@@ -388,9 +388,9 @@ load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
                                       % TODO: Maybe cleanup not_found state channels from list
                                       lager:warning("could not get state channel ~p: ~p", [ID, _Reason]),
                                       Acc;
-                                  {ok, SC} ->
+                                  {ok, {SC, Skewed}} ->
                                       lager:info("from scdb ID: ~p, SC: ~p", [ID, SC]),
-                                      maps:put(ID, SC, Acc)
+                                      maps:put(ID, {SC, Skewed}, Acc)
                               end
                       end,
                       #{}, SCIDs)
@@ -478,7 +478,8 @@ convert_to_state_channels(LedgerSCs, Chain) ->
                                                           (_, _Hash) -> return
                                                        end, undefined, Head, Chain),
                      SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
-                     blockchain_state_channel_v1:skewed(skewed:new(BlockHash), SC1)
+                     Skewed = skewed:new(BlockHash),
+                     {SC1, Skewed}
              end,
              LedgerSCs).
 
@@ -494,10 +495,10 @@ maybe_get_new_active(SCs) ->
             %% Don't have any state channel in state
             undefined;
         L ->
-            SCSortFun = fun({_ID1, SC1}, {_ID2, SC2}) ->
+            SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
                                blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                         end,
-            SCSortFun2 = fun({_ID1, SC1}, {_ID2, SC2}) ->
+            SCSortFun2 = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
                                blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
                         end,
 

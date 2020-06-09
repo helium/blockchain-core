@@ -222,11 +222,9 @@ serialize(Snapshot, BlocksP) ->
              BinSz:32/little-unsigned-integer, Bin/binary>>,
     {ok, Snap}.
 
-serialize_v1(Snapshot, BlocksP) ->
-    Snapshot1 = case BlocksP of
-                    blocks -> Snapshot;
-                    noblocks -> Snapshot#blockchain_snapshot_v1{blocks = []}
-                end,
+serialize_v1(Snapshot, noblocks) ->
+    %% NOTE: serialize_v1 only gets called with noblocks
+    Snapshot1 = Snapshot#blockchain_snapshot_v1{blocks = []},
     Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
     BinSz = byte_size(Bin),
 
