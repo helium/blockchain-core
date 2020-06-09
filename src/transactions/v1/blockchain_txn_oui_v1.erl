@@ -32,7 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_fee/1, calculate_staking_fee/1,
+    calculate_fee/2, calculate_staking_fee/2,
     print/1,
     to_json/2
 ]).
@@ -207,17 +207,6 @@ absorb(Txn, Chain) ->
                 true ->
                     case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger) of
                         {error, _}=Error ->
-                            %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
-                            {ok, TxnFeeInHNT} = blockchain_txn:dc_to_hnt(TxnFee, Chain),
-                            {ok, StakingFeeInHNT} = blockchain_txn:dc_to_hnt(StakingFee, Chain),
-                            case blockchain_ledger_v1:debit_fee_from_account(ActualPayer, TxnFeeInHNT + StakingFeeInHNT, Ledger ) of
-                                {error, _}=Error ->
-                                    Error;
-                                ok ->
-                                    Addresses = ?MODULE:addresses(Txn),
-                                    Filter = ?MODULE:filter(Txn),
-                                    blockchain_ledger_v1:add_oui(Owner, Addresses, Filter, Subnet, Ledger)
-                            end,
                             Error;
                         ok ->
                             Addresses = ?MODULE:addresses(Txn),
@@ -237,10 +226,17 @@ absorb(Txn, Chain) ->
 %% TODO: should calculation use signed or unsigned txn?
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_fee(txn_oui()) -> non_neg_integer().
-calculate_fee(Txn) ->
-    %% TODO - check if fees are active, if not return fee value from pre txn fees implementation
-    {ok, ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0})}.
+-spec calculate_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -248,15 +244,21 @@ calculate_fee(Txn) ->
 %% returns the fee in DC
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_staking_fee(txn_oui()) -> non_neg_integer().
-calculate_staking_fee(Txn) ->
-    %% TODO - check if fees are active, if not return fee value from pre staking fees implementation
+-spec calculate_staking_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_staking_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_staking_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Chain, false) ->
+    1;
+calculate_staking_fee(Txn, _Chain, true) ->
     %% 1 DC price is fixed at 0.00001
     %% get total price of txn in USD and divide by DC price
     NumAddresses = length(?MODULE:addresses(Txn)),
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) + (NumAddresses * ?OUI_FEE_PER_ADDRESS),
     FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
-    {ok, FeeInDC}.
+    FeeInDC.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -333,6 +335,7 @@ validate_oui(OUI, Ledger) ->
     end.
 
 -spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+%% TODO - get rid of this nested bunch of cases
 do_oui_validation_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
@@ -354,12 +357,12 @@ do_oui_validation_checks(Txn, Chain) ->
                                 false ->
                                     {error, invalid_filter};
                                 true ->
+                                    {ok, IsFeesEnabled} = ?MODULE:fees_active_on_chain(Ledger),
                                     StakingFee = ?MODULE:staking_fee(Txn),
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn),
                                     TxnFee = ?MODULE:fee(Txn),
-                                    {ok, ExpectedTxnFee} = calculate_fee(Txn),
-                                    {ok, ExpectedStakingFee} = ?MODULE:calculate_staking_fee(Txn),
-                                    %% TODO use chain var to determine if new txn fees implementation should be active
-                                    case {ExpectedTxnFee == TxnFee, ExpectedStakingFee == StakingFee} of
+                                    ExpectedTxnFee = calculate_fee(Txn, Chain),
+                                    case {(ExpectedTxnFee == TxnFee orelse not IsFeesEnabled), ExpectedStakingFee == StakingFee} of
                                         {false,_} ->
                                             {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                         {_,false} ->
@@ -371,12 +374,16 @@ do_oui_validation_checks(Txn, Chain) ->
                                                               true -> Owner;
                                                               false -> Payer
                                                           end,
-                                            %% first check if the payer has sufficent DC balance, if not then see if he can pay in HNT
                                             case blockchain_ledger_v1:check_dc_balance(ActualPayer, TxnFee + StakingFee, Ledger) of
-                                                {error, {insufficient_balance, _Amount, _Balance}}->
-                                                    {ok, TxnFeeAsHNT} = blockchain_txn:dc_to_hnt(TxnFee, Chain),
-                                                    {ok, StakingFeeAsHNT} = blockchain_txn:dc_to_hnt(StakingFee, Chain),
-                                                    blockchain_ledger_v1:check_balance(ActualPayer, TxnFeeAsHNT + StakingFeeAsHNT, Ledger);
+                                                {error, {insufficient_balance, _Amount, _Balance}} = DCBalError ->
+                                                    case IsFeesEnabled of
+                                                        false -> DCBalError;
+                                                        true ->
+                                                            %% as fees are enabled, if the user has insufficient DC balance, try an implicit burn of HNT
+                                                            {ok, TxnFeeAsHNT} = blockchain_txn:dc_to_hnt(TxnFee, Chain),
+                                                            {ok, StakingFeeAsHNT} = blockchain_txn:dc_to_hnt(StakingFee, Chain),
+                                                            blockchain_ledger_v1:check_balance(ActualPayer, TxnFeeAsHNT + StakingFeeAsHNT, Ledger)
+                                                    end;
                                                 ok ->
                                                     ok
                                             end
@@ -423,7 +430,7 @@ new_test() ->
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    {ok, ExpectedTxnFee} = calculate_fee(Tx),
+    ExpectedTxnFee = calculate_fee(Tx),
     Tx1 = Tx#blockchain_txn_oui_v1_pb{fee = ExpectedTxnFee},
     ?assertEqual(Tx1, new(1, <<"owner">>, [?KEY1], <<>>, 0, 2, ExpectedTxnFee)).
 

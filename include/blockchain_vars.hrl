@@ -311,3 +311,8 @@
 %% (Will also affect what prices get dropped from the cached list of prices.)
 -define(price_oracle_price_scan_max, price_oracle_price_scan_max).
 %% ------------------------------------------------------------------
+
+
+%% ------------------------------------------------------------------
+%% transaction fee vars
+-define(txn_fees, txn_fees).

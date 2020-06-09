@@ -141,11 +141,15 @@
     load_oracle_price_list/2,
 
     clean/1, close/1,
-    compact/1
+    compact/1,
+
+    txn_fees_active/1,
+    dc_to_hnt/2
 ]).
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -ifdef(TEST).
 -export([median/1]).
@@ -1430,6 +1434,33 @@ maybe_gc_scs(Ledger) ->
     end.
 
 %%--------------------------------------------------------------------
+%% @doc  check if txn fees are enabled on chain
+%% @end
+%%--------------------------------------------------------------------
+-spec txn_fees_active(Ledger :: ledger()) -> boolean().
+txn_fees_active(Ledger)->
+    case blockchain:config(?txn_fees, Ledger) of
+        {error, not_found} -> false;
+        {ok, _} -> true
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% converts DC to HNT bones
+%% @end
+%%--------------------------------------------------------------------
+-spec dc_to_hnt(non_neg_integer(), blockchain:blockchain()) -> non_neg_integer().
+dc_to_hnt(DCAmount, Ledger)->
+    case ?MODULE:current_oracle_price(Ledger) of
+        {ok, 0} ->
+            {ok, 0};
+        {ok, OracleHNTPrice} ->
+            DCInUSD = DCAmount * ?DC_PRICE,
+            %% need to put USD amount into 1/100_000_000th cents, same as oracle price
+            {ok, trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)}
+    end.
+
+%%--------------------------------------------------------------------
 %% @doc
 %% Maybe recalculate the median of the oracle prices that are valid
 %% in a sliding window.
@@ -1721,7 +1752,12 @@ debit_fee(Address, Fee, Ledger) ->
                     EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
-                    {error, {insufficient_balance, Fee, Balance}}
+                    %% user does not have sufficient DC balance, try to do an implicit hnt burn instead if txn fees are enabled
+                    {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+                    case txn_fees_active(Ledger) of
+                        true -> ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+                        false -> {error, {insufficient_balance, Fee, Balance}}
+                    end
             end
     end.
 
