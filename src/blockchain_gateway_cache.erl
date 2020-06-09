@@ -116,6 +116,7 @@ handle_call({bulk_put, Height, List}, _From, State) ->
     lists:foreach(
       fun({Addr, SerGw}) ->
               Gw = blockchain_ledger_gateway_v1:deserialize(SerGw),
+              ets:insert(?MODULE, {Addr, Height}),
               ets:insert(?MODULE, {{Addr, Height}, Gw})
       end, List),
     {reply, ok, State};
@@ -131,6 +132,7 @@ handle_cast({update, {{Addr, Height}, Gw}}, #state{height = CurrHeight} = State)
         true ->
             {noreply, State};
         false ->
+            ets:insert(?MODULE, {Addr, Height}),
             ets:insert(?MODULE, {{Addr, Height}, Gw}),
             {noreply, State}
     end;
@@ -149,7 +151,7 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     ets:delete_all_objects(?MODULE),
-    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:leger(NC)),
+    {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(NC)),
     {noreply, State#state{height = Height}};
 handle_info(chain_init, State) ->
     try blockchain_worker:blockchain() of
@@ -180,11 +182,26 @@ code_change(_OldVsn, State, _Extra) ->
 
 cache_get(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case ets:lookup(?MODULE, {Addr, Height}) of
-        [] ->
-            {error, not_found};
-        [{_, Res}] ->
-            {ok, Res}
+    case ets:lookup(?MODULE, Addr) of
+        [] -> {error, not_found};
+        [{_, LastUpdate}] ->
+            case Height > LastUpdate of
+                true ->
+                    case ets:lookup(?MODULE, {Addr, LastUpdate}) of
+                        [] ->
+                            {error, not_found};
+                        [{_, Res}] ->
+                            {ok, Res}
+                    end;
+                false ->
+                    %% this is less likely to work but still worth a try?
+                    case ets:lookup(?MODULE, {Addr, Height}) of
+                        [] ->
+                            {error, not_found};
+                        [{_, Res}] ->
+                            {ok, Res}
+                    end
+            end
     end.
 
 cache_put(Addr, Gw, Ledger) ->
