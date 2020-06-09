@@ -39,13 +39,14 @@ get(Addr, Ledger) ->
           CacheRead :: boolean()) ->
                  ok | {error, _}.
 get(Addr, Ledger, false) ->
+    ets:update_counter(?MODULE, total, 1, {total, 0}),
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
 get(Addr, Ledger, true) ->
-    ets:update_counter(?MODULE, total, 1, 1),
+    ets:update_counter(?MODULE, total, 1, {total, 0}),
     try
         case cache_get(Addr, Ledger) of
             {ok, _} = Result ->
-                ets:update_counter(?MODULE, hit, 1, 1),
+                ets:update_counter(?MODULE, hit, 1, {hit, 0}),
                 Result;
             _ ->
                 case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
@@ -57,14 +58,26 @@ get(Addr, Ledger, true) ->
                 end
         end
     catch _:_ ->
-            ets:update_counter(?MODULE, error, 1, 1),
+            ets:update_counter(?MODULE, error, 1, {error, 0}),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
 
 stats() ->
-    {ets:lookup(?MODULE, total),
-     ets:lookup(?MODULE, hits),
-     ets:lookup(?MODULE, error)}.
+    case ets:lookup(?MODULE, total) of
+        [] -> 0;
+        [{_, Tot}] ->
+            HitRate =
+                case ets:lookup(?MODULE, hits) of
+                    [] -> no_hits;
+                    [{_, Hits}] ->
+                        Hits / Tot
+                end,
+            Err = case ets:lookup(?MODULE, error) of
+                      [] -> 0;
+                      [{_, E}] -> E
+                  end,
+            {Tot, HitRate, Err}
+    end.
 
 bulk_put(Height, List) ->
     gen_server:call(?MODULE, {bulk_put, Height, List}).
