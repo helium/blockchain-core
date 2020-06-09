@@ -407,8 +407,8 @@ challenge_age(Vars) ->
 %% we assume that everything that has made it into build has already
 %% been asserted, and thus the lookup will never fail. This function
 %% in no way exists simply because
-%% blockchain_ledger_v1:find_gateway_info is too much to type a bunch
+%% blockchain_gateway_cache:get is too much to type a bunch
 %% of times.
 find(Addr, Ledger) ->
-    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+    {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
     Gw.

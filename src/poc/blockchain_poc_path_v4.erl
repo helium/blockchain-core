@@ -481,11 +481,11 @@ poc_max_hop_cells(Vars) ->
 %% we assume that everything that has made it into build has already
 %% been asserted, and thus the lookup will never fail. This function
 %% in no way exists simply because
-%% blockchain_ledger_v1:find_gateway_info is too much to type a bunch
+%% blockchain_gateway_cache:get is too much to type a bunch
 %% of times.
 -spec find(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger()) -> blockchain_ledger_gateway_v2:gateway().
 find(Addr, Ledger) ->
-    {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+    {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
     Gw.
 
 -spec split_hist(Hist :: blockchain_ledger_gateway_v2:histogram(),

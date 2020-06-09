@@ -121,10 +121,9 @@ handle_cast(_Msg, State) ->
 
 handle_info({blockchain_event, {add_block, _Hash, _Sync, _Ledger}}, #state{chain = undefined} = State) ->
     {noreply, State};
-handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
-    case blockchain:get_block(Hash, State#state.chain) of
-        {ok, Block} ->
-            Height = blockchain_block:height(Block),
+handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
+    case blockchain_ledger_v1:current_height(Ledger) of
+        {ok, Height} ->
             ets:select_delete(score_cache, [{{{'_','_','_','_','$1'},'_'},[{'<','$1', Height - 51}],[true]}]),
             ok;
         {error, _Err} ->
@@ -132,6 +131,7 @@ handle_info({blockchain_event, {add_block, Hash, _Sync, _Ledger}}, State) ->
     end,
     {noreply, State};
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    ets:delete_all_objects(score_cache),
     {noreply, State#state{chain = NC}};
 handle_info(chain_init, State) ->
     try blockchain_worker:blockchain() of

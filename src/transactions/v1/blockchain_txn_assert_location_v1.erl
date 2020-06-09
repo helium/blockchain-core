@@ -316,7 +316,7 @@ is_valid(Txn, Chain) ->
                             Error;
                         ok ->
                             Gateway = ?MODULE:gateway(Txn),
-                            case blockchain_ledger_v1:find_gateway_info(Gateway, Ledger) of
+                            case blockchain_gateway_cache:get(Gateway, Ledger) of
                                 {error, _} ->
                                     {error, {unknown_gateway, Gateway, Ledger}};
                                 {ok, GwInfo} ->
@@ -364,7 +364,7 @@ absorb(Txn, Chain) ->
         false -> Payer
     end,
 
-    {ok, OldGw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+    {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger),
 
     case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
         {error, _Reason}=Error ->
@@ -405,7 +405,7 @@ absorb(Txn, Chain) ->
             %% TODO gc this nonsense in some deterministic way
             Gateways = blockchain_ledger_v1:active_gateways(Ledger),
             Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
-            {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
+            {ok, Gw} = blockchain_gateway_cache:get(Gateway, Ledger),
             ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
             Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
             ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)

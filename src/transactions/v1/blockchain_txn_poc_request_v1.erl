@@ -155,7 +155,7 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
-                    case blockchain_ledger_v1:find_gateway_info(Challenger, Ledger) of
+                    case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, _Reason}=Error ->
                             Error;
                         {ok, Info} ->

@@ -334,6 +334,9 @@ reset_context(Ledger) ->
 commit_context(#ledger_v1{db=DB}=Ledger) ->
     Cache = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
+    {ok, Height} = current_height(Ledger),
+    GWCF = active_gateways_cf(Ledger),
+    prewarm_gateways(Height + 1, GWCF, Cache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),
@@ -2595,6 +2598,18 @@ batch_from_cache(ETS) ->
                       rocksdb:batch_put(Acc, CF, Key, Value),
                       Acc
               end, Batch, ETS).
+
+prewarm_gateways(Height, GWCF, ETS) ->
+   GWList =
+        ets:foldl(fun({{CF, _Key}, ?CACHE_TOMBSTONE}, Acc) when CF == GWCF ->
+                          Acc;
+                     ({{CF, Key}, Value}, Acc)  when CF == GWCF ->
+                          [{Key, Value} | Acc];
+                     (_, Acc) ->
+                          Acc
+                  end, [], ETS),
+    %% best effort here
+    try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end.
 
 %% @doc Increment a binary for the purposes of lexical sorting
 -spec increment_bin(binary()) -> binary().

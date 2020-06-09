@@ -62,7 +62,7 @@ target_v2(Hash, Ledger, Vars) ->
     GatewayMap =
         lists:foldl(
           fun(Addr, Acc) ->
-                  {ok, Gw} = blockchain_ledger_v1:find_gateway_info(Addr, Ledger),
+                  {ok, Gw} = blockchain_gateway_cache:get(Addr, Ledger),
                   Score =
                       case prob_score_wt(Vars) of
                           0.0 ->
