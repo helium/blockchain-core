@@ -9,6 +9,7 @@
 %% blockchain_txn.proto. The txn() type below should reflec that
 %% union.
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -type hash() :: <<_:256>>. %% SHA256 digest
 -type txn() :: blockchain_txn_add_gateway_v1:txn_add_gateway()
@@ -74,7 +75,8 @@
     is_valid/2,
     validate_fields/1,
     depends_on/2,
-    to_json/2
+    to_json/2,
+    dc_to_hnt/2
 ]).
 
 -ifdef(TEST).
@@ -567,6 +569,25 @@ validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
     {error, {malformed_field, Name}}.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% converts DC to HNT bones
+%% @end
+%%--------------------------------------------------------------------
+-spec dc_to_hnt(non_neg_integer(), blockchain:blockchain()) -> non_neg_integer().
+dc_to_hnt(DCAmount, Chain)->
+    Ledger = blockchain:ledger(Chain),
+    case blockchain_ledger_v1:current_oracle_price(Ledger) of
+        {ok, 0} ->
+            0;
+        {ok, OracleHNTPrice} ->
+            DCInUSD = DCAmount * ?DC_PRICE,
+            %% need to put USD amount into 1/100_000_000th cents, same as oracle price
+            trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)
+    end.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

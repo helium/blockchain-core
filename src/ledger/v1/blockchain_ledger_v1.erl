@@ -55,7 +55,7 @@
     maybe_gc_scs/1,
 
     find_entry/2,
-    credit_account/3, debit_account/4,
+    credit_account/3, debit_account/4, debit_fee_from_account/3,
     check_balance/3,
 
     dc_entries/1,
@@ -1597,6 +1597,27 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
+            end
+    end.
+
+-spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
+debit_fee_from_account(Address, Fee, Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Fee) >= 0 of
+                true ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                        blockchain_ledger_entry_v1:nonce(Entry),
+                        (Balance - Fee)
+                    ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    EntriesCF = entries_cf(Ledger),
+                    cache_put(Ledger, EntriesCF, Address, Bin);
+                false ->
+                    {error, {insufficient_balance, Fee, Balance}}
             end
     end.
 

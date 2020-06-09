@@ -9,8 +9,8 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
 -include("blockchain_utils.hrl").
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
@@ -32,7 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1,
+    calculate_fee/1, calculate_staking_fee/2,
     print/1,
     to_json/2
 ]).
@@ -188,8 +188,8 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    TxnFee = ?MODULE:fee(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
-    Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
     OUI = ?MODULE:oui(Txn),
@@ -205,8 +205,19 @@ absorb(Txn, Chain) ->
                 {false, LedgerOUI} ->
                     {error, {invalid_oui, OUI, LedgerOUI}};
                 true ->
-                    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger) of
                         {error, _}=Error ->
+                            %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
+                            TxnFeeInHNT = blockchain_txn:dc_to_hnt(TxnFee, Chain),
+                            StakingFeeInHNT = blockchain_txn:dc_to_hnt(StakingFee, Chain),
+                            case blockchain_ledger_v1:debit_fee_from_account(ActualPayer, TxnFeeInHNT + StakingFeeInHNT, Ledger ) of
+                                {error, _}=Error ->
+                                    Error;
+                                ok ->
+                                    Addresses = ?MODULE:addresses(Txn),
+                                    Filter = ?MODULE:filter(Txn),
+                                    blockchain_ledger_v1:add_oui(Owner, Addresses, Filter, Subnet, Ledger)
+                            end,
                             Error;
                         ok ->
                             Addresses = ?MODULE:addresses(Txn),
@@ -220,13 +231,53 @@ absorb(Txn, Chain) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% TODO: We should calulate this (one we have a token burn rate)
-%%       maybe using location and/or demand
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% To ensure determinism we zero out the supplied fee and staking fee
+%% TODO: should calculation use signed or unsigned txn?
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
-calculate_staking_fee(_Chain) ->
-    1.
+-spec calculate_fee(txn_oui()) -> non_neg_integer().
+calculate_fee(Txn) ->
+    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the staking fee using the price oracles
+%% returns the fee in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    %% get the current oracle price of a HNT
+    %% oracle prices are in 1/100_000_000th cent, USD$1=100000000
+    %% 1 DC price is fixed at 0.00001
+    case blockchain_ledger_v1:current_oracle_price(Ledger) of
+        {ok, 0} ->
+            {ok, 0};
+        {ok, OracleHNTPrice} ->
+            %% get total price of txn in USD
+            NumAddresses = length(?MODULE:addresses(Txn)),
+            TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) + (NumAddresses * ?OUI_FEE_PER_ADDRESS),
+            %% convert the USD price to equiv HNT, need to convert to 1/100_000_000th cents, same as oracle price
+            FeeInHNT = trunc((TxnPriceUSD * 100000000) / OracleHNTPrice),
+            %% FeeInHNTBones = FeeInHNT * ?BONES_PER_HNT,
+            %% calculate the number of DC required for this txn
+            FeeInDC = trunc((FeeInHNT / ?DC_PRICE)),
+            %% TODO:currently returning only the current DC price
+            %%      but should the user have insufficient DC balance at the point of absorb
+            %%      this DC price will be converted to the equiv HNT price using the oracle price at that time
+            %%      there is potential for oracle price to change from the point of the above calculation and
+            %%      the point at which the txn is absorbed
+            %%      we could return the current HNT equiv of the DC to the client and it could be
+            %%      populated in the txn as a prop or map ie #{dc_fee=>FeeInDC, hnt_fee=>FeeInHNTBones}
+            %%      but this will require additional work on all the clients
+            %%      clients have to be updated anyway to call the staking fee API so maybe thats ok?
+            %%      or alternatively we work with the fact the oracle price can change between txn creation and absorbing
+            %%      which is the option implemented here
+            {ok, FeeInDC}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -286,6 +337,24 @@ validate_filter(Filter) ->
         _ -> false
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% the staking fee included in a txn has been calculated at the point a txn was created
+%% the calculation requires consulting the oracle price at that time
+%% at a later point at which the txn is being verified we need to verify the client submitted staking fee
+%% is correct ( otherwise a spurious client could put in any old number )
+%% however at this point the oracle price could potentially have changed
+%% in reality it should not change by much but it means we cannot rely on the value derived from
+%% calculating the staking fee again at this later point will be the same as that when the txn was created
+%% as such we will allow for some variation in the presented fee and the expected fee
+%% the variation is expressed as percentage diff
+%% both fees below are in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec valididate_staking_fee(non_neg_integer(), non_neg_integer())-> boolean().
+valididate_staking_fee(ExpectedStakingFee, StakingFee)->
+    (100 * abs((ExpectedStakingFee - StakingFee) div ((ExpectedStakingFee + StakingFee)/2))) =< ?STAKING_FEE_MARGIN.
+
 -spec validate_oui(OUI :: pos_integer(), Ledger :: blockchain_ledger_v1:ledger()) -> true | {false, non_neg_integer()}.
 validate_oui(OUI, Ledger) ->
     case blockchain_ledger_v1:get_oui_counter(blockchain_ledger_v1:remove_context(Ledger)) of
@@ -325,26 +394,35 @@ do_oui_validation_checks(Txn, Chain) ->
                                     {error, invalid_filter};
                                 true ->
                                     StakingFee = ?MODULE:staking_fee(Txn),
-                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-                                    case ExpectedStakingFee == StakingFee of
-                                        false ->
+                                    TxnFee = ?MODULE:fee(Txn),
+                                    ExpectedTxnFee = calculate_fee(Txn),
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                                    case {ExpectedTxnFee == TxnFee, valididate_staking_fee(ExpectedStakingFee, StakingFee)} of
+                                        {false,_} ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        {_,false} ->
                                             {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
-                                        true ->
-                                            Fee = ?MODULE:fee(Txn),
+                                        {true, true} ->
                                             Owner = ?MODULE:owner(Txn),
                                             Payer = ?MODULE:payer(Txn),
                                             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                                                               true -> Owner;
                                                               false -> Payer
                                                           end,
-                                            StakingFee = ?MODULE:staking_fee(Txn),
-                                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                            %% first check if the payer has sufficent DC balance, if not then see if he can pay in HNT
+                                            case blockchain_ledger_v1:check_dc_balance(ActualPayer, TxnFee + StakingFee, Ledger) of
+                                                {error, {insufficient_balance, _Amount, _Balance}}->
+                                                    TxnFeeAsHNT = blockchain_txn:dc_to_hnt(TxnFee, Chain),
+                                                    StakingFeeAsHNT = blockchain_txn:dc_to_hnt(StakingFee, Chain),
+                                                    blockchain_ledger_v1:check_balance(ActualPayer, TxnFeeAsHNT + StakingFeeAsHNT, Ledger);
+                                                ok ->
+                                                    ok
+                                            end
                                     end
                             end
                     end
             end
     end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -383,7 +461,8 @@ new_test() ->
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0,  2, 3)).
+    ExpectedFee = calculate_fee(Tx),
+    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0,  2, ExpectedFee)).
 
 owner_test() ->
     Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
