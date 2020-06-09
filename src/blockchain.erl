@@ -252,9 +252,7 @@ upgrade_gateways_oui_(Ledger) ->
     %% find all neighbors for everyone
     maps:map(
       fun(A, G) ->
-              %% since we're here
-              G1 = blockchain_ledger_gateway_v2:neighbors([], G),
-              blockchain_ledger_v1:update_gateway(G1, A, Ledger)
+              blockchain_ledger_v1:update_gateway(G, A, Ledger)
       end, Gateways),
     ok.
 

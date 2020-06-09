@@ -1073,7 +1073,7 @@ build_fake_ledger(TestDir, LatLongs, DefaultScore, ExclusionRingDist, MaxGridDis
 
     lists:foreach(fun({{Owner, Gw}, {Coordinate, _, _}}) ->
                           ok = blockchain_ledger_v1:add_gateway(Owner, Gw, h3:from_geo(Coordinate, Res), DefaultScore, Ledger1),
-                          {ok, _} = blockchain_ledger_v1:find_gateway_info(Gw, Ledger1)
+                          {ok, _} = blockchain_gateway_cache:get(Gw, Ledger1)
                   end, lists:zip(OwnerAndGateways, LatLongs)),
     ok = blockchain_ledger_v1:commit_context(Ledger1),
     Ledger.
