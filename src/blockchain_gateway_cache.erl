@@ -184,8 +184,9 @@ cache_get(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case ets:lookup(?MODULE, Addr) of
         [] -> {error, not_found};
-        [{_, LastUpdate}] ->
-            case Height > LastUpdate of
+        [{_, LastUpdate}] ->  % TODO check if storing a list of these
+                              % is worth the effort
+            case Height >= LastUpdate of
                 true ->
                     case ets:lookup(?MODULE, {Addr, LastUpdate}) of
                         [] ->
