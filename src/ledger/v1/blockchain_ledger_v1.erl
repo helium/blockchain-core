@@ -336,7 +336,7 @@ commit_context(#ledger_v1{db=DB}=Ledger) ->
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
     GWCF = active_gateways_cf(Ledger),
-    prewarm_gateways(Height + 1, GWCF, Cache),
+    prewarm_gateways(Height, GWCF, Cache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),

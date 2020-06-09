@@ -67,7 +67,7 @@ stats() ->
         [] -> 0;
         [{_, Tot}] ->
             HitRate =
-                case ets:lookup(?MODULE, hits) of
+                case ets:lookup(?MODULE, hit) of
                     [] -> no_hits;
                     [{_, Hits}] ->
                         Hits / Tot
@@ -81,33 +81,6 @@ stats() ->
 
 bulk_put(Height, List) ->
     gen_server:call(?MODULE, {bulk_put, Height, List}).
-
-%% -spec put(GwAddr :: libp2p_crypto:pubkey_bin(),
-%%           Gw :: blockchain_ledger_gateway_v2:gateway(),
-%%           Ledger :: blockchain_ledger_v1:ledger()) ->
-%%                  ok | {error, _}.
-%% put(Addr, Gw, Ledger) ->
-%%     put(Addr, Gw, Ledger, true).
-
-%% -spec put(GwAddr :: libp2p_crypto:pubkey_bin(),
-%%           Gw :: blockchain_ledger_gateway_v2:gateway(),
-%%           Ledger :: blockchain_ledger_v1:ledger(),
-%%           CacheWrite :: boolean()) ->
-%%                  ok | {error, _}.
-%% put(Addr, Gw, Ledger, false) ->
-%%     blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger);
-%% put(Addr, Gw, Ledger, true) ->
-%%     case blockchain_ledger_v1:update_gateway(Gw, Addr, Ledger) of
-%%         ok ->
-%%             try
-%%                 cache_put(Addr, Gw, Ledger)
-%%             catch _:_ ->
-%%                     ok
-%%             end,
-%%             ok;
-%%         Else ->
-%%             Else
-%%     end.
 
 %%%===================================================================
 %%% gen_server callbacks
