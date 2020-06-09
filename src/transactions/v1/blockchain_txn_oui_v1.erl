@@ -239,7 +239,7 @@ absorb(Txn, Chain) ->
 %%--------------------------------------------------------------------
 -spec calculate_fee(txn_oui()) -> non_neg_integer().
 calculate_fee(Txn) ->
-    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
+    {ok, ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0})}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -395,8 +395,8 @@ do_oui_validation_checks(Txn, Chain) ->
                                 true ->
                                     StakingFee = ?MODULE:staking_fee(Txn),
                                     TxnFee = ?MODULE:fee(Txn),
-                                    ExpectedTxnFee = calculate_fee(Txn),
-                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                                    {ok, ExpectedTxnFee} = calculate_fee(Txn),
+                                    {ok, ExpectedStakingFee} = ?MODULE:calculate_staking_fee(Txn, Chain),
                                     case {ExpectedTxnFee == TxnFee, valididate_staking_fee(ExpectedStakingFee, StakingFee)} of
                                         {false,_} ->
                                             {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
@@ -457,12 +457,13 @@ new_test() ->
         addresses = [?KEY1],
         payer = <<>>,
         staking_fee=2,
-        fee=3,
+        fee=0,
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ExpectedFee = calculate_fee(Tx),
-    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0,  2, ExpectedFee)).
+    {ok, ExpectedTxnFee} = calculate_fee(Tx),
+    Tx1 = Tx#blockchain_txn_oui_v1_pb{fee = ExpectedTxnFee},
+    ?assertEqual(Tx1, new(1, <<"owner">>, [?KEY1], <<>>, 0, 2, ExpectedTxnFee)).
 
 owner_test() ->
     Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
