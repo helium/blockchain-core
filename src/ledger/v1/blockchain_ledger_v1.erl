@@ -1514,7 +1514,7 @@ select_prices_by_time(Start, End, Entry, Acc) ->
     P = blockchain_ledger_oracle_price_entry:price(Entry),
 
     if
-        T >= Start andalso T =< End -> Acc#{ PK => P };
+        T >= End andalso T =< Start -> Acc#{ PK => P };
         T > End -> Acc;
         true -> Acc
     end.
@@ -1531,7 +1531,7 @@ median(L) ->
     end.
 
 trim_price_list(LastTime, PriceEntries) ->
-    lists:dropwhile(fun(Entry) ->
+    lists:filter(fun(Entry) ->
                             case blockchain_ledger_oracle_price_entry:timestamp(Entry) of
                                 T when T > LastTime -> true;
                                 _ -> false
