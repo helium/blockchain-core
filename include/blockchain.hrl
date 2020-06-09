@@ -26,3 +26,6 @@
 -define(EVT_MGR, blockchain_event_mgr).
 
 -define(BC_UPGRADE_NAMES, [<<"gateway_v2">>, <<"hex_targets">>, <<"gateway_oui">>]).
+
+% Overcommit factor for state channel
+-define(OVERCOMMIT, 2).
