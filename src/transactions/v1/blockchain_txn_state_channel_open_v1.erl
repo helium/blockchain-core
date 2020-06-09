@@ -10,16 +10,18 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
+-include("blockchain.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/6,
     hash/1,
     id/1,
     owner/1,
     oui/1,
+    amount/1,
     nonce/1,
     expire_within/1,
     fee/1,
@@ -42,13 +44,15 @@
           Owner :: libp2p_crypto:pubkey_bin(),
           ExpireWithin :: pos_integer(),
           OUI :: non_neg_integer(),
-          Nonce :: non_neg_integer()) -> txn_state_channel_open().
-new(ID, Owner, ExpireWithin, OUI, Nonce) ->
+          Nonce :: non_neg_integer(),
+          Amount :: non_neg_integer()) -> txn_state_channel_open().
+new(ID, Owner, ExpireWithin, OUI, Nonce, Amount) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         expire_within=ExpireWithin,
         oui=OUI,
+        amount=Amount,
         nonce=Nonce,
         signature = <<>>
     }.
@@ -74,6 +78,11 @@ nonce(Txn) ->
 -spec oui(Txn :: txn_state_channel_open()) -> non_neg_integer().
 oui(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.oui.
+
+-spec amount(Txn :: txn_state_channel_open()) -> non_neg_integer().
+amount(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.amount.
+
 
 -spec expire_within(Txn :: txn_state_channel_open()) -> pos_integer().
 expire_within(Txn) ->
@@ -117,11 +126,13 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Ledger) of
+    Amount = ?MODULE:amount(Txn) * ?OVERCOMMIT,
+
+    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
         {error, _}=Error ->
             Error;
         ok ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger)
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
@@ -139,6 +150,7 @@ to_json(Txn, _Opts) ->
       owner => ?BIN_TO_B58(owner(Txn)),
       oui => oui(Txn),
       fee => fee(Txn),
+      amount => amount(Txn),
       nonce => nonce(Txn),
       expire_within => expire_within(Txn)
      }.
@@ -206,29 +218,35 @@ new_test() ->
         expire_within=10,
         oui=1,
         nonce=1,
+        amount=10,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1)).
+    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1, 10)).
 
 id_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<"id">>, id(Tx)).
 
 owner_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 signature_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<>>, signature(Tx)).
 
 oui_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(1, oui(Tx)).
+
+amount_test() ->
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
+    ?assertEqual(10, amount(Tx)).
+
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx0 = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -236,7 +254,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, id, owner, oui, fee, nonce, expire_within])).
