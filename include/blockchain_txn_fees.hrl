@@ -1,5 +1,4 @@
 
-%% TODO : maybe dc price is on chain ?
 -define(DC_PRICE, 0.00001).
 -define(BONES_PER_HNT, 100000000).
 
@@ -29,14 +28,19 @@
     {blockchain_txn_state_channel_close_v1, 0}
 ]).
 
+%% expressed as percent
+-define(STAKING_FEE_MARGIN, 5).
+
+%% special txn resource fees
+-define(OUI_FEE_PER_ADDRESS, 100).
+
+
+%% Macros
 -define(staking_fee(TxnType),
     case lists:keyfind(TxnType, 1, ?STAKING_FEES) of
         {_Type, Index} -> Index;
         false -> 0
     end).
--define(STAKING_FEE_MARGIN, 5).  %% expressed as percent
 
-%% special txn resource fees
--define(OUI_FEE_PER_ADDRESS, 100).
 
 -define(fee(Txn), trunc(byte_size(blockchain_txn:serialize(Txn)) / 24)).
