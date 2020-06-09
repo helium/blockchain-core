@@ -13,7 +13,7 @@
     {blockchain_txn_dc_coinbase_v1, 0},
     {blockchain_txn_gen_gateway_v1, 10},
     {blockchain_txn_token_burn_exchange_rate_v1, 0},
-    {blockchain_txn_oui_v1, 1000},
+    {blockchain_txn_oui_v1, 100},
     {blockchain_txn_routing_v1, 0},
     {blockchain_txn_create_htlc_v1, 0},
     {blockchain_txn_payment_v1, 0},
