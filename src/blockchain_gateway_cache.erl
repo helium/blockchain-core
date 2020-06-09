@@ -6,7 +6,8 @@
 -export([
          start_link/0,
          get/2, get/3,
-         bulk_put/2
+         bulk_put/2,
+         stats/0
         ]).
 
 %% gen_server callbacks
@@ -40,9 +41,11 @@ get(Addr, Ledger) ->
 get(Addr, Ledger, false) ->
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
 get(Addr, Ledger, true) ->
+    ets:update_counter(?MODULE, total, 1, 1),
     try
         case cache_get(Addr, Ledger) of
             {ok, _} = Result ->
+                ets:update_counter(?MODULE, hit, 1, 1),
                 Result;
             _ ->
                 case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
@@ -54,8 +57,14 @@ get(Addr, Ledger, true) ->
                 end
         end
     catch _:_ ->
+            ets:update_counter(?MODULE, error, 1, 1),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
+
+stats() ->
+    {ets:lookup(?MODULE, total),
+     ets:lookup(?MODULE, hits),
+     ets:lookup(?MODULE, error)}.
 
 bulk_put(Height, List) ->
     gen_server:call(?MODULE, {bulk_put, Height, List}).
