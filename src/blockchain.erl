@@ -2097,79 +2097,80 @@ new_test() ->
 %     Chain = new(Block, test_utils:tmp_dir("ledger_test")),
 %     ?assertEqual(blockchain_ledger_v1:increment_height(blockchain_ledger_v1:new()), ledger(Chain)).
 
-blocks_test() ->
-    meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
-        {ok, []}
-    end),
-    meck:new(blockchain_block, [passthrough]),
-    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
-        {true, undefined}
-    end),
-    meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _, _) ->
-        {true, undefined, false}
-    end),
-    meck:new(blockchain_worker, [passthrough]),
-    meck:expect(blockchain_worker, notify, fun(_) ->
-        ok
-    end),
-    meck:new(blockchain_election, [passthrough]),
-    meck:expect(blockchain_election, has_new_group, fun(_) ->
-        false
-    end),
-    meck:new(blockchain_swarm, [passthrough]),
-    meck:expect(blockchain_swarm, pubkey_bin, fun() ->
-        crypto:strong_rand_bytes(33)
-    end),
+blocks_test_() ->
+    {timeout, 30000,
+     fun() ->
+             meck:new(blockchain_ledger_v1, [passthrough]),
+             meck:expect(blockchain_ledger_v1, consensus_members, fun(_) ->
+                                                                          {ok, []}
+                                                                  end),
+             meck:new(blockchain_block, [passthrough]),
+             meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _) ->
+                                                                      {true, undefined}
+                                                              end),
+             meck:expect(blockchain_block, verify_signatures, fun(_, _, _, _, _) ->
+                                                                      {true, undefined, false}
+                                                              end),
+             meck:new(blockchain_worker, [passthrough]),
+             meck:expect(blockchain_worker, notify, fun(_) ->
+                                                            ok
+                                                    end),
+             meck:new(blockchain_election, [passthrough]),
+             meck:expect(blockchain_election, has_new_group, fun(_) ->
+                                                                     false
+                                                             end),
+             meck:new(blockchain_swarm, [passthrough]),
+             meck:expect(blockchain_swarm, pubkey_bin, fun() ->
+                                                               crypto:strong_rand_bytes(33)
+                                                       end),
 
-    {ok, Pid} = blockchain_lock:start_link(),
+             {ok, Pid} = blockchain_lock:start_link(),
 
-    #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
-    BinPub = libp2p_crypto:pubkey_to_bin(Pub),
+             #{secret := Priv, public := Pub} = libp2p_crypto:generate_keys(ecc_compact),
+             BinPub = libp2p_crypto:pubkey_to_bin(Pub),
 
-    Vars = #{chain_vars_version => 2},
-    Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
-    Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
-    VarTxns = [blockchain_txn_vars_v1:key_proof(Txn, Proof)],
+             Vars = #{chain_vars_version => 2},
+             Txn = blockchain_txn_vars_v1:new(Vars, 1, #{master_key => BinPub}),
+             Proof = blockchain_txn_vars_v1:create_proof(Priv, Txn),
+             VarTxns = [blockchain_txn_vars_v1:key_proof(Txn, Proof)],
 
-    GenBlock = blockchain_block:new_genesis_block(VarTxns),
-    GenHash = blockchain_block:hash_block(GenBlock),
-    TmpDir = test_utils:tmp_dir("blocks_test"),
-    {ok, Chain} = new(TmpDir, GenBlock, undefined, undefined),
-    Block = blockchain_block_v1:new(#{prev_hash => GenHash,
-                                      height => 2,
-                                      transactions => [],
-                                      signatures => [],
-                                      time => 1,
-                                      hbbft_round => 1,
-                                      election_epoch => 1,
-                                      epoch_start => 0,
-                                      seen_votes => [],
-                                      bba_completion => <<>>
-                                     }),
-    Hash = blockchain_block:hash_block(Block),
-    ok = add_block(Block, Chain),
-    Map = #{
-        GenHash => GenBlock,
-        Hash => Block
-    },
-    ?assertMatch(Map, blocks(Chain)),
+             GenBlock = blockchain_block:new_genesis_block(VarTxns),
+             GenHash = blockchain_block:hash_block(GenBlock),
+             TmpDir = test_utils:tmp_dir("blocks_test"),
+             {ok, Chain} = new(TmpDir, GenBlock, undefined, undefined),
+             Block = blockchain_block_v1:new(#{prev_hash => GenHash,
+                                               height => 2,
+                                               transactions => [],
+                                               signatures => [],
+                                               time => 1,
+                                               hbbft_round => 1,
+                                               election_epoch => 1,
+                                               epoch_start => 0,
+                                               seen_votes => [],
+                                               bba_completion => <<>>
+                                              }),
+             Hash = blockchain_block:hash_block(Block),
+             ok = add_block(Block, Chain),
+             Map = #{
+               GenHash => GenBlock,
+               Hash => Block
+              },
+             ?assertMatch(Map, blocks(Chain)),
 
-    ok = gen_server:stop(Pid),
+             ok = gen_server:stop(Pid),
 
-    ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1),
-    ?assert(meck:validate(blockchain_block)),
-    meck:unload(blockchain_block),
-    ?assert(meck:validate(blockchain_worker)),
-    meck:unload(blockchain_worker),
-    ?assert(meck:validate(blockchain_election)),
-    meck:unload(blockchain_election),
-    ?assert(meck:validate(blockchain_swarm)),
-    meck:unload(blockchain_swarm),
-    test_utils:cleanup_tmp_dir(TmpDir).
-
-
+             ?assert(meck:validate(blockchain_ledger_v1)),
+             meck:unload(blockchain_ledger_v1),
+             ?assert(meck:validate(blockchain_block)),
+             meck:unload(blockchain_block),
+             ?assert(meck:validate(blockchain_worker)),
+             meck:unload(blockchain_worker),
+             ?assert(meck:validate(blockchain_election)),
+             meck:unload(blockchain_election),
+             ?assert(meck:validate(blockchain_swarm)),
+             meck:unload(blockchain_swarm),
+             test_utils:cleanup_tmp_dir(TmpDir)
+     end}.
 
 get_block_test() ->
     meck:new(blockchain_ledger_v1, [passthrough]),
