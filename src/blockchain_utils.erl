@@ -25,7 +25,8 @@
     bitvector_to_map/2,
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
-    vars_keys_to_list/1
+    vars_keys_to_list/1,
+    calculate_dc_amount/2
 ]).
 
 -ifdef(TEST).
@@ -43,6 +44,25 @@
 
 -export_type([gateway_score_map/0, zone_map/0]).
 
+%%--------------------------------------------------------------------
+%% @doc Calculate the amount of DC for the supplied payload
+%% @end
+%%--------------------------------------------------------------------
+
+-spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledg(),
+                          PayloadSize :: non_neg_integer()) -> pos_integer().
+calculate_dc_amount(Ledger, PayloadSize) ->
+    case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+        {ok, DCPayloadSize} ->
+            case PayloadSize =< DCPayloadSize of
+                true ->
+                    1;
+                false ->
+                    erlang:ceil(PayloadSize/DCPayloadSize)
+            end;
+        _ ->
+            {error, dc_payload_size_not_set}
+    end.
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
 %% @end
@@ -290,7 +310,7 @@ approx_blocks_in_week(Ledger) ->
     end.
 
 -spec vars_keys_to_list( Data :: binary() ) -> [ binary() ].
-%% @doc Price oracle public keys are encoded like this
+%% @doc Price oracle public keys and also staking keys are encoded like this
 %% <code>
 %% <<KeyLen1/integer, Key1/binary, KeyLen2/integer, Key2/binary, ...>>
 %% </code>
@@ -363,5 +383,25 @@ oracle_keys_test() ->
     ?assertEqual([EccPK, EdPK], Results),
     Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],
     ?assertEqual([RawEccPK, RawEdPK], Results1).
+
+calculate_dc_amount_test() ->
+    BaseDir = test_utils:tmp_dir("calculate_dc_amount_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, config, fun(_, _) ->
+        {ok, 24}
+    end),
+
+    ?assertEqual(1, calculate_dc_amount(Ledger, 1)),
+    ?assertEqual(1, calculate_dc_amount(Ledger, 23)),
+    ?assertEqual(1, calculate_dc_amount(Ledger, 24)),
+    ?assertEqual(2, calculate_dc_amount(Ledger, 25)),
+    ?assertEqual(2, calculate_dc_amount(Ledger, 47)),
+    ?assertEqual(2, calculate_dc_amount(Ledger, 48)),
+    ?assertEqual(3, calculate_dc_amount(Ledger, 49)),
+
+    meck:unload(blockchain_ledger_v1),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.

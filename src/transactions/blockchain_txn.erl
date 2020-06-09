@@ -47,9 +47,11 @@
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
+-callback calculate_fee(txn(), blockchain:blockchain()) -> non_neg_integer().
+-callback calculate_staking_fee(txn(), blockchain:blockchain()) -> non_neg_integer().
 -callback rescue_absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 
--optional_callbacks([rescue_absorb/2, print/2]).
+-optional_callbacks([calculate_fee/2, calculate_staking_fee/2, rescue_absorb/2, print/2]).
 
 -behavior(blockchain_json).
 
@@ -393,7 +395,6 @@ absorb_block(Block, Rescue, Chain) ->
     Height = blockchain_block:height(Block),
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain),
             {ok, Chain};
@@ -413,7 +414,8 @@ absorb(Txn, Chain) ->
             lager:info("failed to absorb ~p ~p ~s",
                        [Type, _Reason, ?MODULE:print(Txn)]),
             Error;
-        ok -> ok
+        ok ->
+            ok
     catch
         What:Why:Stack ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
@@ -820,9 +822,9 @@ depends_on_test() ->
     Txns = lists:map(fun(Nonce) ->
                       case rand:uniform(2) of
                           1 ->
-                              blockchain_txn_payment_v1:sign(blockchain_txn_payment_v1:new(Payer, Recipient, 1, 0, Nonce), SigFun);
+                              blockchain_txn_payment_v1:sign(blockchain_txn_payment_v1:new(Payer, Recipient, 1, Nonce), SigFun);
                           2 ->
-                              blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce, 0), SigFun)
+                              blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce), SigFun)
                       end
               end, lists:seq(1, 50)),
 
@@ -838,14 +840,14 @@ sc_depends_on_test() ->
     {Filter1, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
 
     %% oui for payer
-    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(1, Payer, [Payer], Filter, 8, 1, 0), SigFun),
+    O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(1, Payer, [Payer], Filter, 8), SigFun),
     %% oui for payer1
-    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(2, Payer1, [Payer1], Filter1, 8, 1, 0), SigFun1),
+    O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(2, Payer1, [Payer1], Filter1, 8), SigFun1),
 
     %% routing for payer
-    RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 0, 1), SigFun),
+    RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 1), SigFun),
     %% routing for payer1
-    RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(2, Payer1, gen_pubkeys(3), 0, 1), SigFun),
+    RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(2, Payer1, gen_pubkeys(3), 1), SigFun),
 
     %% sc opens for payer
     SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1), SigFun),

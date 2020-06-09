@@ -9,17 +9,18 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_security_exchange_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/4,
     hash/1,
     payer/1,
     payee/1,
     amount/1,
-    fee/1,
+    fee/1, fee/2,
+    calculate_fee/2, calculate_fee/3,
     nonce/1,
     signature/1,
     sign/2,
@@ -41,13 +42,13 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
-          non_neg_integer(), non_neg_integer()) -> txn_security_exchange().
-new(Payer, Recipient, Amount, Fee, Nonce) ->
+          non_neg_integer()) -> txn_security_exchange().
+new(Payer, Recipient, Amount, Nonce) ->
     #blockchain_txn_security_exchange_v1_pb{
         payer=Payer,
         payee=Recipient,
         amount=Amount,
-        fee=Fee,
+        fee=?LEGACY_TXN_FEE,
         nonce=Nonce,
         signature = <<>>
     }.
@@ -125,6 +126,11 @@ nonce(Txn) ->
 fee(Txn) ->
     Txn#blockchain_txn_security_exchange_v1_pb.fee.
 
+-spec fee(txn_security_exchange(), non_neg_integer()) -> txn_security_exchange().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_security_exchange_v1_pb{fee=Fee}.
+
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -147,6 +153,23 @@ sign(Txn, SigFun) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_security_exchange(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_security_exchange(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_security_exchange_v1_pb{fee=0, signature= <<0:512>>}, Ledger).
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -154,7 +177,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
-    Fee = ?MODULE:fee(Txn),
+    TxnFee = ?MODULE:fee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
@@ -170,7 +193,14 @@ is_valid(Txn, Chain) ->
                             Amount = ?MODULE:amount(Txn),
                             case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
                                 ok ->
-                                    blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger);
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                        false ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        true ->
+                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                    end;
                                 Error ->
                                     Error
                             end;
@@ -192,7 +222,8 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled) of
         ok ->
             case blockchain_ledger_v1:debit_security(Payer, Amount, Nonce, Ledger) of
                 {error, _Reason}=Error ->
@@ -216,39 +247,39 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=666,
-        fee=1,
+        fee=?LEGACY_TXN_FEE,
         nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 1, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 payee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
 amount_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(666, amount(Tx)).
 
 fee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
-    ?assertEqual(1, fee(Tx)).
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 nonce_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(1, nonce(Tx)).
 
 signature_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, <<"payee">>, 666, 1, 1),
+    Tx0 = new(<<"payer">>, <<"payee">>, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -256,7 +287,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 10),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).

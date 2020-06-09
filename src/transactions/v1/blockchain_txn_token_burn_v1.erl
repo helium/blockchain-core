@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
@@ -21,7 +21,8 @@
     payee/1,
     amount/1,
     nonce/1,
-    fee/1,
+    fee/1, fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -44,6 +45,7 @@ new(Payer, Amount, Nonce) ->
         payee=Payer,
         amount=Amount,
         nonce=Nonce,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
 
@@ -54,6 +56,7 @@ new(Payer, Payee, Amount, Nonce) ->
         payee=Payee,
         amount=Amount,
         nonce=Nonce,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
 
@@ -79,9 +82,13 @@ amount(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.nonce.
 
--spec fee(txn_token_burn()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_token_burn()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_token_burn_v1_pb.fee.
+
+-spec fee(txn_token_burn(), non_neg_integer()) -> txn_token_burn().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_token_burn_v1_pb{fee=Fee}.
 
 -spec signature(txn_token_burn()) -> binary().
 signature(Txn) ->
@@ -100,6 +107,24 @@ sign(Txn, SigFun) ->
     Txn#blockchain_txn_token_burn_v1_pb{signature=SigFun(EncodedTxn)}.
 
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_token_burn(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_token_burn(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0, signature= <<0:512>>}, Ledger).
+
+
 -spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -114,36 +139,50 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
-                    case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        {ok, _Rate} ->
-                            Amount = ?MODULE:amount(Txn),
-                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                    case blockchain_ledger_v1:current_oracle_price_list(Ledger) of
+                        {ok, []} ->
+                            %% no oracle price exists
+                            {error, no_oracle_prices};
+                        _ ->
+                            HNTAmount = ?MODULE:amount(Txn),
+                            case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
+                                {error, _}=Error ->
+                                    Error;
+                                ok ->
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                    TxnFee = ?MODULE:fee(Txn),
+                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                    case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                        false ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        true ->
+                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                    end
+                            end
                     end
             end;
         Error ->
             Error
     end.
 
-
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, Rate} ->
-            Amount = ?MODULE:amount(Txn),
-            Payer = ?MODULE:payer(Txn),
-            Nonce = ?MODULE:nonce(Txn),
-            case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+    HNTAmount = ?MODULE:amount(Txn),
+    {ok, DCAmount} = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
+    Payer = ?MODULE:payer(Txn),
+    Nonce = ?MODULE:nonce(Txn),
+    TxnFee = ?MODULE:fee(Txn),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled) of
+        {error, _Reason}=Error -> Error;
+        ok ->
+            case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
                     Payee = ?MODULE:payee(Txn),
-                    Credits = Amount * Rate,
-                    blockchain_ledger_v1:credit_dc(Payee, Credits, Ledger)
+                    blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
             end
     end.
 
@@ -175,6 +214,7 @@ to_json(Txn, _Opts) ->
         payee= <<"payer">>,
         amount=666,
         nonce=1,
+        fee=0,
         signature = <<>>
     },
     ?assertEqual(Tx0, new(<<"payer">>, 666, 1)),
@@ -183,6 +223,7 @@ to_json(Txn, _Opts) ->
         payee= <<"payee">>,
         amount=666,
         nonce=1,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     },
     ?assertEqual(Tx1, new(<<"payer">>, <<"payee">>, 666, 1)).
@@ -202,6 +243,10 @@ amount_test() ->
 nonce_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(1, nonce(Tx)).
+
+fee_test() ->
+    Tx = new(<<"payer">>, 666, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 signature_test() ->
     Tx = new(<<"payer">>, 666, 1),

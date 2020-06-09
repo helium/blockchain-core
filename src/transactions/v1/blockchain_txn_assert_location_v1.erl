@@ -9,13 +9,13 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_assert_location_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
 -export([
-    new/6, new/7,
+    new/4, new/5,
     hash/1,
     gateway/1,
     owner/1,
@@ -25,8 +25,8 @@
     owner_signature/1,
     payer_signature/1,
     nonce/1,
-    staking_fee/1,
-    fee/1,
+    staking_fee/1, staking_fee/2,
+    fee/1, fee/2,
     sign_request/2,
     sign_payer/2,
     sign/2,
@@ -36,7 +36,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     print/1,
     to_json/2
 ]).
@@ -56,10 +56,8 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer(),
-          StakingFee :: pos_integer(),
-          Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(Gateway, Owner, Location, Nonce) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -69,18 +67,16 @@ new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        staking_fee=StakingFee,
-        fee=Fee
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
     }.
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Payer :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer(),
-          StakingFee :: pos_integer(),
-          Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(Gateway, Owner, Payer, Location, Nonce) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -90,102 +86,110 @@ new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        staking_fee=StakingFee,
-        fee=Fee
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
     }.
 
-
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_assert_location()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_assert_location_v1_pb{owner_signature = <<>>, gateway_signature = <<>>},
     EncodedTxn = blockchain_txn_assert_location_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec gateway(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
 gateway(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.gateway.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner(txn_assert_location()) -> libp2p_crypto:pubkey_bin().
 owner(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.owner.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer(txn_assert_location()) -> libp2p_crypto:pubkey_bin() | <<>> | undefined.
 payer(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.payer.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec location(txn_assert_location()) -> location().
 location(Txn) ->
     h3:from_string(Txn#blockchain_txn_assert_location_v1_pb.location).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec gateway_signature(txn_assert_location()) -> binary().
 gateway_signature(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.gateway_signature.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec owner_signature(txn_assert_location()) -> binary().
 owner_signature(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.owner_signature.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer_signature(txn_assert_location()) -> binary().
 payer_signature(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.payer_signature.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec nonce(txn_assert_location()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.nonce.
 
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec staking_fee(txn_assert_location()) -> non_neg_integer().
 staking_fee(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.staking_fee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec staking_fee(txn_assert_location(), non_neg_integer()) -> txn_assert_location().
+staking_fee(Txn, Fee) ->
+    Txn#blockchain_txn_assert_location_v1_pb{staking_fee=Fee}.
+
 -spec fee(txn_assert_location()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.fee.
+
+-spec fee(txn_assert_location(), non_neg_integer()) -> txn_assert_location().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_assert_location_v1_pb{fee=Fee}.
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_assert_location(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, Ledger, true) ->
+    case Txn#blockchain_txn_assert_location_v1_pb.payer of
+        Payer when Payer == undefined; Payer == <<>> ->
+          %% no payer signature if there's no payer
+          ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0,
+                                                       owner_signature= <<0:512>>,
+                                                       gateway_signature = <<0:512>>,
+                                                       payer_signature= <<>>}, Ledger);
+        _ ->
+          ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0,
+                                                       owner_signature= <<0:512>>,
+                                                       gateway_signature = <<0:512>>,
+                                                       payer_signature= <<0:512>>}, Ledger)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the staking fee using the price oracles
+%% returns the fee in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(txn_assert_location(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_staking_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_STAKING_FEE;
+calculate_staking_fee(_Txn, Ledger, true) ->
+    blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -298,20 +302,23 @@ is_valid(Txn, Chain) ->
         {true, true, true} ->
             Owner = ?MODULE:owner(Txn),
             Nonce = ?MODULE:nonce(Txn),
-            StakingFee = ?MODULE:staking_fee(Txn),
-            Fee = ?MODULE:fee(Txn),
             Payer = ?MODULE:payer(Txn),
             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                 true -> Owner;
                 false -> Payer
             end,
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
             StakingFee = ?MODULE:staking_fee(Txn),
-            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-            case ExpectedStakingFee == StakingFee of
-                false ->
+            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+            TxnFee = ?MODULE:fee(Txn),
+            ExpectedTxnFee = calculate_fee(Txn, Chain),
+            case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                {false,_} ->
+                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                {_,false} ->
                     {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
-                true ->
-                    case blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger) of
+                {true, true} ->
+                    case blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
                         {error, _}=Error ->
                             Error;
                         ok ->
@@ -352,6 +359,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_assert_location(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Gateway = ?MODULE:gateway(Txn),
     Owner = ?MODULE:owner(Txn),
     Location = ?MODULE:location(Txn),
@@ -365,62 +373,51 @@ absorb(Txn, Chain) ->
     end,
 
     {ok, OldGw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
-
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger)
-    end,
+            blockchain_ledger_v1:add_gateway_location(Gateway, Location, Nonce, Ledger),
+            %% hex index update code needs to be unconditional and hard-coded
+            %% until we have chain var update hook
+            %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
+            Res = 5,
+            OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
+            OldHex =
+                case OldLoc of
+                    undefined ->
+                        undefined;
+                    _ ->
+                        h3:parent(OldLoc, Res)
+                end,
+            Hex = h3:parent(Location, Res),
+            case Hex of
+                OldHex ->
+                    %% moved within the hex, no need to update
+                    ok;
+                _ when OldHex == undefined ->
+                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger);
+                _ ->
+                    blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
+                    blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
+            end,
 
-    %% hex index update code needs to be unconditional and hard-coded
-    %% until we have chain var update hook
-    %% {ok, Res} = blockchain:config(?poc_target_hex_parent_res, Ledger),
-    Res = 5,
-    OldLoc = blockchain_ledger_gateway_v2:location(OldGw),
-    OldHex =
-        case OldLoc of
-            undefined ->
-                undefined;
-            _ ->
-                h3:parent(OldLoc, Res)
-        end,
-    Hex = h3:parent(Location, Res),
-    case Hex of
-        OldHex ->
-            %% moved within the hex, no need to update
-            ok;
-        _ when OldHex == undefined ->
-            blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger);
-        _ ->
-            blockchain_ledger_v1:remove_from_hex(OldHex, Gateway, Ledger),
-            blockchain_ledger_v1:add_to_hex(Hex, Gateway, Ledger)
-    end,
 
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V > 3 ->
-            %% don't update neighbours anymore
-            ok;
-        _ ->
-            %% TODO gc this nonsense in some deterministic way
-            Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-            Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
-            {ok, Gw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
-            ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
-            Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
-            ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
+            case blockchain:config(?poc_version, Ledger) of
+                {ok, V} when V > 3 ->
+                    %% don't update neighbours anymore
+                    ok;
+                _ ->
+                    %% TODO gc this nonsense in some deterministic way
+                    Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+                    Neighbors = blockchain_poc_path:neighbors(Gateway, Gateways, Ledger),
+                    {ok, Gw} = blockchain_gateway_cache:get(Gateway, Ledger, false),
+                    ok = blockchain_ledger_v1:fixup_neighbors(Gateway, Gateways, Neighbors, Ledger),
+                    Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
+                    ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
+
+            end
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% TODO: We should calulate this (one we have a token burn rate)
-%%       maybe using location and/or demand
-%% @end
-%%--------------------------------------------------------------------
--spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
-calculate_staking_fee(_Chain) ->
-    1.
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -472,8 +469,8 @@ new() ->
        payer_signature= <<>>,
        location= h3:to_string(?TEST_LOCATION),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 invalid_new() ->
@@ -484,8 +481,8 @@ invalid_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 missing_payer_signature_new() ->
@@ -499,13 +496,13 @@ missing_payer_signature_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 new_test() ->
     Tx = new(),
-    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1, 1)).
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1)).
 
 location_test() ->
     Tx = new(),
@@ -517,11 +514,11 @@ nonce_test() ->
 
 staking_fee_test() ->
     Tx = new(),
-    ?assertEqual(1, staking_fee(Tx)).
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 fee_test() ->
     Tx = new(),
-    ?assertEqual(1, fee(Tx)).
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 owner_test() ->
     Tx = new(),

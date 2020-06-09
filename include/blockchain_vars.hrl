@@ -311,3 +311,23 @@
 %% (Will also affect what prices get dropped from the cached list of prices.)
 -define(price_oracle_price_scan_max, price_oracle_price_scan_max).
 %% ------------------------------------------------------------------
+
+
+%% ------------------------------------------------------------------
+%% transaction fee vars, denominated in DC
+
+%% determines whether txn fees are enabled, boolean value expected
+-define(txn_fees, txn_fees).
+%% valid staking server keys, encoded via <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
+-define(staking_keys, staking_keys).
+%% the staking fee in DC for each OUI
+-define(staking_fee_txn_oui_v1, staking_fee_txn_oui_v1).
+%% the staking fee in DC for each OUI/routing address
+-define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
+%% the staking fee in DC for adding a gateway
+-define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
+%% the staking fee in DC for asserting a location
+-define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
+%% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
+-define(txn_fee_multiplier, txn_fee_multiplier).
+

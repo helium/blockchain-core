@@ -9,20 +9,20 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
 -include("blockchain_utils.hrl").
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
-    new/7, new/8,
+    new/5, new/6,
     hash/1,
     owner/1,
     addresses/1,
     filter/1,
     requested_subnet_size/1,
     payer/1,
-    staking_fee/1,
-    fee/1,
+    staking_fee/1, staking_fee/2,
+    fee/1, fee/2,
     oui/1,
     owner_signature/1,
     payer_signature/1,
@@ -32,7 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     print/1,
     to_json/2
 ]).
@@ -53,10 +53,8 @@
         Owner :: libp2p_crypto:pubkey_bin(),
         Addresses :: [libp2p_crypto:pubkey_bin()],
         Filter :: binary() | undefined,
-        RequestedSubnetSize :: pos_integer() | undefined,
-        StakingFee :: pos_integer(),
-        Fee :: non_neg_integer()) -> txn_oui().
-new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
+        RequestedSubnetSize :: pos_integer() | undefined) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize) ->
     #blockchain_txn_oui_v1_pb{
        oui = OUI,
        owner=Owner,
@@ -64,8 +62,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer= <<>>,
-       staking_fee=StakingFee,
-       fee=Fee,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
     }.
@@ -76,10 +74,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
         Addresses :: [binary()],
         Filter :: binary() | undefined,
         RequestedSubnetSize :: pos_integer() | undefined,
-        Payer :: libp2p_crypto:pubkey_bin(),
-        StakingFee :: non_neg_integer(),
-        Fee :: non_neg_integer()) -> txn_oui().
-new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) ->
+        Payer :: libp2p_crypto:pubkey_bin()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer) ->
     #blockchain_txn_oui_v1_pb{
        oui=OUI,
        owner=Owner,
@@ -87,8 +83,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) 
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer=Payer,
-       staking_fee=StakingFee,
-       fee=Fee,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
     }.
@@ -123,9 +119,17 @@ payer(Txn) ->
 staking_fee(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.staking_fee.
 
+-spec staking_fee(txn_oui(), non_neg_integer()) -> txn_oui().
+staking_fee(Txn, Fee) ->
+    Txn#blockchain_txn_oui_v1_pb{staking_fee=Fee}.
+
 -spec fee(txn_oui()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.fee.
+
+-spec fee(txn_oui(), non_neg_integer()) -> txn_oui().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_oui_v1_pb{fee=Fee}.
 
 -spec oui(txn_oui()) -> pos_integer().
 oui(Txn) ->
@@ -188,8 +192,9 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    TxnFee = ?MODULE:fee(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
-    Fee = ?MODULE:fee(Txn),
     Owner = ?MODULE:owner(Txn),
     Payer = ?MODULE:payer(Txn),
     OUI = ?MODULE:oui(Txn),
@@ -197,7 +202,6 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
-
     SubnetSize = ?MODULE:requested_subnet_size(Txn),
     case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
         {ok, Subnet} ->
@@ -205,7 +209,7 @@ absorb(Txn, Chain) ->
                 {false, LedgerOUI} ->
                     {error, {invalid_oui, OUI, LedgerOUI}};
                 true ->
-                    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+                    case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
                         {error, _}=Error ->
                             Error;
                         ok ->
@@ -220,13 +224,51 @@ absorb(Txn, Chain) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% TODO: We should calulate this (one we have a token burn rate)
-%%       maybe using location and/or demand
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
 %% @end
 %%--------------------------------------------------------------------
--spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
-calculate_staking_fee(_Chain) ->
-    1.
+-spec calculate_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, Ledger, true) ->
+    case Txn#blockchain_txn_oui_v1_pb.payer of
+        Payer when Payer == undefined; Payer == <<>> ->
+            %% no payer signature if there's no payer
+            ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
+                                              owner_signature = <<0:512>>,
+                                              payer_signature = <<>>}, Ledger);
+        _ ->
+            ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
+                                              owner_signature = <<0:512>>,
+                                              payer_signature = <<0:512>>}, Ledger)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the staking fee using the price oracles
+%% returns the fee in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_staking_fee(txn_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_STAKING_FEE;
+calculate_staking_fee(Txn, Ledger, true) ->
+    %% get total price of txn in USD and divide by DC price
+    OUIStakingFee = blockchain_ledger_v1:staking_fee_txn_oui_v1(Ledger),
+    OIUPerAddress = blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger),
+    TxnPriceUSD = OUIStakingFee + (requested_subnet_size(Txn) * OIUPerAddress),
+    trunc(TxnPriceUSD).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -303,6 +345,7 @@ validate_oui(OUI, Ledger) ->
     end.
 
 -spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+%% TODO - get rid of this nested bunch of cases
 do_oui_validation_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
@@ -324,27 +367,29 @@ do_oui_validation_checks(Txn, Chain) ->
                                 false ->
                                     {error, invalid_filter};
                                 true ->
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                                     StakingFee = ?MODULE:staking_fee(Txn),
-                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-                                    case ExpectedStakingFee == StakingFee of
-                                        false ->
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                                    TxnFee = ?MODULE:fee(Txn),
+                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                                        {false,_} ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        {_,false} ->
                                             {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
-                                        true ->
-                                            Fee = ?MODULE:fee(Txn),
+                                        {true, true} ->
                                             Owner = ?MODULE:owner(Txn),
                                             Payer = ?MODULE:payer(Txn),
                                             ActualPayer = case Payer == undefined orelse Payer == <<>> of
                                                               true -> Owner;
                                                               false -> Payer
                                                           end,
-                                            StakingFee = ?MODULE:staking_fee(Txn),
-                                            blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                            blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
                                     end
                             end
                     end
             end
     end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -367,8 +412,8 @@ missing_payer_signature_new() ->
        addresses = [?KEY1],
        payer= libp2p_crypto:pubkey_to_bin(PubKey),
        payer_signature= <<>>,
-       staking_fee=1,
-       fee=1,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>
       }.
 
@@ -378,43 +423,43 @@ new_test() ->
         owner= <<"owner">>,
         addresses = [?KEY1],
         payer = <<>>,
-        staking_fee=2,
-        fee=3,
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE,
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0,  2, 3)).
+    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0)).
 
 owner_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual([?KEY1], addresses(Tx)).
 
 staking_fee_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
-    ?assertEqual(2, staking_fee(Tx)).
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 fee_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
-    ?assertEqual(3, fee(Tx)).
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 oui_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(1, oui(Tx)).
 
 payer_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 owner_signature_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 payer_signature_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<>>, payer_signature(Tx)).
 
 missing_payer_signature_test() ->
@@ -423,7 +468,7 @@ missing_payer_signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = owner_signature(Tx1),
@@ -432,7 +477,7 @@ sign_test() ->
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_payer(Tx0, SigFun),
     Sig1 = payer_signature(Tx1),
@@ -452,7 +497,7 @@ validate_addresses_test() ->
     ok.
 
 to_json_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size ])).
