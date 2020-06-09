@@ -550,7 +550,7 @@ absorb(Txn, Chain) ->
         %% get these to make sure we're not replaying.
         {ok, PoCs} = blockchain_ledger_v1:find_poc(LastOnionKeyHash, Ledger),
         {ok, _PoC} = blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret),
-        {ok, GwInfo} = blockchain_gateway_cache:get(Challenger, Ledger),
+        {ok, GwInfo} = blockchain_gateway_cache:get(Challenger, Ledger, false),
         LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
