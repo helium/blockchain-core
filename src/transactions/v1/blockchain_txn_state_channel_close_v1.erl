@@ -96,6 +96,9 @@ is_valid(Txn, Chain) ->
     BaseTxn = Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(BaseTxn),
     SC = ?MODULE:state_channel(Txn),
+    %% TODO:
+    %%   - Allow for disputes;
+    %%   - Ensure that the closer supplied true summary
     case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
           blockchain_state_channel_v1:validate(SC)} of
         {false, _} ->
@@ -117,6 +120,7 @@ is_valid(Txn, Chain) ->
                                 true ->
                                     ok;
                                 false ->
+                                    %% TODO: Allow anyone to close a state channel
                                     case blockchain_state_channel_v1:get_summary(Closer, SC) of
                                         {error, _Reason}=E ->
                                             E;
@@ -152,9 +156,10 @@ absorb(Txn, Chain) ->
     %% TODO - confirm 'closer' is the account which pays the fee
     case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error -> Error;
-        ok -> blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger)
+        ok ->
+            Summary = blockchain_state_channel_v1:get_summary(SC),
+            blockchain_ledger_v1:delete_state_channel(ID, Owner, Summary, Ledger)
     end.
-
 
 -spec print(txn_state_channel_close()) -> iodata().
 print(undefined) -> <<"type=state_channel_close, undefined">>;

@@ -86,7 +86,7 @@
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/6,
-    delete_state_channel/3,
+    delete_state_channel/4,
 
     allocate_subnet/2,
 
@@ -2176,11 +2176,27 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
 
--spec delete_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok.
-delete_state_channel(ID, Owner, Ledger) ->
+-spec delete_state_channel(ID :: binary(),
+                           Owner :: libp2p_crypto:pubkey_bin(),
+                           Summary :: blockchain_state_channel_summary_v1:summary(),
+                           Ledger :: ledger()) ->
+    ok | {error, not_found} | {error, Reason :: any()}.
+delete_state_channel(ID, Owner, Summary, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
-    cache_delete(Ledger, SCsCF, Key).
+    case cache_get(Ledger, SCsCF, Key, []) of
+        {ok, BinEntry} ->
+            Entry = blockchain_ledger_state_channel_v1:deserialize(BinEntry),
+            UsedDC = blockchain_state_channel_summary_v1:num_dcs(Summary),
+            ReservedDC = blockchain_ledger_state_channel_v1:amount(Entry),
+            Credit = max(0, ReservedDC - UsedDC),
+            ok = credit_dc(Owner, Credit, Ledger),
+            cache_delete(Ledger, SCsCF, Key);
+        not_found ->
+            {error, not_found};
+        Error ->
+            Error
+    end.
 
 -spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
 allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
