@@ -885,14 +885,12 @@ find_gateway_info(Address, Ledger) ->
 
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
-    AGwsCF = active_gateways_cf(Ledger),
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {ok, _} ->
             {error, gateway_already_active};
         _ ->
             Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined),
-            Bin = blockchain_ledger_gateway_v2:serialize(Gateway),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+            update_gateway(GatewayAddress, Gateway, Ledger)
     end.
 
 %% NOTE: This should only be allowed when adding a gateway which was
@@ -938,9 +936,7 @@ add_gateway(OwnerAddr,
                         NewGw1
                 end,
 
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
-            AGwsCF = active_gateways_cf(Ledger),
-            ok = cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+            update_gateway(NewGw, GatewayAddress, Ledger)
     end.
 
 fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
@@ -978,6 +974,7 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
 update_gateway(Gw, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
+    blockchain_gateway_cache:invalidate(GwAddr, Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -991,9 +988,8 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             Gw2 = blockchain_ledger_gateway_v2:nonce(Nonce, Gw1),
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(1.0, 1.0, Height, Gw2),
             %% we need to clear all our old witnesses out
-            Bin = blockchain_ledger_gateway_v2:serialize(blockchain_ledger_gateway_v2:clear_witnesses(NewGw)),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin),
+            NewGw1 = blockchain_ledger_gateway_v2:clear_witnesses(NewGw),
+            update_gateway(NewGw1, GatewayAddress, Ledger),
             %% this is only needed if the gateway previously had a location
             case Nonce > 1 of
                 true ->
@@ -1002,7 +998,7 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
                                           case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
                                               true ->
                                                   GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                                  cache_put(Ledger, AGwsCF, Addr, blockchain_ledger_gateway_v2:serialize(GW1));
+                                                  update_gateway(GW1, Addr, Ledger);
                                               false ->
                                                   ok
                                           end
@@ -1094,9 +1090,7 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(blockchain_utils:normalize_float(Alpha0 + Alpha),
                                                                       blockchain_utils:normalize_float(Beta0 + Beta),
                                                                       Height, Gw),
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, Bin)
+            update_gateway(GatewayAddress, NewGw, Ledger)
     end.
 
 -spec gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> {ok, float()} | {error, any()}.
@@ -1121,9 +1115,7 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
         {ok, Gw} ->
             NewGw0 = blockchain_ledger_gateway_v2:oui(OUI, Gw),
             NewGw = blockchain_ledger_gateway_v2:nonce(Nonce, NewGw0),
-            Bin = blockchain_ledger_gateway_v2:serialize(NewGw),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, Gateway, Bin)
+            update_gateway(NewGw, Gateway, Ledger)
     end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
@@ -1144,8 +1136,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
                                               erlang:error({add_gateway_error, Reason})
                                       end
                               end, GW0, WitnessInfo),
-            AGwsCF = active_gateways_cf(Ledger),
-            cache_put(Ledger, AGwsCF, GatewayAddress, blockchain_ledger_gateway_v2:serialize(GW1))
+            update_gateway(GatewayAddress, GW1, Ledger)
     end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),

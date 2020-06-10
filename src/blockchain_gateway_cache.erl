@@ -6,6 +6,7 @@
 -export([
          start_link/0,
          get/2, get/3,
+         invalidate/2,
          bulk_put/2,
          stats/0
         ]).
@@ -65,6 +66,13 @@ get(Addr, Ledger, true) ->
             ets:update_counter(?MODULE, error, 1, {error, 0}),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
+
+-spec invalidate(GwAddr :: libp2p_crypto:pubkey_bin(),
+                 Ledger :: blockchain_ledger_v1:ledger()) ->
+                        ok | {error, _}.
+invalidate(Addr, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    ets:delete(?MODULE, {Addr, Height}).
 
 stats() ->
     case ets:lookup(?MODULE, total) of
