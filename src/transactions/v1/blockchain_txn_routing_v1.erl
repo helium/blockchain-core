@@ -24,7 +24,8 @@
     owner/1,
     action/1,
     fee/1,
-    calculate_fee/2,
+    staking_fee/1,
+    calculate_fee/2, calculate_staking_fee/2,
     nonce/1,
     signature/1,
     sign/2,
@@ -52,44 +53,64 @@
 %%--------------------------------------------------------------------
 -spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer()) -> txn_routing().
 update_router_addresses(OUI, Owner, Addresses, Fee, Nonce) ->
+    update_router_addresses(OUI, Owner, Addresses, Fee, 0, Nonce).
+
+-spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+update_router_addresses(OUI, Owner, Addresses, Fee, StakingFee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={update_routers, #update_routers_pb{router_addresses=Addresses}},
        fee=Fee,
+       staking_fee =StakingFee,
        nonce=Nonce,
        signature= <<>>
       }.
 
 -spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
 new_xor(OUI, Owner, Xor, Fee, Nonce) ->
+    new_xor(OUI, Owner, Xor, Fee, 0, Nonce).
+
+-spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+new_xor(OUI, Owner, Xor, Fee, StakingFee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={new_xor, Xor},
        fee=Fee,
+       staking_fee=StakingFee,
        nonce=Nonce,
        signature= <<>>
       }.
 
 -spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
 update_xor(OUI, Owner, Index, Xor, Fee, Nonce) ->
+    update_xor(OUI, Owner, Index, Xor, Fee, 0, Nonce).
+
+-spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+update_xor(OUI, Owner, Index, Xor, Fee, StakingFee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={update_xor, #update_xor_pb{index=Index, filter=Xor}},
        fee=Fee,
+       staking_fee=StakingFee,
        nonce=Nonce,
        signature= <<>>
       }.
 
 -spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
 request_subnet(OUI, Owner, SubnetSize, Fee, Nonce) ->
+    request_subnet(OUI, Owner, SubnetSize, Fee, 0, Nonce).
+
+-spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+request_subnet(OUI, Owner, SubnetSize, Fee, StakingFee, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={request_subnet, SubnetSize},
        fee=Fee,
+       staking_fee=StakingFee,
        nonce=Nonce,
        signature= <<>>
       }.
@@ -143,6 +164,10 @@ action(Txn) ->
 fee(Txn) ->
     Txn#blockchain_txn_routing_v1_pb.fee.
 
+-spec staking_fee(txn_routing()) -> non_neg_integer().
+staking_fee(Txn) ->
+    Txn#blockchain_txn_routing_v1_pb.staking_fee.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -185,6 +210,26 @@ calculate_fee(_Txn, _Chain, false) ->
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0}).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the staking fee using the price oracles
+%% returns the fee in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(txn_routing(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_staking_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_staking_fee(txn_routing(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Chain, false) ->
+    0;
+calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=Txn, _Chain, true) ->
+    TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) * SubnetSize,
+    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
+    FeeInDC;
+calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Chain, true) ->
+    0.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -371,9 +416,16 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                 false ->
                     {error, invalid_addresses};
                 true ->
-                    Fee = ?MODULE:fee(Txn),
+                    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                    TxnFee = ?MODULE:fee(Txn),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                     Owner = ?MODULE:owner(Txn),
-                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger)
+                    case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                        false ->
+                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                        true ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                    end
             end;
         {new_xor, Xor} when byte_size(Xor) > XORFilterSize ->
             {error, filter_too_large};
@@ -383,10 +435,10 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     %% the contain check does some structural checking of the filter
                     case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
                         B when is_boolean(B) ->
+                            {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
                             TxnFee = ?MODULE:fee(Txn),
-                            Owner = ?MODULE:owner(Txn),
-                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                            Owner = ?MODULE:owner(Txn),
                             case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
                                 false ->
                                     {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
@@ -409,9 +461,16 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     %% the contain check does some structural checking of the filter
                     case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
                         B when is_boolean(B) ->
-                            Fee = ?MODULE:fee(Txn),
+                            {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                            TxnFee = ?MODULE:fee(Txn),
+                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                             Owner = ?MODULE:owner(Txn),
-                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                            case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                false ->
+                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                true ->
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                            end;
                         _ ->
                             {error, invalid_filter}
                     end;
@@ -433,9 +492,20 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                         true ->
                             case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
                                 {ok, _} ->
-                                    Fee = ?MODULE:fee(Txn),
+                                    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                                    StakingFee = ?MODULE:staking_fee(Txn),
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                                    TxnFee = ?MODULE:fee(Txn),
+                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                     Owner = ?MODULE:owner(Txn),
-                                    blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                                    case {(ExpectedTxnFee == TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                                        {false,_} ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        {_,false} ->
+                                            {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                        {true, true} ->
+                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee + StakingFee, Ledger, AreFeesEnabled)
+                                    end;
                                 Error ->
                                     Error
                             end
