@@ -331,12 +331,12 @@ reset_context(Ledger) ->
     end.
 
 -spec commit_context(ledger()) -> ok.
-commit_context(#ledger_v1{db=DB}=Ledger) ->
+commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     Cache = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
     GWCF = active_gateways_cf(Ledger),
-    prewarm_gateways(Height, GWCF, Cache),
+    prewarm_gateways(Mode, Height, GWCF, Cache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),
@@ -2599,7 +2599,9 @@ batch_from_cache(ETS) ->
                       Acc
               end, Batch, ETS).
 
-prewarm_gateways(Height, GWCF, ETS) ->
+prewarm_gateways(delayed, _Height, _GWCF, _ETS) ->
+    ok;
+prewarm_gateways(active, Height, GWCF, ETS) ->
    GWList =
         ets:foldl(fun({{CF, _Key}, ?CACHE_TOMBSTONE}, Acc) when CF == GWCF ->
                           Acc;

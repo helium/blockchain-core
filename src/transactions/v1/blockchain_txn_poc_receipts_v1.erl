@@ -173,6 +173,7 @@ is_valid(Txn, Chain) ->
                                             Error;
                                         {ok, GwInfo} ->
                                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, HexPOCID, GwInfo]),
                                             case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, Reason}=Error ->
                                                     lager:warning([{poc_id, HexPOCID}],

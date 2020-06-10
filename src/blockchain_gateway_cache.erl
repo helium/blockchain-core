@@ -44,16 +44,20 @@ get(Addr, Ledger, false) ->
 get(Addr, Ledger, true) ->
     ets:update_counter(?MODULE, total, 1, {total, 0}),
     try
+        {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
         case cache_get(Addr, Ledger) of
             {ok, _} = Result ->
                 ets:update_counter(?MODULE, hit, 1, {hit, 0}),
+                lager:debug("get ~p at ~p hit", [Addr, Height]),
                 Result;
             _ ->
                 case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
                     {ok, Gw} = Result2 ->
+                        lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
                         cache_put(Addr, Gw, Ledger),
                         Result2;
                     Else ->
+                        lager:debug("get ~p at ~p miss err", [Addr, Height]),
                         Else
                 end
         end
@@ -116,26 +120,18 @@ handle_call({bulk_put, Height, List}, _From, State) ->
     lists:foreach(
       fun({Addr, SerGw}) ->
               Gw = blockchain_ledger_gateway_v1:deserialize(SerGw),
+              lager:debug("bulk ~p", [Addr]),
               ets:insert(?MODULE, {Addr, Height}),
               ets:insert(?MODULE, {{Addr, Height}, Gw})
       end, List),
+    ets:insert(?MODULE, {curr_height, Height}),
+    lager:debug("bulk_add at ~p ~p", [Height, length(List)]),
     {reply, ok, State};
 handle_call(_Request, _From, State) ->
     lager:warning("unexpected call ~p from ~p", [_Request, _From]),
     Reply = ok,
     {reply, Reply, State}.
 
-handle_cast({update, {{Addr, Height}, Gw}}, #state{height = CurrHeight} = State) ->
-    case Height == CurrHeight of
-        %% because of speculative absorbs, we cannot accept these, as
-        %% they may be affected by transactions that will never land
-        true ->
-            {noreply, State};
-        false ->
-            ets:insert(?MODULE, {Addr, Height}),
-            ets:insert(?MODULE, {{Addr, Height}, Gw}),
-            {noreply, State}
-    end;
 handle_cast(_Msg, State) ->
     lager:warning("unexpected cast ~p", [_Msg]),
     {noreply, State}.
@@ -144,6 +140,7 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
     %% sweep here
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, Height} ->
+            lager:debug("sweeping at ~p", [Height]),
             ets:select_delete(?MODULE, [{{{'_','$1'},'_'},[{'<','$1', Height - 51}],[true]}]),
             {noreply, State#state{height = Height}};
         {error, _Err} ->
@@ -192,6 +189,7 @@ cache_get(Addr, Ledger) ->
                         [] ->
                             {error, not_found};
                         [{_, Res}] ->
+                            lager:debug("lastupdate ~p ~p ~p", [Addr, LastUpdate, Height]),
                             {ok, Res}
                     end;
                 false ->
@@ -200,6 +198,7 @@ cache_get(Addr, Ledger) ->
                         [] ->
                             {error, not_found};
                         [{_, Res}] ->
+                            lager:debug("no lastupdate ~p ~p ~p", [Addr, LastUpdate, Height]),
                             {ok, Res}
                     end
             end
@@ -207,5 +206,29 @@ cache_get(Addr, Ledger) ->
 
 cache_put(Addr, Gw, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    gen_server:cast(?MODULE, {update, {{Addr, Height}, Gw}}),
-    ok.
+    case ets:lookup(?MODULE, curr_height) of
+        [{_, CurrHeight}] ->
+            case Height == CurrHeight of
+                %% because of speculative absorbs, we cannot accept these, as
+                %% they may be affected by transactions that will never land
+                true ->
+                    ok;
+                false ->
+                    case ets:lookup(?MODULE, Addr) of
+                        [] ->
+                            ets:insert(?MODULE, {Addr, Height});
+                        [{_, LastUpdate}] ->
+                            case Height > LastUpdate of
+                                true ->
+                                    ets:insert(?MODULE, {Addr, Height});
+                                false ->
+                                    ok
+                            end
+                    end,
+                    ets:insert(?MODULE, {{Addr, Height}, Gw}),
+                    ok
+            end;
+        [] ->
+            %% not sure that it's safe to do anything here
+            ok
+    end.

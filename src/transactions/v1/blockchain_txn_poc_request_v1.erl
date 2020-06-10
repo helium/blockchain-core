@@ -161,6 +161,7 @@ is_valid(Txn, Chain) ->
                         {ok, Info} ->
                             case blockchain_ledger_gateway_v2:location(Info) of
                                 undefined ->
+                                    lager:info("no loc for challenger: ~p ~p", [Challenger, Info]),
                                     {error, no_gateway_location};
                                 _Location ->
                                     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
