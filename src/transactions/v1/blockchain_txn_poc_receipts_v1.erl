@@ -184,6 +184,7 @@ is_valid(Txn, Chain) ->
                                                     PoCInterval = blockchain_utils:challenge_interval(Ledger),
                                                     case LastChallenge + PoCInterval >= Height of
                                                         false ->
+                                                            lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
                                                             {error, challenge_too_old};
                                                         true ->
                                                             Condition = case blockchain:config(?poc_version, Ledger) of
@@ -556,6 +557,7 @@ absorb(Txn, Chain) ->
         PoCInterval = blockchain_utils:challenge_interval(Ledger),
         case LastChallenge + PoCInterval >= Height of
             false ->
+                lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
                 {error, challenge_too_old};
             true ->
                 case blockchain:config(?poc_version, Ledger) of
@@ -596,8 +598,8 @@ absorb(Txn, Chain) ->
                 end
         end
     catch What:Why:Stacktrace ->
-              lager:warning([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
-              {error, state_missing}
+            lager:warning([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
+            {error, state_missing}
     end.
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),

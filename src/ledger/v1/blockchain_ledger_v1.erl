@@ -890,7 +890,7 @@ add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
             {error, gateway_already_active};
         _ ->
             Gateway = blockchain_ledger_gateway_v2:new(OwnerAddr, undefined),
-            update_gateway(GatewayAddress, Gateway, Ledger)
+            update_gateway(Gateway, GatewayAddress, Ledger)
     end.
 
 %% NOTE: This should only be allowed when adding a gateway which was
@@ -1090,7 +1090,7 @@ update_gateway_score(GatewayAddress, {Alpha, Beta}, Ledger) ->
             NewGw = blockchain_ledger_gateway_v2:set_alpha_beta_delta(blockchain_utils:normalize_float(Alpha0 + Alpha),
                                                                       blockchain_utils:normalize_float(Beta0 + Beta),
                                                                       Height, Gw),
-            update_gateway(GatewayAddress, NewGw, Ledger)
+            update_gateway(NewGw, GatewayAddress, Ledger)
     end.
 
 -spec gateway_score(GatewayAddress :: libp2p_crypto:pubkey_bin(), Ledger :: ledger()) -> {ok, float()} | {error, any()}.
@@ -1136,7 +1136,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
                                               erlang:error({add_gateway_error, Reason})
                                       end
                               end, GW0, WitnessInfo),
-            update_gateway(GatewayAddress, GW1, Ledger)
+            update_gateway(GW1, GatewayAddress, Ledger)
     end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),

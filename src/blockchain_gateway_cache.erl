@@ -54,7 +54,7 @@ get(Addr, Ledger, true) ->
             _ ->
                 case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
                     {ok, Gw} = Result2 ->
-                        lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
+                        %% lager:info("get ~p at ~p miss writeback", [Addr, Height]),
                         cache_put(Addr, Gw, Ledger),
                         Result2;
                     Else ->
@@ -72,7 +72,19 @@ get(Addr, Ledger, true) ->
                         ok | {error, _}.
 invalidate(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    ets:delete(?MODULE, {Addr, Height}).
+    case ets:lookup(?MODULE, curr_height) of
+        [{_, CurrHeight}] ->
+            case Height == CurrHeight of
+                true ->
+                    ets:delete(?MODULE, {Addr, Height}),
+                    remove_height(Addr, Height ),
+                    lager:info("invalidate ~p ~p", [Addr, Height]);
+                _ ->
+                    ok
+            end;
+        _ ->
+            ok
+    end.
 
 stats() ->
     case ets:lookup(?MODULE, total) of
@@ -104,7 +116,6 @@ init([]) ->
     Cache = ets:new(?MODULE,
                     [named_table,
                      public,
-                     {write_concurrency, true},
                      {read_concurrency, true}]),
     case application:get_env(blockchain, disable_gateway_cache, false) of
         false ->
@@ -129,7 +140,7 @@ handle_call({bulk_put, Height, List}, _From, State) ->
       fun({Addr, SerGw}) ->
               Gw = blockchain_ledger_gateway_v1:deserialize(SerGw),
               lager:debug("bulk ~p", [Addr]),
-              ets:insert(?MODULE, {Addr, Height}),
+              add_height(Addr, Height),
               ets:insert(?MODULE, {{Addr, Height}, Gw})
       end, List),
     ets:insert(?MODULE, {curr_height, Height}),
@@ -149,7 +160,9 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, Height} ->
             lager:debug("sweeping at ~p", [Height]),
-            ets:select_delete(?MODULE, [{{{'_','$1'},'_'},[{'<','$1', Height - 51}],[true]}]),
+            %% sweep later so we get some use out of the tail on
+            %% rarely updated spots
+            ets:select_delete(?MODULE, [{{{'_','$1'},'_'},[{'<','$1', Height - 76}],[true]}]),
             {noreply, State#state{height = Height}};
         {error, _Err} ->
             {noreply, State}
@@ -189,24 +202,15 @@ cache_get(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     case ets:lookup(?MODULE, Addr) of
         [] -> {error, not_found};
-        [{_, LastUpdate}] ->  % TODO check if storing a list of these
-                              % is worth the effort
-            case Height >= LastUpdate of
-                true ->
-                    case ets:lookup(?MODULE, {Addr, LastUpdate}) of
+        [{_, Updates}] ->
+            case get_update(Height, Updates) of
+                none -> {error, not_found};
+                Update ->
+                    case ets:lookup(?MODULE, {Addr, Update}) of
                         [] ->
                             {error, not_found};
                         [{_, Res}] ->
-                            lager:debug("lastupdate ~p ~p ~p", [Addr, LastUpdate, Height]),
-                            {ok, Res}
-                    end;
-                false ->
-                    %% this is less likely to work but still worth a try?
-                    case ets:lookup(?MODULE, {Addr, Height}) of
-                        [] ->
-                            {error, not_found};
-                        [{_, Res}] ->
-                            lager:debug("no lastupdate ~p ~p ~p", [Addr, LastUpdate, Height]),
+                            lager:info("lastupdate ~p ~p ~p", [Addr, Update, Height]),
                             {ok, Res}
                     end
             end
@@ -220,23 +224,78 @@ cache_put(Addr, Gw, Ledger) ->
                 %% because of speculative absorbs, we cannot accept these, as
                 %% they may be affected by transactions that will never land
                 true ->
+                    lager:info("get ~p at ~p miss *no* writeback", [Addr, Height]),
                     ok;
                 false ->
                     case ets:lookup(?MODULE, Addr) of
                         [] ->
-                            ets:insert(?MODULE, {Addr, Height});
+                            add_height(Addr, Height);
                         [{_, LastUpdate}] ->
                             case Height > LastUpdate of
                                 true ->
-                                    ets:insert(?MODULE, {Addr, Height});
+                                    add_height(Addr, Height);
                                 false ->
                                     ok
                             end
                     end,
+                        lager:info("get ~p at ~p miss writeback", [Addr, Height]),
                     ets:insert(?MODULE, {{Addr, Height}, Gw}),
                     ok
             end;
         [] ->
             %% not sure that it's safe to do anything here
             ok
+    end.
+
+add_height(Addr, Height) ->
+    case ets:lookup(?MODULE, Addr) of
+        [] ->
+            New = {Addr, [Height]},
+            case ets:insert_new(?MODULE, New) of
+                true ->
+                    ok;
+                _ ->
+                    add_height(Addr, Height)
+            end;
+        [{_, Heights} = Old] ->
+            New = {Addr, add_in_order(Height, Heights)},
+            case ets:select_replace(?MODULE, [{Old, [], [{const, New}]}]) of
+                1 ->
+                    ok;
+                _ ->
+                    add_height(Addr, Height)
+            end
+    end.
+
+remove_height(Addr, Height) ->
+    case ets:lookup(?MODULE, Addr) of
+        [] ->
+            ok;
+        [{_, Heights} = Old] ->
+            New = {Addr, lists:delete(Height, Heights)},
+            case ets:select_replace(?MODULE, [{Old, [], [{const, New}]}]) of
+                1 ->
+                    ok;
+                _ ->
+                    remove_height(Addr, Height)
+            end
+    end.
+
+add_in_order(New, Heights) ->
+    Heights1 =
+        %% high to low
+        lists:reverse(
+          %% no dups
+          lists:usort([New | Heights])),
+    Top = hd(Heights1),
+    lists:filter(fun(X) -> X > Top - 76 end, Heights1).
+
+get_update(_Height, []) ->
+    none;
+get_update(Height, [H | T]) ->
+    case Height >= H of
+        true ->
+            H;
+        false ->
+            get_update(Height, T)
     end.
