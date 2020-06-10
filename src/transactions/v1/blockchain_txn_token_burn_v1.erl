@@ -126,7 +126,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     HNTAmount = ?MODULE:amount(Txn),
-    DCAmount = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
+    {ok, DCAmount} = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of

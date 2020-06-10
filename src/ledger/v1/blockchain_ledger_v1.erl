@@ -1473,9 +1473,8 @@ hnt_to_dc(HNTAmount, Ledger)->
         {ok, 0} ->
             {ok, 0};
         {ok, OracleHNTPrice} ->
-            HNTInUSD = HNTAmount * OracleHNTPrice,
-            DCAmount = trunc((HNTInUSD / ?DC_PRICE)),
-            {ok, DCAmount}
+            HNTInUSD = ((HNTAmount / ?BONES_PER_HNT)  * OracleHNTPrice) / 100000000,
+            {ok, trunc((HNTInUSD / ?DC_PRICE))}
     end.
 
 %%--------------------------------------------------------------------
