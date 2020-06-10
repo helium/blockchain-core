@@ -271,7 +271,7 @@ is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
-is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=Txn, Ledger) ->
+is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger) ->
     case blockchain_ledger_v1:staking_keys(Ledger) of
         not_found -> true; %% chain var not active, so default to true
         Keys -> lists:member(Payer, Keys)
@@ -315,7 +315,7 @@ is_valid(Txn, Chain) ->
                         true -> Owner;
                         false -> Payer
                     end,
-                    blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled)
+                    blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled)
             end
 
 
