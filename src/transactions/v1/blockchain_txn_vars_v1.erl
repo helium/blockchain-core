@@ -793,13 +793,6 @@ validate_var(?max_bundle_size, Value) ->
 validate_var(?max_payments, Value) ->
     validate_int(Value, "max_payments", 5, 50, false);
 
-validate_var(?txn_fees, Value) ->
-    case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_txn_fees, Value}})
-    end;
-
 validate_var(?deprecate_payment_v1, Value) ->
     case Value of
         true -> ok;
@@ -871,6 +864,21 @@ validate_var(?price_oracle_height_delta, Value) ->
     %% How many blocks to allow between when a txn is
     %% submitted and when it is committed to the ledger
     validate_int(Value, "price_oracle_height_delta", 0, 500, false);
+
+%% txn fee related vars
+validate_var(?txn_fees, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_txn_fees, Value}})
+    end;
+
+validate_var(?staking_keys, Value) ->
+    case Value of
+        [] -> throw({error, {invalid_staking_keys, Value}});
+        X when is_list(X) -> ok;
+        _ -> throw({error, {invalid_staking_keys, Value}})
+    end;
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

@@ -316,3 +316,4 @@
 %% ------------------------------------------------------------------
 %% transaction fee vars
 -define(txn_fees, txn_fees).
+-define(staking_keys, staking_keys).

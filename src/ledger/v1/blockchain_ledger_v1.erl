@@ -146,7 +146,8 @@
 
     txn_fees_active/1,
     dc_to_hnt/2,
-    hnt_to_dc/2
+    hnt_to_dc/2,
+    staking_keys/1
 ]).
 
 -include("blockchain.hrl").
@@ -1433,6 +1434,17 @@ maybe_gc_scs(Ledger) ->
             end;
         _ ->
             ok
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get staking server keys from chain var
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_keys(Ledger :: ledger()) -> {ok, any()} | {error, any()}.
+staking_keys(Ledger)->
+    case blockchain:config(?staking_keys, Ledger) of
+        {error, not_found} -> not_found;
+        {ok, V} -> V
     end.
 
 %%--------------------------------------------------------------------
