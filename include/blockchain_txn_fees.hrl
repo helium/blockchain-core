@@ -28,9 +28,6 @@
     {blockchain_txn_state_channel_close_v1, 0}
 ]).
 
-%% expressed as percent
--define(STAKING_FEE_MARGIN, 5).
-
 %% special txn resource fees
 -define(OUI_FEE_PER_ADDRESS, 100).
 

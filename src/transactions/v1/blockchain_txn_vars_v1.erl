@@ -793,6 +793,13 @@ validate_var(?max_bundle_size, Value) ->
 validate_var(?max_payments, Value) ->
     validate_int(Value, "max_payments", 5, 50, false);
 
+validate_var(?txn_fees, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_txn_fees, Value}})
+    end;
+
 validate_var(?deprecate_payment_v1, Value) ->
     case Value of
         true -> ok;

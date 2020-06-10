@@ -359,7 +359,7 @@ do_oui_validation_checks(Txn, Chain) ->
                                 true ->
                                     {ok, IsFeesEnabled} = ?MODULE:fees_active_on_chain(Ledger),
                                     StakingFee = ?MODULE:staking_fee(Txn),
-                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn),
+                                    ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                                     TxnFee = ?MODULE:fee(Txn),
                                     ExpectedTxnFee = calculate_fee(Txn, Chain),
                                     case {(ExpectedTxnFee == TxnFee orelse not IsFeesEnabled), ExpectedStakingFee == StakingFee} of
