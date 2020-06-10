@@ -114,13 +114,8 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, bad_signature};
                 true ->
-                    case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        {ok, _Rate} ->
-                            Amount = ?MODULE:amount(Txn),
-                            blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
-                    end
+                    HNTAmount = ?MODULE:amount(Txn),
+                    blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger)
             end;
         Error ->
             Error
@@ -130,21 +125,16 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    case blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger) of
+    HNTAmount = ?MODULE:amount(Txn),
+    DCAmount = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
+    Payer = ?MODULE:payer(Txn),
+    Nonce = ?MODULE:nonce(Txn),
+    case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of
         {error, _Reason}=Error ->
             Error;
-        {ok, Rate} ->
-            Amount = ?MODULE:amount(Txn),
-            Payer = ?MODULE:payer(Txn),
-            Nonce = ?MODULE:nonce(Txn),
-            case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
-                {error, _Reason}=Error ->
-                    Error;
-                ok ->
-                    Payee = ?MODULE:payee(Txn),
-                    Credits = Amount * Rate,
-                    blockchain_ledger_v1:credit_dc(Payee, Credits, Ledger)
-            end
+        ok ->
+            Payee = ?MODULE:payee(Txn),
+            blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
     end.
 
 -spec print(txn_token_burn()) -> iodata().

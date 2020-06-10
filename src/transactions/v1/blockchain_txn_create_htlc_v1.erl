@@ -12,7 +12,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_create_htlc_v1_pb.hrl").
@@ -27,6 +27,7 @@
     timelock/1,
     amount/1,
     fee/1,
+    calculate_fee/2,
     nonce/1,
     signature/1,
     sign/2,
@@ -147,6 +148,23 @@ signature(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_create_htlc(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_create_htlc(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_create_htlc_v1_pb{fee=0}).
+
+%%--------------------------------------------------------------------
+%% @doc
 %% NOTE: payment transactions can be signed either by a worker who's part of the blockchain
 %% or through the wallet? In that case presumably the wallet uses its private key to sign the
 %% payment transaction.
@@ -196,15 +214,15 @@ is_valid(Txn, Chain) ->
                                                     {error, {bad_nonce, {create_htlc, TxnNonce, NextLedgerNonce}}};
                                                 true ->
                                                     Amount = ?MODULE:amount(Txn),
-                                                    Fee = ?MODULE:fee(Txn),
+                                                    TxnFee = ?MODULE:fee(Txn),
 
                                                     AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
                                                                       {ok, false} ->
                                                                           %% check that amount is greater than 0
-                                                                          (Amount > 0) andalso (Fee >= MinerFee);
+                                                                          (Amount > 0) andalso (TxnFee >= MinerFee);
                                                                       _ ->
                                                                           %% if undefined or true, use the old check
-                                                                          (Amount >= 0) andalso (Fee >= MinerFee)
+                                                                          (Amount >= 0) andalso (TxnFee >= MinerFee)
                                                                   end,
 
 
@@ -213,11 +231,14 @@ is_valid(Txn, Chain) ->
                                                             lager:error("amount < 0 for CreateHTLCTxn: ~p", [Txn]),
                                                             {error, invalid_transaction};
                                                         true ->
-                                                            case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
-                                                                {error, _}=Error1 ->
-                                                                    Error1;
-                                                                ok ->
-                                                                    blockchain_ledger_v1:check_balance(Payer, Amount, Ledger)
+                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                            TxnFee = ?MODULE:fee(Txn),
+                                                            ExpectedTxnFee = calculate_fee(Txn, Chain),
+                                                            case (ExpectedTxnFee == TxnFee orelse not AreFeesEnabled) of
+                                                                false ->
+                                                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                                true ->
+                                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
                                                             end
                                                     end
                                             end
@@ -237,7 +258,7 @@ is_valid(Txn, Chain) ->
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),
-    Fee = ?MODULE:fee(Txn),
+    TxnFee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
     Nonce = ?MODULE:nonce(Txn),
@@ -245,24 +266,20 @@ absorb(Txn, Chain) ->
         {error, _}=Error ->
             Error;
         {ok, _Entry} ->
-            case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            case blockchain_ledger_v1:debit_fee(Payer,TxnFee, Ledger, AreFeesEnabled) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
-                    case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
-                        {error, _Reason}=Error ->
-                            Error;
-                        ok ->
-                            Address = ?MODULE:address(Txn),
-                            blockchain_ledger_v1:add_htlc(Address,
-                                                            Payer,
-                                                            Payee,
-                                                            Amount,
-                                                            Nonce,
-                                                            ?MODULE:hashlock(Txn),
-                                                            ?MODULE:timelock(Txn),
-                                                            Ledger)
-                    end
+                    Address = ?MODULE:address(Txn),
+                    blockchain_ledger_v1:add_htlc(Address,
+                                                    Payer,
+                                                    Payee,
+                                                    Amount,
+                                                    Nonce,
+                                                    ?MODULE:hashlock(Txn),
+                                                    ?MODULE:timelock(Txn),
+                                                    Ledger)
             end
     end.
 

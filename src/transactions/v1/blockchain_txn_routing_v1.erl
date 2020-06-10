@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
@@ -24,6 +24,7 @@
     owner/1,
     action/1,
     fee/1,
+    calculate_fee/2,
     nonce/1,
     signature/1,
     sign/2,
@@ -169,6 +170,24 @@ sign(Txn, SigFun) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_routing(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_routing(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_routing(),
@@ -210,7 +229,7 @@ is_valid(Txn, Chain) ->
                                                                         false ->
                                                                             {error, bad_signature};
                                                                         true ->
-                                                                            do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum)
+                                                                            do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum, Chain)
                                                                     end;
                                                                 _ ->
                                                                     {error, max_subnet_num_not_set}
@@ -270,7 +289,8 @@ absorb(Txn, Chain) ->
         {error, _} = Error ->
             Error;
         _ ->
-            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger) of
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            case blockchain_ledger_v1:debit_fee(Owner, Fee, Ledger, AreFeesEnabled) of
                 {error, _}=Error ->
                     Error;
                 ok ->
@@ -342,8 +362,9 @@ validate_addresses(Addresses) ->
                          XORFilterNum :: pos_integer(),
                          MinSubnetSize :: pos_integer(),
                          MaxSubnetSize :: pos_integer(),
-                         MaxSubnetNum :: pos_integer()) -> ok | {error, any()}.
-do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum) ->
+                         MaxSubnetNum :: pos_integer(),
+                         Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum, Chain) ->
     case ?MODULE:action(Txn) of
         {update_routers, Addresses} ->
             case validate_addresses(Addresses) of
@@ -362,9 +383,16 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     %% the contain check does some structural checking of the filter
                     case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
                         B when is_boolean(B) ->
-                            Fee = ?MODULE:fee(Txn),
+                            TxnFee = ?MODULE:fee(Txn),
                             Owner = ?MODULE:owner(Txn),
-                            blockchain_ledger_v1:check_dc_balance(Owner, Fee, Ledger);
+                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                            case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                false ->
+                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                true ->
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                            end;
                         _ ->
                             {error, invalid_filter}
                     end;

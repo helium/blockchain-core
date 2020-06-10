@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
@@ -19,6 +19,7 @@
     oui/1,
     nonce/1,
     fee/1,
+    calculate_fee/2,
     gateway_owner_signature/1,
     oui_owner_signature/1,
     sign/2,
@@ -120,6 +121,25 @@ is_valid_oui_owner(OUIOwner, #blockchain_txn_update_gateway_oui_v1_pb{oui_owner_
     PubKey = libp2p_crypto:bin_to_pubkey(OUIOwner),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_update_gateway_oui(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_update_gateway_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=0}).
+
+
+
 -spec is_valid(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -136,9 +156,16 @@ is_valid(Txn, Chain) ->
                 false ->
                     {error, {bad_nonce, {update_gateway_oui, Nonce, LedgerNonce}}};
                 true ->
-                    Fee = ?MODULE:fee(Txn),
+                    TxnFee = ?MODULE:fee(Txn),
                     GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
-                    blockchain_ledger_v1:check_dc_balance(GatewayOwner, Fee, Ledger)
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                    case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                        false ->
+                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                        true ->
+                            blockchain_ledger_v1:check_dc_or_hnt_balance(GatewayOwner, TxnFee, Ledger, AreFeesEnabled)
+                    end
             end
     end.
 
@@ -153,7 +180,8 @@ absorb(Txn, Chain) ->
         {ok, GWInfo} ->
             Fee = ?MODULE:fee(Txn),
             GatewayOwner = blockchain_ledger_gateway_v2:owner_address(GWInfo),
-            case blockchain_ledger_v1:debit_fee(GatewayOwner, Fee, Ledger) of
+            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+            case blockchain_ledger_v1:debit_fee(GatewayOwner, Fee, Ledger, AreFeesEnabled) of
                 {error, _}=Error ->
                     Error;
                 ok ->

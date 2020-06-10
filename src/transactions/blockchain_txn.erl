@@ -9,7 +9,6 @@
 %% blockchain_txn.proto. The txn() type below should reflec that
 %% union.
 -include_lib("helium_proto/include/blockchain_txn_pb.hrl").
--include("blockchain_txn_fees.hrl").
 
 -type hash() :: <<_:256>>. %% SHA256 digest
 -type txn() :: blockchain_txn_add_gateway_v1:txn_add_gateway()
@@ -568,10 +567,6 @@ validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->
     {error, {malformed_field, Name}}.
-
-
-
-
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------

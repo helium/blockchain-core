@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_security_exchange_v1_pb.hrl").
 
@@ -20,6 +20,7 @@
     payee/1,
     amount/1,
     fee/1,
+    calculate_fee/2,
     nonce/1,
     signature/1,
     sign/2,
@@ -147,6 +148,23 @@ sign(Txn, SigFun) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_security_exchange(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_security_exchange(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_security_exchange_v1_pb{fee=0}).
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, any()}.
@@ -154,7 +172,7 @@ is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Payee = ?MODULE:payee(Txn),
-    Fee = ?MODULE:fee(Txn),
+    TxnFee = ?MODULE:fee(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Payer),
     BaseTxn = Txn#blockchain_txn_security_exchange_v1_pb{signature = <<>>},
@@ -170,7 +188,14 @@ is_valid(Txn, Chain) ->
                             Amount = ?MODULE:amount(Txn),
                             case blockchain_ledger_v1:check_security_balance(Payer, Amount, Ledger) of
                                 ok ->
-                                    blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger);
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                    case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                        false ->
+                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                        true ->
+                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                                    end;
                                 Error ->
                                     Error
                             end;
@@ -192,7 +217,8 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled) of
         ok ->
             case blockchain_ledger_v1:debit_security(Payer, Amount, Nonce, Ledger) of
                 {error, _Reason}=Error ->

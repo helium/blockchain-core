@@ -9,8 +9,8 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
 -include("blockchain_utils.hrl").
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
@@ -32,7 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_staking_fee/1,
+    calculate_fee/2, calculate_staking_fee/2,
     print/1,
     to_json/2
 ]).
@@ -146,6 +146,48 @@ fee(Txn) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0}).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the staking fee using the price oracles
+%% returns the fee in DC
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
+calculate_staking_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_staking_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Chain, false) ->
+    1;
+calculate_staking_fee(Txn, Chain, true) ->
+    Ledger = blockchain:ledger(Chain),
+    _Payer = ?MODULE:payer(Txn),
+    %%TODO - what todo with the staking server addr ?
+    _StakingServerAddr = blockchain_ledger_v1:staking_server_addr(Ledger),
+    TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
+    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
+    FeeInDC.
+
+
+%%--------------------------------------------------------------------
+%% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec sign(txn_add_gateway(), libp2p_crypto:sig_fun()) -> txn_add_gateway().
@@ -254,23 +296,29 @@ is_valid(Txn, Chain) ->
                         false ->
                             {error, invalid_transaction};
                         true ->
+                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                             StakingFee = ?MODULE:staking_fee(Txn),
-                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Chain),
-                            case ExpectedStakingFee == StakingFee of
-                                false ->
-                                    {error, {wrong_stacking_fee, ExpectedStakingFee, StakingFee}};
-                                true ->
+                            ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
+                            TxnFee = ?MODULE:fee(Txn),
+                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                            case {(ExpectedTxnFee == TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                                {false,_} ->
+                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                {_,false} ->
+                                    {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                {true, true} ->
                                     Payer = ?MODULE:payer(Txn),
                                     Owner = ?MODULE:owner(Txn),
                                     ActualPayer = case Payer == undefined orelse Payer == <<>> of
                                         true -> Owner;
                                         false -> Payer
                                     end,
-                                    blockchain_ledger_v1:check_dc_balance(ActualPayer, Fee + StakingFee, Ledger)
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled)
                             end
                     end
             end
     end.
+
 
 
 
@@ -281,6 +329,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     Owner = ?MODULE:owner(Txn),
     Gateway = ?MODULE:gateway(Txn),
     Payer = ?MODULE:payer(Txn),
@@ -290,20 +339,10 @@ absorb(Txn, Chain) ->
         true -> Owner;
         false -> Payer
     end,
-    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger) of
+    case blockchain_ledger_v1:debit_fee(ActualPayer, Fee + StakingFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error -> Error;
         ok -> blockchain_ledger_v1:add_gateway(Owner, Gateway, Ledger)
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% TODO: We should calulate this (one we have a token burn rate)
-%%       maybe using location and/or demand
-%% @end
-%%--------------------------------------------------------------------
--spec calculate_staking_fee(blockchain:blockchain()) -> non_neg_integer().
-calculate_staking_fee(_Chain) ->
-    1.
 
 %%--------------------------------------------------------------------
 %% @doc
