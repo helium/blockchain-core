@@ -200,20 +200,24 @@ code_change(_OldVsn, State, _Extra) ->
 
 cache_get(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case ets:lookup(?MODULE, Addr) of
-        [] -> {error, not_found};
-        [{_, Updates}] ->
-            case get_update(Height, Updates) of
-                none -> {error, not_found};
-                Update ->
-                    case ets:lookup(?MODULE, {Addr, Update}) of
-                        [] ->
-                            {error, not_found};
-                        [{_, Res}] ->
-                            lager:info("lastupdate ~p ~p ~p", [Addr, Update, Height]),
-                            {ok, Res}
+    case ets:lookup(?MODULE, curr_height) of
+        [{_, CurrHeight}] ->
+            case ets:lookup(?MODULE, Addr) of
+                [] -> {error, not_found};
+                [{_, Updates}] ->
+                    case get_update(Height, CurrHeight, Updates) of
+                        none -> {error, not_found};
+                        Update ->
+                            case ets:lookup(?MODULE, {Addr, Update}) of
+                                [] ->
+                                    {error, not_found};
+                                [{_, Res}] ->
+                                    lager:info("lastupdate ~p ~p ~p", [Addr, Update, Height]),
+                                    {ok, Res}
+                            end
                     end
-            end
+            end;
+        _ -> {error, not_found}
     end.
 
 cache_put(Addr, Gw, Ledger) ->
@@ -290,12 +294,16 @@ add_in_order(New, Heights) ->
     Top = hd(Heights1),
     lists:filter(fun(X) -> X > Top - 76 end, Heights1).
 
-get_update(_Height, []) ->
+get_update(_Height, _CurrHeight, []) ->
     none;
-get_update(Height, [H | T]) ->
+get_update(Height, CurrHeight, [H | T]) ->
     case Height >= H of
-        true ->
+        true when Height /= CurrHeight ->
             H;
+        %% if we don't have an update for the current height, we've
+        %% been invalidated, make sure we fall back to disk
+        true ->
+            none;
         false ->
-            get_update(Height, T)
+            get_update(Height, CurrHeight, T)
     end.
