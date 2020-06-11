@@ -139,8 +139,16 @@ absorb(Txn, Chain) ->
     TxnFee = ?MODULE:fee(Txn),
     %% TODO - confirm 'Owner' is the account which pays the fee
     case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
-        {error, _Reason}=Error -> Error;
-        ok -> blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+        {error, _Reason}=Error ->
+            Error;
+        ok ->
+            %% TODO we should debit the amount of DC the state channel holds, not 0
+            case blockchain_ledger_v1:debit_dc(Owner, Nonce, 0, Ledger) of
+                {error, _}=Error2 ->
+                    Error2;
+                ok ->
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+            end
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().

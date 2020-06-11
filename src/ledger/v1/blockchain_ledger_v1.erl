@@ -61,7 +61,7 @@
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
-    debit_dc/3,
+    debit_dc/4,
     debit_fee/3, debit_fee/4,
     check_dc_balance/3,
     check_dc_or_hnt_balance/4,
@@ -1732,10 +1732,9 @@ credit_dc(Address, Amount, Ledger) ->
 
 -spec debit_dc(Address :: libp2p_crypto:pubkey_bin(),
                Nonce :: non_neg_integer(),
+               Amount :: non_neg_integer(),
                Ledger :: ledger()) -> ok | {error, any()}.
-debit_dc(Address, Nonce, Ledger) ->
-    {ok, Fee} = ?MODULE:transaction_fee(Ledger),
-
+debit_dc(Address, Nonce, Amount, Ledger) ->
     Entry = case ?MODULE:find_dc_entry(Address, Ledger) of
                 {error, dc_entry_not_found} ->
                     %% Just create a blank entry if dc_entry_not_found
@@ -1752,14 +1751,14 @@ debit_dc(Address, Nonce, Ledger) ->
         true ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             %% NOTE: If fee = 0, this should still work..
-            case (Balance - Fee) >= 0 of
+            case (Balance - Amount) >= 0 of
                 true ->
-                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Amount)),
                     Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
                     EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
-                    {error, {insufficient_dc_balance, Fee, Balance}}
+                    {error, {insufficient_dc_balance, Amount, Balance}}
             end
     end.
 

@@ -151,7 +151,7 @@ same_payees_test(Config) ->
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
     Payment2 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 

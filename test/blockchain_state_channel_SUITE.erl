@@ -58,6 +58,9 @@ init_per_testcase(basic_test, Config) ->
     BaseDir = "data/blockchain_state_channel_SUITE/" ++ erlang:atom_to_list(basic_test),
     [{base_dir, BaseDir} |Config];
 init_per_testcase(Test, Config) ->
+    application:ensure_all_started(throttle),
+    application:ensure_all_started(lager),
+
     InitConfig0 = blockchain_ct_utils:init_base_dir_config(?MODULE, Test, Config),
     InitConfig = blockchain_ct_utils:init_per_testcase(Test, InitConfig0),
 
@@ -687,7 +690,7 @@ multi_owner_multi_sc_test(Config) ->
     {ok, _RouterPubkey, RouterSigFun1, _} = ct_rpc:call(RouterNode1, blockchain_swarm, keys, []),
     RouterPubkeyBin2 = ct_rpc:call(RouterNode2, blockchain_swarm, pubkey_bin, []),
 
-    RoutingTxn = blockchain_txn_routing_v1:update_router_addresses(1, RouterPubkeyBin1, [RouterPubkeyBin2], 0, 1),
+    RoutingTxn = blockchain_txn_routing_v1:update_router_addresses(1, RouterPubkeyBin1, [RouterPubkeyBin2], 1),
     ct:pal("RoutingTxn: ~p", [RoutingTxn]),
     SignedRoutingTxn = blockchain_txn_routing_v1:sign(RoutingTxn, RouterSigFun1),
     ct:pal("SignedRoutingTxn: ~p", [SignedRoutingTxn]),
@@ -1060,7 +1063,7 @@ unknown_owner_test(Config) ->
     ct:pal("B0: ~p", [B0]),
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [B0, RouterChain, Self, RouterSwarm]),
 
-    RoutingTxn = blockchain_txn_routing_v1:update_router_addresses(1, RouterPubkeyBin, [PayerPubkeyBin], 0, 1),
+    RoutingTxn = blockchain_txn_routing_v1:update_router_addresses(1, RouterPubkeyBin, [PayerPubkeyBin], 1),
     ct:pal("RoutingTxn: ~p", [RoutingTxn]),
     SignedRoutingTxn = blockchain_txn_routing_v1:sign(RoutingTxn, RouterSigFun),
     ct:pal("SignedRoutingTxn: ~p", [SignedRoutingTxn]),

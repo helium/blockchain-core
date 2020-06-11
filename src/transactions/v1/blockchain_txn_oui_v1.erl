@@ -245,7 +245,7 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    ?LEGACY_TXN_FEE;
+    1;
 calculate_staking_fee(Txn, _Chain, true) ->
     %% get total price of txn in USD and divide by DC price
     NumAddresses = length(?MODULE:addresses(Txn)),
@@ -355,7 +355,7 @@ do_oui_validation_checks(Txn, Chain) ->
                                     ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                                     TxnFee = ?MODULE:fee(Txn),
                                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                    case {(ExpectedTxnFee == TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
+                                    case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee =< StakingFee} of
                                         {false,_} ->
                                             {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                         {_,false} ->
