@@ -86,7 +86,7 @@
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/6,
-    delete_state_channel/4,
+    close_state_channel/4,
 
     allocate_subnet/2,
 
@@ -212,7 +212,7 @@
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 -type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
 -type gateway_offsets() :: [{pos_integer(), libp2p_crypto:pubkey_bin()}].
--type state_channel_map() ::  #{blockchain_state_channel_v1:id() => blockchain_ledger_state_channel_v1:state_channel()}.
+-type state_channel_map() ::  #{blockchain_state_channel_v1:id() => blockchain_ledger_state_channel_v2:state_channel()}.
 
 -export_type([ledger/0]).
 
@@ -530,7 +530,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                      {PoCsCF, t2b},
                      {SecuritiesCF, blockchain_ledger_security_entry_v1},
                      {RoutingCF, blockchain_ledger_routing_v1},
-                     {SCsCF, blockchain_ledger_state_channel_v1},
+                     {SCsCF, blockchain_ledger_state_channel_v2},
                      {SubnetsCF, undefined}
                     ]],
         L = lists:append(L0, DefaultVals),
@@ -1415,8 +1415,8 @@ maybe_gc_scs(Ledger) ->
                                Ledger,
                                SCsCF,
                                fun({KeyHash, BinSC}, Acc) ->
-                                       SC = blockchain_ledger_state_channel_v1:deserialize(BinSC),
-                                       ExpireAtBlock = blockchain_ledger_state_channel_v1:expire_at_block(SC),
+                                       SC = blockchain_ledger_state_channel_v2:deserialize(BinSC),
+                                       ExpireAtBlock = blockchain_ledger_state_channel_v2:expire_at_block(SC),
                                        case (ExpireAtBlock + Grace) < Height of
                                            false ->
                                                Acc;
@@ -2119,13 +2119,13 @@ update_routing(OUI, Action, Nonce, Ledger) ->
 
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
-                         Ledger :: ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
+                         Ledger :: ledger()) -> {ok, blockchain_ledger_state_channel_v2:state_channel()} | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
     case cache_get(Ledger, SCsCF, Key, []) of
         {ok, BinEntry} ->
-            {ok, blockchain_ledger_state_channel_v1:deserialize(BinEntry)};
+            {ok, blockchain_ledger_state_channel_v2:deserialize(BinEntry)};
         not_found ->
             {error, not_found};
         Error ->
@@ -2156,7 +2156,7 @@ find_scs_by_owner(Owner, Ledger) ->
     {ok, cache_fold(Ledger, SCsCF,
                fun({K, V}, Acc) when erlang:binary_part(K, {0, OwnerLength}) == Owner ->
                        ID = binary:part(K, OwnerLength, byte_size(K) - OwnerLength),
-                       maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc);
+                       maps:put(ID, blockchain_ledger_state_channel_v2:deserialize(V), Acc);
                   (_, Acc) ->
                        Acc
                end, #{}, [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
@@ -2171,31 +2171,31 @@ find_scs_by_owner(Owner, Ledger) ->
 add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
-    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, CurrHeight+ExpireWithin, Amount, Nonce),
-    Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
+    Routing = blockchain_ledger_state_channel_v2:new(ID, Owner, CurrHeight+ExpireWithin, Amount, Nonce),
+    Bin = blockchain_ledger_state_channel_v2:serialize(Routing),
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
 
--spec delete_state_channel(ID :: binary(),
-                           Owner :: libp2p_crypto:pubkey_bin(),
-                           Summary :: blockchain_state_channel_summary_v1:summary(),
-                           Ledger :: ledger()) ->
-    ok | {error, not_found} | {error, Reason :: any()}.
-delete_state_channel(ID, Owner, Summary, Ledger) ->
+-spec close_state_channel(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_state_channel_v1:state_channel(), ledger()) -> ok.
+close_state_channel(Owner, Closer, SC, Ledger) ->
+    ID = blockchain_state_channel_v1:id(SC),
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
-    case cache_get(Ledger, SCsCF, Key, []) of
-        {ok, BinEntry} ->
-            Entry = blockchain_ledger_state_channel_v1:deserialize(BinEntry),
-            UsedDC = blockchain_state_channel_summary_v1:num_dcs(Summary),
-            ReservedDC = blockchain_ledger_state_channel_v1:amount(Entry),
+    case ?MODULE:config(?sc_version, Ledger) of
+        {ok, 2} ->
+            {ok, SCE} = find_state_channel(ID, Owner, Ledger),
+            UsedDC = blockchain_state_channel_v1:total_dcs(SC),
+            Key = state_channel_key(ID, Owner),
+            ReservedDC = blockchain_state_channel_v1:amount(SC),
+            %% we actually don't want to do this here as the close may be disputed
+            %% we should instead do this in GC
             Credit = max(0, ReservedDC - UsedDC),
             ok = credit_dc(Owner, Credit, Ledger),
-            cache_delete(Ledger, SCsCF, Key);
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
+            SCE1 = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, SCE),
+            Bin = blockchain_ledger_state_channel_v2:serialize(SCE1),
+            cache_put(Ledger, SCsCF, Key, Bin);
+        _ ->
+            cache_delete(Ledger, SCsCF, Key)
     end.
 
 -spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
@@ -2949,7 +2949,7 @@ snapshot_state_channels(Ledger) ->
           Ledger, SCsCF,
           fun({ID, V}, Acc) ->
                   %% do we need to decompose the ID here into Key and Owner?
-                  maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc)
+                  maps:put(ID, blockchain_ledger_state_channel_v2:deserialize(V), Acc)
           end, #{},
           []))).
 
@@ -2957,7 +2957,7 @@ load_state_channels(SCs, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     maps:map(
       fun(ID, Channel) ->
-              BChannel = blockchain_ledger_state_channel_v1:serialize(Channel),
+              BChannel = blockchain_ledger_state_channel_v2:serialize(Channel),
               cache_put(Ledger, SCsCF, ID, BChannel)
       end,
       maps:from_list(SCs)),
@@ -3401,14 +3401,14 @@ state_channels_test() ->
     ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
-    ?assertEqual(Owner, blockchain_ledger_state_channel_v1:owner(SC)),
-    ?assertEqual(Nonce, blockchain_ledger_state_channel_v1:nonce(SC)),
-    ?assertEqual(Amount, blockchain_ledger_state_channel_v1:amount(SC)),
+    ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
+    ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
+    ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
+    ?assertEqual(Amount, blockchain_ledger_state_channel_v2:amount(SC)),
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-    ok = delete_state_channel(ID, Owner, Ledger3),
+    ok = close_state_channel(ID, Owner, Owner, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),

@@ -241,6 +241,7 @@ update_state_sc_open(Txn,
             ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
             {SC, Skewed} = blockchain_state_channel_v1:new(ID,
                                                            Owner,
+                                                           0,
                                                            BlockHash,
                                                            (BlockHeight + ExpireWithin)),
 
@@ -462,7 +463,7 @@ convert_to_state_channels(LedgerSCs, Chain) ->
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
                      ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
-                     SC0 = blockchain_state_channel_v1:new(ID, Owner),
+                     SC0 = blockchain_state_channel_v1:new(ID, Owner, 0),
                      Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
                      Filter = fun(T) -> blockchain_txn:type(T) == blockchain_txn_state_channel_open_v1 andalso
                                         blockchain_txn_state_channel_open_v1:id(T) == ID andalso
