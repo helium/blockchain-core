@@ -9,16 +9,17 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
-    new/2,
+    new/2, new/3,
     hash/1,
     state_channel/1,
     closer/1,
     fee/1,
+    calculate_fee/2,
     signature/1,
     sign/2,
     is_valid/2,
@@ -36,9 +37,14 @@
 
 -spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin()) -> txn_state_channel_close().
 new(SC, Closer) ->
+    new(SC, Closer, 0).
+
+-spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_state_channel_close().
+new(SC, Closer, Fee) ->
     #blockchain_txn_state_channel_close_v1_pb{
        state_channel=SC,
-       closer=Closer
+       closer=Closer,
+       fee=Fee
     }.
 
 -spec hash(txn_state_channel_close()) -> blockchain_txn:hash().
@@ -55,9 +61,9 @@ state_channel(Txn) ->
 closer(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.closer.
 
--spec fee(txn_state_channel_close()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_state_channel_close()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_state_channel_close_v1_pb.fee.
 
 -spec signature(txn_state_channel_close()) -> binary().
 signature(Txn) ->
@@ -67,6 +73,23 @@ signature(Txn) ->
 sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_state_channel_close_v1_pb:encode_msg(Txn#blockchain_txn_state_channel_close_v1_pb{signature = <<>>}),
     Txn#blockchain_txn_state_channel_close_v1_pb{signature=SigFun(EncodedTxn)}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_state_channel_close(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_state_channel_close(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_state_channel_close_v1_pb{fee=0}).
 
 -spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
@@ -104,7 +127,17 @@ is_valid(Txn, Chain) ->
                                         {ok, _Summary} ->
                                             %% This closer was part of the state channel
                                             %% Is therefore allowed to close said state channel
-                                            ok
+                                            %% Verify they can afford the fee
+                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                            TxnFee = ?MODULE:fee(Txn),
+                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                            case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                                false ->
+                                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                true ->
+                                                    %% TODO - confirm 'closer' is the account which pays the fee
+                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled)
+                                            end
                                     end
                             end
                     end
@@ -114,10 +147,18 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     SC = ?MODULE:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
     Owner = blockchain_state_channel_v1:owner(SC),
-    blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger).
+    Closer = blockchain_state_channel_v1:closer(SC),
+    TxnFee = ?MODULE:fee(Txn),
+    %% TODO - confirm 'closer' is the account which pays the fee
+    case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
+        {error, _Reason}=Error -> Error;
+        ok -> blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger)
+    end.
+
 
 -spec print(txn_state_channel_close()) -> iodata().
 print(undefined) -> <<"type=state_channel_close, undefined">>;

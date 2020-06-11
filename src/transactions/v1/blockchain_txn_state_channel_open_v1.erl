@@ -9,13 +9,13 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/5, new/6,
     hash/1,
     id/1,
     owner/1,
@@ -23,6 +23,7 @@
     nonce/1,
     expire_within/1,
     fee/1,
+    calculate_fee/2,
     signature/1,
     sign/2,
     is_valid/2,
@@ -44,12 +45,22 @@
           OUI :: non_neg_integer(),
           Nonce :: non_neg_integer()) -> txn_state_channel_open().
 new(ID, Owner, ExpireWithin, OUI, Nonce) ->
+    new(ID, Owner, ExpireWithin, OUI, Nonce, 0).
+
+-spec new(ID :: binary(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          ExpireWithin :: pos_integer(),
+          OUI :: non_neg_integer(),
+          Nonce :: non_neg_integer(),
+          Fee :: non_neg_integer()  ) -> txn_state_channel_open().
+new(ID, Owner, ExpireWithin, OUI, Nonce, Fee) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         expire_within=ExpireWithin,
         oui=OUI,
         nonce=Nonce,
+        fee=Fee,
         signature = <<>>
     }.
 
@@ -79,9 +90,9 @@ oui(Txn) ->
 expire_within(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.expire_within.
 
--spec fee(Txn :: txn_state_channel_open()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_state_channel_open()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.fee.
 
 -spec signature(Txn :: txn_state_channel_open()) -> binary().
 signature(Txn) ->
@@ -93,10 +104,26 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_state_channel_open_v1_pb{signature=SigFun(EncodedTxn)}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_state_channel_open(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_state_channel_open(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0}).
+
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
@@ -106,22 +133,23 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            do_is_valid_checks(Txn, Ledger)
+            do_is_valid_checks(Txn, Chain)
     end.
 
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Ledger) of
-        {error, _}=Error ->
-            Error;
-        ok ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+    TxnFee = ?MODULE:fee(Txn),
+    %% TODO - confirm 'Owner' is the account which pays the fee
+    case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
+        {error, _Reason}=Error -> Error;
+        ok -> blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
@@ -143,8 +171,9 @@ to_json(Txn, _Opts) ->
       expire_within => expire_within(Txn)
      }.
 
--spec do_is_valid_checks(txn_state_channel_open(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-do_is_valid_checks(Txn, Ledger) ->
+-spec do_is_valid_checks(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
+do_is_valid_checks(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     ExpireWithin = ?MODULE:expire_within(Txn),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
@@ -177,7 +206,16 @@ do_is_valid_checks(Txn, Ledger) ->
                                                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                                                         {error, not_found} ->
                                                             %% No state channel with this ID for this Owner exists
-                                                            ok;
+                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                            TxnFee = ?MODULE:fee(Txn),
+                                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                            case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                                                false ->
+                                                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                                true ->
+                                                                    %% TODO - confirm 'Owner' is the account which pays the fee
+                                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                                                            end;
                                                         {ok, _} ->
                                                             {error, state_channel_already_exists};
                                                         {error, _}=Err ->

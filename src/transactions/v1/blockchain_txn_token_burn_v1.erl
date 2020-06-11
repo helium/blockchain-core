@@ -9,19 +9,20 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
   -export([
-    new/3, new/4,
+    new/4, new/5,
     hash/1,
     payer/1,
     payee/1,
     amount/1,
     nonce/1,
     fee/1,
+    calculate_fee/2,
     signature/1,
     sign/2,
     is_valid/2,
@@ -37,23 +38,25 @@
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
-new(Payer, Amount, Nonce) ->
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), non_neg_integer()) -> txn_token_burn().
+new(Payer, Amount, Nonce, Fee) ->
     #blockchain_txn_token_burn_v1_pb{
         payer=Payer,
         payee=Payer,
         amount=Amount,
         nonce=Nonce,
+        fee=Fee,
         signature = <<>>
     }.
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
-new(Payer, Payee, Amount, Nonce) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), non_neg_integer()) -> txn_token_burn().
+new(Payer, Payee, Amount, Nonce, Fee) ->
     #blockchain_txn_token_burn_v1_pb{
         payer=Payer,
         payee=Payee,
         amount=Amount,
         nonce=Nonce,
+        fee=Fee,
         signature = <<>>
     }.
 
@@ -79,9 +82,9 @@ amount(Txn) ->
 nonce(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.nonce.
 
--spec fee(txn_token_burn()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_token_burn()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_token_burn_v1_pb.fee.
 
 -spec signature(txn_token_burn()) -> binary().
 signature(Txn) ->
@@ -100,6 +103,23 @@ sign(Txn, SigFun) ->
     Txn#blockchain_txn_token_burn_v1_pb{signature=SigFun(EncodedTxn)}.
 
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_token_burn(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_token_burn(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    0;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0}).
+
 -spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -115,12 +135,24 @@ is_valid(Txn, Chain) ->
                     {error, bad_signature};
                 true ->
                     HNTAmount = ?MODULE:amount(Txn),
-                    blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger)
+                    case blockchain_ledger_v1:check_balance(Payer, HNTAmount, Ledger) of
+                        {error, _}=Error ->
+                            Error;
+                        ok ->
+                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                            TxnFee = ?MODULE:fee(Txn),
+                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                            case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
+                                false ->
+                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                true ->
+                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
+                            end
+                    end
             end;
         Error ->
             Error
     end.
-
 
 -spec absorb(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
@@ -129,12 +161,18 @@ absorb(Txn, Chain) ->
     {ok, DCAmount} = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of
-        {error, _Reason}=Error ->
-            Error;
+    TxnFee = ?MODULE:fee(Txn),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled) of
+        {error, _Reason}=Error -> Error;
         ok ->
-            Payee = ?MODULE:payee(Txn),
-            blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
+            case blockchain_ledger_v1:debit_account(Payer, HNTAmount, Nonce, Ledger) of
+                {error, _Reason}=Error ->
+                    Error;
+                ok ->
+                    Payee = ?MODULE:payee(Txn),
+                    blockchain_ledger_v1:credit_dc(Payee, DCAmount, Ledger)
+            end
     end.
 
 -spec print(txn_token_burn()) -> iodata().
