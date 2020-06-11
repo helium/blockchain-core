@@ -1640,6 +1640,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
+            lager:info("*** ledger nonce ~p for address ~p", [blockchain_ledger_entry_v1:nonce(Entry), Address]),
             case Nonce =:= blockchain_ledger_entry_v1:nonce(Entry) + 1 of
                 true ->
                     Balance = blockchain_ledger_entry_v1:balance(Entry),

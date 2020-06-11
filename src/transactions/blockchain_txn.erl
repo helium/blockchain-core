@@ -412,7 +412,9 @@ absorb(Txn, Chain) ->
             lager:info("failed to absorb ~p ~p ~s",
                        [Type, _Reason, ?MODULE:print(Txn)]),
             Error;
-        ok -> ok
+        ok ->
+            lager:info("*** success absorbing ~p ~s",[Type, ?MODULE:print(Txn)]),
+            ok
     catch
         What:Why:Stack ->
             lager:warning("crash during absorb: ~p ~p", [Why, Stack]),
