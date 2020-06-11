@@ -279,7 +279,7 @@ new_test() ->
     Tx = #blockchain_txn_payment_v2_pb{
             payer= <<"payer">>,
             payments=Payments,
-            fee=10,
+            fee=0,
             nonce=1,
             signature = <<>>
            },
@@ -326,7 +326,7 @@ fee_test() ->
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
     Tx = new(<<"payer">>, Payments, 1),
-    ?assertEqual(10, fee(Tx)).
+    ?assertEqual(0, fee(Tx)).
 
 nonce_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),

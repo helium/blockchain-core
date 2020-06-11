@@ -263,15 +263,20 @@ absorb(Txn, Chain) ->
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
-                    Address = ?MODULE:address(Txn),
-                    blockchain_ledger_v1:add_htlc(Address,
-                                                    Payer,
-                                                    Payee,
-                                                    Amount,
-                                                    Nonce,
-                                                    ?MODULE:hashlock(Txn),
-                                                    ?MODULE:timelock(Txn),
-                                                    Ledger)
+                    case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
+                        {error, _Reason}=Error ->
+                            Error;
+                        ok ->
+                            Address = ?MODULE:address(Txn),
+                            blockchain_ledger_v1:add_htlc(Address,
+                                                          Payer,
+                                                          Payee,
+                                                          Amount,
+                                                          Nonce,
+                                                          ?MODULE:hashlock(Txn),
+                                                          ?MODULE:timelock(Txn),
+                                                          Ledger)
+                    end
             end
     end.
 
