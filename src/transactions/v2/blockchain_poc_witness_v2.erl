@@ -21,7 +21,8 @@
          sign/2,
          is_valid/1,
 
-         print/1
+         print/1,
+         check_witness_layerhash/4
         ]).
 
 -ifdef(TEST).
@@ -119,6 +120,35 @@ print(#blockchain_poc_witness_v2_pb{
         }) ->
     io_lib:format("type=witness gateway: ~s signal: ~b snr: ~b, rx_time: ~b time_acc: ~b loc_acc: ~b",
                   [?TO_ANIMAL_NAME(GwPubkeyBin), Signal, SNR, RxTime, TimeAcc, LocAcc]).
+
+%% TODO: spec...
+check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
+    %% all the witnesses should have the right LayerHash
+    %% and be valid
+    case
+        lists:all(
+          fun(Witness) ->
+                  %% the witnesses should have an asserted location
+                  %% at the point when the request was mined!
+                  WitnessGateway = blockchain_poc_witness_v2:gateway(Witness),
+                  case blockchain_ledger_v1:find_gateway_info(WitnessGateway, OldLedger) of
+                      {error, _} ->
+                          false;
+                      {ok, _} when Gateway == WitnessGateway ->
+                          false;
+                      {ok, GWInfo} ->
+                          blockchain_ledger_gateway_v2:location(GWInfo) /= undefined andalso
+                          blockchain_poc_witness_v2:is_valid(Witness) andalso
+                          blockchain_poc_witness_v2:packet_hash(Witness) == LayerHash
+                  end
+          end,
+          Witnesses
+         )
+    of
+        true -> ok;
+        false -> {error, invalid_witness}
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

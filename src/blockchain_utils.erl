@@ -26,6 +26,7 @@
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
     vars_keys_to_list/1,
+    vars_binary_keys_to_atoms_from_list/1,
     index_of/2
 ]).
 
@@ -214,6 +215,10 @@ free_space_path_loss(Loc1, Loc2) ->
 vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
     maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
+
+-spec vars_binary_keys_to_atoms_from_list(list()) -> list().
+vars_binary_keys_to_atoms_from_list(Vars) ->
+    lists:foldl(fun({K, V}, Acc) -> [{binary_to_atom(K, utf8), V} | Acc]  end, [], Vars).
 
 -spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
 get_pubkeybin_sigfun(Swarm) ->
