@@ -12,13 +12,13 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
 
 -export([
-         new/4,
+         new/3,
          hash/1,
          payer/1,
          payments/1,
@@ -26,6 +26,7 @@
          amounts/1,
          total_amount/1,
          fee/1,
+         calculate_fee/2, calculate_fee/3,
          nonce/1,
          signature/1,
          sign/2,
@@ -45,14 +46,13 @@
 
 -spec new(Payer :: libp2p_crypto:pubkey_bin(),
           Payments :: blockchain_payment_v2:payments(),
-          Nonce :: non_neg_integer(),
-          Fee :: non_neg_integer()) -> txn_payment_v2().
-new(Payer, Payments, Nonce, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_payment_v2().
+new(Payer, Payments, Nonce) ->
     #blockchain_txn_payment_v2_pb{
        payer=Payer,
        payments=Payments,
        nonce=Nonce,
-       fee=Fee,
+       fee=?LEGACY_TXN_FEE,
        signature = <<>>
       }.
 
@@ -99,6 +99,23 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_payment_v2_pb:encode_msg(Txn),
     Txn#blockchain_txn_payment_v2_pb{signature=SigFun(EncodedTxn)}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_payment_v2(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_payment_v2(), blockchain:blockchain(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Chain, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, _Chain, true) ->
+    ?fee(Txn#blockchain_txn_payment_v2_pb{fee=0}).
+
 -spec is_valid(txn_payment_v2(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -122,8 +139,8 @@ absorb(Txn, Chain) ->
     Fee = ?MODULE:fee(Txn),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
-
-    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger) of
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+    case blockchain_ledger_v1:debit_fee(Payer, Fee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error ->
             Error;
         ok ->
@@ -171,9 +188,10 @@ to_json(Txn, _Opts) ->
 %% Internal Functions
 %% ------------------------------------------------------------------
 -spec do_is_valid_checks(Txn :: txn_payment_v2(),
-                         Ledger :: blockchain_ledger_v1:ledger(),
+                         Chain :: blockchain:blockchain(),
                          MaxPayments :: pos_integer()) -> ok | {error, any()}.
-do_is_valid_checks(Txn, Ledger, MaxPayments) ->
+do_is_valid_checks(Txn, Chain, MaxPayments) ->
+    Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
     Signature = ?MODULE:signature(Txn),
     Payments = ?MODULE:payments(Txn),
@@ -204,30 +222,26 @@ do_is_valid_checks(Txn, Ledger, MaxPayments) ->
                                             {error, duplicate_payees};
                                         true ->
                                             TotAmount = ?MODULE:total_amount(Txn),
-                                            Fee = ?MODULE:fee(Txn),
-                                            case blockchain_ledger_v1:transaction_fee(Ledger) of
-                                                {error, _}=Error0 ->
-                                                    Error0;
-                                                {ok, MinerFee} ->
-                                                    AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
-                                                                      {ok, false} ->
-                                                                          %% check that none of the payments have a zero amount
-                                                                          has_non_zero_amounts(Payments) andalso (Fee >= MinerFee);
-                                                                      _ ->
-                                                                          %% if undefined or true, use the old check
-                                                                          (TotAmount >= 0) andalso (Fee >= MinerFee)
-                                                                  end,
-
-                                                    case AmountCheck of
+                                            TxnFee = ?MODULE:fee(Txn),
+                                            AmountCheck = case blockchain:config(?allow_zero_amount, Ledger) of
+                                                              {ok, false} ->
+                                                                  %% check that none of the payments have a zero amount
+                                                                  has_non_zero_amounts(Payments);
+                                                              _ ->
+                                                                  %% if undefined or true, use the old check
+                                                                  (TotAmount >= 0)
+                                                          end,
+                                            case AmountCheck of
+                                                false ->
+                                                    {error, invalid_transaction};
+                                                true ->
+                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                    ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                    case ExpectedTxnFee == TxnFee orelse not AreFeesEnabled of
                                                         false ->
-                                                            {error, invalid_transaction};
+                                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                                         true ->
-                                                            case blockchain_ledger_v1:check_dc_balance(Payer, Fee, Ledger) of
-                                                                {error, _}=Error1 ->
-                                                                    Error1;
-                                                                ok ->
-                                                                    blockchain_ledger_v1:check_balance(Payer, TotAmount, Ledger)
-                                                            end
+                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
                                                     end
                                             end
                                     end;
@@ -269,63 +283,63 @@ new_test() ->
             nonce=1,
             signature = <<>>
            },
-    New = new(<<"payer">>, Payments, 1, 10),
+    New = new(<<"payer">>, Payments, 1),
     ?assertEqual(Tx, New).
 
 payer_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 payments_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(Payments, ?MODULE:payments(Tx)).
 
 payees_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual([<<"x">>, <<"y">>, <<"z">>], ?MODULE:payees(Tx)).
 
 amounts_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual([10, 20, 30], ?MODULE:amounts(Tx)).
 
 total_amount_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(60, total_amount(Tx)).
 
 fee_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(10, fee(Tx)).
 
 nonce_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(1, nonce(Tx)).
 
 signature_test() ->
     Payments = [blockchain_payment_v2:new(<<"x">>, 10),
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
-    Tx = new(<<"payer">>, Payments, 1, 10),
+    Tx = new(<<"payer">>, Payments, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
@@ -333,7 +347,7 @@ sign_test() ->
                 blockchain_payment_v2:new(<<"y">>, 20),
                 blockchain_payment_v2:new(<<"z">>, 30)],
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, Payments, 1, 10),
+    Tx0 = new(<<"payer">>, Payments, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -347,7 +361,7 @@ to_json_test() ->
     Tx = #blockchain_txn_payment_v2_pb{
             payer= <<"payer">>,
             payments=Payments,
-            fee=10,
+            fee=?LEGACY_TXN_FEE,
             nonce=1,
             signature = <<>>
            },

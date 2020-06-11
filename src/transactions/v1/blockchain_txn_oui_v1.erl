@@ -14,7 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_oui_v1_pb.hrl").
 
 -export([
-    new/7, new/8,
+    new/5, new/6,
     hash/1,
     owner/1,
     addresses/1,
@@ -53,10 +53,8 @@
         Owner :: libp2p_crypto:pubkey_bin(),
         Addresses :: [libp2p_crypto:pubkey_bin()],
         Filter :: binary() | undefined,
-        RequestedSubnetSize :: pos_integer() | undefined,
-        StakingFee :: pos_integer(),
-        Fee :: non_neg_integer()) -> txn_oui().
-new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
+        RequestedSubnetSize :: pos_integer() | undefined) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize) ->
     #blockchain_txn_oui_v1_pb{
        oui = OUI,
        owner=Owner,
@@ -64,8 +62,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer= <<>>,
-       staking_fee=StakingFee,
-       fee=Fee,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
     }.
@@ -76,10 +74,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, StakingFee, Fee) ->
         Addresses :: [binary()],
         Filter :: binary() | undefined,
         RequestedSubnetSize :: pos_integer() | undefined,
-        Payer :: libp2p_crypto:pubkey_bin(),
-        StakingFee :: non_neg_integer(),
-        Fee :: non_neg_integer()) -> txn_oui().
-new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) ->
+        Payer :: libp2p_crypto:pubkey_bin()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer) ->
     #blockchain_txn_oui_v1_pb{
        oui=OUI,
        owner=Owner,
@@ -87,8 +83,8 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, StakingFee, Fee) 
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer=Payer,
-       staking_fee=StakingFee,
-       fee=Fee,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
     }.
@@ -249,7 +245,7 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    1;
+    ?LEGACY_TXN_FEE;
 calculate_staking_fee(Txn, _Chain, true) ->
     %% get total price of txn in USD and divide by DC price
     NumAddresses = length(?MODULE:addresses(Txn)),
@@ -399,8 +395,8 @@ missing_payer_signature_new() ->
        addresses = [?KEY1],
        payer= libp2p_crypto:pubkey_to_bin(PubKey),
        payer_signature= <<>>,
-       staking_fee=1,
-       fee=1,
+       staking_fee=?LEGACY_STAKING_FEE,
+       fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>
       }.
 
@@ -410,45 +406,43 @@ new_test() ->
         owner= <<"owner">>,
         addresses = [?KEY1],
         payer = <<>>,
-        staking_fee=2,
-        fee=0,
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE,
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ExpectedTxnFee = calculate_fee(Tx, undefined, true),
-    Tx1 = Tx#blockchain_txn_oui_v1_pb{fee = ExpectedTxnFee},
-    ?assertEqual(Tx1, new(1, <<"owner">>, [?KEY1], <<>>, 0, 2, ExpectedTxnFee)).
+    ?assertEqual(Tx, new(1, <<"owner">>, [?KEY1], <<>>, 0)).
 
 owner_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual([?KEY1], addresses(Tx)).
 
 staking_fee_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
-    ?assertEqual(2, staking_fee(Tx)).
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 fee_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
-    ?assertEqual(3, fee(Tx)).
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 oui_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(1, oui(Tx)).
 
 payer_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 owner_signature_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 payer_signature_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     ?assertEqual(<<>>, payer_signature(Tx)).
 
 missing_payer_signature_test() ->
@@ -457,7 +451,7 @@ missing_payer_signature_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = owner_signature(Tx1),
@@ -466,7 +460,7 @@ sign_test() ->
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx0 = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_payer(Tx0, SigFun),
     Sig1 = payer_signature(Tx1),
@@ -486,7 +480,7 @@ validate_addresses_test() ->
     ok.
 
 to_json_test() ->
-    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>, 2, 3),
+    Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size ])).

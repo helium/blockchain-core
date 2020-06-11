@@ -15,17 +15,17 @@
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
-    update_router_addresses/5,
-    new_xor/5,
-    update_xor/6,
-    request_subnet/5,
+    update_router_addresses/4,
+    new_xor/4,
+    update_xor/5,
+    request_subnet/4,
     hash/1,
     oui/1,
     owner/1,
     action/1,
     fee/1,
     staking_fee/1,
-    calculate_fee/2, calculate_staking_fee/2,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     nonce/1,
     signature/1,
     sign/2,
@@ -51,66 +51,50 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer()) -> txn_routing().
-update_router_addresses(OUI, Owner, Addresses, Fee, Nonce) ->
-    update_router_addresses(OUI, Owner, Addresses, Fee, 0, Nonce).
-
--spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-update_router_addresses(OUI, Owner, Addresses, Fee, StakingFee, Nonce) ->
+-spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer()) -> txn_routing().
+update_router_addresses(OUI, Owner, Addresses, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={update_routers, #update_routers_pb{router_addresses=Addresses}},
-       fee=Fee,
-       staking_fee =StakingFee,
+       fee=?LEGACY_TXN_FEE,
+       staking_fee =?LEGACY_STAKING_FEE,
        nonce=Nonce,
        signature= <<>>
       }.
 
--spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-new_xor(OUI, Owner, Xor, Fee, Nonce) ->
-    new_xor(OUI, Owner, Xor, Fee, 0, Nonce).
-
--spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-new_xor(OUI, Owner, Xor, Fee, StakingFee, Nonce) ->
+-spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_routing().
+new_xor(OUI, Owner, Xor, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={new_xor, Xor},
-       fee=Fee,
-       staking_fee=StakingFee,
+       fee=?LEGACY_TXN_FEE,
+       staking_fee=?LEGACY_STAKING_FEE,
        nonce=Nonce,
        signature= <<>>
       }.
 
--spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-update_xor(OUI, Owner, Index, Xor, Fee, Nonce) ->
-    update_xor(OUI, Owner, Index, Xor, Fee, 0, Nonce).
-
--spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-update_xor(OUI, Owner, Index, Xor, Fee, StakingFee, Nonce) ->
+-spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer()) -> txn_routing().
+update_xor(OUI, Owner, Index, Xor, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={update_xor, #update_xor_pb{index=Index, filter=Xor}},
-       fee=Fee,
-       staking_fee=StakingFee,
+       fee=?LEGACY_TXN_FEE,
+       staking_fee=?LEGACY_STAKING_FEE,
        nonce=Nonce,
        signature= <<>>
       }.
 
--spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-request_subnet(OUI, Owner, SubnetSize, Fee, Nonce) ->
-    request_subnet(OUI, Owner, SubnetSize, Fee, 0, Nonce).
-
--spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
-request_subnet(OUI, Owner, SubnetSize, Fee, StakingFee, Nonce) ->
+-spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer()) -> txn_routing().
+request_subnet(OUI, Owner, SubnetSize, Nonce) ->
     #blockchain_txn_routing_v1_pb{
        oui=OUI,
        owner=Owner,
        update={request_subnet, SubnetSize},
-       fee=Fee,
-       staking_fee=StakingFee,
+       fee=?LEGACY_TXN_FEE,
+       staking_fee=?LEGACY_STAKING_FEE,
        nonce=Nonce,
        signature= <<>>
       }.
@@ -206,7 +190,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_routing(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0}).
 
@@ -223,7 +207,7 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_routing(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_STAKING_FEE;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=Txn, _Chain, true) ->
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) * SubnetSize,
     FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
@@ -539,39 +523,44 @@ new_test() ->
         oui= 0,
         owner= <<"owner">>,
         update = {update_routers, #update_routers_pb{router_addresses=[?KEY1]}},
-        fee=1,
+        fee=?LEGACY_TXN_FEE,
+        staking_fee=?LEGACY_STAKING_FEE,
         nonce = 0,
         signature= <<>>
     },
-    ?assertEqual(Tx, update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0)).
+    ?assertEqual(Tx, update_router_addresses(0, <<"owner">>, [?KEY1], 1)).
 
 oui_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
     ?assertEqual(0, oui(Tx)).
 
 fee_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
-    ?assertEqual(1, fee(Tx)).
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
+
+staking_fee_test() ->
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 owner_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 addresses_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2], 1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2], 1),
     ?assertEqual({update_routers, [?KEY1, ?KEY2]}, action(Tx)).
 
 nonce_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
     ?assertEqual(0, nonce(Tx)).
 
 signature_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = update_router_addresses(0, <<"owner">>, [?KEY1], 1, 0),
+    Tx0 = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -579,7 +568,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 ecode_decode_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2],  1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2],  1),
     ?assertEqual(Tx, blockchain_txn_routing_v1_pb:decode_msg(blockchain_txn_routing_v1_pb:encode_msg(Tx), blockchain_txn_routing_v1_pb)).
 
 validate_addresses_test() ->
@@ -595,7 +584,7 @@ validate_addresses_test() ->
     ok.
 
 to_json_test() ->
-    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2],  1, 0),
+    Tx = update_router_addresses(0, <<"owner">>, [?KEY1, ?KEY2],  1),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, oui, owner, fee, action, nonce])).

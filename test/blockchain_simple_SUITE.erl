@@ -176,7 +176,7 @@ basic_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -345,7 +345,7 @@ htlc_payee_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 0, 1),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
@@ -353,7 +353,7 @@ htlc_payee_redeem_test(Config) ->
     ?assertEqual(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateTx, Chain)),
 
     % send some money to the payee so they have enough to pay the fee for redeeming
-    Tx = blockchain_txn_payment_v1:new(Payer, Payee, 100, 0, 2),
+    Tx = blockchain_txn_payment_v1:new(Payer, Payee, 100, 2),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
@@ -379,7 +379,7 @@ htlc_payee_redeem_test(Config) ->
 
     % Try and redeem
     RedeemSigFun = libp2p_crypto:mk_sig_fun(PayeePrivKey),
-    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payee, HTLCAddress, <<"sharkfed">>, 0),
+    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payee, HTLCAddress, <<"sharkfed">>),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, RedeemSigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
@@ -416,7 +416,7 @@ htlc_payer_redeem_test(Config) ->
     HTLCAddress = crypto:strong_rand_bytes(33),
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 0, 1),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payer, HTLCAddress, Hashlock, 3, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
@@ -458,7 +458,7 @@ htlc_payer_redeem_test(Config) ->
     ?assertEqual({ok, 4}, blockchain_ledger_v1:current_height(blockchain:ledger(Chain))),
 
     % Try and redeem
-    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>, 0),
+    RedeemTx = blockchain_txn_redeem_htlc_v1:new(Payer, HTLCAddress, <<"sharkfed">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedRedeemTx = blockchain_txn_redeem_htlc_v1:sign(RedeemTx, SigFun),
     {ok, Block4} = test_utils:create_block(ConsensusMembers, [SignedRedeemTx]),
@@ -528,7 +528,7 @@ poc_request_test(Config) ->
 
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
       {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
@@ -544,7 +544,7 @@ poc_request_test(Config) ->
     ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
@@ -658,7 +658,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     %% Create a good payment transaction as well
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
@@ -732,19 +732,19 @@ export_test(Config) ->
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 0),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1, 1, 0),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
 
     %% adding the gateway and asserting a location depend on each other, but they should be able to appear in the same block
-    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, Fee, 2, blockchain_swarm:pubkey_bin()),
-    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
-    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, Fee, 1, blockchain_swarm:pubkey_bin()),
+    PaymentTxn1 = test_utils:create_payment_transaction(Payer1, PayerPrivKey1, Amount, 2, blockchain_swarm:pubkey_bin()),
+    PaymentTxn2 = test_utils:create_payment_transaction(Payer2, PayerPrivKey2, Amount, 1, blockchain_swarm:pubkey_bin()),
+    PaymentTxn3 = test_utils:create_payment_transaction(Payer3, PayerPrivKey3, Amount, 1, blockchain_swarm:pubkey_bin()),
     Txns0 = [SignedAssertLocationTx, PaymentTxn2, SignedGatewayAddGatewayTx, PaymentTxn1, PaymentTxn3],
     Txns1 = lists:sort(fun blockchain_txn:sort/2, Txns0),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, Txns1),
@@ -841,7 +841,7 @@ delayed_ledger_test(Config) ->
 
     lists:foreach(
         fun(X) ->
-            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 0, X),
+            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, X),
             SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
             {ok, B} = test_utils:create_block(ConsensusMembers, [SignedTx]),
             _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm())
@@ -919,7 +919,7 @@ fees_since_test(Config) ->
     % Add 100 txns with 1 fee each
     lists:foreach(
         fun(X) ->
-            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, 1, X),
+            Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, X),
             SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
             {ok, B} = test_utils:create_block(ConsensusMembers, [SignedTx]),
             _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm())
@@ -944,7 +944,7 @@ security_token_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_security_exchange_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_security_exchange_v1:sign(Tx, SigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -982,7 +982,7 @@ routing_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -1009,13 +1009,13 @@ routing_test(Config) ->
                                                 <<0:25/integer-unsigned-big, (blockchain_ledger_routing_v1:subnet_size_to_mask(8)):23/integer-unsigned-big>>, 1),
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
-    OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, 2),
+    OUITxn3 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 2),
     SignedOUITxn3 = blockchain_txn_routing_v1:sign(OUITxn3, SigFun),
     {Filter2, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter2, 0, 3),
+    OUITxn4 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter2, 3),
     SignedOUITxn4 = blockchain_txn_routing_v1:sign(OUITxn4, SigFun),
     {Filter2a, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4a = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2a, 0, 4),
+    OUITxn4a = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2a, 4),
     SignedOUITxn4a = blockchain_txn_routing_v1:sign(OUITxn4a, SigFun),
 
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedOUITxn3, SignedOUITxn4, SignedOUITxn4a]),
@@ -1062,24 +1062,24 @@ routing_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn9]),
 
     %% test adding an invalid xor
-    OUITxn10 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter3, 0, 5),
+    OUITxn10 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter3, 5),
     SignedOUITxn10 = blockchain_txn_routing_v1:sign(OUITxn10, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn10]),
-    OUITxn11 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter4, 0, 5),
+    OUITxn11 = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter4, 5),
     SignedOUITxn11 = blockchain_txn_routing_v1:sign(OUITxn11, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn11]),
 
     %% fill up the xor list for this node
     {Filter2b, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4b = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2b, 0, 5),
+    OUITxn4b = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2b, 5),
     SignedOUITxn4b = blockchain_txn_routing_v1:sign(OUITxn4b, SigFun),
 
     {Filter2c, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4c = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2c, 0, 6),
+    OUITxn4c = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2c, 6),
     SignedOUITxn4c = blockchain_txn_routing_v1:sign(OUITxn4c, SigFun),
 
     {Filter2d, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4d = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2d, 0, 7),
+    OUITxn4d = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2d, 7),
     SignedOUITxn4d = blockchain_txn_routing_v1:sign(OUITxn4d, SigFun),
 
     {ok, Block3} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4b, SignedOUITxn4c, SignedOUITxn4d]),
@@ -1097,13 +1097,13 @@ routing_test(Config) ->
 
     %% no more filters can be added
     {Filter2e, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn4e = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2e, 0, 8),
+    OUITxn4e = blockchain_txn_routing_v1:new_xor(OUI1, Payer, Filter2e, 8),
     SignedOUITxn4e = blockchain_txn_routing_v1:sign(OUITxn4e, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4e]),
 
     OUI2 = 2,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
-    OUITxn01 = blockchain_txn_oui_v1:new(OUI2, Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn01 = blockchain_txn_oui_v1:new(OUI2, Payer, Addresses0, Filter, 8),
     SignedOUITxn01 = blockchain_txn_oui_v1:sign(OUITxn01, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI2, Ledger)),
@@ -1190,7 +1190,7 @@ block_save_failed_test(Config) ->
      % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -1229,7 +1229,7 @@ absorb_failed_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -1283,7 +1283,7 @@ missing_last_block_test(Config) ->
     % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -1710,7 +1710,7 @@ token_burn_test(Config) ->
 
     % Step 1: Simple payment txn with no fees
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
-    Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx0 = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SignedTx0 = blockchain_txn_payment_v1:sign(Tx0, SigFun),
     {ok, Block2} = test_utils:create_block(ConsensusMembers, [SignedTx0]),
     _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
@@ -1773,8 +1773,7 @@ token_burn_test(Config) ->
     ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
     % Step 5: Try payment txn with fee this time
-    Fee = 10,
-    Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, Fee, 3),
+    Tx1 = blockchain_txn_payment_v1:new(Payer, Recipient, 500, 3),
     SignedTx1 = blockchain_txn_payment_v1:sign(Tx1, SigFun),
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedTx1]),
     _ = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
@@ -1788,6 +1787,7 @@ token_burn_test(Config) ->
     {ok, NewEntry4} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500 - 10 - 500, blockchain_ledger_entry_v1:balance(NewEntry4)),
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
+    Fee = 0, %% default fee will be zero
     ?assertEqual((10*Rate)-Fee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
     ok.
@@ -1850,7 +1850,7 @@ payer_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses0, Filter, 8, Payer, 1, 10),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses0, Filter, 8, Payer),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, OwnerSigFun),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign_payer(SignedOUITxn0, PayerSigFun),
 
@@ -1859,12 +1859,12 @@ payer_test(Config) ->
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer, 1, 10),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, Payer),
     SignedAddGatewayTx0 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedAddGatewayTx1 = blockchain_txn_add_gateway_v1:sign_request(SignedAddGatewayTx0, GatewaySigFun),
     SignedAddGatewayTx2 = blockchain_txn_add_gateway_v1:sign_payer(SignedAddGatewayTx1, PayerSigFun),
 
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1, 1, 10),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Payer, ?TEST_LOCATION, 1),
     SignedAssertLocationTx0 = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     SignedAssertLocationTx1 = blockchain_txn_assert_location_v1:sign(SignedAssertLocationTx0, OwnerSigFun),
     SignedAssertLocationTx2 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx1, PayerSigFun),
@@ -2052,7 +2052,7 @@ zero_payment_v1_test(Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Amount = 0,
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
@@ -2071,7 +2071,7 @@ negative_payment_v1_test(Config) ->
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Amount = -100,
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
@@ -2095,7 +2095,7 @@ zero_amt_htlc_create_test(Config) ->
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     Amount = 0,
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 0, 1),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
@@ -2118,7 +2118,7 @@ negative_amt_htlc_create_test(Config) ->
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     Amount = -100,
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 0, 1),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
@@ -2166,13 +2166,13 @@ update_gateway_oui_test(Config) ->
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
-    AddGatewayTxn = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
+    AddGatewayTxn = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTxn = blockchain_txn_add_gateway_v1:sign(AddGatewayTxn, OwnerSigFun),
     SignedGatewayAddGatewayTxn = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTxn, GatewaySigFun),
     OUI1 = 1,
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn = blockchain_txn_oui_v1:new(OUI1, Owner, Addresses, Filter, 8),
     SignedOUITxn = blockchain_txn_oui_v1:sign(OUITxn, OwnerSigFun),
     {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTxn, SignedOUITxn]),
     _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
@@ -2185,7 +2185,7 @@ update_gateway_oui_test(Config) ->
 
     % Step 4: Updating a Gateway's OUI
 
-    UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(Gateway, OUI1, 1, 1),
+    UpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:new(Gateway, OUI1, 1),
     SignedUpdateGatewayOUITxn = blockchain_txn_update_gateway_oui_v1:oui_owner_sign(blockchain_txn_update_gateway_oui_v1:gateway_owner_sign(UpdateGatewayOUITxn, OwnerSigFun), OwnerSigFun),
     {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedUpdateGatewayOUITxn]),
     _ = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
@@ -2234,7 +2234,7 @@ replay_oui_test(Config) ->
     %% construct oui txn
     Addresses = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn1 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn1 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8),
     SignedOUITxn1 = blockchain_txn_oui_v1:sign(OUITxn1, OwnerSigFun),
 
     %% mine the oui txn
@@ -2252,7 +2252,7 @@ replay_oui_test(Config) ->
     ok = test_utils:wait_until(fun() -> {ok, 29} == blockchain:height(Chain) end),
 
     %% construct second oui txn
-    OUITxn2 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn2 = blockchain_txn_oui_v1:new(0, Owner, Addresses, Filter, 8),
     SignedOUITxn2 = blockchain_txn_oui_v1:sign(OUITxn2, OwnerSigFun),
 
     %% mine second oui txn
@@ -2272,7 +2272,7 @@ replay_oui_test(Config) ->
     ?assertEqual({ok, 2}, blockchain_ledger_v1:get_oui_counter(blockchain:ledger(Chain))),
 
     %% construct third oui txn, current oui counter is 2
-    OUITxn3 = blockchain_txn_oui_v1:new(2, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn3 = blockchain_txn_oui_v1:new(2, Owner, Addresses, Filter, 8),
     SignedOUITxn3 = blockchain_txn_oui_v1:sign(OUITxn3, OwnerSigFun),
 
     %% mine third oui txn
@@ -2301,14 +2301,14 @@ replay_oui_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
 
     %% construct fourth and fifth oui txn, current oui counter is 3
-    OUITxn4 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn4 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8),
     SignedOUITxn4 = blockchain_txn_oui_v1:sign(OUITxn4, OwnerSigFun),
 
-    OUITxn5 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn5 = blockchain_txn_oui_v1:new(3, Owner, Addresses, Filter, 8),
     SignedOUITxn5 = blockchain_txn_oui_v1:sign(OUITxn5, OwnerSigFun),
 
     %% try a txn with a future oui
-    OUITxn6 = blockchain_txn_oui_v1:new(4, Owner, Addresses, Filter, 8, 1, 1),
+    OUITxn6 = blockchain_txn_oui_v1:new(4, Owner, Addresses, Filter, 8),
     SignedOUITxn6 = blockchain_txn_oui_v1:sign(OUITxn6, OwnerSigFun),
 
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6]),
@@ -2344,13 +2344,13 @@ create_gateway() ->
     {Gateway, GatewaySigFun}.
 
 fake_add_gateway(Owner, OwnerSigFun, Gateway, GatewaySigFun) ->
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway, 1, 1),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun).
 
 fake_assert_location(Owner, OwnerSigFun, Gateway, GatewaySigFun, Loc) ->
     % Assert the Gateways location
-    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Loc, 1, 1, 1),
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, Loc, 1),
     PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
     blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun).
 

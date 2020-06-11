@@ -15,7 +15,7 @@
 -include("blockchain_utils.hrl").
 
   -export([
-    new/3, new/4, new/5,
+    new/3, new/4,
     hash/1,
     payer/1,
     payee/1,
@@ -40,20 +40,23 @@
 
 -spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
 new(Payer, Amount, Nonce) ->
-    new(Payer, Payer, Amount, Nonce, 0).
+    #blockchain_txn_token_burn_v1_pb{
+        payer=Payer,
+        payee=Payer,
+        amount=Amount,
+        nonce=Nonce,
+        fee=?LEGACY_TXN_FEE,
+        signature = <<>>
+    }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
 new(Payer, Payee, Amount, Nonce) ->
-    new(Payer, Payee, Amount, Nonce, 0).
-
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), non_neg_integer()) -> txn_token_burn().
-new(Payer, Payee, Amount, Nonce, Fee) ->
     #blockchain_txn_token_burn_v1_pb{
         payer=Payer,
         payee=Payee,
         amount=Amount,
         nonce=Nonce,
-        fee=Fee,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
 
@@ -113,7 +116,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_token_burn(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0}).
 
@@ -209,7 +212,7 @@ to_json(Txn, _Opts) ->
         payee= <<"payee">>,
         amount=666,
         nonce=1,
-        fee=0,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     },
     ?assertEqual(Tx1, new(<<"payer">>, <<"payee">>, 666, 1)).
@@ -229,6 +232,10 @@ amount_test() ->
 nonce_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(1, nonce(Tx)).
+
+fee_test() ->
+    Tx = new(<<"payer">>, 666, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 signature_test() ->
     Tx = new(<<"payer">>, 666, 1),

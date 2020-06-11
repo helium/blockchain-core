@@ -15,7 +15,7 @@
 -include("blockchain_utils.hrl").
 
 -export([
-    new/6, new/7,
+    new/4, new/5,
     hash/1,
     gateway/1,
     owner/1,
@@ -36,7 +36,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_staking_fee/2,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     print/1,
     to_json/2
 ]).
@@ -56,10 +56,8 @@
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer(),
-          StakingFee :: pos_integer(),
-          Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(Gateway, Owner, Location, Nonce) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -69,18 +67,16 @@ new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        staking_fee=StakingFee,
-        fee=Fee
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
     }.
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Payer :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer(),
-          StakingFee :: pos_integer(),
-          Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(Gateway, Owner, Payer, Location, Nonce) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -90,8 +86,8 @@ new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        staking_fee=StakingFee,
-        fee=Fee
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
     }.
 
 
@@ -202,7 +198,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_assert_location(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0}).
 
@@ -219,7 +215,7 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_assert_location(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    1;
+    ?LEGACY_STAKING_FEE;
 calculate_staking_fee(Txn, _Chain, true) ->
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
     FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
@@ -504,8 +500,8 @@ new() ->
        payer_signature= <<>>,
        location= h3:to_string(?TEST_LOCATION),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 invalid_new() ->
@@ -516,8 +512,8 @@ invalid_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 missing_payer_signature_new() ->
@@ -531,13 +527,13 @@ missing_payer_signature_new() ->
        owner_signature= << >>,
        location= h3:to_string(599685771850416127),
        nonce = 1,
-       staking_fee = 1,
-       fee = 1
+       staking_fee = ?LEGACY_STAKING_FEE,
+       fee = ?LEGACY_TXN_FEE
       }.
 
 new_test() ->
     Tx = new(),
-    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1, 1, 1)).
+    ?assertEqual(Tx, new(<<"gateway_address">>, <<"owner_address">>, ?TEST_LOCATION, 1)).
 
 location_test() ->
     Tx = new(),
@@ -549,11 +545,11 @@ nonce_test() ->
 
 staking_fee_test() ->
     Tx = new(),
-    ?assertEqual(1, staking_fee(Tx)).
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 fee_test() ->
     Tx = new(),
-    ?assertEqual(1, fee(Tx)).
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 owner_test() ->
     Tx = new(),

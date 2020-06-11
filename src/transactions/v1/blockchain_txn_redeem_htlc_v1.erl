@@ -14,13 +14,13 @@
 -include_lib("helium_proto/include/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/3,
     hash/1,
     payee/1,
     address/1,
     preimage/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -40,13 +40,13 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_redeem_htlc().
-new(Payee, Address, PreImage, Fee) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary()) -> txn_redeem_htlc().
+new(Payee, Address, PreImage) ->
     #blockchain_txn_redeem_htlc_v1_pb{
        payee=Payee,
        address=Address,
        preimage=PreImage,
-       fee=Fee,
+       fee=?LEGACY_TXN_FEE,
        signature= <<>>
       }.
 
@@ -125,7 +125,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_redeem_htlc(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_redeem_htlc_v1_pb{fee=0}).
 
@@ -261,29 +261,29 @@ new_test() ->
         payee= <<"payee">>,
         address= <<"address">>,
         preimage= <<"yolo">>,
-        fee= 1,
+        fee= ?LEGACY_TXN_FEE,
         signature= <<>>
     },
-    ?assertEqual(Tx, new(<<"payee">>, <<"address">>, <<"yolo">>, 1)).
+    ?assertEqual(Tx, new(<<"payee">>, <<"address">>, <<"yolo">>)).
 
 payee_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
 address_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"address">>, address(Tx)).
 
 preimage_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     ?assertEqual(<<"yolo">>, preimage(Tx)).
 
 fee_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
-    ?assertEqual(1, fee(Tx)).
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 to_json_test() ->
-    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>, 1),
+    Tx = new(<<"payee">>, <<"address">>, <<"yolo">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, address, preimage, fee])).

@@ -14,12 +14,12 @@
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
-    new/2, new/3,
+    new/2,
     hash/1,
     state_channel/1,
     closer/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -37,14 +37,10 @@
 
 -spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin()) -> txn_state_channel_close().
 new(SC, Closer) ->
-    new(SC, Closer, 0).
-
--spec new(blockchain_state_channel_v1:state_channel(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> txn_state_channel_close().
-new(SC, Closer, Fee) ->
     #blockchain_txn_state_channel_close_v1_pb{
        state_channel=SC,
        closer=Closer,
-       fee=Fee
+       fee=?LEGACY_TXN_FEE
     }.
 
 -spec hash(txn_state_channel_close()) -> blockchain_txn:hash().
@@ -87,7 +83,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_state_channel_close(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_state_channel_close_v1_pb{fee=0}).
 
@@ -196,6 +192,11 @@ closer_test() ->
     SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(<<"closer">>, closer(Tx)).
+
+fee_test() ->
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    Tx = new(SC, <<"closer">>),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 signature_test() ->
     SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),

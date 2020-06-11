@@ -15,13 +15,13 @@
 -include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/4,
     hash/1,
     payer/1,
     payee/1,
     amount/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     nonce/1,
     signature/1,
     sign/2,
@@ -43,13 +43,13 @@
 %% @end
 %%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
-          non_neg_integer(), non_neg_integer()) -> txn_payment().
-new(Payer, Recipient, Amount, Fee, Nonce) ->
+          non_neg_integer()) -> txn_payment().
+new(Payer, Recipient, Amount, Nonce) ->
     #blockchain_txn_payment_v1_pb{
         payer=Payer,
         payee=Recipient,
         amount=Amount,
-        fee=Fee,
+        fee=?LEGACY_TXN_FEE,
         nonce=Nonce,
         signature = <<>>
     }.
@@ -136,7 +136,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_payment(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_payment_v1_pb{fee=0}).
 
@@ -255,40 +255,40 @@ new_test() ->
         payer= <<"payer">>,
         payee= <<"payee">>,
         amount=666,
-        fee=10,
+        fee=?LEGACY_TXN_FEE,
         nonce=1,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 10, 1)).
+    ?assertEqual(Tx, new(<<"payer">>, <<"payee">>, 666, 1)).
 
 payer_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
 payee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<"payee">>, payee(Tx)).
 
 
 amount_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(666, amount(Tx)).
 
 fee_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
-    ?assertEqual(10, fee(Tx)).
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 nonce_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(1, nonce(Tx)).
 
 signature_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx0 = new(<<"payer">>, <<"payee">>, 666, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -296,7 +296,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    Tx = new(<<"payer">>, <<"payee">>, 666, 10, 1),
+    Tx = new(<<"payer">>, <<"payee">>, 666, 1),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).

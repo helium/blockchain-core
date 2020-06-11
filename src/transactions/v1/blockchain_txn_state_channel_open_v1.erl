@@ -15,7 +15,7 @@
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/5, new/6,
+    new/5,
     hash/1,
     id/1,
     owner/1,
@@ -23,7 +23,7 @@
     nonce/1,
     expire_within/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -45,22 +45,13 @@
           OUI :: non_neg_integer(),
           Nonce :: non_neg_integer()) -> txn_state_channel_open().
 new(ID, Owner, ExpireWithin, OUI, Nonce) ->
-    new(ID, Owner, ExpireWithin, OUI, Nonce, 0).
-
--spec new(ID :: binary(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          ExpireWithin :: pos_integer(),
-          OUI :: non_neg_integer(),
-          Nonce :: non_neg_integer(),
-          Fee :: non_neg_integer()  ) -> txn_state_channel_open().
-new(ID, Owner, ExpireWithin, OUI, Nonce, Fee) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         expire_within=ExpireWithin,
         oui=OUI,
         nonce=Nonce,
-        fee=Fee,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
 
@@ -117,7 +108,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_state_channel_open(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0}).
 
@@ -244,6 +235,7 @@ new_test() ->
         expire_within=10,
         oui=1,
         nonce=1,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     },
     ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1)).
@@ -263,6 +255,10 @@ signature_test() ->
 oui_test() ->
     Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
     ?assertEqual(1, oui(Tx)).
+
+fee_test() ->
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),

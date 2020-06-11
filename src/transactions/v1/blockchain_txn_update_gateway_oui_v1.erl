@@ -13,13 +13,13 @@
 -include_lib("helium_proto/include/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
-    new/4,
+    new/3,
     hash/1,
     gateway/1,
     oui/1,
     nonce/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     gateway_owner_signature/1,
     oui_owner_signature/1,
     sign/2,
@@ -44,14 +44,13 @@
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           OUI :: pos_integer(),
-          Nonce :: non_neg_integer(),
-          Fee :: non_neg_integer()) -> txn_update_gateway_oui().
-new(Gateway, OUI, Nonce, Fee) ->
+          Nonce :: non_neg_integer()) -> txn_update_gateway_oui().
+new(Gateway, OUI, Nonce) ->
     #blockchain_txn_update_gateway_oui_v1_pb{
         gateway=Gateway,
         oui=OUI,
         nonce=Nonce,
-        fee=Fee,
+        fee=?LEGACY_TXN_FEE,
         gateway_owner_signature= <<>>,
         oui_owner_signature= <<>>
     }.
@@ -134,7 +133,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_update_gateway_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=0}).
 
@@ -253,41 +252,41 @@ new_test() ->
         gateway= <<"gateway">>,
         oui=1,
         nonce=0,
-        fee=12,
+        fee=?LEGACY_TXN_FEE,
         gateway_owner_signature= <<>>,
         oui_owner_signature= <<>>
     },
-    ?assertEqual(Update, new(<<"gateway">>, 1, 0, 12)).
+    ?assertEqual(Update, new(<<"gateway">>, 1, 0)).
 
 gateway_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
+    Update = new(<<"gateway">>, 1, 0),
     ?assertEqual(<<"gateway">>, gateway(Update)).
 
 oui_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
+    Update = new(<<"gateway">>, 1, 0),
     ?assertEqual(1, oui(Update)).
 
 nonce_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
+    Update = new(<<"gateway">>, 1, 0),
     ?assertEqual(0, nonce(Update)).
 
 fee_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
-    ?assertEqual(12, fee(Update)).
+    Update = new(<<"gateway">>, 1, 0),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Update)).
 
 gateway_owner_signature_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
+    Update = new(<<"gateway">>, 1, 0),
     ?assertEqual(<<>>, gateway_owner_signature(Update)).
 
 oui_owner_signature_test() ->
-    Update = new(<<"gateway">>, 1, 0, 12),
+    Update = new(<<"gateway">>, 1, 0),
     ?assertEqual(<<>>, oui_owner_signature(Update)).
 
 is_valid_gateway_owner_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Update0 = new(<<"gateway">>, 1, 0, 12),
+    Update0 = new(<<"gateway">>, 1, 0),
     Update1 = gateway_owner_sign(Update0, SigFun),
     ?assert(is_valid_gateway_owner(PubKeyBin, Update1)).
 
@@ -295,12 +294,12 @@ is_valid_oui_owner_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Update0 = new(<<"gateway">>, 1, 0, 12),
+    Update0 = new(<<"gateway">>, 1, 0),
     Update1 = oui_owner_sign(Update0, SigFun),
     ?assert(is_valid_oui_owner(PubKeyBin, Update1)).
 
 to_json_test() ->
-    Tx = new(<<"gateway">>, 1, 0, 12),
+    Tx = new(<<"gateway">>, 1, 0),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, oui, fee, nonce])).

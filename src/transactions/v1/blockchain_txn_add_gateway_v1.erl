@@ -14,7 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
-    new/4, new/5,
+    new/2, new/3,
     hash/1,
     owner/1,
     gateway/1,
@@ -33,7 +33,7 @@
     is_valid_staking_key/2,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_staking_fee/2,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     print/1,
     to_json/2
 ]).
@@ -49,25 +49,23 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, StakingFee, Fee) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
+new(OwnerAddress, GatewayAddress) ->
     #blockchain_txn_add_gateway_v1_pb{
         owner=OwnerAddress,
         gateway=GatewayAddress,
-        staking_fee=StakingFee,
-        fee=Fee
+        fee=?LEGACY_TXN_FEE,
+        staking_fee=?LEGACY_STAKING_FEE
     }.
 
--spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
-          non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, Payer, StakingFee, Fee) ->
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
+new(OwnerAddress, GatewayAddress, Payer) ->
     #blockchain_txn_add_gateway_v1_pb{
         owner=OwnerAddress,
         gateway=GatewayAddress,
         payer=Payer,
-        staking_fee=StakingFee,
-        fee=Fee
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
     }.
 
 
@@ -158,7 +156,7 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0}).
 
@@ -176,7 +174,7 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    1;
+    ?LEGACY_STAKING_FEE;
 calculate_staking_fee(Txn, _Chain, true) ->
     %%TODO - do staking keys need considered here ? I think not but lets confirm
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
@@ -395,8 +393,8 @@ valid_payer_new() ->
         payer= <<>>,
         payer_signature= <<>>,
         gateway_signature = <<>>,
-        staking_fee = 1,
-        fee = 1
+        staking_fee = ?LEGACY_STAKING_FEE,
+        fee = ?LEGACY_TXN_FEE
       }.
 
 new_test() ->
@@ -407,41 +405,41 @@ new_test() ->
         gateway_signature = <<>>,
         payer = <<>>,
         payer_signature = <<>>,
-        staking_fee = 1,
-        fee = 1
+        staking_fee = ?LEGACY_STAKING_FEE,
+        fee = ?LEGACY_TXN_FEE
     },
-    ?assertEqual(Tx, new(<<"owner_address">>, <<"gateway_address">>, 1, 1)).
+    ?assertEqual(Tx, new(<<"owner_address">>, <<"gateway_address">>)).
 
 owner_address_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
     ?assertEqual(<<"owner_address">>, owner(Tx)).
 
 gateway_address_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
     ?assertEqual(<<"gateway_address">>, gateway(Tx)).
 
-staking_fee_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 2, 1),
-    ?assertEqual(2, staking_fee(Tx)).
+default_staking_fee_test() ->
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    ?assertEqual(?LEGACY_STAKING_FEE, staking_fee(Tx)).
 
 payer_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>, 2, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>),
     ?assertEqual(<<"payer">>, payer(Tx)).
 
-fee_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 2, 1),
-    ?assertEqual(1, fee(Tx)).
+default_fee_test() ->
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 owner_signature_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
     ?assertEqual(<<>>, owner_signature(Tx)).
 
 gateway_signature_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
     ?assertEqual(<<>>, gateway_signature(Tx)).
 
 payer_signature_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>),
     ?assertEqual(<<>>, payer_signature(Tx)).
 
 payer_signature_missing_test() ->
@@ -454,7 +452,7 @@ valid_new_payer_test() ->
 
 sign_request_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Sig1 = gateway_signature(Tx1),
@@ -463,7 +461,7 @@ sign_request_test() ->
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx0 = new(<<"owner_address">>, <<"gateway_address">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Tx2 = sign(Tx1, SigFun),
@@ -473,7 +471,7 @@ sign_test() ->
 
 sign_payer_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>, 1, 1),
+    Tx0 = new(<<"owner_address">>, <<"gateway_address">>, <<"payer">>),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign_request(Tx0, SigFun),
     Tx2 = sign_payer(Tx1, SigFun),
@@ -483,7 +481,7 @@ sign_payer_test() ->
     ?assert(libp2p_crypto:verify(blockchain_txn_add_gateway_v1_pb:encode_msg(BaseTx1), Sig2, PubKey)).
 
 to_json_test() ->
-    Tx = new(<<"owner_address">>, <<"gateway_address">>, 1, 1),
+    Tx = new(<<"owner_address">>, <<"gateway_address">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, gateway, owner, payer, fee, staking_fee])).

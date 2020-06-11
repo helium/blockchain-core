@@ -13,7 +13,7 @@
     tmp_dir/0, tmp_dir/1,
     cleanup_tmp_dir/1,
     nonl/1,
-    create_payment_transaction/6,
+    create_payment_transaction/5,
     atomic_save/2
 ]).
 
@@ -206,8 +206,8 @@ nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
 nonl([]) -> [].
 
-create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) ->
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
+create_payment_transaction(Payer, PayerPrivKey, Amount, Nonce, Recipient) ->
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
 
