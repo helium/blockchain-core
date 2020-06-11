@@ -30,10 +30,6 @@
          tof_hist_stack/1,
          snr_hist_stack/1,
 
-         update_rssi_hist_stack/3,
-         update_tof_hist_stack/3,
-         update_snr_hist_stack/3,
-
          serialize/1, deserialize/1
         ]).
 
@@ -136,66 +132,6 @@ tof_hist_stack(Witness) ->
 -spec snr_hist_stack(Witness :: witness()) -> blockchain_ledger_hist:hist_stack().
 snr_hist_stack(Witness) ->
     Witness#witness_v2.snr_hist_stack.
-
--spec update_rssi_hist_stack(Hist :: blockchain_ledger_hist:hist(),
-                             Witness :: witness(),
-                             Ledger :: blockchain_ledger_v1:ledger()) -> witness().
-update_rssi_hist_stack(Hist, #witness_v2{rssi_hist_stack=Stack}=Witness, Ledger) ->
-    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
-        {ok, HistLimit} when is_integer(HistLimit) ->
-            case length(Stack) < HistLimit of
-                false ->
-                    %% Insert at head of the stack directly
-                    Witness#witness_v2{rssi_hist_stack=[Hist | Stack]};
-                true ->
-                    %% Remove from tail, insert at head
-                    [_Popped | Rest] = lists:reverse(Stack),
-                    NewStack = [Hist | lists:reverse(Rest)],
-                    Witness#witness_v2{rssi_hist_stack=NewStack}
-            end;
-        _ ->
-            Witness
-    end.
-
--spec update_tof_hist_stack(Hist :: blockchain_ledger_hist:hist(),
-                            Witness :: witness(),
-                            Ledger :: blockchain_ledger_v1:ledger()) -> witness().
-update_tof_hist_stack(Hist, #witness_v2{tof_hist_stack=Stack}=Witness, Ledger) ->
-    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
-        {ok, HistLimit} when is_integer(HistLimit) ->
-            case length(Stack) < HistLimit of
-                false ->
-                    %% Insert at head of the stack directly
-                    Witness#witness_v2{tof_hist_stack=[Hist | Stack]};
-                true ->
-                    %% Remove from tail, insert at head
-                    [_Popped | Rest] = lists:reverse(Stack),
-                    NewStack = [Hist | lists:reverse(Rest)],
-                    Witness#witness_v2{tof_hist_stack=NewStack}
-            end;
-        _ ->
-            Witness
-    end.
-
--spec update_snr_hist_stack(Hist :: blockchain_ledger_hist:hist(),
-                            Witness :: witness(),
-                            Ledger :: blockchain_ledger_v1:ledger()) -> witness().
-update_snr_hist_stack(Hist, #witness_v2{snr_hist_stack=Stack}=Witness, Ledger) ->
-    case blockchain_ledger_v1:config(?hist_limit, Ledger) of
-        {ok, HistLimit} when is_integer(HistLimit) ->
-            case length(Stack) < HistLimit of
-                false ->
-                    %% Insert at head of the stack directly
-                    Witness#witness_v2{snr_hist_stack=[Hist | Stack]};
-                true ->
-                    %% Remove from tail, insert at head
-                    [_Popped | Rest] = lists:reverse(Stack),
-                    NewStack = [Hist | lists:reverse(Rest)],
-                    Witness#witness_v2{snr_hist_stack=NewStack}
-            end;
-        _ ->
-            Witness
-    end.
 
 -spec serialize(Witness :: witness()) -> binary().
 serialize(Witness) ->
