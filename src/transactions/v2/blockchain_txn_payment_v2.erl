@@ -123,7 +123,7 @@ is_valid(Txn, Chain) ->
         {ok, M} when is_integer(M) ->
             case blockchain_txn:validate_fields([{{payee, P}, {address, libp2p}} || P <- ?MODULE:payees(Txn)]) of
                 ok ->
-                    do_is_valid_checks(Txn, Ledger, M);
+                    do_is_valid_checks(Txn, Chain, M);
                 Error ->
                     Error
             end;
