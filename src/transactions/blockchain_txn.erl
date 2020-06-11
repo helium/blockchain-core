@@ -393,7 +393,6 @@ absorb_block(Block, Rescue, Chain) ->
     Height = blockchain_block:height(Block),
     case absorb_txns(Transactions, Rescue, Chain) of
         ok ->
-            ok = blockchain_ledger_v1:update_transaction_fee(Ledger),
             ok = blockchain_ledger_v1:increment_height(Block, Ledger),
             ok = blockchain_ledger_v1:process_delayed_txns(Height, Ledger, Chain),
             {ok, Chain};

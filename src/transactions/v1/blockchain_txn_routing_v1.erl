@@ -416,7 +416,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                 false ->
                     {error, invalid_addresses};
                 true ->
-                    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                     TxnFee = ?MODULE:fee(Txn),
                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                     Owner = ?MODULE:owner(Txn),
@@ -435,7 +435,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     %% the contain check does some structural checking of the filter
                     case catch xor16:contain({Xor, fun xxhash:hash64/1}, <<"anything">>) of
                         B when is_boolean(B) ->
-                            {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                            AreFeesEnabled =blockchain_ledger_v1:txn_fees_active(Ledger),
                             TxnFee = ?MODULE:fee(Txn),
                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                             Owner = ?MODULE:owner(Txn),
@@ -461,7 +461,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     %% the contain check does some structural checking of the filter
                     case catch xor16:contain({Filter, fun xxhash:hash64/1}, <<"anything">>) of
                         B when is_boolean(B) ->
-                            {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                             TxnFee = ?MODULE:fee(Txn),
                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                             Owner = ?MODULE:owner(Txn),
@@ -492,7 +492,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                         true ->
                             case blockchain_ledger_v1:allocate_subnet(SubnetSize, Ledger) of
                                 {ok, _} ->
-                                    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                                     StakingFee = ?MODULE:staking_fee(Txn),
                                     ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                                     TxnFee = ?MODULE:fee(Txn),

@@ -83,7 +83,7 @@ payee(Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec amount(txn_payment()) -> pos_integer().
+-spec amount(txn_payment()) -> non_neg_integer().
 amount(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.amount.
 

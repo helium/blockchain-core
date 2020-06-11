@@ -15,14 +15,14 @@
 -include("blockchain_utils.hrl").
 
   -export([
-    new/4, new/5,
+    new/3, new/4, new/5,
     hash/1,
     payer/1,
     payee/1,
     amount/1,
     nonce/1,
     fee/1,
-    calculate_fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -38,16 +38,13 @@
 -type txn_token_burn() :: #blockchain_txn_token_burn_v1_pb{}.
 -export_type([txn_token_burn/0]).
 
--spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), non_neg_integer()) -> txn_token_burn().
-new(Payer, Amount, Nonce, Fee) ->
-    #blockchain_txn_token_burn_v1_pb{
-        payer=Payer,
-        payee=Payer,
-        amount=Amount,
-        nonce=Nonce,
-        fee=Fee,
-        signature = <<>>
-    }.
+-spec new(libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
+new(Payer, Amount, Nonce) ->
+    new(Payer, Payer, Amount, Nonce, 0).
+
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer()) -> txn_token_burn().
+new(Payer, Payee, Amount, Nonce) ->
+    new(Payer, Payee, Amount, Nonce, 0).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(), pos_integer(), non_neg_integer()) -> txn_token_burn().
 new(Payer, Payee, Amount, Nonce, Fee) ->
@@ -203,6 +200,7 @@ to_json(Txn, _Opts) ->
         payee= <<"payer">>,
         amount=666,
         nonce=1,
+        fee=0,
         signature = <<>>
     },
     ?assertEqual(Tx0, new(<<"payer">>, 666, 1)),
@@ -211,6 +209,7 @@ to_json(Txn, _Opts) ->
         payee= <<"payee">>,
         amount=666,
         nonce=1,
+        fee=0,
         signature = <<>>
     },
     ?assertEqual(Tx1, new(<<"payer">>, <<"payee">>, 666, 1)).

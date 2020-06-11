@@ -177,11 +177,8 @@ calculate_staking_fee(Txn, Chain) ->
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
     1;
-calculate_staking_fee(Txn, Chain, true) ->
-    Ledger = blockchain:ledger(Chain),
-    _Payer = ?MODULE:payer(Txn),
-    %%TODO - what todo with the staking server addr ?
-    _StakingServerAddr = blockchain_ledger_v1:staking_server_addr(Ledger),
+calculate_staking_fee(Txn, _Chain, true) ->
+    %%TODO - do staking keys need considered here ? I think not but lets confirm
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
     FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
     FeeInDC.
@@ -271,6 +268,7 @@ is_valid_payer(#blockchain_txn_add_gateway_v1_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
+-spec is_valid_staking_key(txn_add_gateway(), blockchain_ledger_v1:ledger())-> boolean().
 is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger) ->
     case blockchain_ledger_v1:staking_keys(Ledger) of
         not_found -> true; %% chain var not active, so default to true

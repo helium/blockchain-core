@@ -151,7 +151,7 @@ absorb(Txn, Chain) ->
     SC = ?MODULE:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
     Owner = blockchain_state_channel_v1:owner(SC),
-    Closer = blockchain_state_channel_v1:closer(SC),
+    Closer = ?MODULE:closer(Txn),
     TxnFee = ?MODULE:fee(Txn),
     %% TODO - confirm 'closer' is the account which pays the fee
     case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of

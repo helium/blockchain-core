@@ -1440,7 +1440,7 @@ maybe_gc_scs(Ledger) ->
 %% @doc  get staking server keys from chain var
 %% @end
 %%--------------------------------------------------------------------
--spec staking_keys(Ledger :: ledger()) -> {ok, any()} | {error, any()}.
+-spec staking_keys(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
 staking_keys(Ledger)->
     case blockchain:config(?staking_keys, Ledger) of
         {error, not_found} -> not_found;
@@ -1463,7 +1463,7 @@ txn_fees_active(Ledger)->
 %% converts DC to HNT bones
 %% @end
 %%--------------------------------------------------------------------
--spec dc_to_hnt(non_neg_integer(), blockchain:blockchain()) -> non_neg_integer().
+-spec dc_to_hnt(non_neg_integer(), ledger()) -> {ok, non_neg_integer()}.
 dc_to_hnt(DCAmount, Ledger)->
     case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->
@@ -1479,7 +1479,7 @@ dc_to_hnt(DCAmount, Ledger)->
 %% converts HNT bones to DC
 %% @end
 %%--------------------------------------------------------------------
--spec hnt_to_dc(non_neg_integer(), blockchain:blockchain()) -> non_neg_integer().
+-spec hnt_to_dc(non_neg_integer(), ledger()) -> {ok, non_neg_integer()}.
 hnt_to_dc(HNTAmount, Ledger)->
     case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->

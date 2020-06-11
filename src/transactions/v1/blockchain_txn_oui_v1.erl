@@ -32,7 +32,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_staking_fee/2,
+    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
     print/1,
     to_json/2
 ]).
@@ -188,7 +188,7 @@ is_valid(Txn, Chain) ->
 -spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     TxnFee = ?MODULE:fee(Txn),
     StakingFee = ?MODULE:staking_fee(Txn),
     Owner = ?MODULE:owner(Txn),
@@ -354,7 +354,7 @@ do_oui_validation_checks(Txn, Chain) ->
                                 false ->
                                     {error, invalid_filter};
                                 true ->
-                                    {ok, AreFeesEnabled} = ?MODULE:txn_fees_active(Ledger),
+                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                                     StakingFee = ?MODULE:staking_fee(Txn),
                                     ExpectedStakingFee = ?MODULE:calculate_staking_fee(Txn, Chain),
                                     TxnFee = ?MODULE:fee(Txn),
@@ -415,7 +415,7 @@ new_test() ->
         owner_signature= <<>>,
         payer_signature = <<>>
     },
-    ExpectedTxnFee = calculate_fee(Tx),
+    ExpectedTxnFee = calculate_fee(Tx, undefined, true),
     Tx1 = Tx#blockchain_txn_oui_v1_pb{fee = ExpectedTxnFee},
     ?assertEqual(Tx1, new(1, <<"owner">>, [?KEY1], <<>>, 0, 2, ExpectedTxnFee)).
 
