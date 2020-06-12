@@ -18,7 +18,6 @@
     new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     current_height/1, current_height/2, increment_height/2,
-    transaction_fee/1, update_transaction_fee/1, update_transaction_fee/2,
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
@@ -184,7 +183,6 @@
 
 -define(DB_FILE, "ledger.db").
 -define(CURRENT_HEIGHT, <<"current_height">>).
--define(TRANSACTION_FEE, <<"transaction_fee">>).
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(ELECTION_EPOCH, <<"election_epoch">>).
@@ -587,30 +585,6 @@ increment_height(Block, Ledger) ->
             Height1 = erlang:max(BlockHeight, Height0),
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
-
--spec transaction_fee(ledger()) -> {ok, pos_integer()} | {error, any()}.
-transaction_fee(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?TRANSACTION_FEE, []) of
-        {ok, <<Height:64/integer-unsigned-big>>} ->
-            {ok, Height};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end.
-
--spec update_transaction_fee(ledger()) -> ok.
-update_transaction_fee(Ledger) ->
-    %% TODO - this should calculate a new transaction fee for the network
-    %% TODO - based on the average of usage fees
-    DefaultCF = default_cf(Ledger),
-    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<0:64/integer-unsigned-big>>).
-
--spec update_transaction_fee(pos_integer(), ledger()) -> ok.
-update_transaction_fee(Fee, Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<Fee:64/integer-unsigned-big>>).
 
 -spec consensus_members(ledger()) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 consensus_members(Ledger) ->
@@ -3489,11 +3463,6 @@ subnet_allocation2_test() ->
 debit_dc_test() ->
     BaseDir = test_utils:tmp_dir("debit_dc_test"),
     Ledger = new(BaseDir),
-    Ledger1 = new_context(Ledger),
-    %% TODO: update thes when txn fee is real
-    %% set default txn fee for now
-    ok = update_transaction_fee(Ledger1),
-    ok = commit_context(Ledger1),
     %% check no dc entry initially
     {error, dc_entry_not_found} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
 
