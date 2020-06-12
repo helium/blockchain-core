@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("include/blockchain_vars.hrl").
+-include("blockchain_ct_utils.hrl").
 
 -export([pmap/2,
          wait_until/1,
@@ -22,7 +23,8 @@
          end_per_testcase/2,
          create_vars/0, create_vars/1,
          raw_vars/1,
-         init_base_dir_config/3
+         init_base_dir_config/3,
+         join_packet/3
         ]).
 
 pmap(F, L) ->
@@ -406,3 +408,29 @@ wait_until_height(Node, Height) ->
                        C = ct_rpc:call(Node, blockchain_worker, blockchain, []),
                        {ok, Height} == ct_rpc:call(Node, blockchain, height, [C])
                end, 30, timer:seconds(1)).
+
+join_packet(AppKey, DevNonce, RSSI) ->
+    RoutingInfo = {devaddr, 1207959553},
+    blockchain_helium_packet_v1:new(RoutingInfo,
+                                    lorawan,
+                                    join_payload(AppKey, DevNonce),
+                                    1000,
+                                    RSSI,
+                                    923.3,
+                                    <<"SF8BW125">>,
+                                    0.0).
+
+join_payload(AppKey, DevNonce) ->
+    MType = ?JOIN_REQUEST,
+    MHDRRFU = 0,
+    Major = 0,
+    AppEUI = reverse_bin(?APPEUI),
+    DevEUI = reverse_bin(?DEVEUI),
+    Payload0 = <<MType:3, MHDRRFU:3, Major:2, AppEUI:8/binary, DevEUI:8/binary, DevNonce:2/binary>>,
+    MIC = crypto:cmac(aes_cbc128, AppKey, Payload0, 4),
+    <<Payload0/binary, MIC:4/binary>>.
+
+reverse_bin(Bin) -> reverse_bin(Bin, <<>>).
+reverse_bin(<<>>, Acc) -> Acc;
+reverse_bin(<<H:1/binary, Rest/binary>>, Acc) ->
+    reverse_bin(Rest, <<H/binary, Acc/binary>>).
