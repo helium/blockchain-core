@@ -600,33 +600,36 @@ neighbors_test() ->
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
-build_graph_test() ->
-    e2qc:teardown(gw_cache),
-    catch blockchain_score_cache:stop(),
-    blockchain_score_cache:start_link(),
-    BaseDir = test_utils:tmp_dir("build_graph_test"),
-    LatLongs = [
-                {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
-                {{37.782604, -122.447857}, 1.0, 1.0},
-                {{37.782074, -122.448528}, 1.0, 1.0},
-                {{37.782002, -122.44826}, 1.0, 1.0},
-                {{37.78207, -122.44613}, 1.0, 1.0}, %% This should be excluded cuz too close
-                {{37.781909, -122.445411}, 1.0, 1.0},
-                {{37.783371, -122.447879}, 1.0, 1.0},
-                {{37.780827, -122.44716}, 1.0, 1.0},
-                {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
-               ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
-    {Target, Gateways} = build_gateways(LatLongs, Ledger),
-    Graph = build_graph(Target, Gateways, 1, Ledger),
-    ?assertEqual(8, maps:size(Graph)),
+build_graph_test_() ->
+    {timeout, 30000,
+     fun() ->
+             e2qc:teardown(gw_cache),
+             catch blockchain_score_cache:stop(),
+             blockchain_score_cache:start_link(),
+             BaseDir = test_utils:tmp_dir("build_graph_test"),
+             LatLongs = [
+                         {{37.782061, -122.446167}, 1.0, 1.0}, % This should be excluded cause target
+                         {{37.782604, -122.447857}, 1.0, 1.0},
+                         {{37.782074, -122.448528}, 1.0, 1.0},
+                         {{37.782002, -122.44826}, 1.0, 1.0},
+                         {{37.78207, -122.44613}, 1.0, 1.0}, %% This should be excluded cuz too close
+                         {{37.781909, -122.445411}, 1.0, 1.0},
+                         {{37.783371, -122.447879}, 1.0, 1.0},
+                         {{37.780827, -122.44716}, 1.0, 1.0},
+                         {{38.897675, -77.036530}, 1.0, 1.0} % This should be excluded cause too far
+                        ],
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
+             {Target, Gateways} = build_gateways(LatLongs, Ledger),
+             Graph = build_graph(Target, Gateways, 1, Ledger),
+             ?assertEqual(8, maps:size(Graph)),
 
-    {LL1, _, _} = lists:last(LatLongs),
-    TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
-    ?assertNot(lists:member(TooFar, maps:keys(Graph))),
-    unload_meck(),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
+             {LL1, _, _} = lists:last(LatLongs),
+             TooFar = crypto:hash(sha256, erlang:term_to_binary(LL1)),
+             ?assertNot(lists:member(TooFar, maps:keys(Graph))),
+             unload_meck(),
+             test_utils:cleanup_tmp_dir(BaseDir),
+             ok
+     end}.
 
 build_graph_in_line_test() ->
     e2qc:teardown(gw_cache),
