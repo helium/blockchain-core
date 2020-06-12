@@ -9,7 +9,7 @@ clean:
 	$(REBAR) clean
 
 test: compile
-	$(REBAR) as test do ct --suite test/blockchain_simple_SUITE
+	$(REBAR) as test do eunit, ct,xref && $(REBAR) dialyzer
 
 typecheck:
 	$(REBAR) dialyzer
