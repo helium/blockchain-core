@@ -212,12 +212,10 @@ absorb(Txn, Chain) ->
     case blockchain_ledger_v1:debit_fee(Payer, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error -> Error;
         ok ->
-            lager:info("*** processing payment with nonce ~p and fee ~p and implicitburn ~p", [Nonce, TxnFee, AreFeesEnabled]),
             case blockchain_ledger_v1:debit_account(Payer, Amount, Nonce, Ledger) of
                 {error, _Reason}=Error ->
                     Error;
                 ok ->
-                    lager:info(" *** success debiting payment",[]),
                     Payee = ?MODULE:payee(Txn),
                     blockchain_ledger_v1:credit_account(Payee, Amount, Ledger)
             end
