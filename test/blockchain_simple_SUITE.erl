@@ -63,10 +63,10 @@ all() ->
         restart_test,
         htlc_payee_redeem_test,
         htlc_payer_redeem_test,
-%%        poc_request_test,
+        poc_request_test,
         bogus_coinbase_test,
         bogus_coinbase_with_good_payment_test,
-%%        export_test,
+        export_test,
         delayed_ledger_test,
         fees_since_test,
         security_token_test,
@@ -490,6 +490,17 @@ poc_request_test(Config) ->
     Ledger = blockchain:ledger(Chain),
     Rate = 100000000,
     {Priv, _} = ?config(master_key, Config),
+
+    % fake an oracle price and a burn price, these figures are not representative
+    % TODO: setup actual onchain oracle prices, get rid of these mecks
+    OP = 1000,
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
+    meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+
+    %% NOTE: the token burn exchange rate block is not required for most of this test to run
+    %% it should be removed but the POC is using it atm - needs refactored
     Vars = #{token_burn_exchange_rate => Rate},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
     Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
@@ -508,7 +519,7 @@ poc_request_test(Config) ->
         end,
         lists:seq(1, 20)
     ),
-    ?assertEqual({ok, Rate}, blockchain_ledger_v1:config(?token_burn_exchange_rate, Ledger)),
+    ?assertEqual({ok, OP}, blockchain_ledger_v1:current_oracle_price(Ledger)),
 
     % Step 2: Token burn txn should pass now
     OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -524,7 +535,7 @@ poc_request_test(Config) ->
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
     ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
     {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
-    ?assertEqual(10*Rate, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
 
     % Create a Gateway
     #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
@@ -632,6 +643,7 @@ poc_request_test(Config) ->
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 bogus_coinbase_test(Config) ->
@@ -808,6 +820,7 @@ export_test(Config) ->
                       Token == Balance
               end, Securities),
 
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 
@@ -1909,6 +1922,7 @@ payer_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
     ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 poc_sync_interval_test(Config) ->
@@ -2029,6 +2043,7 @@ poc_sync_interval_test(Config) ->
     {ok, AddedGw4} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 zero_payment_v1_test(Config) ->
@@ -2181,6 +2196,8 @@ update_gateway_oui_test(Config) ->
     {ok, GwInfo} = blockchain_ledger_v1:find_gateway_info(Gateway, Ledger),
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
     ?assertEqual(1, blockchain_ledger_gateway_v2:nonce(GwInfo)),
+
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 replay_oui_test(Config) ->
@@ -2318,6 +2335,7 @@ replay_oui_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4]),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
 
+    meck:unload(blockchain_ledger_v1),
     ok.
 
 %%--------------------------------------------------------------------
