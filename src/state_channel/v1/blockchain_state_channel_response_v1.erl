@@ -23,7 +23,11 @@
 -type response() :: #blockchain_state_channel_response_v1_pb{}.
 -export_type([response/0]).
 
-new(Accepted) ->
+new(undefined) ->
+    #blockchain_state_channel_response_v1_pb{active_sc=undefined};
+new(ActiveSCID) when is_binary(ActiveSCID) ->
+    #blockchain_state_channel_response_v1_pb{active_sc=ActiveSCID};
+new(Accepted) when is_boolean(Accepted) ->
     #blockchain_state_channel_response_v1_pb{accepted=Accepted}.
 
 new(true=Accepted, Downlink) ->

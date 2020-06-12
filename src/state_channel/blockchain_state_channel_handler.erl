@@ -16,6 +16,7 @@
     client/2,
     dial/3,
     send_packet/2,
+    send_offer/2,
     send_response/2
 ]).
 
@@ -54,6 +55,11 @@ send_packet(Pid, Packet) ->
     Pid ! {send_packet, Packet},
     ok.
 
+-spec send_offer(pid(), blockchain_state_channel_packet_offer_v1:offer()) -> ok.
+send_offer(Pid, Offer) ->
+    Pid ! {send_offer, Offer},
+    ok.
+
 -spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
 send_response(Pid, Resp) ->
     Pid ! {send_response, Resp},
@@ -65,7 +71,9 @@ send_response(Pid, Resp) ->
 init(client, _Conn, _) ->
     {ok, #state{}};
 init(server, _Conn, _) ->
-    {ok, #state{}}.
+    %% TODO: Fix me
+    ActiveSCID = blockchain_state_channels_server:active_sc_id(),
+    {ok, #state{}, blockchain_state_channel_response_v1:new(ActiveSCID)}.
 
 handle_data(client, Data, State) ->
     %% TODO...
@@ -83,6 +91,9 @@ handle_data(server, Data, State) ->
     end,
     {noreply, State}.
 
+handle_info(client, {send_offer, Offer}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Offer),
+    {noreply, State, Data};
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
     {noreply, State, Data};

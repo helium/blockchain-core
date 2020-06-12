@@ -16,7 +16,9 @@
 
 -type message() :: #blockchain_state_channel_message_v1_pb{}.
 -type oneof() :: blockchain_state_channel_response_v1:response() |
-                 blockchain_state_channel_packet_v1:packet().
+                 blockchain_state_channel_packet_v1:packet() |
+                 blockchain_state_channel_offer_v1:offer() |
+                 blockchain_state_channel_purchase_v1:purchase().
 
 -export_type([message/0]).
 
@@ -36,7 +38,11 @@ decode(Bin) ->
 wrap_msg(#blockchain_state_channel_response_v1_pb{}=Packet) ->
     #blockchain_state_channel_message_v1_pb{msg={response, Packet}};
 wrap_msg(#blockchain_state_channel_packet_v1_pb{}=Packet) ->
-    #blockchain_state_channel_message_v1_pb{msg={packet, Packet}}.
+    #blockchain_state_channel_message_v1_pb{msg={packet, Packet}};
+wrap_msg(#blockchain_state_channel_offer_v1_pb{}=Offer) ->
+    #blockchain_state_channel_message_v1_pb{msg={offer, Offer}};
+wrap_msg(#blockchain_state_channel_purchase_v1_pb{}=Purchase) ->
+    #blockchain_state_channel_message_v1_pb{msg={purchase, Purchase}}.
 
 -spec unwrap_msg(message()) -> {atom(), oneof()}.
 unwrap_msg(#blockchain_state_channel_message_v1_pb{msg={Type, Msg}}) ->
