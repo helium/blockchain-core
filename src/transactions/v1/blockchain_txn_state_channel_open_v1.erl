@@ -276,7 +276,7 @@ oui_test() ->
     ?assertEqual(1, oui(Tx)).
 
 fee_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 amount_test() ->

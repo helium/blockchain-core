@@ -3408,7 +3408,7 @@ state_channels_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-    ok = close_state_channel(ID, Owner, Owner, Ledger3),
+    ok = close_state_channel(Owner, Owner, SC, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),

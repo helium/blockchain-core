@@ -179,7 +179,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = #blockchain_txn_state_channel_close_v1_pb{
         state_channel=SC,
         closer= <<"closer">>
@@ -187,28 +187,28 @@ new_test() ->
     ?assertEqual(Tx, new(SC, <<"closer">>)).
 
 state_channel_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(SC, state_channel(Tx)).
 
 closer_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(<<"closer">>, closer(Tx)).
 
 fee_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 signature_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Closer = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(SC, Closer),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -218,7 +218,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
