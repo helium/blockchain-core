@@ -692,59 +692,66 @@ build_graph_in_line_test() ->
     test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
-build_test() ->
-    e2qc:teardown(gw_cache),
-    catch blockchain_score_cache:stop(),
-    blockchain_score_cache:start_link(),
-    BaseDir = test_utils:tmp_dir("build_test"),
-    % All these point are in a line one after the other (except last)
-    LatLongs = [
-                {{37.780959, -122.467496}, 200.0, 10.0},
-                {{37.78101, -122.465372}, 300.0, 10.0},
-                {{37.780586, -122.469471}, 1000.0, 10.0},
-                {{37.781179, -122.463226}, 1000.0, 500.0},
-                {{37.781281, -122.461038}, 10.0, 1000.0},
-                {{37.781349, -122.458892}, 100.0, 50.0},
-                {{37.781468, -122.456617}, 100.0, 40.0},
-                {{37.781637, -122.4543}, 1000.0, 20.0},
-                {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
-               ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
-    {Target, Gateways} = build_gateways(LatLongs, Ledger),
+build_test_() ->
+    {timeout, 30000,
+     fun() ->
+             e2qc:teardown(gw_cache),
+             catch blockchain_score_cache:stop(),
+             blockchain_score_cache:start_link(),
+             BaseDir = test_utils:tmp_dir("build_test"),
+             % All these point are in a line one after the other (except last)
+             LatLongs = [
+                         {{37.780959, -122.467496}, 200.0, 10.0},
+                         {{37.78101, -122.465372}, 300.0, 10.0},
+                         {{37.780586, -122.469471}, 1000.0, 10.0},
+                         {{37.781179, -122.463226}, 1000.0, 500.0},
+                         {{37.781281, -122.461038}, 10.0, 1000.0},
+                         {{37.781349, -122.458892}, 100.0, 50.0},
+                         {{37.781468, -122.456617}, 100.0, 40.0},
+                         {{37.781637, -122.4543}, 1000.0, 20.0},
+                         {{38.897675, -77.036530}, 100.0, 30.0} % This should be excluded cause too far
+                        ],
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
+             {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+             {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
 
-    ?assertNotEqual(Target, hd(Path)),
-    ?assert(lists:member(Target, Path)),
-    ?assertNotEqual(Target, lists:last(Path)),
-    unload_meck(),
-    catch blockchain_score_cache:stop(),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
+             ?assertNotEqual(Target, hd(Path)),
+             ?assert(lists:member(Target, Path)),
+             ?assertNotEqual(Target, lists:last(Path)),
+             unload_meck(),
+             catch blockchain_score_cache:stop(),
+             test_utils:cleanup_tmp_dir(BaseDir),
+             ok
 
-build_only_2_test() ->
-    e2qc:teardown(gw_cache),
-    catch blockchain_score_cache:stop(),
-    blockchain_score_cache:start_link(),
-    BaseDir = test_utils:tmp_dir("build_only_2_test"),
-    % All these point are in a line one after the other
-    LatLongs = [
-                {{37.780959, -122.467496}, 1000.0, 100.0},
-                {{37.78101, -122.465372}, 10.0, 1000.0},
-                {{37.780586, -122.469471}, 100.0, 20.0}
-               ],
-    Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
-    {Target, Gateways} = build_gateways(LatLongs, Ledger),
+     end}.
 
-    {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+build_only_2_test_() ->
+    {timeout, 30000,
+     fun() ->
+             e2qc:teardown(gw_cache),
+             catch blockchain_score_cache:stop(),
+             blockchain_score_cache:start_link(),
+             BaseDir = test_utils:tmp_dir("build_only_2_test"),
+             % All these point are in a line one after the other
+             LatLongs = [
+                         {{37.780959, -122.467496}, 1000.0, 100.0},
+                         {{37.78101, -122.465372}, 10.0, 1000.0},
+                         {{37.780586, -122.469471}, 100.0, 20.0}
+                        ],
+             Ledger = build_fake_ledger(BaseDir, LatLongs, 0.25, 3, 60, not_found),
+             {Target, Gateways} = build_gateways(LatLongs, Ledger),
 
-    ?assertNotEqual(Target, hd(Path)),
-    ?assert(lists:member(Target, Path)),
-    ?assertNotEqual(Target, lists:last(Path)),
-    unload_meck(),
-    catch blockchain_score_cache:stop(),
-    test_utils:cleanup_tmp_dir(BaseDir),
-    ok.
+             {ok, Path} = build(crypto:strong_rand_bytes(32), Target, Gateways, 1, Ledger),
+
+             ?assertNotEqual(Target, hd(Path)),
+             ?assert(lists:member(Target, Path)),
+             ?assertNotEqual(Target, lists:last(Path)),
+             unload_meck(),
+             catch blockchain_score_cache:stop(),
+             test_utils:cleanup_tmp_dir(BaseDir),
+             ok
+     end}.
 
 build_prob_test_() ->
     {timeout,
