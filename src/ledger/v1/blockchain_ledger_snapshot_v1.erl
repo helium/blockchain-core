@@ -211,7 +211,8 @@ serialize(Snapshot) ->
 
 serialize(Snapshot, BlocksP) ->
     Snapshot1 = case BlocksP of
-                    blocks -> Snapshot;
+                    blocks ->
+                        Snapshot#blockchain_snapshot_v2{blocks = [ blockchain_block:serialize(B) || B <- Snapshot#blockchain_snapshot_v2.blocks] };
                     noblocks -> Snapshot#blockchain_snapshot_v2{blocks = []}
                 end,
     Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
@@ -293,7 +294,7 @@ import(Chain, SHA,
 
           state_channels = StateChannels,
 
-          blocks = Blocks,
+          blocks = Blocks0,
 
           oracle_price = OraclePrice,
           oracle_price_list = OraclePriceList
@@ -358,7 +359,12 @@ import(Chain, SHA,
             Chain1 = blockchain:ledger(Ledger2, Chain),
             {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
             lager:info("ledger height is ~p after absorbing snapshot", [Curr2]),
-            lager:info("snapshot contains ~p blocks", [length(Blocks)]),
+            lager:info("snapshot contains ~p blocks", [length(Blocks0)]),
+
+            Blocks = lists:map(fun(B) when is_binary(B) ->
+                                       blockchain_block:deserialize(B);
+                                  (B) -> B
+                               end, Blocks0),
 
             case Blocks of
                 [] ->
