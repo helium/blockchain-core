@@ -212,7 +212,11 @@ serialize(Snapshot) ->
 serialize(Snapshot, BlocksP) ->
     Snapshot1 = case BlocksP of
                     blocks ->
-                        Snapshot#blockchain_snapshot_v2{blocks = [ blockchain_block:serialize(B) || B <- Snapshot#blockchain_snapshot_v2.blocks] };
+                        Blocks = lists:map(fun(B) when is_tuple(B) ->
+                                                   blockchain_block:serialize(B);
+                                              (B) -> B
+                                           end, Snapshot#blockchain_snapshot_v2.blocks),
+                        Snapshot#blockchain_snapshot_v2{blocks = Blocks};
                     noblocks -> Snapshot#blockchain_snapshot_v2{blocks = []}
                 end,
     Bin = term_to_binary(Snapshot1, [{compressed, 9}]),
