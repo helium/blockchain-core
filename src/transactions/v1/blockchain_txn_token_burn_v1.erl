@@ -165,7 +165,6 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     HNTAmount = ?MODULE:amount(Txn),
     {ok, DCAmount} = blockchain_ledger_v1:hnt_to_dc(HNTAmount, Ledger),
-    lager:info("*** converting hntamount ~p to ~p dc",[HNTAmount, DCAmount]),
     Payer = ?MODULE:payer(Txn),
     Nonce = ?MODULE:nonce(Txn),
     TxnFee = ?MODULE:fee(Txn),

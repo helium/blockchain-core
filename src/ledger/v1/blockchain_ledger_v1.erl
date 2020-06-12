@@ -1481,7 +1481,7 @@ dc_to_hnt(DCAmount, Ledger)->
 %%--------------------------------------------------------------------
 -spec hnt_to_dc(non_neg_integer(), ledger()) -> {ok, non_neg_integer()}.
 hnt_to_dc(HNTAmount, Ledger)->
-    case blockchain_ledger_v1:current_oracle_price(Ledger) of
+    case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->
             {ok, 0};
         {ok, OracleHNTPrice} ->

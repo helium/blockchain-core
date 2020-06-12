@@ -55,7 +55,7 @@ new(OwnerAddress, GatewayAddress) ->
         owner=OwnerAddress,
         gateway=GatewayAddress,
         fee=?LEGACY_TXN_FEE,
-        staking_fee=1
+        staking_fee=?LEGACY_STAKING_FEE
     }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
@@ -64,7 +64,7 @@ new(OwnerAddress, GatewayAddress, Payer) ->
         owner=OwnerAddress,
         gateway=GatewayAddress,
         payer=Payer,
-        staking_fee=1,
+        staking_fee=?LEGACY_STAKING_FEE,
         fee=?LEGACY_TXN_FEE
     }.
 
