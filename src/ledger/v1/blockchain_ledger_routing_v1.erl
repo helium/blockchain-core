@@ -87,7 +87,7 @@ owner(Owner, Entry) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec addresses(routing()) -> [binary()].
+-spec addresses(routing()) -> [libp2p_crypto:pubkey_bin()].
 addresses(#routing_v1{router_addresses=Addresses}) ->
     Addresses.
 
