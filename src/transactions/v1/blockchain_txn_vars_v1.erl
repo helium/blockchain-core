@@ -880,6 +880,32 @@ validate_var(?staking_keys, Value) ->
         _ -> throw({error, {invalid_staking_keys, Value}})
     end;
 
+%% TODO finalize max price for each below
+validate_var(?staking_fee_txn_oui_v1, Value) ->
+    %% the staking fee price for an OUI
+    validate_int(Value, "staking_fee_txn_oui_v1", 0, 65536, false);
+
+validate_var(?staking_fee_txn_oui_v1_per_address, Value) ->
+    %% the staking fee price for each OUI address
+    validate_int(Value, "staking_fee_txn_oui_v1_per_address", 0, 65536, false);
+
+validate_var(?staking_fee_txn_routing_v1, Value) ->
+    %% the staking fee price for a routing txn
+    validate_int(Value, "staking_fee_txn_routing_v1", 0, 65536, false);
+
+validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn
+    validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 65536, false);
+
+validate_var(?staking_fee_txn_assert_location_v1, Value) ->
+    %% the staking fee price for an assert location txn
+    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 65536, false);
+
+validate_var(?payment_txn_fee_multiplier, Value) ->
+    %% a multiplier applied to a payment txn's txn fee
+    validate_int(Value, "payment_txn_fee_multiplier", 1, 65536, false);
+
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
