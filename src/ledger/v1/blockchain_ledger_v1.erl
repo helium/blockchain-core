@@ -36,6 +36,7 @@
     save_threshold_txn/2,
 
     find_gateway_info/2,
+    gateway_cache_get/2,
     add_gateway/3, add_gateway/5,
     update_gateway/3,
     fixup_neighbors/4,
@@ -172,7 +173,8 @@
     routing :: rocksdb:cf_handle(),
     subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
-    cache :: undefined | ets:tid()
+    cache :: undefined | ets:tid(),
+    gateway_cache :: undefined | ets:tid()
 }).
 
 -define(DB_FILE, "ledger.db").
@@ -277,36 +279,36 @@ mark_key(Key, Ledger) ->
 new_context(Ledger) ->
     %% accumulate ledger changes in a read-through ETS cache
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
-    context_cache(Cache, Ledger).
+    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
+    context_cache(Cache, GwCache, Ledger).
 
 get_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             undefined;
         Cache ->
             flatten_cache(Cache)
     end.
 
-flatten_cache(Cache) ->
-    ets:tab2list(Cache).
+flatten_cache({Cache, GwCache}) ->
+    {ets:tab2list(Cache), ets:tab2list(GwCache)}.
 
-install_context(FlatCache, Ledger) ->
+install_context({FlatCache, FlatGwCache}, Ledger) ->
     Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
     ets:insert(Cache, FlatCache),
-    context_cache(Cache, Ledger).
+    GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
+    ets:insert(GwCache, FlatGwCache),
+    context_cache(Cache, GwCache, Ledger).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec delete_context(ledger()) -> ledger().
 delete_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             Ledger;
-        Cache ->
+        {Cache, GwCache} ->
             ets:delete(Cache),
-            context_cache(undefined, Ledger)
+            ets:delete(GwCache),
+            context_cache(undefined, undefined, Ledger)
     end.
 
 %% @doc remove a context without deleting it, useful if you need a
@@ -314,29 +316,29 @@ delete_context(Ledger) ->
 -spec remove_context(ledger()) -> ledger().
 remove_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             Ledger;
-        _Cache ->
-            context_cache(undefined, Ledger)
+        {_Cache, _GwCache} ->
+            context_cache(undefined, undefined, Ledger)
     end.
 
 -spec reset_context(ledger()) -> ok.
 reset_context(Ledger) ->
     case ?MODULE:context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             ok;
-        Cache ->
+        {Cache, GwCache} ->
             true = ets:delete_all_objects(Cache),
+            true = ets:delete_all_objects(GwCache),
             ok
     end.
 
 -spec commit_context(ledger()) -> ok.
 commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
-    Cache = ?MODULE:context_cache(Ledger),
+    {Cache, GwCache} = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
-    GWCF = active_gateways_cf(Ledger),
-    prewarm_gateways(Mode, Height, GWCF, Cache),
+    prewarm_gateways(Mode, Height, GwCache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),
@@ -346,11 +348,15 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(ledger()) -> undefined | ets:tid().
-context_cache(#ledger_v1{mode=active, active=#sub_ledger_v1{cache=Cache}}) ->
-    Cache;
-context_cache(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{cache=Cache}}) ->
-    Cache.
+-spec context_cache(ledger()) -> {undefined | ets:tid(), undefined | ets:tid()}.
+context_cache(#ledger_v1{mode=active,
+                         active=#sub_ledger_v1{cache=Cache,
+                                               gateway_cache=GwCache}}) ->
+    {Cache, GwCache};
+context_cache(#ledger_v1{mode=delayed,
+                         delayed=#sub_ledger_v1{cache=Cache,
+                                                gateway_cache=GwCache}}) ->
+    {Cache, GwCache}.
 
 -spec new_snapshot(ledger()) -> {ok, ledger()} | {error, any()}.
 new_snapshot(#ledger_v1{db=DB,
@@ -883,6 +889,22 @@ find_gateway_info(Address, Ledger) ->
             Error
     end.
 
+-spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
+                               {ok, blockchain_ledger_gateway_v2:gateway()}
+                                   | {error, any()}.
+gateway_cache_get(Address, Ledger) ->
+    case context_cache(Ledger) of
+        {undefined, undefined} ->
+            {error, not_found};
+        {_Cache, GwCache} ->
+            case ets:lookup(GwCache, Address) of
+                [] ->
+                    {error, not_found};
+                [{_, Gw}] ->
+                    {ok, Gw}
+            end
+    end.
+
 -spec add_gateway(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), ledger()) -> ok | {error, gateway_already_active}.
 add_gateway(OwnerAddr, GatewayAddress, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
@@ -974,7 +996,8 @@ fixup_neighbors(Addr, Gateways, Neighbors, Ledger) ->
 update_gateway(Gw, GwAddr, Ledger) ->
     Bin = blockchain_ledger_gateway_v2:serialize(Gw),
     AGwsCF = active_gateways_cf(Ledger),
-    blockchain_gateway_cache:invalidate(GwAddr, Ledger),
+    %% lager:info("updating ~p", [GwAddr]),
+    gateway_cache_put(GwAddr, Gw, Ledger),
     cache_put(Ledger, AGwsCF, GwAddr, Bin).
 
 -spec add_gateway_location(libp2p_crypto:pubkey_bin(), non_neg_integer(), non_neg_integer(), ledger()) -> ok | {error, no_active_gateway}.
@@ -1244,9 +1267,7 @@ request_poc_(OnionKeyHash, SecretHash, Challenger, BlockHash, Ledger, Gw0, PoCs)
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     Gw1 = blockchain_ledger_gateway_v2:last_poc_challenge(Height+1, Gw0),
     Gw2 = blockchain_ledger_gateway_v2:last_poc_onion_key_hash(OnionKeyHash, Gw1),
-    GwBin = blockchain_ledger_gateway_v2:serialize(Gw2),
-    AGwsCF = active_gateways_cf(Ledger),
-    ok = cache_put(Ledger, AGwsCF, Challenger, GwBin),
+    ok = update_gateway(Gw2, Challenger, Ledger),
 
     PoC = blockchain_ledger_poc_v2:new(SecretHash, OnionKeyHash, Challenger, BlockHash),
     PoCBin = blockchain_ledger_poc_v2:serialize(PoC),
@@ -2235,11 +2256,11 @@ var_name(Name) when is_binary(Name) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec context_cache(undefined | ets:tid(), ledger()) -> ledger().
-context_cache(Cache, #ledger_v1{mode=active, active=Active}=Ledger) ->
-    Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache}};
-context_cache(Cache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
-    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache}}.
+-spec context_cache(undefined | ets:tid(), undefined | ets:tid(), ledger()) -> ledger().
+context_cache(Cache, GwCache, #ledger_v1{mode=active, active=Active}=Ledger) ->
+    Ledger#ledger_v1{active=Active#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}};
+context_cache(Cache, GwCache, #ledger_v1{mode=delayed, delayed=Delayed}=Ledger) ->
+    Ledger#ledger_v1{delayed=Delayed#sub_ledger_v1{cache=Cache, gateway_cache=GwCache}}.
 
 -spec default_cf(ledger()) -> rocksdb:cf_handle().
 default_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{default=DefaultCF}}) ->
@@ -2303,19 +2324,27 @@ state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels
 
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
-    Cache = context_cache(Ledger),
+    {Cache, _GwCache} = context_cache(Ledger),
     true = ets:insert(Cache, {{CF, Key}, Value}),
+    ok.
+
+-spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
+gateway_cache_put(Addr, Gw, Ledger) ->
+    {_Cache, GwCache} = context_cache(Ledger),
+    true = ets:insert(GwCache, {Addr, Gw}),
     ok.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
     case context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             rocksdb:get(DB, CF, Key, maybe_use_snapshot(Ledger, Options));
-        Cache ->
+        {Cache, _GwCache} ->
+            %% don't do anything smart here with the cache yet,
+            %% otherwise the semantics get all confused.
             case ets:lookup(Cache, {CF, Key}) of
                 [] ->
-                    cache_get(context_cache(undefined, Ledger), CF, Key, Options);
+                    cache_get(context_cache(undefined, undefined, Ledger), CF, Key, Options);
                 [{_, ?CACHE_TOMBSTONE}] ->
                     %% deleted in the cache
                     not_found;
@@ -2326,7 +2355,9 @@ cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
 
 -spec cache_delete(ledger(), rocksdb:cf_handle(), binary()) -> ok.
 cache_delete(Ledger, CF, Key) ->
-    Cache = context_cache(Ledger),
+    %% TODO: check if we're a gateway and delete that cache too, but
+    %% we never delete gateways now
+    {Cache, _GwCache} = context_cache(Ledger),
     true = ets:insert(Cache, {{CF, Key}, ?CACHE_TOMBSTONE}),
     ok.
 
@@ -2348,10 +2379,10 @@ cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
         end,
     End = proplists:get_value(iterate_upper_bound, Opts, undefined),
     case context_cache(Ledger) of
-        undefined ->
+        {undefined, undefined} ->
             %% fold rocks directly
             rocks_fold(Ledger, CF, Opts, Fun0, OriginalAcc);
-        Cache ->
+        {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
             Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
@@ -2590,17 +2621,14 @@ batch_from_cache(ETS) ->
                       Acc
               end, Batch, ETS).
 
-prewarm_gateways(delayed, _Height, _GWCF, _ETS) ->
+prewarm_gateways(delayed, _Height, _GwCache) ->
     ok;
-prewarm_gateways(active, Height, GWCF, ETS) ->
-   GWList =
-        ets:foldl(fun({{CF, _Key}, ?CACHE_TOMBSTONE}, Acc) when CF == GWCF ->
-                          Acc;
-                     ({{CF, Key}, Value}, Acc)  when CF == GWCF ->
-                          [{Key, Value} | Acc];
-                     (_, Acc) ->
-                          Acc
-                  end, [], ETS),
+prewarm_gateways(active, Height, GwCache) ->
+   GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
+                              Acc;
+                         ({Key, Value}, Acc) ->
+                              [{Key, Value} | Acc]
+                      end, [], GwCache),
     %% best effort here
     try blockchain_gateway_cache:bulk_put(Height, GWList) catch _:_ -> ok end.
 
