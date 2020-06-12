@@ -160,7 +160,7 @@ snapshot(Ledger0, Blocks) ->
                leading_hash = <<>>,
 
                current_height = CurrHeight,
-               transaction_fee = 0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+               transaction_fee =  0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
                consensus_members = ConsensusMembers,
 
                election_height = ElectionHeight,
@@ -259,7 +259,7 @@ import(Chain, SHA,
           leading_hash = <<>>,
 
           current_height = CurrHeight,
-          transaction_fee = 0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+          transaction_fee =  _TxnFee, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
           consensus_members = ConsensusMembers,
 
           election_height = ElectionHeight,
@@ -437,7 +437,7 @@ v1_to_v2(#blockchain_snapshot_v1{
             leading_hash = <<>>,
 
             current_height = CurrHeight,
-            transaction_fee = 0,  %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+            transaction_fee = _TxnFee,
             consensus_members = ConsensusMembers,
 
             election_height = ElectionHeight,
@@ -477,7 +477,7 @@ v1_to_v2(#blockchain_snapshot_v1{
        leading_hash = <<>>,
 
        current_height = CurrHeight,
-       transaction_fee = 0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+       transaction_fee = _TxnFee, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
        consensus_members = ConsensusMembers,
 
        election_height = ElectionHeight,
@@ -519,7 +519,7 @@ v2_to_v1(#blockchain_snapshot_v2{
             leading_hash = <<>>,
 
             current_height = CurrHeight,
-            transaction_fee = 0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+            transaction_fee =  _TxnFee, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
             consensus_members = ConsensusMembers,
 
             election_height = ElectionHeight,
@@ -559,7 +559,7 @@ v2_to_v1(#blockchain_snapshot_v2{
        leading_hash = <<>>,
 
        current_height = CurrHeight,
-       transaction_fee = 0, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
+       transaction_fee =  _TxnFee, %% NOTE transaction fee is no longer supported, defaulting to zero or safe to remove??
        consensus_members = ConsensusMembers,
 
        election_height = ElectionHeight,
