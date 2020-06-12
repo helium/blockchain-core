@@ -223,12 +223,12 @@ absorb(Txn, Chain) ->
 -spec calculate_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Chain, false) ->
+-spec calculate_fee(txn_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Chain, true) ->
+calculate_fee(Txn, _Ledger, true) ->
     ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
 
 %%--------------------------------------------------------------------
@@ -240,15 +240,17 @@ calculate_fee(Txn, _Chain, true) ->
 -spec calculate_staking_fee(txn_oui(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_staking_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_staking_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
-calculate_staking_fee(_Txn, _Chain, false) ->
+-spec calculate_staking_fee(txn_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, false) ->
     ?LEGACY_STAKING_FEE;
-calculate_staking_fee(Txn, _Chain, true) ->
+calculate_staking_fee(Txn, Ledger, true) ->
     %% get total price of txn in USD and divide by DC price
+    OUIStakingFee = blockchain_ledger_v1:staking_fee_txn_oui_v1(Ledger),
+    OIUPerAddress = blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger),
     NumAddresses = length(?MODULE:addresses(Txn)),
-    TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) + (NumAddresses * ?OUI_FEE_PER_ADDRESS),
+    TxnPriceUSD = OUIStakingFee + (NumAddresses * OIUPerAddress),
     trunc((TxnPriceUSD / ?DC_PRICE)).
 
 %%--------------------------------------------------------------------

@@ -121,12 +121,12 @@ sign(Txn, SigFun) ->
 -spec calculate_fee(txn_redeem_htlc(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_fee(txn_redeem_htlc(), blockchain:blockchain(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Chain, false) ->
+-spec calculate_fee(txn_redeem_htlc(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Chain, true) ->
+calculate_fee(Txn, _Ledger, true) ->
     ?fee(Txn#blockchain_txn_redeem_htlc_v1_pb{fee=0}).
 
 

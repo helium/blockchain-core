@@ -152,12 +152,12 @@ fee(Txn) ->
 -spec calculate_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Chain, false) ->
+-spec calculate_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Chain, true) ->
+calculate_fee(Txn, _Ledger, true) ->
     ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0}).
 
 
@@ -170,14 +170,14 @@ calculate_fee(Txn, _Chain, true) ->
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_staking_fee(Txn, Chain, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
-calculate_staking_fee(_Txn, _Chain, false) ->
+-spec calculate_staking_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, false) ->
     ?LEGACY_STAKING_FEE;
-calculate_staking_fee(Txn, _Chain, true) ->
+calculate_staking_fee(_Txn, Ledger, true) ->
     %%TODO - do staking keys need considered here ? I think not but lets confirm
-    TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
+    TxnPriceUSD = blockchain_ledger_v1:staking_fee_txn_add_gateway_v1(Ledger),
     trunc((TxnPriceUSD / ?DC_PRICE)).
 
 

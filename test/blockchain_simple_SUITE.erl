@@ -916,16 +916,20 @@ fees_since_test(Config) ->
     Payee = blockchain_swarm:pubkey_bin(),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
 
+    %% a lotta mecking going on
     meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:new(blockchain_txn_payment_v1, [passthrough]),
+
     meck:expect(blockchain_ledger_v1, check_dc_balance, fun(_, _, _) -> ok end),
     meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
     meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
 
+    meck:expect(blockchain_txn_payment_v1, calculate_fee, fun(_, _) -> 10 end),
     % Add 100 txns with 1 fee each
     lists:foreach(
         fun(X) ->
             Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, X),
-            ExpectedFeeSize = blockchain_txn_payment_v1:calculate_fee(Tx, Chain, true),  %% works out at 3 dc
+            ExpectedFeeSize = blockchain_txn_payment_v1:calculate_fee(Tx, Chain),  %% works out at 3 dc
             Tx1 = Tx#blockchain_txn_payment_v1_pb{fee=ExpectedFeeSize},
             SignedTx = blockchain_txn_payment_v1:sign(Tx1, SigFun),
             {ok, B} = test_utils:create_block(ConsensusMembers, [SignedTx]),
@@ -936,7 +940,7 @@ fees_since_test(Config) ->
 
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
-    ?assertEqual({ok, 300}, blockchain:fees_since(2, Chain)),
+    ?assertEqual({ok, 100*10}, blockchain:fees_since(2, Chain)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
