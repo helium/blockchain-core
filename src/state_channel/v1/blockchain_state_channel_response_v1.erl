@@ -23,8 +23,10 @@
 -type response() :: #blockchain_state_channel_response_v1_pb{}.
 -export_type([response/0]).
 
-new(Accepted) ->
-    #blockchain_state_channel_response_v1_pb{accepted=Accepted}.
+new(Accepted) when is_boolean(Accepted) ->
+    #blockchain_state_channel_response_v1_pb{accepted=Accepted};
+new(ActiveSC) ->
+    #blockchain_state_channel_response_v1_pb{active_sc=ActiveSC}.
 
 new(true=Accepted, Downlink) ->
     %% accepted false with a downlink is meaningless..
