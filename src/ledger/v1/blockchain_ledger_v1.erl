@@ -3500,7 +3500,7 @@ debit_dc_test() ->
 
     %% debit dc, note: no dc entry here still
     Ledger2 = new_context(Ledger),
-    ok = ?MODULE:debit_dc(<<"address">>, 1, Ledger2),
+    ok = ?MODULE:debit_dc(<<"address">>, 1, 0, Ledger2),
     ok = commit_context(Ledger2),
 
     %% blank dc entry should pop up here

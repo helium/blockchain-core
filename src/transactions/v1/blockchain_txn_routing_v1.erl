@@ -525,7 +525,7 @@ new_test() ->
         update = {update_routers, #update_routers_pb{router_addresses=[?KEY1]}},
         fee=?LEGACY_TXN_FEE,
         staking_fee=?LEGACY_STAKING_FEE,
-        nonce = 0,
+        nonce = 1,
         signature= <<>>
     },
     ?assertEqual(Tx, update_router_addresses(0, <<"owner">>, [?KEY1], 1)).
@@ -552,7 +552,7 @@ addresses_test() ->
 
 nonce_test() ->
     Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
-    ?assertEqual(0, nonce(Tx)).
+    ?assertEqual(1, nonce(Tx)).
 
 signature_test() ->
     Tx = update_router_addresses(0, <<"owner">>, [?KEY1], 1),
