@@ -263,6 +263,7 @@ full_test(Config) ->
     end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+
     ok.
 
 dup_packets_test(Config) ->

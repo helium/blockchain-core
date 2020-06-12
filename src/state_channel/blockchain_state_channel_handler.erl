@@ -73,7 +73,8 @@ init(client, _Conn, _) ->
 init(server, _Conn, _) ->
     %% TODO: Fix me
     ActiveSCID = blockchain_state_channels_server:active_sc_id(),
-    {ok, #state{}, blockchain_state_channel_response_v1:new(ActiveSCID)}.
+    Resp = blockchain_state_channel_response_v1:new(ActiveSCID),
+    {ok, #state{}, blockchain_state_channel_message_v1:encode(Resp)}.
 
 handle_data(client, Data, State) ->
     %% TODO...
