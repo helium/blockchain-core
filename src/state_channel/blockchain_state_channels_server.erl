@@ -461,10 +461,10 @@ delete_closed_sc(DB, ID) ->
 convert_to_state_channels(LedgerSCs, Chain) ->
     {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
-                     Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
-                     ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
+                     Owner = blockchain_ledger_state_channel_v2:owner(LedgerStateChannel),
+                     ExpireAt = blockchain_ledger_state_channel_v2:expire_at_block(LedgerStateChannel),
                      SC0 = blockchain_state_channel_v1:new(ID, Owner, 0),
-                     Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
+                     Nonce = blockchain_ledger_state_channel_v2:nonce(LedgerStateChannel),
                      Filter = fun(T) -> blockchain_txn:type(T) == blockchain_txn_state_channel_open_v1 andalso
                                         blockchain_txn_state_channel_open_v1:id(T) == ID andalso
                                         blockchain_txn_state_channel_open_v1:nonce(T) == Nonce

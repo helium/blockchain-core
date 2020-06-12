@@ -2178,7 +2178,7 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
 
 -spec close_state_channel(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_state_channel_v1:state_channel(), ledger()) -> ok.
 close_state_channel(Owner, Closer, SC, Ledger) ->
-    ID = blockchain_state_channel_v1:id(SC),
+    ID = blockchain_state_channel_v2:id(SC),
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
     case ?MODULE:config(?sc_version, Ledger) of

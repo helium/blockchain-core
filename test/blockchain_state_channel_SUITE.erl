@@ -760,14 +760,14 @@ multi_owner_multi_sc_test(Config) ->
     4 = length(lists:usort([SC11, SC12, SC21, SC22])),
 
     %% Check that the state channels being created are legit
-    ?assertEqual(ID11, blockchain_ledger_state_channel_v1:id(SC11)),
-    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC11)),
-    ?assertEqual(ID12, blockchain_ledger_state_channel_v1:id(SC12)),
-    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC12)),
-    ?assertEqual(ID21, blockchain_ledger_state_channel_v1:id(SC21)),
-    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC21)),
-    ?assertEqual(ID22, blockchain_ledger_state_channel_v1:id(SC22)),
-    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC22)),
+    ?assertEqual(ID11, blockchain_ledger_state_channel_v2:id(SC11)),
+    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v2:owner(SC11)),
+    ?assertEqual(ID12, blockchain_ledger_state_channel_v2:id(SC12)),
+    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v2:owner(SC12)),
+    ?assertEqual(ID21, blockchain_ledger_state_channel_v2:id(SC21)),
+    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v2:owner(SC21)),
+    ?assertEqual(ID22, blockchain_ledger_state_channel_v2:id(SC22)),
+    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v2:owner(SC22)),
 
     %% Add 20 more blocks to get the state channel to expire
     FakeBlocks = 20,
@@ -1705,7 +1705,7 @@ create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
 create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin,0, Expiry, OUI, Nonce),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 0),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
 check_all_closed([]) ->
@@ -1721,8 +1721,8 @@ check_all_closed(IDs) ->
 check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID) ->
     RouterLedger = blockchain:ledger(RouterChain),
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
-    C1 = ID == blockchain_ledger_state_channel_v1:id(SC),
-    C2 = RouterPubkeyBin == blockchain_ledger_state_channel_v1:owner(SC),
+    C1 = ID == blockchain_ledger_state_channel_v2:id(SC),
+    C2 = RouterPubkeyBin == blockchain_ledger_state_channel_v2:owner(SC),
     C1 andalso C2.
 
 add_block(RouterNode, RouterChain, ConsensusMembers, Txns) ->
