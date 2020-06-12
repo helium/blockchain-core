@@ -62,7 +62,7 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize) ->
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer= <<>>,
-       staking_fee=?LEGACY_STAKING_FEE,
+       staking_fee=0,
        fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
@@ -83,7 +83,7 @@ new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer) ->
        filter=Filter,
        requested_subnet_size=RequestedSubnetSize,
        payer=Payer,
-       staking_fee=?LEGACY_STAKING_FEE,
+       staking_fee=0,
        fee=?LEGACY_TXN_FEE,
        owner_signature= <<>>,
        payer_signature= <<>>
@@ -227,10 +227,9 @@ calculate_fee(Txn, Chain) ->
 
 -spec calculate_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Chain, false) ->
-    0;
+    ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Chain, true) ->
     ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -245,13 +244,12 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_oui(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    1;
+    0;
 calculate_staking_fee(Txn, _Chain, true) ->
     %% get total price of txn in USD and divide by DC price
     NumAddresses = length(?MODULE:addresses(Txn)),
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) + (NumAddresses * ?OUI_FEE_PER_ADDRESS),
-    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
-    FeeInDC.
+    trunc((TxnPriceUSD / ?DC_PRICE)).
 
 %%--------------------------------------------------------------------
 %% @doc

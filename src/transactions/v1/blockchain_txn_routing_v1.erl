@@ -94,7 +94,7 @@ request_subnet(OUI, Owner, SubnetSize, Nonce) ->
        owner=Owner,
        update={request_subnet, SubnetSize},
        fee=?LEGACY_TXN_FEE,
-       staking_fee=?LEGACY_STAKING_FEE,
+       staking_fee=0,  %% routing did not implement staking fee until txn fees, so has to default to zero
        nonce=Nonce,
        signature= <<>>
       }.
@@ -207,11 +207,10 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_routing(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    ?LEGACY_STAKING_FEE;
+    0;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=Txn, _Chain, true) ->
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)) * SubnetSize,
-    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
-    FeeInDC;
+    trunc((TxnPriceUSD / ?DC_PRICE));
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Chain, true) ->
     0.
 

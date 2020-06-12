@@ -55,7 +55,7 @@ new(OwnerAddress, GatewayAddress) ->
         owner=OwnerAddress,
         gateway=GatewayAddress,
         fee=?LEGACY_TXN_FEE,
-        staking_fee=?LEGACY_STAKING_FEE
+        staking_fee=0
     }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
@@ -64,7 +64,7 @@ new(OwnerAddress, GatewayAddress, Payer) ->
         owner=OwnerAddress,
         gateway=GatewayAddress,
         payer=Payer,
-        staking_fee=?LEGACY_STAKING_FEE,
+        staking_fee=0,
         fee=?LEGACY_TXN_FEE
     }.
 
@@ -174,12 +174,11 @@ calculate_staking_fee(Txn, Chain) ->
 
 -spec calculate_staking_fee(txn_add_gateway(), blockchain:blockchain(), boolean()) -> non_neg_integer().
 calculate_staking_fee(_Txn, _Chain, false) ->
-    ?LEGACY_STAKING_FEE;
+    0;
 calculate_staking_fee(Txn, _Chain, true) ->
     %%TODO - do staking keys need considered here ? I think not but lets confirm
     TxnPriceUSD = ?staking_fee(blockchain_txn:type(Txn)),
-    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
-    FeeInDC.
+    trunc((TxnPriceUSD / ?DC_PRICE)).
 
 
 %%--------------------------------------------------------------------

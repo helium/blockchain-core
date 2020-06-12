@@ -3,6 +3,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
+-include_lib("helium_proto/include/blockchain_txn_token_burn_v1_pb.hrl").
+-include_lib("helium_proto/include/blockchain_txn_payment_v1_pb.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -56,37 +58,37 @@
 %%--------------------------------------------------------------------
 all() ->
     [
-%%        basic_test,
-%%        reload_test,
-%%        restart_test,
+        basic_test,
+        reload_test,
+        restart_test,
         htlc_payee_redeem_test,
-        htlc_payer_redeem_test
+        htlc_payer_redeem_test,
 %%        poc_request_test,
-%%        bogus_coinbase_test,
-%%        bogus_coinbase_with_good_payment_test,
+        bogus_coinbase_test,
+        bogus_coinbase_with_good_payment_test,
 %%        export_test,
-%%        delayed_ledger_test,
-%%        fees_since_test,
-%%        security_token_test,
-%%        routing_test,
-%%        block_save_failed_test,
-%%        absorb_failed_test,
-%%        missing_last_block_test,
-%%        epoch_reward_test,
-%%        election_test,
-%%        election_v3_test,
-%%        chain_vars_test,
-%%        chain_vars_set_unset_test,
+        delayed_ledger_test,
+        fees_since_test,
+        security_token_test,
+        routing_test,
+        block_save_failed_test,
+        absorb_failed_test,
+        missing_last_block_test,
+        epoch_reward_test,
+        election_test,
+        election_v3_test,
+        chain_vars_test,
+        chain_vars_set_unset_test,
 %%        token_burn_test,
 %%        payer_test,
 %%        poc_sync_interval_test,
-%%        zero_payment_v1_test,
-%%        zero_amt_htlc_create_test,
-%%        negative_payment_v1_test,
-%%        negative_amt_htlc_create_test,
-%%        update_gateway_oui_test,
-%%        max_subnet_test,
-%%        replay_oui_test
+        zero_payment_v1_test,
+        zero_amt_htlc_create_test,
+        negative_payment_v1_test,
+        negative_amt_htlc_create_test,
+        update_gateway_oui_test,
+        max_subnet_test,
+        replay_oui_test
     ].
 
 %%--------------------------------------------------------------------
@@ -152,6 +154,7 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
     Sup = ?config(sup, Config),
+    meck:unload(),
     % Make sure blockchain saved on file = in memory
     case erlang:is_process_alive(Sup) of
         true ->
@@ -485,7 +488,7 @@ poc_request_test(Config) ->
     Balance = ?config(balance, Config),
 
     Ledger = blockchain:ledger(Chain),
-    Rate = 1000000,
+    Rate = 100000000,
     {Priv, _} = ?config(master_key, Config),
     Vars = #{token_burn_exchange_rate => Rate},
     VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
@@ -916,13 +919,16 @@ fees_since_test(Config) ->
 
     meck:new(blockchain_ledger_v1, [passthrough]),
     meck:expect(blockchain_ledger_v1, check_dc_balance, fun(_, _, _) -> ok end),
-    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, check_dc_or_hnt_balance, fun(_, _, _, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
 
     % Add 100 txns with 1 fee each
     lists:foreach(
         fun(X) ->
             Tx = blockchain_txn_payment_v1:new(Payer, Payee, 1, X),
-            SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
+            ExpectedFeeSize = blockchain_txn_payment_v1:calculate_fee(Tx, Chain, true),  %% works out at 3 dc
+            Tx1 = Tx#blockchain_txn_payment_v1_pb{fee=ExpectedFeeSize},
+            SignedTx = blockchain_txn_payment_v1:sign(Tx1, SigFun),
             {ok, B} = test_utils:create_block(ConsensusMembers, [SignedTx]),
             _ = blockchain_gossip_handler:add_block(B, Chain, self(), blockchain_swarm:swarm())
         end,
@@ -931,7 +937,7 @@ fees_since_test(Config) ->
 
     ?assertEqual({error, bad_height}, blockchain:fees_since(100000, Chain)),
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
-    ?assertEqual({ok, 100}, blockchain:fees_since(2, Chain)),
+    ?assertEqual({ok, 300}, blockchain:fees_since(2, Chain)),
     ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1).
 
@@ -980,6 +986,9 @@ routing_test(Config) ->
 
     meck:new(blockchain_txn_oui_v1, [no_link, passthrough]),
     meck:expect(blockchain_txn_oui_v1, is_valid, fun(_, _) -> ok end),
+    meck:expect(blockchain_ledger_v1, debit_fee, fun(_, _, _, _) -> ok end),
+
+%%    meck:expect(blockchain_txn_routing_v1, is_valid, fun(_, _) -> ok end),
 
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
@@ -1000,7 +1009,7 @@ routing_test(Config) ->
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
-    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 0, 1),
+    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
     _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:swarm()),
@@ -1035,31 +1044,31 @@ routing_test(Config) ->
 
     %% test updating with invalid filter
     Filter3 = <<"lolsdf">>,
-    OUITxn5 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter3, 0, 5),
+    OUITxn5 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter3, 5),
     SignedOUITxn5 = blockchain_txn_routing_v1:sign(OUITxn5, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
 
     Filter4 = crypto:strong_rand_bytes(1024*1024),
-    OUITxn6 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter4, 0, 5),
+    OUITxn6 = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 0, Filter4, 5),
     SignedOUITxn6 = blockchain_txn_routing_v1:sign(OUITxn6, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6]),
 
-    OUITxn6a = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 2, Filter, 0, 5),
+    OUITxn6a = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 2, Filter, 5),
     SignedOUITxn6a = blockchain_txn_routing_v1:sign(OUITxn6a, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6a]),
 
-    OUITxn6b = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 5, Filter, 0, 5),
+    OUITxn6b = blockchain_txn_routing_v1:update_xor(OUI1, Payer, 5, Filter, 5),
     SignedOUITxn6b = blockchain_txn_routing_v1:sign(OUITxn6b, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn6b]),
 
     %% test invalid subnet_size
-    OUITxn7 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 31, 0, 5),
+    OUITxn7 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 31, 5),
     SignedOUITxn7 = blockchain_txn_routing_v1:sign(OUITxn7, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn7]),
-    OUITxn8 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 2, 0, 5),
+    OUITxn8 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 2, 5),
     SignedOUITxn8 = blockchain_txn_routing_v1:sign(OUITxn8, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn8]),
-    OUITxn9 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 4294967296, 0, 5),
+    OUITxn9 = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 4294967296, 5),
     SignedOUITxn9 = blockchain_txn_routing_v1:sign(OUITxn9, SigFun),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn9]),
 
@@ -1140,7 +1149,7 @@ max_subnet_test(Config) ->
     OUI1 = 1,
     Addresses0 = [libp2p_swarm:pubkey_bin(Swarm)],
     {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
-    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8, 0, 0),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn0, SigFun),
 
     ?assertEqual({error, not_found}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
@@ -1156,7 +1165,7 @@ max_subnet_test(Config) ->
 
     #{public := NewPubKey, secret := _PrivKey} = libp2p_crypto:generate_keys(ed25519),
     Addresses1 = [libp2p_crypto:pubkey_to_bin(NewPubKey)],
-    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 0, 1),
+    OUITxn2 = blockchain_txn_routing_v1:update_router_addresses(OUI1, Payer, Addresses1, 1),
     SignedOUITxn2 = blockchain_txn_routing_v1:sign(OUITxn2, SigFun),
     {ok, Block1} = test_utils:create_block(ConsensusMembers, [SignedOUITxn2]),
     _ = blockchain_gossip_handler:add_block(Block1, Chain, self(), blockchain_swarm:swarm()),
@@ -1168,14 +1177,14 @@ max_subnet_test(Config) ->
     ?assertEqual({ok, Routing1}, blockchain_ledger_v1:find_routing(OUI1, Ledger)),
 
     RoutingTxns = lists:foldl(fun(I, Acc) ->
-                                      T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, I),
+                                      T = blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, I),
                                       ST = blockchain_txn_routing_v1:sign(T, SigFun),
                                       [ST | Acc]
                               end,
                               [],
                               lists:seq(2, 20)),
 
-    RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 0, 21), SigFun),
+    RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 21), SigFun),
 
     {error, {invalid_txns, [RoutingTxn21]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
 
@@ -2097,7 +2106,7 @@ zero_amt_htlc_create_test(Config) ->
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     Amount = 0,
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
@@ -2120,7 +2129,7 @@ negative_amt_htlc_create_test(Config) ->
     % Create a Hashlock
     Hashlock = crypto:hash(sha256, <<"sharkfed">>),
     Amount = -100,
-    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount),
+    CreateTx = blockchain_txn_create_htlc_v1:new(Payer, Payee, HTLCAddress, Hashlock, 3, Amount, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
