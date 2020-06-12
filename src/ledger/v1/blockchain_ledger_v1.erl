@@ -1135,8 +1135,10 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
                                       case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
                                           {ok, Witness} ->
                                               blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
-                                          {error, _} ->
-                                              GW
+                                          {error, Reason} ->
+                                              lager:warning("exiting trying to add witness",
+                                                            [Reason]),
+                                              erlang:error({add_gateway_error, Reason})
                                       end
                               end, GW0, WitnessInfo),
             AGwsCF = active_gateways_cf(Ledger),

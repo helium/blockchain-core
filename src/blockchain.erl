@@ -1943,7 +1943,12 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                         lists:foreach(fun(Hash) ->
                                               {ok, Block} = get_block(Hash, Blockchain),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
-                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
+                                              case application:get_env(blockchain, force_resync_validation, false) of
+                                                  true ->
+                                                      ok = blockchain_txn:absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block));
+                                                  false ->
+                                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
+                                              end,
                                               run_absorb_block_hooks(true, Hash, Blockchain)
                                       end, HashChain)
                     after
