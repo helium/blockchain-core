@@ -1421,7 +1421,20 @@ maybe_gc_scs(Ledger) ->
                                            false ->
                                                Acc;
                                            true ->
-                                               [KeyHash | Acc]
+                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                   disputed ->
+                                                       %% in a dispute, owner forfeits the overcommit
+                                                       %% so we are not going to refund anything
+                                                       [KeyHash | Acc];
+                                                   closed ->
+                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                       Owner = blockchain_state_channel_v1:owner(SC0),
+                                                       UsedDC = blockchain_state_channel_v1:total_dcs(SC0),
+                                                       ReservedDC = blockchain_state_channel_v1:amount(SC0),
+                                                       Credit = max(0, ReservedDC - UsedDC),
+                                                       ok = credit_dc(Owner, Credit, Ledger),
+                                                       [KeyHash | Acc]
+                                               end
                                        end
                                end, []),
                     ok = lists:foreach(fun(KeyHash) ->
@@ -2178,19 +2191,12 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
 
 -spec close_state_channel(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_state_channel_v1:state_channel(), ledger()) -> ok.
 close_state_channel(Owner, Closer, SC, Ledger) ->
-    ID = blockchain_state_channel_v2:id(SC),
+    ID = blockchain_ledger_state_channel_v2:id(SC),
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
     case ?MODULE:config(?sc_version, Ledger) of
         {ok, 2} ->
             {ok, SCE} = find_state_channel(ID, Owner, Ledger),
-            UsedDC = blockchain_state_channel_v1:total_dcs(SC),
-            Key = state_channel_key(ID, Owner),
-            ReservedDC = blockchain_state_channel_v1:amount(SC),
-            %% we actually don't want to do this here as the close may be disputed
-            %% we should instead do this in GC
-            Credit = max(0, ReservedDC - UsedDC),
-            ok = credit_dc(Owner, Credit, Ledger),
             SCE1 = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, SCE),
             Bin = blockchain_ledger_state_channel_v2:serialize(SCE1),
             cache_put(Ledger, SCsCF, Key, Bin);
