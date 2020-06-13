@@ -261,7 +261,7 @@ calculate_staking_fee(Txn, Ledger, true) ->
     OIUPerAddress = blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger),
     NumAddresses = length(?MODULE:addresses(Txn)),
     TxnPriceUSD = OUIStakingFee + (NumAddresses * OIUPerAddress),
-    trunc((TxnPriceUSD / ?DC_PRICE)).
+    trunc(TxnPriceUSD).
 
 %%--------------------------------------------------------------------
 %% @doc

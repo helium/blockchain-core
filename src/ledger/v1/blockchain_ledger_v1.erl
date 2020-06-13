@@ -1826,6 +1826,9 @@ debit_fee(_Address, 0,_Ledger, _UseImplicitBurn) ->
     ok;
 debit_fee(Address, Fee, Ledger, UseImplicitBurn) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, dc_entry_not_found} when UseImplicitBurn == true ->
+            {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
