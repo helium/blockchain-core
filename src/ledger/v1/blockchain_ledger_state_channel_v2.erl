@@ -131,7 +131,7 @@ close_proposal(Closer, SC, SCEntry) ->
             end;
         dispute ->
             %% already marked as dispute, just keep it that way
-            SCEntry#ledger_state_channel_v2{close_state=dispute}
+            SCEntry
     end.
 
 closer(SC) ->
@@ -206,5 +206,17 @@ amount_test() ->
     SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
     ?assertEqual(10, amount(SC)),
     ?assertEqual(20, amount(amount(20, SC))).
+
+maybe_dispute_test() ->
+    SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"key1">>, 100),
+    SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
+    Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
+    Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
+    Closer = <<"closer">>,
+    ?assertEqual(closed, maybe_dispute(Closer, Closer, SC0, SC0)),
+    ?assertEqual(closed, maybe_dispute(Closer, Closer, Nonce8, Nonce4)),
+    ?assertEqual({dispute, Closer, Nonce8}, maybe_dispute(Closer, Closer, Nonce4, Nonce8)),
+    ?assertEqual(closed, maybe_dispute(Closer, <<"other">>, Nonce4, Nonce8)),
+    ?assertEqual({dispute, <<"other">>, Nonce8}, maybe_dispute(Closer, <<"other">>, Nonce8, Nonce4)).
 
 -endif.
