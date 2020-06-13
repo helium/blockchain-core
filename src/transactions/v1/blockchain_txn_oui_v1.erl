@@ -236,10 +236,19 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
-                                     owner_signature = <<0:512>>,
-                                     payer_signature = <<0:512>>}).
+calculate_fee(Txn, Ledger, true) ->
+    Fee = case Txn#blockchain_txn_oui_v1_pb.payer of
+        <<>> ->
+            %% no payer signature if there's no payer
+            ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
+                                              owner_signature = <<0:512>>,
+                                              payer_signature = <<>>});
+        _ ->
+            ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
+                                              owner_signature = <<0:512>>,
+                                              payer_signature = <<0:512>>})
+    end,
+    Fee * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -259,8 +268,7 @@ calculate_staking_fee(Txn, Ledger, true) ->
     %% get total price of txn in USD and divide by DC price
     OUIStakingFee = blockchain_ledger_v1:staking_fee_txn_oui_v1(Ledger),
     OIUPerAddress = blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger),
-    NumAddresses = length(?MODULE:addresses(Txn)),
-    TxnPriceUSD = OUIStakingFee + (NumAddresses * OIUPerAddress),
+    TxnPriceUSD = OUIStakingFee + (requested_subnet_size(Txn) * OIUPerAddress),
     trunc(TxnPriceUSD).
 
 %%--------------------------------------------------------------------

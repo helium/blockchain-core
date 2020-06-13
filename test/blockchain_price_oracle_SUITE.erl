@@ -446,6 +446,13 @@ txn_fees(Config) ->
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn2, SigFun),
     ct:pal("Staking fee ~p, txn fee ~p", [blockchain_txn_oui_v1:staking_fee(OUITxn2), blockchain_txn_oui_v1:fee(OUITxn2)]),
 
+
+    %% insufficent txn fee and staking fee
+    ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [blockchain_txn_oui_v1:sign(OUITxn0, SigFun)])),
+    %% insufficent staking fee
+    ?assertMatch({error, {invalid_txns, _}}, test_utils:create_block(ConsensusMembers, [blockchain_txn_oui_v1:sign(OUITxn1, SigFun)])),
+
+    %% got all the fees, so this should work
     {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
 
     blockchain:add_block(Block0, Chain),
