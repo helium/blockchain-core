@@ -136,6 +136,7 @@ init([]) ->
                 Chain ->
                     ok = blockchain_event:add_handler(self()),
                     {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+                    ets:insert(?MODULE, {start_height, Height}),
                     {ok, #state{height = Height, cache = Cache}}
             catch _:_ ->
                       erlang:send_after(500, self(), chain_init),
@@ -188,6 +189,7 @@ handle_info(chain_init, State) ->
         Chain ->
             ok = blockchain_event:add_handler(self()),
             {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(Chain)),
+            ets:insert(?MODULE, {start_height, Height}),
             {noreply, State#state{height = Height}}
     catch _:_ ->
               erlang:send_after(500, self(), chain_init),
@@ -209,12 +211,13 @@ code_change(_OldVsn, State, _Extra) ->
 
 cache_get(Addr, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
     case ets:lookup(?MODULE, curr_height) of
         [{_, CurrHeight}] ->
             case ets:lookup(?MODULE, Addr) of
                 [] -> {error, not_found};
                 [{_, Updates}] ->
-                    case get_update(Height, CurrHeight, Updates) of
+                    case get_update(Height, CurrHeight, StartHeight, Updates) of
                         none -> {error, not_found};
                         Update ->
                             case ets:lookup(?MODULE, {Addr, Update}) of
@@ -305,12 +308,16 @@ add_in_order(New, Heights) ->
     Top = hd(Heights1),
     lists:filter(fun(X) -> X > Top - 76 end, Heights1).
 
-get_update(_Height, _CurrHeight, []) ->
+get_update(_Height, _CurrHeight, _StartHeight, []) ->
     none;
-get_update(Height, CurrHeight, [H | T]) ->
+get_update(Height, CurrHeight, StartHeight, [H | T]) ->
     case Height >= H of
-        true ->
+        true when H > (StartHeight + 1) ->
             H;
+        %% it's not safe to use anything earlier than the starting
+        %% height, because the index may be incomplete.
+        true ->
+            none;
         false ->
-            get_update(Height, CurrHeight, T)
+            get_update(Height, CurrHeight, StartHeight, T)
     end.
