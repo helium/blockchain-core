@@ -14,6 +14,7 @@
     start_link/1,
     nonce/1,
     packet/2,
+    offer/2,
     state_channels/0,
     active_sc_id/0
 ]).
@@ -80,6 +81,25 @@ packet(Packet, HandlerPid) ->
                   end
           end),
     ok.
+
+-spec offer(blockchain_state_channel_offer_v1:offer(), pid()) -> ok.
+offer(Offer, HandlerPid) ->
+    spawn(fun() ->
+                  case blockchain_state_channel_offer_v1:validate(Offer) of
+                      {error, _Reason} ->
+                          lager:warning("offer failed to validate ~p ~p", [_Reason, Offer]);
+                      true ->
+                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+                          case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+                              ok ->
+                                  gen_server:cast(?SERVER, {offer, Offer});
+                              {error, Why} ->
+                                  lager:error("handle_offer failed: ~p", [Why])
+                          end
+                  end
+          end),
+    ok.
+
 
 -spec state_channels() -> state_channels().
 state_channels() ->
@@ -171,6 +191,13 @@ handle_cast({packet, SCPacket},
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
             {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
+handle_cast({offer, SCOffer}, #state{active_sc_id=undefined}=State) ->
+    lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
+    {noreply, State};
+handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID}=State) ->
+    %% TODO: handle offer
+    lager:warning("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.

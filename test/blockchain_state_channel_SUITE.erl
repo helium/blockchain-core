@@ -2,6 +2,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("blockchain_ct_utils.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
@@ -220,8 +221,8 @@ full_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -230,8 +231,8 @@ full_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -247,7 +248,8 @@ full_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0, Payload1]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -263,6 +265,9 @@ full_test(Config) ->
     end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+
+    %% XXX: Make it intentionally fail for testing
+    ok = RouterLedger,
 
     ok.
 
@@ -1786,3 +1791,4 @@ debug(Node) ->
     A = ct_rpc:call(Node, blockchain_state_channels_server, active_sc_id, []),
     ct:pal("active: ~p", [A]),
     {P, S, A}.
+

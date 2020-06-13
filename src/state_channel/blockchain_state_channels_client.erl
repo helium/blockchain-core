@@ -133,7 +133,8 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
                                             {ok, NewStream} ->
                                                 unlink(NewStream),
                                                 erlang:monitor(process, NewStream),
-                                                ok = send_packet(Packet, Swarm, NewStream, Region),
+                                                ok = send_offer(Packet, Swarm, NewStream, Region),
+                                                %% ok = send_packet(Packet, Swarm, NewStream, Region),
                                                 add_stream(Router, NewStream, State)
                                         end;
                                     Stream ->
@@ -160,6 +161,17 @@ send_packet(Packet, Swarm, Stream, Region) ->
     PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
+
+-spec send_offer(Packet :: blockchain_helium_packet_v1:packet(),
+                 Swarm :: pid(),
+                 Stream :: pid(),
+                 Region :: atom()  ) -> ok.
+send_offer(Packet, Swarm, Stream, Region) ->
+    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    OfferMsg0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubkeyBin, Region),
+    OfferMsg1 = blockchain_state_channel_offer_v1:sign(OfferMsg0, SigFun),
+    lager:info("OfferMsg1: ~p", [OfferMsg1]),
+    blockchain_state_channel_handler:send_offer(Stream, OfferMsg1).
 
 -spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
 find_stream(OUI, #state{streams=Streams}) ->
@@ -200,7 +212,8 @@ send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
                                                     {ok, NewStream} ->
                                                         unlink(NewStream),
                                                         erlang:monitor(process, NewStream),
-                                                        ok = send_packet(Packet, Swarm, NewStream, Region),
+                                                        ok = send_offer(Packet, Swarm, NewStream, Region),
+                                                        %% ok = send_packet(Packet, Swarm, NewStream, Region),
                                                         {done, add_stream(OUI, NewStream, State)}
                                                 end
                                         end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
