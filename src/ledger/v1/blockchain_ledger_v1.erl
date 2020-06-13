@@ -146,7 +146,6 @@
     txn_fees_active/1,
     staking_fee_txn_oui_v1/1,
     staking_fee_txn_oui_v1_per_address/1,
-    staking_fee_txn_routing_v1/1,
     staking_fee_txn_add_gateway_v1/1,
     staking_fee_txn_assert_location_v1/1,
     staking_keys/1,
@@ -1460,18 +1459,6 @@ staking_fee_txn_oui_v1(Ledger)->
 -spec staking_fee_txn_oui_v1_per_address(Ledger :: ledger()) -> non_neg_integer().
 staking_fee_txn_oui_v1_per_address(Ledger)->
     case blockchain:config(?staking_fee_txn_oui_v1_per_address, Ledger) of
-        {error, not_found} -> 0;
-        {ok, V} -> V
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc  get staking fee chain var value for routing
-%% or return default
-%% @end
-%%--------------------------------------------------------------------
--spec staking_fee_txn_routing_v1(Ledger :: ledger()) -> non_neg_integer().
-staking_fee_txn_routing_v1(Ledger)->
-    case blockchain:config(?staking_fee_txn_routing_v1, Ledger) of
         {error, not_found} -> 0;
         {ok, V} -> V
     end.

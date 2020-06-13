@@ -209,7 +209,7 @@ calculate_staking_fee(Txn, Chain) ->
 calculate_staking_fee(_Txn, _Ledger, false) ->
     0;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=_Txn, Ledger, true) ->
-    blockchain_ledger_v1:staking_fee_txn_routing_v1(Ledger) * SubnetSize;
+    blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger) * SubnetSize;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Chain, true) ->
     0.
 

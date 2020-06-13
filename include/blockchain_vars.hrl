@@ -314,12 +314,11 @@
 
 
 %% ------------------------------------------------------------------
-%% transaction fee vars
+%% transaction fee vars, denominated in DC
 -define(txn_fees, txn_fees).
 -define(staking_keys, staking_keys).
 -define(staking_fee_txn_oui_v1, staking_fee_txn_oui_v1).
 -define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
--define(staking_fee_txn_routing_v1, staking_fee_txn_routing_v1).
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
 -define(payment_txn_fee_multiplier, payment_txn_fee_multiplier).

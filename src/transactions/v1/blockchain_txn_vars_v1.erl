@@ -9,6 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
@@ -883,26 +884,22 @@ validate_var(?staking_keys, Value) ->
 %% TODO finalize max price for each below
 validate_var(?staking_fee_txn_oui_v1, Value) ->
     %% the staking fee price for an OUI, in DC
-    validate_int(Value, "staking_fee_txn_oui_v1", 0, 1000 * 100000, false);
+    validate_int(Value, "staking_fee_txn_oui_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?staking_fee_txn_oui_v1_per_address, Value) ->
-    %% the staking fee price for each OUI address
-    validate_int(Value, "staking_fee_txn_oui_v1_per_address", 0, 1000 * 100000, false);
-
-validate_var(?staking_fee_txn_routing_v1, Value) ->
-    %% the staking fee price for a routing txn
-    validate_int(Value, "staking_fee_txn_routing_v1", 0, 65536, false);
+    %% the staking fee price for each OUI address, in DC
+    validate_int(Value, "staking_fee_txn_oui_v1_per_address", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
-    %% the staking fee price for an add gateway txn
-    validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * 100000, false);
+    %% the staking fee price for an add gateway txn, in DC
+    validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?staking_fee_txn_assert_location_v1, Value) ->
-    %% the staking fee price for an assert location txn
-    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * 100000, false);
+    %% the staking fee price for an assert location txn, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
 
 validate_var(?payment_txn_fee_multiplier, Value) ->
-    %% a multiplier applied to a payment txn's txn fee
+    %% a multiplier applied to a payment txn's txn fee, in DC
     validate_int(Value, "payment_txn_fee_multiplier", 1, 65536, false);
 
 
