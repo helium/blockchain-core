@@ -1518,7 +1518,7 @@ staking_fee_txn_assert_location_v1(Ledger)->
 %%--------------------------------------------------------------------
 -spec dc_to_hnt(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
 dc_to_hnt(DCAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
-    DCInUSD = DCAmount * ?DC_PRICE,
+    DCInUSD = DCAmount * ?DC_TO_USD,
     %% need to put USD amount into 1/100_000_000th cents, same as oracle price
     {ok, trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)};
 dc_to_hnt(DCAmount, Ledger)->
@@ -1537,7 +1537,7 @@ dc_to_hnt(DCAmount, Ledger)->
 -spec hnt_to_dc(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
 hnt_to_dc(HNTAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
     HNTInUSD = ((HNTAmount / ?BONES_PER_HNT)  * OracleHNTPrice) / ?ORACLE_PRICE_SCALING_FACTOR,
-    {ok, ceil((HNTInUSD / ?DC_PRICE))};
+    {ok, ceil((HNTInUSD * ?USD_TO_DC))};
 hnt_to_dc(HNTAmount, Ledger)->
     case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->

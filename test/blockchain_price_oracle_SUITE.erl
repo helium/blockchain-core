@@ -392,10 +392,10 @@ txn_fees(Config) ->
       price_oracle_price_scan_delay => 0,
       price_oracle_price_scan_max => 50,
       txn_fees => true,
-      staking_fee_txn_oui_v1 => 100 * ?DC_TO_USD, %% $100?
-      staking_fee_txn_oui_v1_per_address => 100 * ?DC_TO_USD, %% $100
-      staking_fee_txn_add_gateway_v1 => 40 * ?DC_TO_USD, %% $40?
-      staking_fee_txn_assert_location_v1 => 10 * ?DC_TO_USD, %% $10?
+      staking_fee_txn_oui_v1 => 100 * ?USD_TO_DC, %% $100?
+      staking_fee_txn_oui_v1_per_address => 100 * ?USD_TO_DC, %% $100
+      staking_fee_txn_add_gateway_v1 => 40 * ?USD_TO_DC, %% $40?
+      staking_fee_txn_assert_location_v1 => 10 * ?USD_TO_DC, %% $10?
       payment_txn_fee_multiplier => 5000
     },
     Balance = 50000 * ?BONES_PER_HNT,

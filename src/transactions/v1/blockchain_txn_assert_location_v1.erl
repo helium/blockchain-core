@@ -184,7 +184,6 @@ fee(Txn) ->
     Txn#blockchain_txn_assert_location_v1_pb.fee.
 
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% Calculate the txn fee
@@ -199,8 +198,21 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0}).
+calculate_fee(Txn, Ledger, true) ->
+    Fee = case Txn#blockchain_txn_assert_location_v1_pb.payer of
+              Payer when Payer == undefined; Payer == <<>> ->
+                  %% no payer signature if there's no payer
+                  ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0,
+                                                               owner_signature= <<0:512>>,
+                                                               gateway_signature = <<0:512>>,
+                                                               payer_signature= <<>>});
+              _ ->
+                  ?fee(Txn#blockchain_txn_assert_location_v1_pb{fee=0, staking_fee=0,
+                                                               owner_signature= <<0:512>>,
+                                                               gateway_signature = <<0:512>>,
+                                                               payer_signature= <<0:512>>})
+          end,
+    Fee * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -217,9 +229,7 @@ calculate_staking_fee(Txn, Chain) ->
 calculate_staking_fee(_Txn, _Ledger, false) ->
     ?LEGACY_STAKING_FEE;
 calculate_staking_fee(_Txn, Ledger, true) ->
-    TxnPriceUSD = blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger),
-    FeeInDC = trunc((TxnPriceUSD / ?DC_PRICE)),
-    FeeInDC.
+    blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

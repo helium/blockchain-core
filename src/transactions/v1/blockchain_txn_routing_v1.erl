@@ -191,8 +191,8 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_routing(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0}).
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0}) * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -209,8 +209,7 @@ calculate_staking_fee(Txn, Chain) ->
 calculate_staking_fee(_Txn, _Ledger, false) ->
     0;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=_Txn, Ledger, true) ->
-    TxnPriceUSD = blockchain_ledger_v1:staking_fee_txn_routing_v1(Ledger) * SubnetSize,
-    trunc((TxnPriceUSD / ?DC_PRICE));
+    blockchain_ledger_v1:staking_fee_txn_routing_v1(Ledger) * SubnetSize;
 calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Chain, true) ->
     0.
 

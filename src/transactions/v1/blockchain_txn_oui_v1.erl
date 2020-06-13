@@ -238,7 +238,7 @@ calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn, Ledger, true) ->
     Fee = case Txn#blockchain_txn_oui_v1_pb.payer of
-        <<>> ->
+        Payer when Payer == undefined; Payer == <<>> ->
             %% no payer signature if there's no payer
             ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
                                               owner_signature = <<0:512>>,
