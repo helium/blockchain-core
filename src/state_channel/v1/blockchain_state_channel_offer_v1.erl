@@ -11,6 +11,7 @@
     devaddr/1,
     region/1,
     packet_hash/1,
+    payload_size/1,
     signature/1, sign/2,
     validate/1,
     encode/1, decode/1
@@ -37,6 +38,7 @@ from_packet(Packet, Hotspot, Region) ->
             #blockchain_state_channel_offer_v1_pb{
                devaddr=DevAddr,
                packet_hash=crypto:hash(sha256, term_to_binary(Packet)),
+               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
                signature = <<>>,
                region=Region
@@ -58,6 +60,10 @@ region(#blockchain_state_channel_offer_v1_pb{region=Region}) ->
 -spec packet_hash(offer()) -> atom().
 packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash=PacketHash}) ->
     PacketHash.
+
+-spec payload_size(offer()) -> pos_integer().
+payload_size(#blockchain_state_channel_offer_v1_pb{payload_size=PayloadSize}) ->
+    PayloadSize.
 
 -spec signature(offer()) -> binary().
 signature(#blockchain_state_channel_offer_v1_pb{signature=Signature}) ->
