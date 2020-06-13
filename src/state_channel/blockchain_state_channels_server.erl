@@ -196,22 +196,18 @@ handle_cast({packet, SCPacket},
 handle_cast({offer, SCOffer}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
     {noreply, State};
-handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID, chain=Chain, state_channels=SCs}=State) ->
+handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID, state_channels=SCs}=State) ->
     %% TODO: handle offer
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
-    Ledger = blockchain:ledger(Chain),
     DevAddr = blockchain_state_channel_offer_v1:devaddr(SCOffer),
     Region = blockchain_state_channel_offer_v1:region(SCOffer),
+    Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
     {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
-    {ok, Routes} = blockchain_ledger_v1:find_routing_via_devaddr(DevAddr, Ledger),
-    lager:info("DevAddr: ~p, Routes: ~p", [DevAddr, Routes]),
+    lager:info("DevAddr: ~p, Hotspot: ~p", [DevAddr, Hotspot]),
 
     %% XXX: Accepting all offers for now
-    NewState = lists:foldl(fun(Route, StateAcc) ->
-                                   %% XXX: Do not send the active sc as is, update balance and stuff...
-                                   send_to_route(ActiveSC, Route, Region, StateAcc)
-                           end, State, Routes),
+    NewState = send_to_client(ActiveSC, Hotspot, Region, State),
 
     {noreply, NewState};
 handle_cast(_Msg, State) ->
@@ -554,48 +550,40 @@ maybe_get_new_active(SCs) ->
             ID
     end.
 
--spec send_to_route(SC :: blockchain_state_channel_v1:state_channel(),
-                    Route :: blockchain_ledger_routing_v1:routing(),
-                    Region :: atom(),
-                    State :: state()) -> state().
-send_to_route(SC, Route, Region, State=#state{swarm=Swarm}) ->
-    OUI = blockchain_ledger_routing_v1:oui(Route),
-    case find_stream(OUI, State) of
+-spec find_stream(Hotspot :: libp2p_crypto:pubkey_bin(), State :: state()) -> undefined | pid().
+find_stream(Hotspot, #state{streams=Streams}) ->
+    maps:get(Hotspot, Streams, undefined).
+
+-spec add_stream(Hotspot :: libp2p_crypto:pubkey_bin(), Stream :: pid(), State :: state()) -> state().
+add_stream(Hotspot, Stream, #state{streams=Streams}=State) ->
+    State#state{streams=maps:put(Hotspot, Stream, Streams)}.
+
+-spec send_to_client(SC :: blockchain_state_channel_v1:state_channel(),
+                     Hotspot :: libp2p_crypto:pubkey_bin(),
+                     Region :: atom(),
+                     State :: state()) -> state().
+send_to_client(SC, Hotspot, Region, State=#state{swarm=Swarm}) ->
+    case find_stream(Hotspot, State) of
         undefined ->
-            %% Do not have a stream open for this oui
+            %% Do not have a stream open for this hotspot
             %% Create one and add to state
-            {_, NewState} = lists:foldl(fun(_PubkeyBin, {done, StateAcc}) ->
-                                                %% was already able to send to one of this OUI's routers
-                                                {done, StateAcc};
-                                           (PubkeyBin, {not_done, StateAcc}) ->
-                                                StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                                                case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
-                                                    {error, _Reason} ->
-                                                        lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
-                                                        {not_done, StateAcc};
-                                                    {ok, NewStream} ->
-                                                        unlink(NewStream),
-                                                        erlang:monitor(process, NewStream),
-                                                        ok = send_purchase(SC, Swarm, NewStream, Region),
-                                                        {done, add_stream(OUI, NewStream, State)}
-                                                end
-                                        end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
+            StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(Hotspot),
+
+            {_, NewState} = case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
+                                {error, _Reason} ->
+                                    lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                    {not_done, State};
+                                {ok, NewStream} ->
+                                    unlink(NewStream),
+                                    erlang:monitor(process, NewStream),
+                                    ok = send_purchase(SC, Swarm, NewStream, Region),
+                                    {done, add_stream(Hotspot, NewStream, State)}
+                            end,
             NewState;
         Stream ->
             ok = send_purchase(SC, Swarm, Stream, Region),
             State
     end.
-
-
-%% TODO: put this in sc utils since it's common between sc server and client
--spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), Stream :: pid(), State :: state()) -> state().
-add_stream(OUI, Stream, #state{streams=Streams}=State) ->
-    State#state{streams=maps:put(OUI, Stream, Streams)}.
-
-%% TODO: put this in sc utils since it's common between sc server and client
--spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
-find_stream(OUI, #state{streams=Streams}) ->
-    maps:get(OUI, Streams, undefined).
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
                     Swarm :: pid(),
