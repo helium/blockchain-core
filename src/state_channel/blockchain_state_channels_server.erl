@@ -47,12 +47,14 @@
     owner = undefined :: {libp2p_crypto:pubkey_bin(), function()} | undefined,
     state_channels = #{} :: state_channels(),
     active_sc_id = undefined :: undefined | blockchain_state_channel_v1:id(),
-    sc_packet_handler = undefined :: undefined | atom()
+    sc_packet_handler = undefined :: undefined | atom(),
+    streams = #{} :: streams()
 }).
 
 -type state() :: #state{}.
 -type state_channels() ::  #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
                                                                   skewed:skewed()}}.
+-type streams() :: #{non_neg_integer() => pid()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -194,10 +196,24 @@ handle_cast({packet, SCPacket},
 handle_cast({offer, SCOffer}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
     {noreply, State};
-handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID}=State) ->
+handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID, chain=Chain, state_channels=SCs}=State) ->
     %% TODO: handle offer
-    lager:warning("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
-    {noreply, State};
+    lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
+
+    Ledger = blockchain:ledger(Chain),
+    DevAddr = blockchain_state_channel_offer_v1:devaddr(SCOffer),
+    Region = blockchain_state_channel_offer_v1:region(SCOffer),
+    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    {ok, Routes} = blockchain_ledger_v1:find_routing_via_devaddr(DevAddr, Ledger),
+    lager:info("DevAddr: ~p, Routes: ~p", [DevAddr, Routes]),
+
+    %% XXX: Accepting all offers for now
+    NewState = lists:foldl(fun(Route, StateAcc) ->
+                                   %% XXX: Do not send the active sc as is, update balance and stuff...
+                                   send_to_route(ActiveSC, Route, Region, StateAcc)
+                           end, State, Routes),
+
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -239,6 +255,11 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                end,
 
     {noreply, NewState};
+handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
+    FilteredStreams = maps:filter(fun(_Name, Stream) ->
+                                          Stream /= Pid
+                                  end, Streams),
+    {noreply, State#state{streams=FilteredStreams}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -532,6 +553,60 @@ maybe_get_new_active(SCs) ->
             {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
             ID
     end.
+
+-spec send_to_route(SC :: blockchain_state_channel_v1:state_channel(),
+                    Route :: blockchain_ledger_routing_v1:routing(),
+                    Region :: atom(),
+                    State :: state()) -> state().
+send_to_route(SC, Route, Region, State=#state{swarm=Swarm}) ->
+    OUI = blockchain_ledger_routing_v1:oui(Route),
+    case find_stream(OUI, State) of
+        undefined ->
+            %% Do not have a stream open for this oui
+            %% Create one and add to state
+            {_, NewState} = lists:foldl(fun(_PubkeyBin, {done, StateAcc}) ->
+                                                %% was already able to send to one of this OUI's routers
+                                                {done, StateAcc};
+                                           (PubkeyBin, {not_done, StateAcc}) ->
+                                                StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                                case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
+                                                    {error, _Reason} ->
+                                                        lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                                        {not_done, StateAcc};
+                                                    {ok, NewStream} ->
+                                                        unlink(NewStream),
+                                                        erlang:monitor(process, NewStream),
+                                                        ok = send_purchase(SC, Swarm, NewStream, Region),
+                                                        {done, add_stream(OUI, NewStream, State)}
+                                                end
+                                        end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
+            NewState;
+        Stream ->
+            ok = send_purchase(SC, Swarm, Stream, Region),
+            State
+    end.
+
+
+%% TODO: put this in sc utils since it's common between sc server and client
+-spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), Stream :: pid(), State :: state()) -> state().
+add_stream(OUI, Stream, #state{streams=Streams}=State) ->
+    State#state{streams=maps:put(OUI, Stream, Streams)}.
+
+%% TODO: put this in sc utils since it's common between sc server and client
+-spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
+find_stream(OUI, #state{streams=Streams}) ->
+    maps:get(OUI, Streams, undefined).
+
+-spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
+                    Swarm :: pid(),
+                    Stream :: pid(),
+                    Region :: atom()) -> ok.
+send_purchase(SC, Swarm, Stream, Region) ->
+    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    PurchaseMsg0 = blockchain_state_channel_purchase_v1:new(SC, PubkeyBin, Region),
+    PurchaseMsg1 = blockchain_state_channel_purchase_v1:sign(PurchaseMsg0, SigFun),
+    lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg1, Stream]),
+    blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

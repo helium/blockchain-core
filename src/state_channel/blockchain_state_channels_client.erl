@@ -14,7 +14,8 @@
          start_link/1,
          packet/3,
          state/0,
-         response/1
+         response/1,
+         purchase/1
         ]).
 
 %% ------------------------------------------------------------------
@@ -62,6 +63,15 @@ response(Resp) ->
             ok;
         Mod when is_atom(Mod) ->
             Mod:handle_response(Resp)
+    end.
+
+-spec purchase(blockchain_state_channel_purchase_v1:purchase()) -> any().
+purchase(Purchase) ->
+    case application:get_env(blockchain, sc_client_handler, undefined) of
+        undefined ->
+            ok;
+        Mod when is_atom(Mod) ->
+            Mod:handle_purchase(Purchase)
     end.
 
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.

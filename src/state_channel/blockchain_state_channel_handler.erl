@@ -17,6 +17,7 @@
     dial/3,
     send_packet/2,
     send_offer/2,
+    send_purchase/2,
     send_response/2
 ]).
 
@@ -60,6 +61,12 @@ send_offer(Pid, Offer) ->
     Pid ! {send_offer, Offer},
     ok.
 
+-spec send_purchase(pid(), blockchain_state_channel_purchase_v1:purchase()) -> ok.
+send_purchase(Pid, Purchase) ->
+    lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
+    Pid ! {send_purchase, Purchase},
+    ok.
+
 -spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
 send_response(Pid, Resp) ->
     Pid ! {send_response, Resp},
@@ -80,8 +87,10 @@ init(server, _Conn, _) ->
     {ok, #state{}, blockchain_state_channel_message_v1:encode(Resp)}.
 
 handle_data(client, Data, State) ->
-    %% TODO...
     case blockchain_state_channel_message_v1:decode(Data) of
+        {purchase, Purchase} ->
+            lager:info("sc_handler client got purchase: ~p", [Purchase]),
+            blockchain_state_channels_client:purchase(Purchase);
         {response, Resp} ->
             lager:info("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
@@ -103,6 +112,9 @@ handle_info(client, {send_offer, Offer}, State) ->
     {noreply, State, Data};
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
+    {noreply, State, Data};
+handle_info(server, {send_purchase, Purchase}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Purchase),
     {noreply, State, Data};
 handle_info(server, {send_response, Resp}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Resp),
