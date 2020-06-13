@@ -22,8 +22,8 @@
     gateway_signature/1,
     payer/1,
     payer_signature/1,
-    staking_fee/1,
-    fee/1,
+    staking_fee/1, staking_fee/2,
+    fee/1, fee/2,
     sign/2,
     sign_request/2,
     sign_payer/2,
@@ -135,6 +135,10 @@ payer_signature(Txn) ->
 staking_fee(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.staking_fee.
 
+-spec staking_fee(txn_add_gateway(), non_neg_integer()) -> txn_add_gateway().
+staking_fee(Txn, Fee) ->
+    Txn#blockchain_txn_add_gateway_v1_pb{staking_fee=Fee}.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -142,6 +146,10 @@ staking_fee(Txn) ->
 -spec fee(txn_add_gateway()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_add_gateway_v1_pb.fee.
+
+-spec fee(txn_add_gateway(), non_neg_integer()) -> txn_add_gateway().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_add_gateway_v1_pb{fee=Fee}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -158,8 +166,10 @@ calculate_fee(Txn, Chain) ->
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0}).
-
+    ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
+                                              owner_signature = <<0:512>>,
+                                              gateway_signature = <<0:512>>,
+                                              payer_signature = <<0:512>>}).
 
 %%--------------------------------------------------------------------
 %% @doc

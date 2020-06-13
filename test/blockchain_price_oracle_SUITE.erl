@@ -17,7 +17,8 @@
     submit_bad_public_key/1,
     double_submit_prices/1,
     txn_too_high/1,
-    replay_txn/1
+    replay_txn/1,
+    txn_fees/1
 ]).
 
 all() -> [
@@ -27,7 +28,8 @@ all() -> [
     submit_bad_public_key,
     double_submit_prices,
     txn_too_high,
-    replay_txn
+    replay_txn,
+    txn_fees
 ].
 
 %%--------------------------------------------------------------------
@@ -373,10 +375,86 @@ replay_txn(Config) ->
     ok.
 
 
+txn_fees(Config) ->
+    BaseDir = ?config(base_dir, Config),
+    SimDir = ?config(sim_dir, Config),
+    ct:pal("base dir: ~p", [BaseDir]),
+    ct:pal("base SIM dir: ~p", [SimDir]),
+
+    {ok, OracleKeys} = make_oracles(3),
+    {ok, EncodedOracleKeys} = make_encoded_oracle_keys(OracleKeys),
+
+    ExtraVars = #{
+      price_oracle_public_keys => EncodedOracleKeys,
+      price_oracle_refresh_interval => 25,
+      price_oracle_height_delta => 10,
+      price_oracle_price_scan_delay => 0,
+      price_oracle_price_scan_max => 50,
+      txn_fees => true,
+      staking_fee_txn_oui_v1 => 100 * 100000, %% $100?
+      staking_fee_txn_oui_v1_per_address => 100 * 100000, %% $100
+      staking_fee_txn_add_gateway_v1 => 40 * 100000, %% $40?
+      staking_fee_txn_assert_location_v1 => 10 * 100000, %% $10?
+      payment_txn_fee_multiplier => 5000
+    },
+    Balance = 5000,
+    BlocksN = 50,
+    {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
+            test_utils:init_chain(Balance, {PrivKey, PubKey}, true, ExtraVars),
+    Chain = blockchain_worker:blockchain(),
+
+    _Blocks0 = [
+               begin
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain),
+                Block
+               end || _ <- lists:seq(1, BlocksN) ],
+
+
+    {ExpectedPrices, Txns} = lists:unzip(make_oracle_txns(1, OracleKeys, 50)),
+
+    {ok, PriceBlock} = test_utils:create_block(ConsensusMembers, Txns),
+    blockchain:add_block(PriceBlock, Chain),
+
+    _Blocks1 = [
+               begin
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain),
+                Block
+               end || _ <- lists:seq(1, BlocksN) ],
+
+    Ledger = blockchain:ledger(Chain),
+
+    ct:pal("expected prices: ~p", [ExpectedPrices]),
+    ?assertEqual({ok, median(ExpectedPrices)},
+                    blockchain_ledger_v1:current_oracle_price(Ledger)),
+    ?assertEqual({ok, lists:sort(ExpectedPrices)}, get_prices(
+                    blockchain_ledger_v1:current_oracle_price_list(Ledger))),
+
+
+    [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
+    SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
+
+    OUI1 = 1,
+    Addresses0 = [Payer],
+    {Filter, _} = xor16:to_bin(xor16:new([], fun xxhash:hash64/1)),
+    OUITxn0 = blockchain_txn_oui_v1:new(OUI1, Payer, Addresses0, Filter, 8),
+    OUITxn1 = blockchain_txn_oui_v1:fee(OUITxn0, blockchain_txn_oui_v1:calculate_fee(OUITxn0, Chain)),
+    OUITxn2 = blockchain_txn_oui_v1:staking_fee(OUITxn1, blockchain_txn_oui_v1:calculate_staking_fee(OUITxn1, Chain)),
+    SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn2, SigFun),
+
+    {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
+
+    blockchain:add_block(Block0, Chain),
+
+    ok.
+
+
 %%--------------------------------------------------------------------
 %% TEST HELPERS
 %%--------------------------------------------------------------------
-prices() -> [ 10, 20, 30 ].
+prices() -> [ 10000000, 20000000, 30000000]. %% 10 cents, 20 cents, 30 cents multiplied by 100 million
 
 random_price(Prices) ->
     Pos = rand:uniform(length(Prices)),

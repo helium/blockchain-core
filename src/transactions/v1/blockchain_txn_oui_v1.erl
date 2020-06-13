@@ -21,8 +21,8 @@
     filter/1,
     requested_subnet_size/1,
     payer/1,
-    staking_fee/1,
-    fee/1,
+    staking_fee/1, staking_fee/2,
+    fee/1, fee/2,
     oui/1,
     owner_signature/1,
     payer_signature/1,
@@ -119,9 +119,17 @@ payer(Txn) ->
 staking_fee(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.staking_fee.
 
+-spec staking_fee(txn_oui(), non_neg_integer()) -> txn_oui().
+staking_fee(Txn, Fee) ->
+    Txn#blockchain_txn_oui_v1_pb{staking_fee=Fee}.
+
 -spec fee(txn_oui()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_oui_v1_pb.fee.
+
+-spec fee(txn_oui(), non_neg_integer()) -> txn_oui().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_oui_v1_pb{fee=Fee}.
 
 -spec oui(txn_oui()) -> pos_integer().
 oui(Txn) ->
@@ -229,7 +237,9 @@ calculate_fee(Txn, Chain) ->
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0}).
+    ?fee(Txn#blockchain_txn_oui_v1_pb{fee=0, staking_fee = 0,
+                                     owner_signature = <<0:512>>,
+                                     payer_signature = <<0:512>>}).
 
 %%--------------------------------------------------------------------
 %% @doc

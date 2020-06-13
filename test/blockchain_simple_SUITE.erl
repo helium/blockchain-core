@@ -746,7 +746,9 @@ export_test(Config) ->
     GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
 
     % Add a Gateway
-    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    AddGatewayTx0 = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    AddGatewayTx1 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx0, blockchain_txn_add_gateway_v1:calculate_fee(AddGatewayTx0, Chain)),
+    AddGatewayTx = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx1, blockchain_txn_add_gateway_v1:calculate_staking_fee(AddGatewayTx1, Chain)),
     SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
     SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
 

@@ -1867,6 +1867,9 @@ check_dc_or_hnt_balance(_Address, 0, _Ledger, _IsFeesEnabled) ->
     ok;
 check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, dc_entry_not_found} ->
+            {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
+            ?MODULE:check_balance(Address, AmountInHNT, Ledger);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
