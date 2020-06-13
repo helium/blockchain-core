@@ -3,6 +3,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -export([
     all/0,
@@ -391,13 +392,13 @@ txn_fees(Config) ->
       price_oracle_price_scan_delay => 0,
       price_oracle_price_scan_max => 50,
       txn_fees => true,
-      staking_fee_txn_oui_v1 => 100 * 100000, %% $100?
-      staking_fee_txn_oui_v1_per_address => 100 * 100000, %% $100
-      staking_fee_txn_add_gateway_v1 => 40 * 100000, %% $40?
-      staking_fee_txn_assert_location_v1 => 10 * 100000, %% $10?
+      staking_fee_txn_oui_v1 => 100 * ?DC_TO_USD, %% $100?
+      staking_fee_txn_oui_v1_per_address => 100 * ?DC_TO_USD, %% $100
+      staking_fee_txn_add_gateway_v1 => 40 * ?DC_TO_USD, %% $40?
+      staking_fee_txn_assert_location_v1 => 10 * ?DC_TO_USD, %% $10?
       payment_txn_fee_multiplier => 5000
     },
-    Balance = 5000,
+    Balance = 50000 * ?BONES_PER_HNT,
     BlocksN = 50,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
     {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
@@ -443,6 +444,7 @@ txn_fees(Config) ->
     OUITxn1 = blockchain_txn_oui_v1:fee(OUITxn0, blockchain_txn_oui_v1:calculate_fee(OUITxn0, Chain)),
     OUITxn2 = blockchain_txn_oui_v1:staking_fee(OUITxn1, blockchain_txn_oui_v1:calculate_staking_fee(OUITxn1, Chain)),
     SignedOUITxn0 = blockchain_txn_oui_v1:sign(OUITxn2, SigFun),
+    ct:pal("Staking fee ~p, txn fee ~p", [blockchain_txn_oui_v1:staking_fee(OUITxn2), blockchain_txn_oui_v1:fee(OUITxn2)]),
 
     {ok, Block0} = test_utils:create_block(ConsensusMembers, [SignedOUITxn0]),
 

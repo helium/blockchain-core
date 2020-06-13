@@ -1516,15 +1516,17 @@ staking_fee_txn_assert_location_v1(Ledger)->
 %% converts DC to HNT bones
 %% @end
 %%--------------------------------------------------------------------
--spec dc_to_hnt(non_neg_integer(), ledger()) -> {ok, non_neg_integer()}.
+-spec dc_to_hnt(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
+dc_to_hnt(DCAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
+    DCInUSD = DCAmount * ?DC_PRICE,
+    %% need to put USD amount into 1/100_000_000th cents, same as oracle price
+    {ok, trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)};
 dc_to_hnt(DCAmount, Ledger)->
     case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->
             {ok, 0};
         {ok, OracleHNTPrice} ->
-            DCInUSD = DCAmount * ?DC_PRICE,
-            %% need to put USD amount into 1/100_000_000th cents, same as oracle price
-            {ok, trunc((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)}
+            dc_to_hnt(DCAmount, OracleHNTPrice)
     end.
 
 %%--------------------------------------------------------------------
@@ -1532,14 +1534,16 @@ dc_to_hnt(DCAmount, Ledger)->
 %% converts HNT bones to DC
 %% @end
 %%--------------------------------------------------------------------
--spec hnt_to_dc(non_neg_integer(), ledger()) -> {ok, non_neg_integer()}.
+-spec hnt_to_dc(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
+hnt_to_dc(HNTAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
+    HNTInUSD = ((HNTAmount / ?BONES_PER_HNT)  * OracleHNTPrice) / ?ORACLE_PRICE_SCALING_FACTOR,
+    {ok, ceil((HNTInUSD / ?DC_PRICE))};
 hnt_to_dc(HNTAmount, Ledger)->
     case ?MODULE:current_oracle_price(Ledger) of
         {ok, 0} ->
             {ok, 0};
         {ok, OracleHNTPrice} ->
-            HNTInUSD = ((HNTAmount / ?BONES_PER_HNT)  * OracleHNTPrice) / 100000000,
-            {ok, trunc((HNTInUSD / ?DC_PRICE))}
+            hnt_to_dc(HNTAmount, OracleHNTPrice)
     end.
 
 %%--------------------------------------------------------------------
@@ -1869,6 +1873,7 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
         {error, dc_entry_not_found} ->
             {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
+            ct:pal("~p Dc -> ~p HNT", [Amount, AmountInHNT]),
             ?MODULE:check_balance(Address, AmountInHNT, Ledger);
         {error, _}=Error ->
             Error;
@@ -3567,5 +3572,14 @@ debit_dc_test() ->
     {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
     ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+hnt_to_dc_test() ->
+    ?assertEqual({ok, 30000}, hnt_to_dc(1 * ?BONES_PER_HNT, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
+    ok.
+
+dc_to_hnt_test() ->
+    ?assertEqual({ok, 1 * ?BONES_PER_HNT}, dc_to_hnt(30000, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
+    ok.
+
 
 -endif.
