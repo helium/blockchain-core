@@ -1915,44 +1915,50 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
             %% it is unclear what we should do here.
             lager:warning("cannot resume ledger resync, missing block ~p", [LedgerHeight]),
             blockchain_lock:release();
-        {ok, LedgerLastBlock} ->
-            {ok, StartBlock} = blockchain:head_block(Blockchain),
-            EndHash = blockchain_block:hash_block(LedgerLastBlock),
-            HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
-            LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
-                                 {ok, LKB} ->
-                                     LKB;
-                                 {error, not_found} ->
-                                     {ok, LKB} = get_block(hd(tl(HashChain)), Blockchain),
-                                     LKB
-                             end,
-            %% check we have a contiguous chain back to the current ledger head from the blockchain head
-            case length(HashChain) == (ChainHeight - LedgerHeight) andalso
-                 EndHash == blockchain_block:prev_hash(LastKnownBlock)  of
-                false ->
-                    %% we are missing one of the blocks between the ledger height and the chain height
-                    %% we can probably find the highest contiguous chain and resync to there and repair the chain by rewinding
-                    %% the head and deleting the orphaned blocks
-                    lager:warning("cannot resume ledger resync, missing block ~p", [blockchain_block:height(LastKnownBlock)]),
-                    blockchain_lock:release();
-                true ->
+        {ok, _LedgerLastBlock} ->
+            %% {ok, StartBlock} = blockchain:head_block(Blockchain),
+            %% EndHash = blockchain_block:hash_block(LedgerLastBlock),
+            %% HashChain = build_hash_chain(EndHash, StartBlock, Blockchain, Blockchain#blockchain.blocks),
+            %% LastKnownBlock = case get_block(hd(HashChain), Blockchain) of
+            %%                      {ok, LKB} ->
+            %%                          LKB;
+            %%                      {error, not_found} ->
+            %%                          {ok, LKB} = get_block(hd(tl(HashChain)), Blockchain),
+            %%                          LKB
+            %%                  end,
+            %% %% check we have a contiguous chain back to the current ledger head from the blockchain head
+            %% case length(HashChain) == (ChainHeight - LedgerHeight) andalso
+            %%      EndHash == blockchain_block:prev_hash(LastKnownBlock)  of
+            %%     false ->
+            %%         %% we are missing one of the blocks between the ledger height and the chain height
+            %%         %% we can probably find the highest contiguous chain and resync to there and repair the chain by rewinding
+            %%         %% the head and deleting the orphaned blocks
+            %%         lager:warning("cannot resume ledger resync, missing block ~p", [blockchain_block:height(LastKnownBlock)]),
+            %%         blockchain_lock:release();
+            %%     true ->
                     %% ok, we can keep replying blocks
-                    try
-                        lists:foreach(fun(Hash) ->
-                                              {ok, Block} = get_block(Hash, Blockchain),
-                                              lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
-                                              case application:get_env(blockchain, force_resync_validation, false) of
-                                                  true ->
-                                                      ok = blockchain_txn:absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block));
-                                                  false ->
-                                                      ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
-                                              end,
-                                              run_absorb_block_hooks(true, Hash, Blockchain)
-                                      end, HashChain)
-                    after
-                        blockchain_lock:release()
-                    end
+            try
+                lists:foreach(fun(Ht) ->
+                                      {ok, Block} = get_block(Ht, Blockchain),
+                                      {ok, LastBlock} = get_block(Ht - 1, Blockchain),
+                                      case blockchain_block:hash_block(LastBlock) == blockchain_block:prev_hash(Block) of
+                                          true -> ok;
+                                          false -> error(chain_break)
+                                      end,
+                                      Hash = blockchain_block:hash_block(Block),
+                                      lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
+                                      case application:get_env(blockchain, force_resync_validation, false) of
+                                          true ->
+                                              ok = blockchain_txn:absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block));
+                                          false ->
+                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
+                                      end,
+                                      run_absorb_block_hooks(true, Hash, Blockchain)
+                              end, lists:seq(LedgerHeight + 1,ChainHeight))
+            after
+                blockchain_lock:release()
             end
+    %% end
     end.
 
 %% check if this block looks plausible
