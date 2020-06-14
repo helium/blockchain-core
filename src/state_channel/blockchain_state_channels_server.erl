@@ -94,7 +94,7 @@ offer(Offer, HandlerPid) ->
                           SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
                           case SCPacketHandler:handle_offer(Offer, HandlerPid) of
                               ok ->
-                                  gen_server:cast(?SERVER, {offer, Offer});
+                                  gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
                               {error, Why} ->
                                   lager:error("handle_offer failed: ~p", [Why])
                           end
@@ -193,10 +193,10 @@ handle_cast({packet, SCPacket},
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
             {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
-handle_cast({offer, SCOffer}, #state{active_sc_id=undefined}=State) ->
+handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
     {noreply, State};
-handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID, state_channels=SCs}=State) ->
+handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=ActiveSCID, state_channels=SCs, swarm=Swarm}=State) ->
     %% TODO: handle offer
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
@@ -207,9 +207,8 @@ handle_cast({offer, SCOffer}, #state{active_sc_id=ActiveSCID, state_channels=SCs
     lager:info("DevAddr: ~p, Hotspot: ~p", [DevAddr, Hotspot]),
 
     %% XXX: Accepting all offers for now
-    NewState = send_to_client(ActiveSC, Hotspot, Region, State),
-
-    {noreply, NewState};
+    ok = send_purchase(ActiveSC, Swarm, HandlerPid, Region),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -548,41 +547,6 @@ maybe_get_new_active(SCs) ->
 
             {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
             ID
-    end.
-
--spec find_stream(Hotspot :: libp2p_crypto:pubkey_bin(), State :: state()) -> undefined | pid().
-find_stream(Hotspot, #state{streams=Streams}) ->
-    maps:get(Hotspot, Streams, undefined).
-
--spec add_stream(Hotspot :: libp2p_crypto:pubkey_bin(), Stream :: pid(), State :: state()) -> state().
-add_stream(Hotspot, Stream, #state{streams=Streams}=State) ->
-    State#state{streams=maps:put(Hotspot, Stream, Streams)}.
-
--spec send_to_client(SC :: blockchain_state_channel_v1:state_channel(),
-                     Hotspot :: libp2p_crypto:pubkey_bin(),
-                     Region :: atom(),
-                     State :: state()) -> state().
-send_to_client(SC, Hotspot, Region, State=#state{swarm=Swarm}) ->
-    case find_stream(Hotspot, State) of
-        undefined ->
-            %% Do not have a stream open for this hotspot
-            %% Create one and add to state
-            StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(Hotspot),
-
-            {_, NewState} = case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
-                                {error, _Reason} ->
-                                    lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
-                                    {not_done, State};
-                                {ok, NewStream} ->
-                                    unlink(NewStream),
-                                    erlang:monitor(process, NewStream),
-                                    ok = send_purchase(SC, Swarm, NewStream, Region),
-                                    {done, add_stream(Hotspot, NewStream, State)}
-                            end,
-            NewState;
-        Stream ->
-            ok = send_purchase(SC, Swarm, Stream, Region),
-            State
     end.
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
