@@ -109,8 +109,9 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_state_channel_open(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0}).
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0, signature= <<0:512>>}) * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
+
 
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, any()}.

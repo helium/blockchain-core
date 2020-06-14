@@ -47,9 +47,11 @@
 -callback absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 -callback print(txn()) -> iodata().
 -callback print(txn(), boolean()) -> iodata().
+-callback calculate_fee(txn(), blockchain:blockchain()) -> non_neg_integer().
+-callback calculate_staking_fee(txn(), blockchain:blockchain()) -> non_neg_integer().
 -callback rescue_absorb(txn(),  blockchain:blockchain()) -> ok | {error, any()}.
 
--optional_callbacks([rescue_absorb/2, print/2]).
+-optional_callbacks([calculate_fee/2, calculate_staking_fee/2, rescue_absorb/2, print/2]).
 
 -behavior(blockchain_json).
 

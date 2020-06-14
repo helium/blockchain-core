@@ -117,8 +117,9 @@ calculate_fee(Txn, Chain) ->
 -spec calculate_fee(txn_token_burn(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
 calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, _Ledger, true) ->
-    ?fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0}).
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_token_burn_v1_pb{fee=0, signature= <<0:512>>}) * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
+
 
 -spec is_valid(txn_token_burn(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
