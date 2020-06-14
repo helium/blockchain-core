@@ -86,7 +86,7 @@
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/6,
-    close_state_channel/4,
+    close_state_channel/5,
 
     allocate_subnet/2,
 
@@ -2189,14 +2189,17 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
     Key = state_channel_key(ID, Owner),
     cache_put(Ledger, SCsCF, Key, Bin).
 
--spec close_state_channel(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), blockchain_state_channel_v1:state_channel(), ledger()) -> ok.
-close_state_channel(Owner, Closer, SC, Ledger) ->
-    ID = blockchain_ledger_state_channel_v2:id(SC),
+-spec close_state_channel(Owner :: libp2p_crypto:pubkey_bin(),
+                          Closer :: libp2p_crypto:pubkey_bin(),
+                          SC :: blockchain_state_channel_v1:state_channel(),
+                          SCID :: binary(),
+                          Ledger :: ledger()) -> ok.
+close_state_channel(Owner, Closer, SC, SCID, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
-    Key = state_channel_key(ID, Owner),
+    Key = state_channel_key(SCID, Owner),
     case ?MODULE:config(?sc_version, Ledger) of
         {ok, 2} ->
-            {ok, SCE} = find_state_channel(ID, Owner, Ledger),
+            {ok, SCE} = find_state_channel(SCID, Owner, Ledger),
             SCE1 = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, SCE),
             Bin = blockchain_ledger_state_channel_v2:serialize(SCE1),
             cache_put(Ledger, SCsCF, Key, Bin);
@@ -3414,7 +3417,7 @@ state_channels_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-    ok = close_state_channel(Owner, Owner, SC, Ledger3),
+    ok = close_state_channel(Owner, Owner, SC, ID, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),

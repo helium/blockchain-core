@@ -149,6 +149,7 @@ absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     SC = ?MODULE:state_channel(Txn),
+    ID = blockchain_state_channel_v1:id(SC),
     Owner = blockchain_state_channel_v1:owner(SC),
     Closer = ?MODULE:closer(Txn),
     TxnFee = ?MODULE:fee(Txn),
@@ -156,7 +157,7 @@ absorb(Txn, Chain) ->
     case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error -> Error;
         ok ->
-            blockchain_ledger_v1:close_state_channel(Owner, Closer, SC, Ledger)
+            blockchain_ledger_v1:close_state_channel(Owner, Closer, SC, ID, Ledger)
     end.
 
 -spec print(txn_state_channel_close()) -> iodata().
