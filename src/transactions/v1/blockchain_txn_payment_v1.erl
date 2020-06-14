@@ -20,7 +20,7 @@
     payer/1,
     payee/1,
     amount/1,
-    fee/1,
+    fee/1, fee/2,
     calculate_fee/2, calculate_fee/3,
     nonce/1,
     signature/1,
@@ -38,10 +38,6 @@
 -type txn_payment() :: #blockchain_txn_payment_v1_pb{}.
 -export_type([txn_payment/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
           non_neg_integer()) -> txn_payment().
 new(Payer, Recipient, Amount, Nonce) ->
@@ -54,59 +50,36 @@ new(Payer, Recipient, Amount, Nonce) ->
         signature = <<>>
     }.
 
-
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_payment()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_payment_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_payment_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.payer.
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec payee(txn_payment()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.payee.
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec amount(txn_payment()) -> non_neg_integer().
 amount(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.amount.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec fee(txn_payment()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.fee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec fee(txn_payment(), non_neg_integer()) -> txn_payment().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_payment_v1_pb{fee=Fee}.
+
 -spec nonce(txn_payment()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.nonce.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec signature(txn_payment()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_payment_v1_pb.signature.
@@ -139,12 +112,8 @@ calculate_fee(_Txn, _Ledger, false) ->
     ?LEGACY_TXN_FEE;
 calculate_fee(Txn, Ledger, true) ->
     TxnFeeMultiplier = blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger),
-    ?fee(Txn#blockchain_txn_payment_v1_pb{fee=0}) * TxnFeeMultiplier.
+    ?fee(Txn#blockchain_txn_payment_v1_pb{fee=0, signature = <<0:512>>}) * TxnFeeMultiplier.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec is_valid(txn_payment(), blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -198,10 +167,6 @@ is_valid(Txn, Chain) ->
             end
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec absorb(txn_payment(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -222,10 +187,6 @@ absorb(Txn, Chain) ->
             end
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec print(txn_payment()) -> iodata().
 print(undefined) -> <<"type=payment, undefined">>;
 print(#blockchain_txn_payment_v1_pb{payer=Payer, payee=Recipient, amount=Amount,

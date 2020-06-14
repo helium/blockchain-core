@@ -26,7 +26,7 @@
     hashlock/1,
     timelock/1,
     amount/1,
-    fee/1,
+    fee/1, fee/2,
     calculate_fee/2, calculate_fee/3,
     nonce/1,
     signature/1,
@@ -44,10 +44,6 @@
 -type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
 -export_type([txn_create_htlc/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
           non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
 new(Payer, Payee, Address, Hashlock, Timelock, Amount, Nonce) ->
@@ -64,76 +60,44 @@ new(Payer, Payee, Address, Hashlock, Timelock, Amount, Nonce) ->
     }.
 
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_create_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_create_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_create_htlc_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payer(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payer(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.payer.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payee(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.payee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec address(txn_create_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.address.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hashlock(txn_create_htlc()) -> binary().
 hashlock(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.hashlock.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec timelock(txn_create_htlc()) -> non_neg_integer().
 timelock(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.timelock.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec amount(txn_create_htlc()) -> non_neg_integer().
 amount(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.amount.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec fee(txn_create_htlc()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.fee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec fee(txn_create_htlc(), non_neg_integer()) -> txn_create_htlc().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_create_htlc_v1_pb{fee=Fee}.
+
 -spec nonce(txn_create_htlc()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_create_htlc_v1_pb.nonce.
