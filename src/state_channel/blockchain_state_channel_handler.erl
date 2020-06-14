@@ -88,10 +88,9 @@ init(server, _Conn, _) ->
 
 handle_data(client, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
-        %% TODO: This should be client side?
         {purchase, Purchase} ->
             lager:info("sc_handler client got purchase: ~p", [Purchase]),
-            blockchain_state_channels_client:purchase(Purchase);
+            blockchain_state_channels_client:purchase(Purchase, self());
         {response, Resp} ->
             lager:info("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)

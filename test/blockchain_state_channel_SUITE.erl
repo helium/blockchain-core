@@ -266,9 +266,6 @@ full_test(Config) ->
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
 
-    %% XXX: Make it intentionally fail for testing
-    ok = RouterLedger,
-
     ok.
 
 dup_packets_test(Config) ->
@@ -423,8 +420,8 @@ expired_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -440,7 +437,7 @@ expired_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -503,8 +500,8 @@ replay_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -513,8 +510,8 @@ replay_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -530,7 +527,8 @@ replay_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0, Payload1]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -854,8 +852,8 @@ multi_active_sc_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -894,8 +892,8 @@ multi_active_sc_test(Config) ->
     ?assertEqual(2, maps:size(ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, []))),
 
     %% Sending 1 packet, this should use the previously opened state channel
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Add more fake blocks so that the first state_channel expires
@@ -911,7 +909,8 @@ multi_active_sc_test(Config) ->
     receive
         {txn, Txn} ->
             ct:pal("Txn: ~p", [Txn]),
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0, Payload1]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
             {ok, Block49} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block49, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -929,12 +928,13 @@ multi_active_sc_test(Config) ->
     ok= timer:sleep(1000),
 
     %% Send more packets, this should use the newly active state channel
-    Payload2 = crypto:strong_rand_bytes(120),
-    Packet2 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload2),
+    DevNonce2 = crypto:strong_rand_bytes(2),
+    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
-    Payload3 = crypto:strong_rand_bytes(120),
+
     timer:sleep(timer:seconds(1)),
-    Packet3 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload3),
+    DevNonce3 = crypto:strong_rand_bytes(2),
+    Packet3 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce3, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, [], 'US915']),
 
     %% Add more fake blocks to get the second sc to expire
@@ -946,7 +946,8 @@ multi_active_sc_test(Config) ->
     receive
         {txn, Txn2} ->
             ct:pal("Txn2: ~p", [Txn2]),
-            true = check_sc_close(Txn2, ID2, SCOpenBlockHash1, [Payload2, Payload3]),
+            true = check_sc_close(Txn2, ID2, SCOpenBlockHash1, [blockchain_helium_packet_v1:payload(Packet2),
+                                                                blockchain_helium_packet_v1:payload(Packet3)]),
             {ok, Block150} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
             _ = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block150, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -1146,8 +1147,8 @@ crash_single_sc_test(Config) ->
     timer:sleep(timer:seconds(1)),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ct:pal("Packet0: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet0))]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
@@ -1176,8 +1177,8 @@ crash_single_sc_test(Config) ->
     {_, _, _} = debug(RouterNode),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
     ct:pal("Packet1: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet1))]),
 
@@ -1194,7 +1195,8 @@ crash_single_sc_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0, Payload1]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -1271,8 +1273,8 @@ crash_multi_sc_test(Config) ->
     timer:sleep(timer:seconds(1)),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ct:pal("Packet0: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet0))]),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
@@ -1303,8 +1305,8 @@ crash_multi_sc_test(Config) ->
     {_, _, _} = debug(RouterNode),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
     ct:pal("Packet1: ~p", [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet1))]),
 
@@ -1335,10 +1337,11 @@ crash_multi_sc_test(Config) ->
                     ok;
                 1 ->
                     %% It sent one packet
-                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [Payload0]);
+                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0)]);
                 2 ->
                     %% It sent both packets
-                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [Payload0, Payload1])
+                    true = check_sc_close(Txn, ID1, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                                      blockchain_helium_packet_v1:payload(Packet1)])
             end,
 
             {ok, Block23} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
@@ -1364,10 +1367,11 @@ crash_multi_sc_test(Config) ->
                     ok;
                 1 ->
                     %% It sent one packet
-                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [Payload1]);
+                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet1)]);
                 2 ->
                     %% It sent both packets
-                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [Payload0, Payload1])
+                    true = check_sc_close(Txn2, ID2, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                                       blockchain_helium_packet_v1:payload(Packet1)])
             end,
             {ok, Block44} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn2]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block44, RouterChain, Self, RouterSwarm])
@@ -1425,8 +1429,8 @@ sc_gc_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -1435,8 +1439,8 @@ sc_gc_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -1507,8 +1511,8 @@ multi_sc_gc_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -1518,8 +1522,8 @@ multi_sc_gc_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -1596,8 +1600,8 @@ crash_sc_sup_test(Config) ->
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
 
     %% Sending 1 packet
-    Payload0 = crypto:strong_rand_bytes(120),
-    Packet0 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload0),
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915']),
 
     %% Checking state channel on server
@@ -1637,8 +1641,8 @@ crash_sc_sup_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    Payload1 = crypto:strong_rand_bytes(120),
-    Packet1 = blockchain_helium_packet_v1:new({devaddr, 1207959553}, Payload1),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
     %% Checking state channel on server/client
@@ -1654,7 +1658,8 @@ crash_sc_sup_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [Payload0, Payload1]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->

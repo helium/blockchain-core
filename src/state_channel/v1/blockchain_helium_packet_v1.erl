@@ -17,6 +17,7 @@
          frequency/1,
          datarate/1,
          snr/1,
+         packet_hash/1,
 
          encode/1, decode/1
 
@@ -105,6 +106,10 @@ datarate(#packet_pb{datarate=DR}) ->
 -spec snr(packet()) -> float().
 snr(#packet_pb{snr=SNR}) ->
     SNR.
+
+-spec packet_hash(packet()) -> binary().
+packet_hash(Packet) ->
+    crypto:hash(sha256, term_to_binary(Packet)).
 
 -spec encode(packet()) -> binary().
 encode(#packet_pb{}=Packet) ->

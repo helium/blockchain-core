@@ -203,11 +203,12 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=ActiveSCID, state_
     DevAddr = blockchain_state_channel_offer_v1:devaddr(SCOffer),
     Region = blockchain_state_channel_offer_v1:region(SCOffer),
     Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
+    PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
     {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
     lager:info("DevAddr: ~p, Hotspot: ~p", [DevAddr, Hotspot]),
 
     %% XXX: Accepting all offers for now
-    ok = send_purchase(ActiveSC, Swarm, HandlerPid, Region),
+    ok = send_purchase(ActiveSC, Swarm, HandlerPid, PacketHash, Region),
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -552,10 +553,11 @@ maybe_get_new_active(SCs) ->
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
                     Swarm :: pid(),
                     Stream :: pid(),
+                    PacketHash :: binary(),
                     Region :: atom()) -> ok.
-send_purchase(SC, Swarm, Stream, Region) ->
+send_purchase(SC, Swarm, Stream, PacketHash, Region) ->
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    PurchaseMsg0 = blockchain_state_channel_purchase_v1:new(SC, PubkeyBin, Region),
+    PurchaseMsg0 = blockchain_state_channel_purchase_v1:new(SC, PubkeyBin, PacketHash, Region),
     PurchaseMsg1 = blockchain_state_channel_purchase_v1:sign(PurchaseMsg0, SigFun),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg1, Stream]),
     blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg1).

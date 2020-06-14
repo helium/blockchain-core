@@ -6,7 +6,8 @@
 -module(blockchain_state_channel_purchase_v1).
 
 -export([
-    new/3,
+    new/4,
+    packet_hash/1, region/1,
     signature/1, sign/2,
     encode/1, decode/1
 ]).
@@ -23,14 +24,24 @@
 
 -spec new(SC :: blockchain_state_channel_v1:state_channel(),
           Hotspot :: libp2p_crypto:pubkey_bin(),
+          PacketHash :: binary(),
           Region :: atom()) -> purchase().
-new(SC, Hotspot, Region) ->
+new(SC, Hotspot, PacketHash, Region) ->
     #blockchain_state_channel_purchase_v1_pb{
        sc=SC,
        hotspot=Hotspot,
        signature = <<>>,
+       packet_hash=PacketHash,
        region=Region
     }.
+
+-spec region(purchase()) -> atom().
+region(#blockchain_state_channel_purchase_v1_pb{region=Region}) ->
+    Region.
+
+-spec packet_hash(purchase()) -> binary().
+packet_hash(#blockchain_state_channel_purchase_v1_pb{packet_hash=PacketHash}) ->
+    PacketHash.
 
 -spec signature(purchase()) -> binary().
 signature(#blockchain_state_channel_purchase_v1_pb{signature=Signature}) ->
@@ -63,12 +74,16 @@ new_test() ->
     SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
     Hotspot = <<"hotspot">>,
     Region = 'US915',
-    Purchase = #blockchain_state_channel_purchase_v1_pb{sc = SC, hotspot = Hotspot, region = Region},
-    ?assertEqual(Purchase, new(SC, Hotspot, Region)).
+    PacketHash = <<"packet_hash">>,
+    Purchase = #blockchain_state_channel_purchase_v1_pb{sc = SC,
+                                                        hotspot = Hotspot,
+                                                        packet_hash = PacketHash,
+                                                        region = Region},
+    ?assertEqual(Purchase, new(SC, Hotspot, PacketHash, Region)).
 
 encode_decode_test() ->
     SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
-    Purchase = new(SC, <<"hotspot">>, 'US915'),
+    Purchase = new(SC, <<"hotspot">>, <<"packet_hash">>, 'US915'),
     ?assertEqual(Purchase, decode(encode(Purchase))).
 
 -endif.

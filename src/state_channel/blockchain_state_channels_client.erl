@@ -15,7 +15,7 @@
          packet/3,
          state/0,
          response/1,
-         purchase/1
+         purchase/2
         ]).
 
 %% ------------------------------------------------------------------
@@ -43,12 +43,14 @@
           db :: rocksdb:db_handle(),
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
-          streams = #{} :: streams()
+          streams = #{} :: streams(),
+          packets = #{} :: packets()
          }).
 
 -type state() :: #state{}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
 -type streams() :: #{non_neg_integer() => pid()}.
+-type packets() :: #{binary() => blockchain_helium_packet_v1:packet()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -65,14 +67,10 @@ response(Resp) ->
             Mod:handle_response(Resp)
     end.
 
--spec purchase(blockchain_state_channel_purchase_v1:purchase()) -> any().
-purchase(Purchase) ->
-    case application:get_env(blockchain, sc_client_handler, undefined) of
-        undefined ->
-            ok;
-        Mod when is_atom(Mod) ->
-            Mod:handle_purchase(Purchase)
-    end.
+-spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
+               HandlerPid :: pid()) -> ok.
+purchase(Purchase, HandlerPid) ->
+    gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
 
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
 packet(Packet, DefaultRouters, Region) ->
@@ -101,6 +99,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
+handle_cast({purchase, Purchase, HandlerPid}, State) ->
+    NewState = handle_purchase(Purchase, HandlerPid, State),
+    {noreply, NewState};
 handle_cast({packet, Packet, DefaultRouters, Region}, State) ->
     NewState = handle_packet(Packet, DefaultRouters, Region, State),
     {noreply, NewState};
@@ -125,42 +126,75 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
+                      Stream :: pid(),
+                      State :: state()) -> state().
+handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
+    PacketHash = blockchain_state_channel_purchase_v1:packet_hash(Purchase),
+    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+    case find_packet(PacketHash, State) of
+        undefined ->
+            %% Drop it, we have no packet
+            lager:warning("Dropping purchase, packet_hash: ~p", [PacketHash]),
+            State;
+        Packet ->
+            ok = send_packet(Packet, Swarm, Stream, Region),
+            delete_packet(PacketHash, State)
+    end.
+
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
                     DefaultRouters :: [string()],
                     Region :: atom(),
                     State :: state()) -> state().
 handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
-    case find_routing(Packet) of
-        {error, _Reason} ->
-            lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
-                        [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-            lists:foldl(fun(Router, StateAcc) ->
-                                case find_stream(Router, StateAcc) of
-                                    undefined ->
-                                        case blockchain_state_channel_handler:dial(Swarm, Router, []) of
-                                            {error, _Reason2} ->
-                                                StateAcc;
-                                            {ok, NewStream} ->
-                                                unlink(NewStream),
-                                                erlang:monitor(process, NewStream),
-                                                ok = send_offer(Packet, Swarm, NewStream, Region),
-                                                %% ok = send_packet(Packet, Swarm, NewStream, Region),
-                                                add_stream(Router, NewStream, State)
-                                        end;
-                                    Stream ->
-                                        ok = send_packet(Packet, Swarm, Stream, Region),
-                                        StateAcc
-                                end
-                        end, State, DefaultRouters);
-        {ok, Routes} ->
-            lists:foldl(fun(Route, StateAcc) ->
-                                send_to_route(Packet, Route, Region, StateAcc)
-                        end, State, Routes)
-    end.
+    State0 = case find_routing(Packet) of
+                 {error, _Reason} ->
+                     lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
+                                 [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
+                     lists:foldl(fun(Router, StateAcc) ->
+                                         case find_stream(Router, StateAcc) of
+                                             undefined ->
+                                                 case blockchain_state_channel_handler:dial(Swarm, Router, []) of
+                                                     {error, _Reason2} ->
+                                                         StateAcc;
+                                                     {ok, NewStream} ->
+                                                         unlink(NewStream),
+                                                         erlang:monitor(process, NewStream),
+                                                         ok = send_offer(Packet, Swarm, NewStream, Region),
+                                                         add_stream(Router, NewStream, State)
+                                                 end;
+                                             Stream ->
+                                                 ok = send_packet(Packet, Swarm, Stream, Region),
+                                                 StateAcc
+                                         end
+                                 end, State, DefaultRouters);
+                 {ok, Routes} ->
+                     lists:foldl(fun(Route, StateAcc) ->
+                                         send_to_route(Packet, Route, Region, StateAcc)
+                                 end, State, Routes)
+             end,
+    %% Hold onto the packet, if a matching purchase comes in later
+    PacketHash = blockchain_helium_packet_v1:packet_hash(Packet),
+    add_packet(PacketHash, Packet, State0).
 
 %% ------------------------------------------------------------------
 %% Internal functions
 %% ------------------------------------------------------------------
+
+-spec find_packet(PacketHash :: binary(), State :: state()) -> blockchain_helium_packet_v1:packet() | undefined.
+find_packet(PacketHash, #state{packets=Packets}) ->
+    maps:get(PacketHash, Packets, undefined).
+
+-spec add_packet(PacketHash :: binary(),
+                 Packet :: blockchain_helium_packet_v1:packet(),
+                 State :: state()) -> state().
+add_packet(PacketHash, Packet, #state{packets=Packets}=State) ->
+    State#state{packets=maps:put(PacketHash, Packet, Packets)}.
+
+-spec delete_packet(PacketHash :: binary(),
+                    State :: state()) -> state().
+delete_packet(PacketHash, #state{packets=Packets}=State) ->
+    State#state{packets=maps:remove(PacketHash, Packets)}.
 
 -spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Swarm :: pid(),
@@ -223,13 +257,12 @@ send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
                                                         unlink(NewStream),
                                                         erlang:monitor(process, NewStream),
                                                         ok = send_offer(Packet, Swarm, NewStream, Region),
-                                                        %% ok = send_packet(Packet, Swarm, NewStream, Region),
                                                         {done, add_stream(OUI, NewStream, State)}
                                                 end
                                         end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
             NewState;
         Stream ->
-            ok = send_packet(Packet, Swarm, Stream, Region),
+            ok = send_offer(Packet, Swarm, Stream, Region),
             State
     end.
 
