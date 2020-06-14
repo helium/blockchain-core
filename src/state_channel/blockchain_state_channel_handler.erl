@@ -114,7 +114,7 @@ handle_info(client, {send_offer, Offer}, State) ->
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
     {noreply, State, Data};
-handle_info(client, {send_purchase, Purchase}, State) ->
+handle_info(server, {send_purchase, Purchase}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Purchase),
     {noreply, State, Data};
 handle_info(server, {send_response, Resp}, State) ->
