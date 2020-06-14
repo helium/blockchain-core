@@ -1938,28 +1938,53 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
             %%     true ->
                     %% ok, we can keep replying blocks
             try
-                lists:foreach(fun(Ht) ->
-                                      {ok, Block} = get_block(Ht, Blockchain),
-                                      {ok, LastBlock} = get_block(Ht - 1, Blockchain),
-                                      case blockchain_block:hash_block(LastBlock) == blockchain_block:prev_hash(Block) of
-                                          true -> ok;
-                                          false -> error(chain_break)
-                                      end,
-                                      Hash = blockchain_block:hash_block(Block),
-                                      lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
-                                      case application:get_env(blockchain, force_resync_validation, false) of
-                                          true ->
-                                              ok = blockchain_txn:absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block));
-                                          false ->
-                                              ok = blockchain_txn:unvalidated_absorb_and_commit(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block))
-                                      end,
-                                      run_absorb_block_hooks(true, Hash, Blockchain)
+
+                AbsorbFun = case application:get_env(blockchain, force_resync_validation, false) of
+                                true -> absorb_and_commit;
+                                false -> unvalidated_absorb_and_commit
+                            end,
+
+                Parent = self(),
+                {PrefetchPid, PrefetchRef} = spawn_monitor(fun() -> prefetch_fun(Parent, LedgerHeight + 1, ChainHeight, Blockchain) end),
+
+                lists:foreach(fun(_) ->
+                                      receive
+                                          {ok, Block} ->
+                                              PrefetchPid ! continue,
+                                              Hash = blockchain_block:hash_block(Block),
+                                              lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
+                                              ok = blockchain_txn:AbsorbFun(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
+                                              run_absorb_block_hooks(true, Hash, Blockchain);
+                                          chain_break ->
+                                              error(chain_break);
+                                          {'DOWN', PrefetchRef, process, PrefetchPid, Reason} ->
+                                              error({prefetch_worker_died, Reason})
+                                      end
                               end, lists:seq(LedgerHeight + 1,ChainHeight))
             after
                 blockchain_lock:release()
             end
     %% end
     end.
+
+prefetch_fun(Parent, Start, End, Blockchain) ->
+    {ok, PriorBlock} = get_block(Start - 1, Blockchain),
+    lists:foldl(fun(Ht, LastBlockHash) ->
+                          {ok, Block} = get_block(Ht, Blockchain),
+                          case LastBlockHash == blockchain_block:prev_hash(Block) of
+                              true ->
+                                  Parent ! {ok, Block};
+                              false ->
+                                  Parent ! chain_break,
+                                  exit(normal)
+                          end,
+                          %% block for clearance to continue
+                          receive
+                              continue -> ok
+                          end,
+                          %% update the last block hash in accumulator
+                          blockchain_block:hash_block(Block)
+                  end, blockchain_block:hash_block(PriorBlock), lists:seq(Start, End)).
 
 %% check if this block looks plausible
 %% if we can validate f+1 of the signatures against our consensus group
