@@ -286,7 +286,7 @@
 -define(dc_payload_size, dc_payload_size).
 
 %% state channel version, version 1 does not carry value, version 2 does
--define(sc_version, sv_version).
+-define(sc_version, sc_version).
 
 %% ------------------------------------------------------------------
 %% snapshot vars

@@ -376,7 +376,8 @@ raw_vars(Vars) ->
                 ?max_subnet_size => 65536,
                 ?min_subnet_size => 8,
                 ?max_subnet_num => 20,
-                ?dc_payload_size => 24
+                ?dc_payload_size => 24,
+                ?sc_version => 2
                },
 
     maps:merge(DefVars, Vars).

@@ -1421,18 +1421,29 @@ maybe_gc_scs(Ledger) ->
                                            false ->
                                                Acc;
                                            true ->
-                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                   disputed ->
-                                                       %% in a dispute, owner forfeits the overcommit
-                                                       %% so we are not going to refund anything
-                                                       [KeyHash | Acc];
-                                                   closed ->
-                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
-                                                       Owner = blockchain_state_channel_v1:owner(SC0),
-                                                       UsedDC = blockchain_state_channel_v1:total_dcs(SC0),
-                                                       ReservedDC = blockchain_state_channel_v1:amount(SC0),
-                                                       Credit = max(0, ReservedDC - UsedDC),
-                                                       ok = credit_dc(Owner, Credit, Ledger),
+                                               case ?MODULE:config(?sc_version, Ledger) of
+                                                   {ok, 2} ->
+                                                       lager:info("gcing for SC: ~p", [SC]),
+                                                       case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                           disputed ->
+                                                               %% in a dispute, owner forfeits the overcommit
+                                                               %% so we are not going to refund anything
+                                                               [KeyHash | Acc];
+                                                           closed ->
+                                                               SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                               Owner = blockchain_state_channel_v1:owner(SC0),
+                                                               UsedDC = blockchain_state_channel_v1:total_dcs(SC0),
+                                                               ReservedDC = blockchain_state_channel_v1:amount(SC0),
+                                                               Credit = max(0, ReservedDC - UsedDC),
+                                                               ok = credit_dc(Owner, Credit, Ledger),
+                                                               [KeyHash | Acc];
+                                                           undefined ->
+                                                               %% We got here because state channel is neither in closed
+                                                               %% or dispute state but has remained open despite
+                                                               %% reaching its expiration
+                                                               [KeyHash | Acc]
+                                                       end;
+                                                   _ ->
                                                        [KeyHash | Acc]
                                                end
                                        end

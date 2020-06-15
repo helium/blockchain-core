@@ -85,7 +85,8 @@ init_per_testcase(Test, Config) ->
                   min_subnet_size => 8,
                   max_subnet_num => 20,
                   sc_grace_blocks => 5,
-                  dc_payload_size => 24},
+                  dc_payload_size => 24,
+                  sc_version => 2},
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
 
@@ -1447,6 +1448,11 @@ sc_gc_test(Config) ->
     %% the close txn fired from the sc server should have errored out as well
     %% note that we have not done meck forwarding in this test either to ensure that this happens
     RouterLedger = blockchain:ledger(RouterChain),
+
+    %% Debugging
+    Res = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger]),
+    ct:pal("Res: ~p", [Res]),
+
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),

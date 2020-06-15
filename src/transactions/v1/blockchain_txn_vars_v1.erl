@@ -827,6 +827,9 @@ validate_var(?sc_grace_blocks, Value) ->
     validate_int(Value, "sc_grace_blocks", 1, 100, false);
 validate_var(?dc_payload_size, Value) ->
     validate_int(Value, "dc_payload_size", 1, 32, false);
+validate_var(?sc_version, Value) ->
+    %% Allowed sc version
+    validate_int(Value, "sc_version", 1, 10, false);
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
