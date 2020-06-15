@@ -1949,8 +1949,12 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
 
                 lists:foreach(fun(Ht) ->
                                       receive
+                                          blocked ->
+                                              PrefetchPid ! continue
+                                      after 0 -> ok
+                                      end,
+                                      receive
                                           {ok, Ht, Block} ->
-                                              PrefetchPid ! continue,
                                               Hash = blockchain_block:hash_block(Block),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               ok = blockchain_txn:AbsorbFun(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
@@ -1968,13 +1972,10 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
     end.
 
 prefetch_fun(Parent, Start, End, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
-    %% XXX this is currently so slow, because we have to iterate on the secondary index, that
-    %% there's no point in adding any backpressure.
-    {ok, PriorBlock} = get_block(Start - 1, Blockchain),
     {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_upper_bound, <<End:64/integer-unsigned-big>>}]),
     PriorBlockHeight = Start - 1,
-    {ok, <<PriorBlockHeight:64/integer-unsigned-big>>, _} = rocksdb:iterator_move(Itr, <<PriorBlockHeight:64/integer-unsigned-big>>),
-    lists:foldl(fun(Ht, LastBlockHash) ->
+    {ok, <<PriorBlockHeight:64/integer-unsigned-big>>, PriorBlockHash} = rocksdb:iterator_move(Itr, <<PriorBlockHeight:64/integer-unsigned-big>>),
+    lists:foldl(fun(Ht, {Count, LastBlockHash}) ->
                         {ok, <<Ht:64/integer-unsigned-big>>, BlockHash} = rocksdb:iterator_move(Itr, next),
                         {ok, Block} = get_block(BlockHash, Blockchain),
                         case LastBlockHash == blockchain_block:prev_hash(Block) of
@@ -1984,13 +1985,18 @@ prefetch_fun(Parent, Start, End, #blockchain{db=DB, heights=HeightsCF}=Blockchai
                                 Parent ! chain_break,
                                 exit(normal)
                         end,
-                        %% block for clearance to continue
-                        receive
-                            continue -> ok
+                        case Count rem 10 of
+                            0 ->
+                                Parent ! blocked,
+                                receive
+                                    continue -> ok
+                                end;
+                            _ ->
+                                ok
                         end,
                         %% update the last block hash in accumulator
-                        BlockHash
-                end, {10, blockchain_block:hash_block(PriorBlock)}, lists:seq(Start, End)),
+                        {Count + 1, BlockHash}
+                end, {1, PriorBlockHash}, lists:seq(Start, End)),
      rocksdb:iterator_close(Itr).
 
 %% check if this block looks plausible
