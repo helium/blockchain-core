@@ -30,7 +30,8 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec get(GwAddr :: libp2p_crypto:pubkey_bin(),
-          Ledger :: blockchain_ledger_v1:ledger()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, _}.
+          Ledger :: blockchain_ledger_v1:ledger()) ->
+    {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger) ->
     get(Addr, Ledger, true).
 
@@ -38,7 +39,8 @@ get(Addr, Ledger) ->
 %% in case.
 -spec get(GwAddr :: libp2p_crypto:pubkey_bin(),
           Ledger :: blockchain_ledger_v1:ledger(),
-          CacheRead :: boolean()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, _}.
+          CacheRead :: boolean()) ->
+    {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger, false) ->
     ets:update_counter(?MODULE, total, 1, {total, 0}),
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
