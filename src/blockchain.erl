@@ -1947,10 +1947,9 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                 Parent = self(),
                 {PrefetchPid, PrefetchRef} = spawn_monitor(fun() -> prefetch_fun(Parent, LedgerHeight + 1, ChainHeight, Blockchain) end),
 
-                lists:foreach(fun(_) ->
+                lists:foreach(fun(Ht) ->
                                       receive
-                                          {ok, Block} ->
-                                              PrefetchPid ! continue,
+                                          {ok, Ht, Block} ->
                                               Hash = blockchain_block:hash_block(Block),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               ok = blockchain_txn:AbsorbFun(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
@@ -1967,24 +1966,27 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
     %% end
     end.
 
-prefetch_fun(Parent, Start, End, Blockchain) ->
+prefetch_fun(Parent, Start, End, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+    %% XXX this is currently so slow, because we have to iterate on the secondary index, that
+    %% there's no point in adding any backpressure.
     {ok, PriorBlock} = get_block(Start - 1, Blockchain),
+    {ok, Itr} = rocksdb:iterator(DB, HeightsCF, [{iterate_upper_bound, <<End:64/integer-unsigned-big>>}]),
+    PriorBlockHeight = Start - 1,
+    {ok, <<PriorBlockHeight:64/integer-unsigned-big>>, _} = rocksdb:iterator_move(Itr, <<PriorBlockHeight:64/integer-unsigned-big>>),
     lists:foldl(fun(Ht, LastBlockHash) ->
-                          {ok, Block} = get_block(Ht, Blockchain),
-                          case LastBlockHash == blockchain_block:prev_hash(Block) of
-                              true ->
-                                  Parent ! {ok, Block};
-                              false ->
-                                  Parent ! chain_break,
-                                  exit(normal)
-                          end,
-                          %% block for clearance to continue
-                          receive
-                              continue -> ok
-                          end,
-                          %% update the last block hash in accumulator
-                          blockchain_block:hash_block(Block)
-                  end, blockchain_block:hash_block(PriorBlock), lists:seq(Start, End)).
+                        {ok, <<Ht:64/integer-unsigned-big>>, BlockHash} = rocksdb:iterator_move(Itr, next),
+                        {ok, Block} = get_block(BlockHash, Blockchain),
+                        case LastBlockHash == blockchain_block:prev_hash(Block) of
+                            true ->
+                                Parent ! {ok, Ht, Block};
+                            false ->
+                                Parent ! chain_break,
+                                exit(normal)
+                        end,
+                        %% update the last block hash in accumulator
+                        BlockHash
+                end, {10, blockchain_block:hash_block(PriorBlock)}, lists:seq(Start, End)),
+     rocksdb:iterator_close(Itr).
 
 %% check if this block looks plausible
 %% if we can validate f+1 of the signatures against our consensus group
