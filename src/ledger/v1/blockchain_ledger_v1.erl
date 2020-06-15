@@ -2212,17 +2212,8 @@ close_state_channel(Owner, Closer, SC, SCID, Ledger) ->
         {ok, 2} ->
             {ok, SCE} = find_state_channel(SCID, Owner, Ledger),
             SCE1 = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, SCE),
-
-            %% If SCE1 has close_state = close, we should delete it?
-            case blockchain_ledger_state_channel_v2:close_state(SCE1) of
-                closed ->
-                    lager:info("deleting SCE1: ~p", [SCE1]),
-                    cache_delete(Ledger, SCsCF, Key);
-                _ ->
-                    lager:info("keeping SCE1: ~p", [SCE1]),
-                    Bin = blockchain_ledger_state_channel_v2:serialize(SCE1),
-                    cache_put(Ledger, SCsCF, Key, Bin)
-            end;
+            Bin = blockchain_ledger_state_channel_v2:serialize(SCE1),
+            cache_put(Ledger, SCsCF, Key, Bin);
         _ ->
             cache_delete(Ledger, SCsCF, Key)
     end.
