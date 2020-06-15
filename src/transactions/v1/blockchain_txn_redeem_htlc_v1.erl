@@ -19,7 +19,7 @@
     payee/1,
     address/1,
     preimage/1,
-    fee/1,
+    fee/1, fee/2,
     calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
@@ -36,10 +36,6 @@
 -type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage) ->
     #blockchain_txn_redeem_htlc_v1_pb{
@@ -50,52 +46,32 @@ new(Payee, Address, PreImage) ->
        signature= <<>>
       }.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec hash(txn_redeem_htlc()) -> blockchain_txn:hash().
 hash(Txn) ->
     BaseTxn = Txn#blockchain_txn_redeem_htlc_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_redeem_htlc_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec payee(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 payee(Txn) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb.payee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec address(txn_redeem_htlc()) -> libp2p_crypto:pubkey_bin().
 address(Txn) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb.address.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec preimage(txn_redeem_htlc()) -> binary().
 preimage(Txn) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb.preimage.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec fee(txn_redeem_htlc()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb.fee.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec fee(txn_redeem_htlc(), non_neg_integer()) -> txn_redeem_htlc().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_redeem_htlc_v1_pb{fee=Fee}.
+
 -spec signature(txn_redeem_htlc()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_redeem_htlc_v1_pb.signature.

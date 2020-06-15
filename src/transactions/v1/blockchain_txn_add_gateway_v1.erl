@@ -176,7 +176,8 @@ calculate_fee(Txn, Ledger, true) ->
               _ ->
                   ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
                                                             owner_signature = <<0:512>>,
-                                                            gateway_signature = <<0:512>>})
+                                                            gateway_signature = <<0:512>>,
+                                                            payer_signature = <<0:512>>}) %% TODO - without setting this to fixed length test is failing...need to double check
           end,
     Fee * blockchain_ledger_v1:payment_txn_fee_multiplier(Ledger).
 

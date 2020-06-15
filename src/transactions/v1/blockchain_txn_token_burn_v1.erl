@@ -21,7 +21,7 @@
     payee/1,
     amount/1,
     nonce/1,
-    fee/1,
+    fee/1, fee/2,
     calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
@@ -85,6 +85,10 @@ nonce(Txn) ->
 -spec fee(txn_token_burn()) -> non_neg_integer().
 fee(Txn) ->
     Txn#blockchain_txn_token_burn_v1_pb.fee.
+
+-spec fee(txn_token_burn(), non_neg_integer()) -> txn_token_burn().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_token_burn_v1_pb{fee=Fee}.
 
 -spec signature(txn_token_burn()) -> binary().
 signature(Txn) ->
