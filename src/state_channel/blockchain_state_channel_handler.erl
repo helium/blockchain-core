@@ -78,15 +78,24 @@ send_response(Pid, Resp) ->
 init(client, _Conn, _) ->
     {ok, #state{}};
 init(server, _Conn, _) ->
-    %% TODO: Handle cases when there is no state channels in the sc server
     OpenSCs = blockchain_state_channels_server:state_channels(),
     ActiveSCID = blockchain_state_channels_server:active_sc_id(),
-    ActiveSC = maps:get(ActiveSCID, OpenSCs, undefined),
-    %% XXX: term_to_binary?!
-    Resp = blockchain_state_channel_response_v1:new(term_to_binary(ActiveSC)),
-    {ok, #state{}, blockchain_state_channel_message_v1:encode(Resp)}.
+
+    case maps:get(ActiveSCID, OpenSCs, undefined) of
+        undefined ->
+            %% Send empty banner
+            SCBanner = blockchain_state_channel_banner_v1:new(),
+            {ok, #state{}, blockchain_state_channel_banner_v1:encode(SCBanner)};
+        ActiveSC ->
+            SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+            {ok, #state{}, blockchain_state_channel_banner_v1:encode(SCBanner)}
+    end.
 
 handle_data(client, Data, State) ->
+
+    Dec = blockchain_state_channel_message_v1:decode(Data),
+    lager:info("Decoded: ~p", [Dec]),
+
     case blockchain_state_channel_message_v1:decode(Data) of
         {purchase, Purchase} ->
             lager:info("sc_handler client got purchase: ~p", [Purchase]),
