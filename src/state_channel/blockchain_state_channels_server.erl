@@ -202,7 +202,15 @@ handle_cast({packet, SCPacket, HandlerPid},
             %% Since we updated active sc, send new banner
             ok = send_banner(NewSC, HandlerPid),
 
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
+            NewState = case find_stream(ClientPubkeyBin, State) of
+                           HandlerPid ->
+                               State;
+                           _ ->
+                               %% We either have an undefined stream or a different one
+                               add_stream(ClientPubkeyBin, HandlerPid, State)
+                       end,
+
+            {noreply, NewState#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
@@ -301,6 +309,9 @@ update_state_sc_open(Txn,
 
             case ActiveSCID of
                 undefined ->
+                    %% Switching active sc, broadcast banner
+                    ok = broadcast_banner(SC, State),
+
                     %% Don't have any active state channel
                     %% Set this one to active
                     State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs), active_sc_id=ID};
@@ -310,6 +321,18 @@ update_state_sc_open(Txn,
         _ ->
             %% Don't do anything cuz we're not the owner
             State
+    end.
+
+-spec broadcast_banner(SC :: blockchain_state_channel_v1:state_channel(),
+                       State :: state()) -> ok.
+broadcast_banner(SC, #state{streams=Streams}) ->
+    case maps:size(Streams) of
+        0 -> ok;
+        _ ->
+            lists:foldl(fun(Stream, ok) ->
+                                ok = send_banner(SC, Stream)
+                        end,
+                        ok, maps:values(Streams))
     end.
 
 -spec update_state_sc_close(
@@ -335,7 +358,12 @@ update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=Active
     %% Delete closed state channel from sc database
     ok = delete_closed_sc(DB, ID),
 
-    State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID}.
+    NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
+
+    %% Switching active sc, broadcast banner
+    ok = broadcast_banner(active_sc(NewState), NewState),
+
+    NewState.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -376,7 +404,13 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                             end
                     end,
 
-    State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels}.
+    NewState = State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels},
+
+    %% Switching active sc, broadcast banner
+    ok = broadcast_banner(active_sc(NewState), NewState),
+
+    NewState.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -586,6 +620,17 @@ send_banner(SC, Stream) ->
     %% TODO: Sign banner?
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
     blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
+
+-spec add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                 Stream :: pid(),
+                 State :: state()) -> state().
+add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
+    State#state{streams=maps:put(ClientPubkeyBin, Stream, Streams)}.
+
+-spec find_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  State :: state()) -> undefined | pid().
+find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
+    maps:get(ClientPubkeyBin, Streams, undefined).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

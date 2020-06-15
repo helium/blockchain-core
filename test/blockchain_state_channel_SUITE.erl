@@ -925,14 +925,14 @@ multi_active_sc_test(Config) ->
     ?assertEqual(ID2, ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, [])),
 
     %% Wait 1 sec before sending more packets
-    ok= timer:sleep(1000),
+    ok= timer:sleep(timer:seconds(1)),
 
     %% Send more packets, this should use the newly active state channel
     DevNonce2 = crypto:strong_rand_bytes(2),
     Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915']),
 
-    timer:sleep(timer:seconds(1)),
+    timer:sleep(timer:seconds(2)),
     DevNonce3 = crypto:strong_rand_bytes(2),
     Packet3 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce3, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, [], 'US915']),
