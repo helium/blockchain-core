@@ -1950,6 +1950,7 @@ resync_fun(ChainHeight, LedgerHeight, Blockchain) ->
                 lists:foreach(fun(Ht) ->
                                       receive
                                           {ok, Ht, Block} ->
+                                              PrefetchPid ! continue,
                                               Hash = blockchain_block:hash_block(Block),
                                               lager:info("absorbing block ~p", [blockchain_block:height(Block)]),
                                               ok = blockchain_txn:AbsorbFun(Block, Blockchain, fun() -> ok end, blockchain_block:is_rescue_block(Block)),
@@ -1982,6 +1983,10 @@ prefetch_fun(Parent, Start, End, #blockchain{db=DB, heights=HeightsCF}=Blockchai
                             false ->
                                 Parent ! chain_break,
                                 exit(normal)
+                        end,
+                        %% block for clearance to continue
+                        receive
+                            continue -> ok
                         end,
                         %% update the last block hash in accumulator
                         BlockHash
