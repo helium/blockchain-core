@@ -35,6 +35,8 @@ start_link() ->
 get(Addr, Ledger) ->
     get(Addr, Ledger, true).
 
+%% make sure that during absorb you're always skipping the cache, just
+%% in case.
 -spec get(GwAddr :: libp2p_crypto:pubkey_bin(),
           Ledger :: blockchain_ledger_v1:ledger(),
           CacheRead :: boolean()) ->
@@ -49,7 +51,7 @@ get(Addr, Ledger, true) ->
         %% first try the context cache
         case blockchain_ledger_v1:gateway_cache_get(Addr, Ledger) of
             {ok, Gw} ->
-                %% lager:info("new cache hit ~p ~p", [Addr, Height]),
+                lager:debug("new cache hit ~p ~p", [Addr, Height]),
                 ets:update_counter(?MODULE, hit, 1, {hit, 0}),
                 {ok, Gw};
             _ ->
@@ -63,7 +65,7 @@ get(Addr, Ledger, true) ->
                         %% then back off finally to the disk
                         case blockchain_ledger_v1:find_gateway_info(Addr, Ledger) of
                             {ok, DiskGw} = Result2 ->
-                                %% lager:info("get ~p at ~p miss writeback", [Addr, Height]),
+                                lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
                                 cache_put(Addr, DiskGw, Ledger),
                                 Result2;
                             Else ->
@@ -76,25 +78,6 @@ get(Addr, Ledger, true) ->
             ets:update_counter(?MODULE, error, 1, {error, 0}),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
-
-%% -spec invalidate(GwAddr :: libp2p_crypto:pubkey_bin(),
-%%                  Ledger :: blockchain_ledger_v1:ledger()) ->
-%%                         ok | {error, _}.
-%% invalidate(Addr, Ledger) ->
-%%     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-%%     case ets:lookup(?MODULE, curr_height) of
-%%         [{_, CurrHeight}] ->
-%%             case Height == CurrHeight of
-%%                 true ->
-%%                     ets:delete(?MODULE, {Addr, Height}),
-%%                     remove_height(Addr, Height ),
-%%                     lager:info("invalidate ~p ~p", [Addr, Height]);
-%%                 _ ->
-%%                     ok
-%%             end;
-%%         _ ->
-%%             ok
-%%     end.
 
 stats() ->
     case ets:lookup(?MODULE, total) of
@@ -269,6 +252,7 @@ add_height(Addr, Height) ->
     case ets:lookup(?MODULE, Addr) of
         [] ->
             New = {Addr, [Height]},
+            %% CAS insert is different than CAS
             case ets:insert_new(?MODULE, New) of
                 true ->
                     ok;
@@ -276,28 +260,23 @@ add_height(Addr, Height) ->
                     add_height(Addr, Height)
             end;
         [{_, Heights} = Old] ->
-            New = {Addr, add_in_order(Height, Heights)},
-            case ets:select_replace(?MODULE, [{Old, [], [{const, New}]}]) of
-                1 ->
+            Heights1 = add_in_order(Height, Heights),
+            case Heights == Heights1 of
+                %% don't bother with the expensive CAS if our insert
+                %% wouldn't change anything
+                true ->
                     ok;
-                _ ->
-                    add_height(Addr, Height)
+                false ->
+                    New = {Addr, Heights1},
+                    %% CAS the index
+                    case ets:select_replace(?MODULE, [{Old, [], [{const, New}]}]) of
+                        1 ->
+                            ok;
+                        _ ->
+                            add_height(Addr, Height)
+                    end
             end
     end.
-
-%% remove_height(Addr, Height) ->
-%%     case ets:lookup(?MODULE, Addr) of
-%%         [] ->
-%%             ok;
-%%         [{_, Heights} = Old] ->
-%%             New = {Addr, lists:delete(Height, Heights)},
-%%             case ets:select_replace(?MODULE, [{Old, [], [{const, New}]}]) of
-%%                 1 ->
-%%                     ok;
-%%                 _ ->
-%%                     remove_height(Addr, Height)
-%%             end
-%%     end.
 
 add_in_order(New, Heights) ->
     Heights1 =
@@ -306,6 +285,8 @@ add_in_order(New, Heights) ->
           %% no dups
           lists:usort([New | Heights])),
     Top = hd(Heights1),
+    %% drop old indices, as they'll be unreachable shortly anyway due
+    %% to sweeping
     lists:filter(fun(X) -> X > Top - 76 end, Heights1).
 
 get_update(_Height, _CurrHeight, _StartHeight, []) ->
@@ -315,7 +296,9 @@ get_update(Height, CurrHeight, StartHeight, [H | T]) ->
         true when H > (StartHeight + 1) ->
             H;
         %% it's not safe to use anything earlier than the starting
-        %% height, because the index may be incomplete.
+        %% height, because the index may be incomplete, because it's
+        %% too expensive to rematerialize the whole index on startup.
+        %% so we start slow/nonoptimal, but safely.
         true ->
             none;
         false ->
