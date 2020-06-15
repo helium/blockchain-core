@@ -619,7 +619,7 @@ poc_witnesses_rewards(Transactions,
 -spec get_gateway_owner(libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:ledger())-> {ok, libp2p_crypto:pubkey_bin()}
                                                                                      | {error, any()}.
 get_gateway_owner(Address, Ledger) ->
-    case blockchain_ledger_v1:find_gateway_info(Address, Ledger) of
+    case blockchain_gateway_cache:get(Address, Ledger) of
         {error, _Reason}=Error ->
             lager:error("failed to get gateway owner for ~p: ~p", [Address, _Reason]),
             Error;

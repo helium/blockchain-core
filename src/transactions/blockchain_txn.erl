@@ -328,10 +328,10 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
                     case BeforeCommit() of
-                         ok ->
+                        ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             absorb_delayed(Block, Chain0);
-                       Any ->
+                        Any ->
                             Any
                     end;
                 Error ->

@@ -114,6 +114,7 @@ init(Args) ->
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),
         ?WORKER(?EVT_MGR, blockchain_event, [BEventOpts]),
+        ?WORKER(blockchain_gateway_cache, []),
         ?WORKER(blockchain_score_cache, []),
         ?WORKER(blockchain_worker, [BWorkerOpts]),
         ?WORKER(blockchain_txn_mgr, [BTxnManagerOpts]),

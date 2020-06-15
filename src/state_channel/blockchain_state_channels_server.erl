@@ -126,7 +126,7 @@ handle_cast({packet, SCPacket},
     %% Get the client (i.e. the hotspot who received this packet)
     ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
 
-    case blockchain_ledger_v1:find_gateway_info(ClientPubkeyBin, Ledger) of
+    case blockchain_gateway_cache:get(ClientPubkeyBin, Ledger) of
         {error, _} ->
             %% This client does not exist on chain, ignore
             {noreply, State};

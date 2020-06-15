@@ -79,6 +79,10 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
     OnionCompactKey = libp2p_crypto:pubkey_to_bin(OnionPubKey),
     N = length(PubKeysAndData),
 
+    {Keys, Data} = lists:unzip(PubKeysAndData),
+
+    ECDHKeys = lists:map(fun(Key) -> ECDHFun(Key) end, Keys),
+
     IVs = compute_ivs(IV, PubKeysAndData),
 
     MatrixLength = N*(N+1),
@@ -89,40 +93,40 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
     %% fill in the data cells
     DataMatrix = lists:foldl(fun({Row, Col=1}, Acc) ->
                                      %% For column 1, the value is the Payload for that row
-                                     Data = element(2, lists:nth(Row, PubKeysAndData)),
-                                     DataSize = byte_size(Data),
-                                     setelement(((Row-1)*N)+Col, Acc, <<DataSize:8/integer, Data/binary>>);
+                                     CellData = lists:nth(Row, Data),
+                                     DataSize = byte_size(CellData),
+                                     setelement(((Row-1)*N)+Col, Acc, <<DataSize:8/integer, CellData/binary>>);
                                 ({Row, Col}, Acc) ->
                                      %% For other columns, the value is (Row+1, Column -1) ^ Key(Row+1)
-                                     setelement(((Row-1)*N)+Col, Acc, encrypt_cell(Row+1, Col-1, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger))
+                                     setelement(((Row-1)*N)+Col, Acc, encrypt_cell(Row+1, Col-1, N, Acc, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger))
                              end, EntryMatrix, lists:reverse(lists:sort([ {X, Y} || X <- lists:seq(1, N+1), Y <- lists:seq(1, N), X+Y =< N+1])) ),
 
     %% fill in the padding cells
     PaddingMatrix = lists:foldl(fun({Row, Col}, Acc) when Col == N ->
                                         %% For column N, the value is Hash(Row-1, 1) ^ Key(Row)
-                                        Data = element(2, lists:nth(Row-1, PubKeysAndData)),
-                                        DataSize = byte_size(Data) + 1 + 4,
-                                        <<Hash:DataSize/binary, _/binary>> = crypto:hash(sha512, Data),
+                                        CellData = lists:nth(Row-1, Data),
+                                        DataSize = byte_size(CellData) + 1 + 4,
+                                        <<Hash:DataSize/binary, _/binary>> = crypto:hash(sha512, CellData),
                                         case Row > N of
                                             false ->
                                                 ExtraTagBytes = ((N-Row)*4),
                                                 TempMatrix = setelement(((Row-1)*N)+Col, Acc, <<0:(ExtraTagBytes*8)/integer, Hash/binary>>),
-                                                <<_:ExtraTagBytes/binary, Cell/binary>> = encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger),
+                                                <<_:ExtraTagBytes/binary, Cell/binary>> = encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger),
                                                 setelement(((Row-1)*N)+Col, Acc, Cell);
                                             true ->
                                                 setelement(((Row-1)*N)+Col, Acc, Hash)
                                         end;
                                    ({Row, Col}, Acc) ->
                                         %% For column < N, the value is (Row-1, Column +1) ^ Key(Row)
-                                        Data = element(((Row-2)*N) + (Col+1), Acc),
+                                        CellData = element(((Row-2)*N) + (Col+1), Acc),
                                         case Row > N of
                                             false ->
                                                 ExtraTagBytes = ((N-Row)*4),
-                                                TempMatrix = setelement(((Row-1)*N)+Col, Acc, <<0:(ExtraTagBytes*8)/integer, Data/binary>>),
-                                                <<_:ExtraTagBytes/binary, Cell/binary>>= encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger),
+                                                TempMatrix = setelement(((Row-1)*N)+Col, Acc, <<0:(ExtraTagBytes*8)/integer, CellData/binary>>),
+                                                <<_:ExtraTagBytes/binary, Cell/binary>>= encrypt_cell(Row, Col, N, TempMatrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger),
                                                 setelement(((Row-1)*N)+Col, Acc, Cell);
                                             true ->
-                                                setelement(((Row-1)*N)+Col, Acc, Data)
+                                                setelement(((Row-1)*N)+Col, Acc, CellData)
                                         end
                                 end, DataMatrix, lists:sort([ {X, Y} || X <- lists:seq(1, N+1), Y <- lists:seq(1, N), X+Y > N+1])),
 
@@ -134,8 +138,8 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
                              PaddingMatrix;
                          _ ->
                               lists:foldl(fun(R, Acc) ->
-                                                  PaddingSize = byte_size(element(2, lists:nth(R, PubKeysAndData))) + 5,
-                                                  Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger),
+                                                  PaddingSize = byte_size(lists:nth(R, Data)) + 5,
+                                                  Row = encrypt_row(R, N, Acc, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger),
                                                   TAcc = setelement(((R-2)*N)+2, Acc, binary:part(Row, 0, byte_size(Row) - PaddingSize)),
                                                   lists:foldl(fun(E, Acc2) ->
                                                                       %% zero out all the other columns but 1 and 2 for this row
@@ -151,7 +155,7 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
                                                           Bins = lists:sublist(tuple_to_list(EncryptedMatrix), ((RowNumber-1)*N)+1, N),
                                                           list_to_binary(Bins);
                                                       false ->
-                                                          encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHFun, IVs, PubKeysAndData, BlockHash, Ledger)
+                                                          encrypt_row(RowNumber, N, EncryptedMatrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger)
                                                   end
                                           end, lists:seq(1, N+1)),
     {<<(hd(IVs)):16/integer-unsigned-little, OnionCompactKey/binary, FirstRow/binary>>, PacketRows}.
@@ -161,8 +165,8 @@ build(#{secret := OnionPrivKey, public := OnionPubKey}, IV, PubKeysAndData, Bloc
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData, BlockHash, Ledger) ->
-    SecretKey = ECDHFun(element(1, lists:nth(Row, KeysAndData))),
+encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger) ->
+    SecretKey = lists:nth(Row, ECDHKeys),
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, Column),
     Offset = lists:sum([byte_size(X) || X <- Bins]) - byte_size(lists:last(Bins)),
     IV0 = lists:nth(Row, IVs),
@@ -174,8 +178,8 @@ encrypt_cell(Row, Column, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData,
     << _:Offset/binary, Cell/binary>> = CipherText,
     Cell.
 
-encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHFun, IVs, KeysAndData, BlockHash, Ledger) ->
-    SecretKey = ECDHFun(element(1, lists:nth(Row, KeysAndData))),
+encrypt_row(Row, N, Matrix, OnionCompactKey, ECDHKeys, IVs, BlockHash, Ledger) ->
+    SecretKey = lists:nth(Row, ECDHKeys),
     Bins = lists:sublist(tuple_to_list(Matrix), ((Row-1)*N)+1, N),
     IV0 = lists:nth(Row, IVs),
     IV = <<0:80/integer, IV0:16/integer-unsigned-little>>,
