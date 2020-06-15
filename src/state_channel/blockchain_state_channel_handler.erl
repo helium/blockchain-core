@@ -18,7 +18,8 @@
     send_packet/2,
     send_offer/2,
     send_purchase/2,
-    send_response/2
+    send_response/2,
+    send_banner/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -67,6 +68,12 @@ send_purchase(Pid, Purchase) ->
     Pid ! {send_purchase, Purchase},
     ok.
 
+-spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
+send_banner(Pid, Banner) ->
+    lager:info("sending banner: ~p, pid: ~p", [Banner, Pid]),
+    Pid ! {send_banner, Banner},
+    ok.
+
 -spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
 send_response(Pid, Resp) ->
     Pid ! {send_response, Resp},
@@ -78,25 +85,24 @@ send_response(Pid, Resp) ->
 init(client, _Conn, _) ->
     {ok, #state{}};
 init(server, _Conn, _) ->
-    OpenSCs = blockchain_state_channels_server:state_channels(),
-    ActiveSCID = blockchain_state_channels_server:active_sc_id(),
-
-    case maps:get(ActiveSCID, OpenSCs, undefined) of
+    case blockchain_state_channels_server:active_sc() of
         undefined ->
             %% Send empty banner
             SCBanner = blockchain_state_channel_banner_v1:new(),
-            {ok, #state{}, blockchain_state_channel_banner_v1:encode(SCBanner)};
+            lager:info("sc_handler, empty banner: ~p", [SCBanner]),
+            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
         ActiveSC ->
+            lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
             SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-            {ok, #state{}, blockchain_state_channel_banner_v1:encode(SCBanner)}
+            lager:info("sc_handler, banner: ~p", [SCBanner]),
+            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
     end.
 
 handle_data(client, Data, State) ->
-
-    Dec = blockchain_state_channel_message_v1:decode(Data),
-    lager:info("Decoded: ~p", [Dec]),
-
     case blockchain_state_channel_message_v1:decode(Data) of
+        {banner, Banner} ->
+            lager:info("sc_handler client got banner: ~p", [Banner]),
+            blockchain_state_channels_client:banner(Banner, self());
         {purchase, Purchase} ->
             lager:info("sc_handler client got purchase: ~p", [Purchase]),
             blockchain_state_channels_client:purchase(Purchase, self());
@@ -121,6 +127,9 @@ handle_info(client, {send_offer, Offer}, State) ->
     {noreply, State, Data};
 handle_info(client, {send_packet, Packet}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Packet),
+    {noreply, State, Data};
+handle_info(server, {send_banner, Banner}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Banner),
     {noreply, State, Data};
 handle_info(server, {send_purchase, Purchase}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Purchase),

@@ -16,7 +16,8 @@
     packet/2,
     offer/2,
     state_channels/0,
-    active_sc_id/0
+    active_sc_id/0,
+    active_sc/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -76,7 +77,7 @@ packet(Packet, HandlerPid) ->
                           SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
                           case SCPacketHandler:handle_packet(Packet, HandlerPid) of
                               ok ->
-                                  gen_server:cast(?SERVER, {packet, Packet});
+                                  gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
                               {error, Why} ->
                                   lager:error("handle_packet failed: ~p", [Why])
                           end
@@ -111,6 +112,10 @@ state_channels() ->
 active_sc_id() ->
     gen_server:call(?SERVER, active_sc_id, infinity).
 
+-spec active_sc() -> undefined | blockchain_state_channel_v1:state_channel().
+active_sc() ->
+    gen_server:call(?SERVER, active_sc, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -132,16 +137,18 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     {reply, Reply, State};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
+handle_call(active_sc, _From, State) ->
+    {reply, active_sc(State), State};
 handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
     {reply, ActiveSCID, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, SCPacket}, #state{active_sc_id=undefined}=State) ->
+handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
-handle_cast({packet, SCPacket},
+handle_cast({packet, SCPacket, HandlerPid},
             #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
 
@@ -191,6 +198,10 @@ handle_cast({packet, SCPacket},
             %% Put new state_channel in our map
             lager:info("packet: ~p successfully validated, updating state",
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
+
+            %% Since we updated active sc, send new banner
+            ok = send_banner(NewSC, HandlerPid),
+
             {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
@@ -561,6 +572,20 @@ send_purchase(SC, Swarm, Stream, PacketHash, Region) ->
     PurchaseMsg1 = blockchain_state_channel_purchase_v1:sign(PurchaseMsg0, SigFun),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg1, Stream]),
     blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg1).
+
+-spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
+active_sc(#state{active_sc_id=undefined}) ->
+    undefined;
+active_sc(#state{state_channels=SCs, active_sc_id=ActiveSCID}) ->
+    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    ActiveSC.
+
+-spec send_banner(SC :: blockchain_state_channel_v1:state_channel(),
+                  Stream :: pid()) -> ok.
+send_banner(SC, Stream) ->
+    %% TODO: Sign banner?
+    BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
+    blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

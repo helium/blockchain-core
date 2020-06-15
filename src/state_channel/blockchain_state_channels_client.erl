@@ -15,7 +15,8 @@
          packet/3,
          state/0,
          response/1,
-         purchase/2
+         purchase/2,
+         banner/2
         ]).
 
 %% ------------------------------------------------------------------
@@ -72,6 +73,11 @@ response(Resp) ->
 purchase(Purchase, HandlerPid) ->
     gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
 
+-spec banner(Banner :: blockchain_state_channel_banner_v1:banner(),
+               HandlerPid :: pid()) -> ok.
+banner(Banner, HandlerPid) ->
+    gen_server:cast(?SERVER, {banner, Banner, HandlerPid}).
+
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
 packet(Packet, DefaultRouters, Region) ->
     gen_server:cast(?SERVER, {packet, Packet, DefaultRouters, Region}).
@@ -99,6 +105,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
+handle_cast({banner, Banner, HandlerPid}, State) ->
+    NewState = handle_banner(Banner, HandlerPid, State),
+    {noreply, NewState};
 handle_cast({purchase, Purchase, HandlerPid}, State) ->
     NewState = handle_purchase(Purchase, HandlerPid, State),
     {noreply, NewState};
@@ -126,20 +135,56 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec handle_banner(Banner :: blockchain_state_channel_banner_v1:banner(),
+                    Stream :: pid(),
+                    State :: state()) -> state().
+handle_banner(Banner, _Stream, State) ->
+    BannerSC = blockchain_state_channel_banner_v1:sc(Banner),
+    BannerSCID = blockchain_state_channel_v1:id(BannerSC),
+    case find_sc(BannerSCID, State) of
+        undefined ->
+            %% We have no information about this state channel
+            %% Store it
+            add_sc(BannerSCID, BannerSC, State);
+        OurSC ->
+            %% We already know about this state channel
+            %% Validate this banner
+            case validate_banner(BannerSC, OurSC) of
+                ok ->
+                    add_sc(BannerSCID, BannerSC, State);
+                {error, Reason} ->
+                    lager:error("invalid banner, reason: ~p", [Reason]),
+                    State
+            end
+    end.
+
 -spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                       Stream :: pid(),
                       State :: state()) -> state().
 handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
     PacketHash = blockchain_state_channel_purchase_v1:packet_hash(Purchase),
-    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+    PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
     case find_packet(PacketHash, State) of
         undefined ->
-            %% Drop it, we have no packet
+            %% Drop it, we don't know this packet
             lager:warning("Dropping purchase, packet_hash: ~p", [PacketHash]),
             State;
         Packet ->
-            ok = send_packet(Packet, Swarm, Stream, Region),
-            delete_packet(PacketHash, State)
+            case validate_purchase(PurchaseSCID, PurchaseSC, State) of
+                ok ->
+                    %% ok, send the packet
+                    %% remove from state (TODO: check if successful packet delivery?)
+                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                    ok = send_packet(Packet, Swarm, Stream, Region),
+                    %% XXX: Update our SC as we used the purchase sc and sent the packet?
+                    TempState = delete_packet(PacketHash, State),
+                    add_sc(PurchaseSCID, PurchaseSC, TempState);
+                {error, Reason} ->
+                    lager:error("validate_purchase failed, reason: ~p", [Reason]),
+                    %% conflict
+                    State
+            end
     end.
 
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
@@ -164,7 +209,7 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
                                                          add_stream(Router, NewStream, State)
                                                  end;
                                              Stream ->
-                                                 ok = send_packet(Packet, Swarm, Stream, Region),
+                                                 ok = send_offer(Packet, Swarm, Stream, Region),
                                                  StateAcc
                                          end
                                  end, State, DefaultRouters);
@@ -177,9 +222,30 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
     PacketHash = blockchain_helium_packet_v1:packet_hash(Packet),
     add_packet(PacketHash, Packet, State0).
 
-%% ------------------------------------------------------------------
-%% Internal functions
-%% ------------------------------------------------------------------
+-spec validate_banner(BannerSC :: blockchain_state_channel_v1:state_channel(),
+                      OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
+validate_banner(BannerSC, OurSC) ->
+    BannerSCNonce = blockchain_state_channel_v1:nonce(BannerSC),
+    OurSCNonce = blockchain_state_channel_v1:nonce(OurSC),
+    case BannerSCNonce == OurSCNonce + 1 of
+        true ->
+            ok;
+        false ->
+            {error, {invalid_banner_nonce, BannerSC, OurSC}}
+    end.
+
+-spec validate_purchase(PurchaseSCID :: binary(),
+                        PurchaseSC :: blockchain_state_channel_v1:state_channel(),
+                        State :: state()) -> ok | {error, any()}.
+validate_purchase(PurchaseSCID, PurchaseSC, State) ->
+    %% TODO: Improve purchase validation
+    OurSC = find_sc(PurchaseSCID, State),
+    case PurchaseSC == OurSC of
+        false ->
+            {error, {invalid_purchase, {PurchaseSC, OurSC}}};
+        true ->
+            ok
+    end.
 
 -spec find_packet(PacketHash :: binary(), State :: state()) -> blockchain_helium_packet_v1:packet() | undefined.
 find_packet(PacketHash, #state{packets=Packets}) ->
@@ -217,6 +283,10 @@ send_offer(Packet, Swarm, Stream, Region) ->
     lager:info("OfferMsg1: ~p", [OfferMsg1]),
     blockchain_state_channel_handler:send_offer(Stream, OfferMsg1).
 
+-spec find_sc(SCID :: binary(), State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
+find_sc(SCID, #state{state_channels=SCs}) ->
+    maps:get(SCID, SCs, undefined).
+
 -spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
 find_stream(OUI, #state{streams=Streams}) ->
     maps:get(OUI, Streams, undefined).
@@ -224,6 +294,12 @@ find_stream(OUI, #state{streams=Streams}) ->
 -spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), Stream :: pid(), State :: state()) -> state().
 add_stream(OUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(OUI, Stream, Streams)}.
+
+-spec add_sc(SCID :: binary(),
+             SC :: blockchain_state_channel_v1:state_channel(),
+             State :: state()) -> state().
+add_sc(SCID, SC, #state{state_channels=SCs}=State) ->
+    State#state{state_channels=maps:put(SCID, SC, SCs)}.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
 find_routing(Packet) ->

@@ -7,7 +7,7 @@
 
 -export([
     new/4,
-    packet_hash/1, region/1,
+    packet_hash/1, region/1, sc/1,
     signature/1, sign/2,
     encode/1, decode/1
 ]).
@@ -42,6 +42,10 @@ region(#blockchain_state_channel_purchase_v1_pb{region=Region}) ->
 -spec packet_hash(purchase()) -> binary().
 packet_hash(#blockchain_state_channel_purchase_v1_pb{packet_hash=PacketHash}) ->
     PacketHash.
+
+-spec sc(purchase()) -> blockchain_state_channel_v1:state_channel().
+sc(#blockchain_state_channel_purchase_v1_pb{sc=SC}) ->
+    SC.
 
 -spec signature(purchase()) -> binary().
 signature(#blockchain_state_channel_purchase_v1_pb{signature=Signature}) ->
