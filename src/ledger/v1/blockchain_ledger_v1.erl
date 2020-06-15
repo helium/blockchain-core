@@ -338,7 +338,7 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
-    prewarm_gateways(Mode, Height, GwCache),
+    prewarm_gateways(Mode, Height, Ledger, GwCache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),
@@ -2629,13 +2629,15 @@ batch_from_cache(ETS) ->
                       Acc
               end, Batch, ETS).
 
-prewarm_gateways(delayed, _Height, _GwCache) ->
+prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
-prewarm_gateways(active, Height, GwCache) ->
+prewarm_gateways(active, Height, Ledger, GwCache) ->
    GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
                               Acc;
-                         ({_, spillover}, Acc) ->
-                              Acc;
+                         ({Key, spillover}, Acc) ->
+                              AGwsCF = active_gateways_cf(Ledger),
+                              {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
+                              [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc];
                          ({Key, Value}, Acc) ->
                               [{Key, Value} | Acc]
                       end, [], GwCache),
