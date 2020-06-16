@@ -145,6 +145,9 @@
 %% whether to fix some typos in the PoC generation/validation code
 -define(poc_typo_fixes, poc_typo_fixes).
 
+%% Number of witnesses allowed to be considered per step of a path
+-define(poc_path_witness_limit, poc_path_witness_limit).
+
 %%%
 %%% score vars
 %%%

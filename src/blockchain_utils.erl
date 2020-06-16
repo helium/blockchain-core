@@ -26,7 +26,8 @@
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
     vars_keys_to_list/1,
-    calculate_dc_amount/2
+    calculate_dc_amount/2,
+    deterministic_subset/3
 ]).
 
 -ifdef(TEST).
@@ -319,6 +320,23 @@ approx_blocks_in_week(Ledger) ->
 %% @end
 vars_keys_to_list(Data) when is_binary(Data) ->
     [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <= Data ].
+
+
+%%--------------------------------------------------------------------
+%% @doc deterministic random subset from a random seed
+%% @end
+%%--------------------------------------------------------------------
+-spec deterministic_subset(pos_integer(), rand:state(), list()) -> {rand:seed(), list()}.
+deterministic_subset(Limit, RandState, L) ->
+    {RandState1, FullList} =
+        lists:foldl(fun(Elt, {RS, Acc}) ->
+                            {V, RS1} = rand:uniform_s(RS),
+                            {RS1, [{V, Elt} | Acc]}
+                    end,
+                    {RandState, []},
+                    L),
+    TruncList = lists:sublist(lists:sort(FullList), Limit),
+    {RandState1, TruncList}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
