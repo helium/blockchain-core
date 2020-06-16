@@ -239,8 +239,8 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            Ledger = blockchain:ledger(Chain),
-            LoadState = load_state(Ledger, State#state{chain=Chain}),
+            TempState = State#state{chain=Chain},
+            LoadState = update_state_with_ledger_channels(TempState),
             lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
     end;
@@ -296,7 +296,7 @@ terminate(_Reason, _State) ->
 update_state_sc_open(Txn,
                      BlockHash,
                      BlockHeight,
-                     #state{owner={Owner, _}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+                     #state{owner={Owner, OwnerSigFun}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
         Owner ->
@@ -307,24 +307,28 @@ update_state_sc_open(Txn,
                                                            BlockHash,
                                                            (BlockHeight + ExpireWithin)),
 
+            SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+
             case ActiveSCID of
                 undefined ->
                     %% Switching active sc, broadcast banner
-                    ok = broadcast_banner(SC, State),
+                    lager:info("broadcasting banner: ~p", [SignedSC]),
+                    ok = broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
                     %% Set this one to active
-                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs), active_sc_id=ID};
+                    State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs), active_sc_id=ID};
                 _A ->
-                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs)}
+                    State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs)}
             end;
         _ ->
             %% Don't do anything cuz we're not the owner
             State
     end.
 
--spec broadcast_banner(SC :: blockchain_state_channel_v1:state_channel(),
+-spec broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
                        State :: state()) -> ok.
+broadcast_banner(undefined, _) -> ok;
 broadcast_banner(SC, #state{streams=Streams}) ->
     case maps:size(Streams) of
         0 -> ok;
@@ -362,6 +366,7 @@ update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=Active
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
     %% Switching active sc, broadcast banner
+    lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
     ok = broadcast_banner(active_sc(NewState), NewState),
 
     NewState.
@@ -461,12 +466,9 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
             )
     end.
 
--spec load_state(Ledger :: blockchain_ledger_v1:ledger(),
-                 State :: state()) -> state().
-load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
-    {ok, SCMap} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
-    ConvertedSCs = convert_to_state_channels(SCMap, Chain),
-
+-spec update_state_with_ledger_channels(State :: state()) -> state().
+update_state_with_ledger_channels(#state{db=DB}=State) ->
+    ConvertedSCs = convert_to_state_channels(State),
     DBSCs = case get_state_channels(DB) of
                 {error, _} ->
                     #{};
@@ -546,8 +548,10 @@ delete_closed_sc(DB, ID) ->
             end
     end.
 
--spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map(), blockchain:blockchain()) -> state_channels().
-convert_to_state_channels(LedgerSCs, Chain) ->
+-spec convert_to_state_channels(State :: state()) -> state_channels().
+convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
     {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
@@ -568,8 +572,9 @@ convert_to_state_channels(LedgerSCs, Chain) ->
                                                           (_, _Hash) -> return
                                                        end, undefined, Head, Chain),
                      SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
+                     SignedSC = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
                      Skewed = skewed:new(BlockHash),
-                     {SC1, Skewed}
+                     {SignedSC, Skewed}
              end,
              LedgerSCs).
 
@@ -618,7 +623,8 @@ active_sc(#state{state_channels=SCs, active_sc_id=ActiveSCID}) ->
 -spec send_banner(SC :: blockchain_state_channel_v1:state_channel(),
                   Stream :: pid()) -> ok.
 send_banner(SC, Stream) ->
-    %% TODO: Sign banner?
+    %% NOTE: The banner itself is not signed, however, the state channel
+    %% it contains should be signed already
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
     blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
 
