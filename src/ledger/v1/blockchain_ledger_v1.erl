@@ -338,7 +338,7 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
     Context = batch_from_cache(Cache),
     {ok, Height} = current_height(Ledger),
-    prewarm_gateways(Mode, Height, GwCache),
+    prewarm_gateways(Mode, Height, Ledger, GwCache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
     delete_context(Ledger),
@@ -890,8 +890,9 @@ find_gateway_info(Address, Ledger) ->
     end.
 
 -spec gateway_cache_get(libp2p_crypto:pubkey_bin(), ledger()) ->
-                               {ok, blockchain_ledger_gateway_v2:gateway()}
-                                   | {error, any()}.
+                               {ok, blockchain_ledger_gateway_v2:gateway()} |
+                               spillover |
+                               {error, any()}.
 gateway_cache_get(Address, Ledger) ->
     case context_cache(Ledger) of
         {undefined, undefined} ->
@@ -900,6 +901,8 @@ gateway_cache_get(Address, Ledger) ->
             case ets:lookup(GwCache, Address) of
                 [] ->
                     {error, not_found};
+                [{_, spillover}] ->
+                    spillover;
                 [{_, Gw}] ->
                     {ok, Gw}
             end
@@ -2331,8 +2334,13 @@ cache_put(Ledger, CF, Key, Value) ->
 -spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
 gateway_cache_put(Addr, Gw, Ledger) ->
     {_Cache, GwCache} = context_cache(Ledger),
-    true = ets:insert(GwCache, {Addr, Gw}),
-    ok.
+    case ets:info(GwCache, size) of
+        N when N > 75 ->
+            true = ets:insert(GwCache, {Addr, spillover});
+        _ ->
+            true = ets:insert(GwCache, {Addr, Gw}),
+            ok
+    end.
 
 -spec cache_get(ledger(), rocksdb:cf_handle(), any(), [any()]) -> {ok, any()} | {error, any()} | not_found.
 cache_get(#ledger_v1{db=DB}=Ledger, CF, Key, Options) ->
@@ -2621,11 +2629,15 @@ batch_from_cache(ETS) ->
                       Acc
               end, Batch, ETS).
 
-prewarm_gateways(delayed, _Height, _GwCache) ->
+prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
-prewarm_gateways(active, Height, GwCache) ->
+prewarm_gateways(active, Height, Ledger, GwCache) ->
    GWList = ets:foldl(fun({_, ?CACHE_TOMBSTONE}, Acc) ->
                               Acc;
+                         ({Key, spillover}, Acc) ->
+                              AGwsCF = active_gateways_cf(Ledger),
+                              {ok, Bin} = cache_get(Ledger, AGwsCF, Key, []),
+                              [{Key, blockchain_ledger_gateway_v2:deserialize(Bin)}|Acc];
                          ({Key, Value}, Acc) ->
                               [{Key, Value} | Acc]
                       end, [], GwCache),

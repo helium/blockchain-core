@@ -50,6 +50,8 @@ get(Addr, Ledger, true) ->
         {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
         %% first try the context cache
         case blockchain_ledger_v1:gateway_cache_get(Addr, Ledger) of
+            spillover ->
+                blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
             {ok, Gw} ->
                 lager:debug("new cache hit ~p ~p", [Addr, Height]),
                 ets:update_counter(?MODULE, hit, 1, {hit, 0}),
@@ -217,35 +219,41 @@ cache_get(Addr, Ledger) ->
 
 cache_put(Addr, Gw, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    case ets:lookup(?MODULE, curr_height) of
-        [{_, CurrHeight}] ->
-            case Height == CurrHeight of
-                %% because of speculative absorbs, we cannot accept these, as
-                %% they may be affected by transactions that will
-                %% never land. They should mostly be covered by the
-                %% context cache
-                true ->
-                    lager:debug("get ~p at ~p miss *no* writeback", [Addr, Height]),
-                    ok;
-                false ->
-                    case ets:lookup(?MODULE, Addr) of
-                        [] ->
-                            add_height(Addr, Height);
-                        [{_, LastUpdate}] ->
-                            case Height > LastUpdate of
-                                true ->
+    [{_, StartHeight}] = ets:lookup(?MODULE, start_height),
+    case Height =< StartHeight of
+        true ->
+            ok;
+        false ->
+            case ets:lookup(?MODULE, curr_height) of
+                [{_, CurrHeight}] ->
+                    case Height == CurrHeight of
+                        %% because of speculative absorbs, we cannot accept these, as
+                        %% they may be affected by transactions that will
+                        %% never land. They should mostly be covered by the
+                        %% context cache
+                        true ->
+                            lager:debug("get ~p at ~p miss *no* writeback", [Addr, Height]),
+                            ok;
+                        false ->
+                            case ets:lookup(?MODULE, Addr) of
+                                [] ->
                                     add_height(Addr, Height);
-                                false ->
-                                    ok
-                            end
-                    end,
-                        lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
-                    ets:insert(?MODULE, {{Addr, Height}, Gw}),
+                                [{_, LastUpdate}] ->
+                                    case Height > LastUpdate of
+                                        true ->
+                                            add_height(Addr, Height);
+                                        false ->
+                                            ok
+                                    end
+                            end,
+                            lager:debug("get ~p at ~p miss writeback", [Addr, Height]),
+                            ets:insert(?MODULE, {{Addr, Height}, Gw}),
+                            ok
+                    end;
+                [] ->
+                    %% not sure that it's safe to do anything here
                     ok
-            end;
-        [] ->
-            %% not sure that it's safe to do anything here
-            ok
+            end
     end.
 
 add_height(Addr, Height) ->
