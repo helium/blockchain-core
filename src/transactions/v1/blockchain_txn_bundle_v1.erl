@@ -39,7 +39,7 @@ hash(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     TxnHashes = [blockchain_txn:hash(T) || T <- Txns],
     crypto:hash(sha256, TxnHashes).
 
--spec absorb(txn_bundle(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(#blockchain_txn_bundle_v1_pb{transactions=Txns}=_Txn, Chain) ->
     lists:foreach(fun(T) -> blockchain_txn:absorb(T, Chain) end, Txns).
 
@@ -56,7 +56,7 @@ fee(_TxnBundle) ->
 txns(#blockchain_txn_bundle_v1_pb{transactions=Txns}) ->
     Txns.
 
--spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_bundle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
     TxnBundleSize = length(Txns),
     MaxBundleSize = max_bundle_size(Chain),
@@ -69,7 +69,7 @@ is_valid(#blockchain_txn_bundle_v1_pb{transactions=Txns}=Txn, Chain) ->
             %% check that the bundle size doesn't exceed allowed max_bundle_size var
             case TxnBundleSize > MaxBundleSize of
                 true ->
-                    {error, {bundle_size_exceeded, TxnBundleSize, MaxBundleSize}};
+                    {error, {bundle_size_exceeded, {TxnBundleSize, MaxBundleSize}}};
                 false ->
                     %% check that there are no bundles in the bundle txn
                     case lists:any(fun(T) ->

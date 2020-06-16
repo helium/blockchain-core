@@ -97,6 +97,9 @@ type(Reward) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+%% NOTE: this is_valid function is never called.
+%%       should it be brought into play in the future, it needs updating
+%%       to return ok | {error, Reason} rather than a boolean
 -spec is_valid(Reward :: reward()) -> boolean().
 is_valid(#blockchain_txn_reward_v1_pb{account=Account, gateway=Gateway,
                                       amount=Amount, type=Type}) ->

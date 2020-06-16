@@ -105,7 +105,7 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_rewards(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Start = ?MODULE:start_epoch(Txn),
     End = ?MODULE:end_epoch(Txn),
@@ -126,7 +126,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_rewards(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_rewards(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Rewards = ?MODULE:rewards(Txn),

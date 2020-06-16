@@ -201,7 +201,7 @@ validate(Transactions, Chain) ->
     validate(Transactions, Chain, false).
 
 -spec validate(txns(), blockchain:blockchain(), boolean()) ->
-                      {blockchain_txn:txns(), blockchain_txn:txns()}.
+                      {blockchain_txn:txns(), [{txn(), atom()}]}.
 validate(Transactions, _Chain, true) ->
     {Transactions, []};
 validate(Transactions, Chain0, false) ->
@@ -245,18 +245,31 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                         ok ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
-                        {error, _Reason} ->
-                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason, print(Txn)]),
-                            validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
+                        {error, {InvalidReason, _Details}} = Error ->
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                        {error, InvalidReason} = Error->
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
                     %% we don't have enough context to decide if this transaction is valid yet, keep it
                     %% but don't include it in the block (so it stays in the buffer)
                     validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                {error, {InvalidReason, _Details}} = Error ->
+                    lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                    %% any other error means we drop it
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                {error, InvalidReason}=Error when is_atom(InvalidReason) ->
+                    lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                    %% any other error means we drop it
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
                 Error ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
-                    validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
+                    %% this error is unexpected and could be a crash report or some other weirdness
+                    %% we will use a generic error reason
+                    validate(Tail, Valid, [{Txn, validation_failed} | Invalid], PType, PBuf, Chain)
             end;
         _Else ->
             Res = blockchain_utils:pmap(
@@ -277,18 +290,25 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
     case ?MODULE:absorb(T, Chain) of
         ok ->
             separate_res(Rest, Chain, [T|V], I);
-        {error, _Reason} ->
-            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), _Reason, print(T)]),
-            separate_res(Rest, Chain, V, [T | I])
+        {error, {Reason, _Details}} = Error ->
+            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), Error, print(T)]),
+            separate_res(Rest, Chain, V, [{T, Reason} | I]);
+        {error, Reason} ->
+            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), Reason, print(T)]),
+            separate_res(Rest, Chain, V, [{T, Reason} | I])
     end;
 separate_res([{T, Err} | Rest], Chain, V, I) ->
     case Err of
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             separate_res(Rest, Chain, V, I);
-        Error ->
+        {error, {InvalidReason, _Details}} = Error ->
             lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
-            separate_res(Rest, Chain, V, [T | I])
+            separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
+        {error, InvalidReason} = Error ->
+            lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, InvalidReason} | I])
     end.
 
 maybe_log_duration(Type, Start) ->
@@ -300,7 +320,10 @@ maybe_log_duration(Type, Start) ->
     end.
 
 types(L) ->
-    L1 = lists:map(fun type/1, L),
+    L1 = lists:map(fun
+                       ({Txn, _}) -> type(Txn);
+                       (Txn)-> type(Txn)
+                   end, L),
     M = lists:foldl(
           fun(T, Acc) ->
                   maps:update_with(T, fun(X) -> X + 1 end, 1, Acc)
@@ -537,14 +560,14 @@ validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) 
         true ->
             validate_fields(Tail);
         false ->
-            {error, {field_wrong_size, Name, Length, byte_size(Field)}}
+            {error, {field_wrong_size, {Name, Length, byte_size(Field)}}}
     end;
 validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field) ->
     case byte_size(Field) =< Max andalso byte_size(Field) >= Min of
         true ->
             validate_fields(Tail);
         false ->
-            {error, {field_wrong_size, Name, {Min, Max}, byte_size(Field)}}
+            {error, {field_wrong_size, {Name, {Min, Max}, byte_size(Field)}}}
     end;
 validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
     try libp2p_crypto:bin_to_pubkey(Field) of
@@ -560,16 +583,16 @@ validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
         true ->
             validate_fields(Tail);
         false ->
-            {error, {not_a_member, Name, Field, List}}
+            {error, {not_a_member, {Name, Field, List}}}
     end;
 validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
                                                          andalso Field >= Min ->
     validate_fields(Tail);
 validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
                                                          andalso Field < Min ->
-    {error, {integer_too_small, Name, Field, Min}};
+    {error, {integer_too_small, {Name, Field, Min}}};
 validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
-    {error, {not_an_integer, Name, Field}};
+    {error, {not_an_integer, {Name, Field}}};
 validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->

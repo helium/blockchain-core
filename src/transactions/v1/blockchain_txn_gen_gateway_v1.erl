@@ -118,7 +118,7 @@ fee(_Txn) ->
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(_Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:current_height(Ledger) of
@@ -132,7 +132,7 @@ is_valid(_Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, not_in_genesis_block}.
+-spec absorb(txn_genesis_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Gateway = ?MODULE:gateway(Txn),

@@ -132,7 +132,7 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
@@ -539,7 +539,7 @@ good_quality_witnesses(Element, Ledger) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
- -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+ -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),

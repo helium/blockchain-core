@@ -82,7 +82,7 @@ fee(_Txn) ->
 %% This transaction should only be absorbed when it's in the genesis block
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_genesis_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = price(Txn),

@@ -18,7 +18,7 @@ cover:
 	$(REBAR) cover
 
 ci:
-	$(REBAR) dialyzer && $(REBAR) do eunit,ct
+	$(REBAR) dialyzer && $(REBAR) do eunit, ct
 	$(REBAR) do cover,covertool generate
 	codecov --required -f _build/test/covertool/blockchain.covertool.xml
 

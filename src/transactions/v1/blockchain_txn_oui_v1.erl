@@ -178,7 +178,7 @@ is_valid_payer(#blockchain_txn_oui_v1_pb{payer=PubKeyBin,
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     libp2p_crypto:verify(EncodedTxn, Signature, PubKey).
 
--spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     case {?MODULE:is_valid_owner(Txn),
           ?MODULE:is_valid_payer(Txn)} of
@@ -190,7 +190,7 @@ is_valid(Txn, Chain) ->
             do_oui_validation_checks(Txn, Chain)
     end.
 
--spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
@@ -208,7 +208,7 @@ absorb(Txn, Chain) ->
         {ok, Subnet} ->
             case validate_oui(OUI, Ledger) of
                 {false, LedgerOUI} ->
-                    {error, {invalid_oui, OUI, LedgerOUI}};
+                    {error, {invalid_oui, {OUI, LedgerOUI}}};
                 true ->
                     case blockchain_ledger_v1:debit_fee(ActualPayer, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
                         {error, _}=Error ->
@@ -346,7 +346,7 @@ validate_oui(OUI, Ledger) ->
             {false, OtherOUI}
     end.
 
--spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec do_oui_validation_checks(txn_oui(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 %% TODO - get rid of this nested bunch of cases
 do_oui_validation_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
@@ -355,7 +355,7 @@ do_oui_validation_checks(Txn, Chain) ->
     Addresses = ?MODULE:addresses(Txn),
     case validate_oui(OUI, Ledger) of
         {false, LedgerOUI} ->
-            {error, {invalid_oui, OUI, LedgerOUI}};
+            {error, {invalid_oui, {OUI, LedgerOUI}}};
         true ->
             case validate_addresses(Addresses) of
                 false ->
@@ -376,9 +376,9 @@ do_oui_validation_checks(Txn, Chain) ->
                                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                     case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
                                         {false,_} ->
-                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                         {_,false} ->
-                                            {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                            {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
                                         {true, true} ->
                                             Owner = ?MODULE:owner(Txn),
                                             Payer = ?MODULE:payer(Txn),
