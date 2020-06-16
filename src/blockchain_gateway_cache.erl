@@ -31,7 +31,7 @@ start_link() ->
 
 -spec get(GwAddr :: libp2p_crypto:pubkey_bin(),
           Ledger :: blockchain_ledger_v1:ledger()) ->
-                 ok | {error, _}.
+    {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger) ->
     get(Addr, Ledger, true).
 
@@ -40,7 +40,7 @@ get(Addr, Ledger) ->
 -spec get(GwAddr :: libp2p_crypto:pubkey_bin(),
           Ledger :: blockchain_ledger_v1:ledger(),
           CacheRead :: boolean()) ->
-                 ok | {error, _}.
+    {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger, false) ->
     ets:update_counter(?MODULE, total, 1, {total, 0}),
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
