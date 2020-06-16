@@ -92,7 +92,7 @@ keys_test(Config) ->
     % Test a payment transaction, add a block and check balances
     {Payer, {_, _, PayerSigFun}} = lists:last(ConsensusMembers),
     Recipient = blockchain_swarm:pubkey_bin(),
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 0, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, PayerSigFun),
     {ok, Block} = test_utils:create_block(ConsensusMembers, [SignedTx]),
     _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),

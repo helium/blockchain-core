@@ -109,7 +109,7 @@ single_payee_test(Config) ->
     Amount = 2500,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -151,7 +151,7 @@ same_payees_test(Config) ->
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
     Payment2 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -178,7 +178,7 @@ different_payees_test(Config) ->
     Amount2 = 2000,
     Payment2 = blockchain_payment_v2:new(Recipient2, Amount2),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -214,7 +214,7 @@ empty_payees_test(Config) ->
     %% Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -238,7 +238,7 @@ self_payment_test(Config) ->
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
     Payment2 = blockchain_payment_v2:new(Payer, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1, Payment2], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -265,7 +265,7 @@ max_payments_test(Config) ->
                            [],
                            Payees),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, Payments, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -290,7 +290,7 @@ signature_test(Config) ->
     Amount = 2500,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
 
     %% Use someone elses' signature
     SigFun = libp2p_crypto:mk_sig_fun(OtherPrivKey),
@@ -315,7 +315,7 @@ zero_amount_test(Config) ->
     Amount = 0,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
@@ -339,7 +339,7 @@ negative_amount_test(Config) ->
     Amount = -100,
     Payment1 = blockchain_payment_v2:new(Recipient, Amount),
 
-    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1, 0),
+    Tx = blockchain_txn_payment_v2:new(Payer, [Payment1], 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 

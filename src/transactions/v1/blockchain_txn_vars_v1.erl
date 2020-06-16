@@ -9,6 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -include_lib("helium_proto/include/blockchain_txn_vars_v1_pb.hrl").
 -include("blockchain_vars.hrl").
@@ -579,6 +580,20 @@ validate_oracle_keys([H|T]) ->
             throw({error, {invalid_oracle_pubkey, H}})
     end.
 
+validate_staking_keys_format(Str) when is_binary(Str) ->
+    PubKeys = blockchain_utils:vars_keys_to_list(Str),
+    validate_staking_keys(PubKeys).
+
+validate_staking_keys([]) -> ok;
+validate_staking_keys([H|T]) ->
+    try
+        _ = libp2p_crypto:bin_to_pubkey(H),
+        validate_staking_keys(T)
+    catch
+        _C:_E:_St ->
+            throw({error, {invalid_staking_pubkey, H}})
+    end.
+
 %% ALL VALIDATION ERRORS MUST THROW ERROR TUPLES
 %%
 %% election vars
@@ -864,6 +879,39 @@ validate_var(?price_oracle_height_delta, Value) ->
     %% How many blocks to allow between when a txn is
     %% submitted and when it is committed to the ledger
     validate_int(Value, "price_oracle_height_delta", 0, 500, false);
+
+%% txn fee related vars
+validate_var(?txn_fees, Value) ->
+    case Value of
+        true -> ok;
+        false -> ok;
+        _ -> throw({error, {invalid_txn_fees, Value}})
+    end;
+
+validate_var(?staking_keys, Value) ->
+    validate_staking_keys_format(Value);
+
+%% txn fee vars below are in DC
+validate_var(?staking_fee_txn_oui_v1, Value) ->
+    %% the staking fee price for an OUI, in DC
+    validate_int(Value, "staking_fee_txn_oui_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_oui_v1_per_address, Value) ->
+    %% the staking fee price for each OUI address, in DC
+    validate_int(Value, "staking_fee_txn_oui_v1_per_address", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_add_gateway_v1, Value) ->
+    %% the staking fee price for an add gateway txn, in DC
+    validate_int(Value, "staking_fee_txn_add_gateway_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?staking_fee_txn_assert_location_v1, Value) ->
+    %% the staking fee price for an assert location txn, in DC
+    validate_int(Value, "staking_fee_txn_assert_location_v1", 0, 1000 * ?USD_TO_DC, false);
+
+validate_var(?txn_fee_multiplier, Value) ->
+    %% a multiplier applied to txn fee, in DC
+    validate_int(Value, "txn_fee_multiplier", 1, 65536, false);
+
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

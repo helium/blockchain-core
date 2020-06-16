@@ -142,7 +142,7 @@ handle_cast({packet, SCPacket},
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
             SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
                       {error, not_found} ->
-                          NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
+                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                           NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
                           %% Add this to summaries
                           blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
@@ -150,7 +150,7 @@ handle_cast({packet, SCPacket},
                           %% Update packet count for this client
                           ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
                           %% Update DC count for this client
-                          NumDCs = blockchain_state_channel_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
+                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                           ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
                           NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                                   ExistingNumPackets + 1,

@@ -395,7 +395,7 @@ height_test() ->
     ?assertEqual(Height, height(Block)).
 
 transactions_test() ->
-    Txs = [blockchain_txn_add_gateway_v1:new(1, 1, 1, 1)],
+    Txs = [blockchain_txn_add_gateway_v1:new(1, 1, 1)],
     Block = new_merge(#{transactions => Txs}),
     ?assertEqual(Txs, transactions(Block)).
 
@@ -439,7 +439,7 @@ is_genesis_test() ->
 verify_signature_test() ->
     Keys = generate_keys(10),
     [{Payer, {_, PayerPrivKey, _}}, {Recipient, _}|_] = Keys,
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 10, 1),
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
     Block0 = new_merge(#{ transactions => [SignedTx]}),

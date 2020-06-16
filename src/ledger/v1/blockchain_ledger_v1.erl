@@ -18,7 +18,6 @@
     new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
 
     current_height/1, current_height/2, increment_height/2,
-    transaction_fee/1, update_transaction_fee/1, update_transaction_fee/2,
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
     election_epoch/1, election_epoch/2,
@@ -56,15 +55,16 @@
     maybe_gc_scs/1,
 
     find_entry/2,
-    credit_account/3, debit_account/4,
+    credit_account/3, debit_account/4, debit_fee_from_account/3,
     check_balance/3,
 
     dc_entries/1,
     find_dc_entry/2,
     credit_dc/3,
-    debit_dc/3,
-    debit_fee/3,
+    debit_dc/4,
+    debit_fee/3, debit_fee/4,
     check_dc_balance/3,
+    check_dc_or_hnt_balance/4,
 
     token_burn_exchange_rate/1,
     token_burn_exchange_rate/2,
@@ -142,11 +142,24 @@
     load_oracle_price_list/2,
 
     clean/1, close/1,
-    compact/1
+    compact/1,
+
+    txn_fees_active/1,
+    staking_fee_txn_oui_v1/1,
+    staking_fee_txn_oui_v1_per_address/1,
+    staking_fee_txn_add_gateway_v1/1,
+    staking_fee_txn_assert_location_v1/1,
+    staking_keys/1,
+    txn_fee_multiplier/1,
+
+    dc_to_hnt/2,
+    hnt_to_dc/2
+
 ]).
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
+-include("blockchain_txn_fees.hrl").
 
 -ifdef(TEST).
 -export([median/1]).
@@ -179,7 +192,6 @@
 
 -define(DB_FILE, "ledger.db").
 -define(CURRENT_HEIGHT, <<"current_height">>).
--define(TRANSACTION_FEE, <<"transaction_fee">>).
 -define(CONSENSUS_MEMBERS, <<"consensus_members">>).
 -define(ELECTION_HEIGHT, <<"election_height">>).
 -define(ELECTION_EPOCH, <<"election_epoch">>).
@@ -589,30 +601,6 @@ increment_height(Block, Ledger) ->
             Height1 = erlang:max(BlockHeight, Height0),
             cache_put(Ledger, DefaultCF, ?CURRENT_HEIGHT, <<Height1:64/integer-unsigned-big>>)
     end.
-
--spec transaction_fee(ledger()) -> {ok, pos_integer()} | {error, any()}.
-transaction_fee(Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    case cache_get(Ledger, DefaultCF, ?TRANSACTION_FEE, []) of
-        {ok, <<Height:64/integer-unsigned-big>>} ->
-            {ok, Height};
-        not_found ->
-            {error, not_found};
-        Error ->
-            Error
-    end.
-
--spec update_transaction_fee(ledger()) -> ok.
-update_transaction_fee(Ledger) ->
-    %% TODO - this should calculate a new transaction fee for the network
-    %% TODO - based on the average of usage fees
-    DefaultCF = default_cf(Ledger),
-    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<0:64/integer-unsigned-big>>).
-
--spec update_transaction_fee(pos_integer(), ledger()) -> ok.
-update_transaction_fee(Fee, Ledger) ->
-    DefaultCF = default_cf(Ledger),
-    cache_put(Ledger, DefaultCF, ?TRANSACTION_FEE, <<Fee:64/integer-unsigned-big>>).
 
 -spec consensus_members(ledger()) -> {ok, [libp2p_crypto:pubkey_bin()]} | {error, any()}.
 consensus_members(Ledger) ->
@@ -1450,6 +1438,122 @@ maybe_gc_scs(Ledger) ->
     end.
 
 %%--------------------------------------------------------------------
+%% @doc  get staking server keys from chain var
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_keys(Ledger :: ledger()) -> not_found | [libp2p_crypto:pubkey_bin()].
+staking_keys(Ledger)->
+    case blockchain:config(?staking_keys, Ledger) of
+        {error, not_found} -> not_found;
+        {ok, V} -> blockchain_utils:vars_keys_to_list(V)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  check if txn fees are enabled on chain
+%% @end
+%%--------------------------------------------------------------------
+-spec txn_fees_active(Ledger :: ledger()) -> boolean().
+txn_fees_active(Ledger)->
+    case blockchain:config(?txn_fees, Ledger) of
+        {error, not_found} -> false;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for OUI
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_oui_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_oui_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_oui_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for OUI addresses
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_oui_v1_per_address(Ledger :: ledger()) -> non_neg_integer().
+staking_fee_txn_oui_v1_per_address(Ledger)->
+    case blockchain:config(?staking_fee_txn_oui_v1_per_address, Ledger) of
+        {error, not_found} -> 0;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for add gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_add_gateway_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_add_gateway_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_add_gateway_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc  get txn fee multiplier
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec txn_fee_multiplier(Ledger :: ledger()) -> pos_integer().
+txn_fee_multiplier(Ledger)->
+    case blockchain:config(?txn_fee_multiplier, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+%%--------------------------------------------------------------------
+%% @doc  get staking fee chain var value for add gateway
+%% or return default
+%% @end
+%%--------------------------------------------------------------------
+-spec staking_fee_txn_assert_location_v1(Ledger :: ledger()) -> pos_integer().
+staking_fee_txn_assert_location_v1(Ledger)->
+    case blockchain:config(?staking_fee_txn_assert_location_v1, Ledger) of
+        {error, not_found} -> 1;
+        {ok, V} -> V
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% converts DC to HNT bones
+%% @end
+%%--------------------------------------------------------------------
+-spec dc_to_hnt(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
+dc_to_hnt(DCAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
+    DCInUSD = DCAmount * ?DC_TO_USD,
+    %% need to put USD amount into 1/100_000_000th cents, same as oracle price
+    {ok, ceil((DCInUSD * 100000000 / OracleHNTPrice) * ?BONES_PER_HNT)};
+dc_to_hnt(DCAmount, Ledger)->
+    case ?MODULE:current_oracle_price(Ledger) of
+        {ok, 0} ->
+            {ok, 0};
+        {ok, OracleHNTPrice} ->
+            dc_to_hnt(DCAmount, OracleHNTPrice)
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% converts HNT bones to DC
+%% @end
+%%--------------------------------------------------------------------
+-spec hnt_to_dc(non_neg_integer(), ledger() | pos_integer()) -> {ok, non_neg_integer()}.
+hnt_to_dc(HNTAmount, OracleHNTPrice) when is_integer(OracleHNTPrice) ->
+    HNTInUSD = ((HNTAmount / ?BONES_PER_HNT)  * OracleHNTPrice) / ?ORACLE_PRICE_SCALING_FACTOR,
+    {ok, ceil((HNTInUSD * ?USD_TO_DC))};
+hnt_to_dc(HNTAmount, Ledger)->
+    case ?MODULE:current_oracle_price(Ledger) of
+        {ok, 0} ->
+            {ok, 0};
+        {ok, OracleHNTPrice} ->
+            hnt_to_dc(HNTAmount, OracleHNTPrice)
+    end.
+
+%%--------------------------------------------------------------------
 %% @doc
 %% Maybe recalculate the median of the oracle prices that are valid
 %% in a sliding window.
@@ -1620,6 +1724,27 @@ debit_account(Address, Amount, Nonce, Ledger) ->
             end
     end.
 
+-spec debit_fee_from_account(libp2p_crypto:pubkey_bin(), integer(), ledger()) -> ok | {error, any()}.
+debit_fee_from_account(Address, Fee, Ledger) ->
+    case ?MODULE:find_entry(Address, Ledger) of
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_entry_v1:balance(Entry),
+            case (Balance - Fee) >= 0 of
+                true ->
+                    Entry1 = blockchain_ledger_entry_v1:new(
+                        blockchain_ledger_entry_v1:nonce(Entry),
+                        (Balance - Fee)
+                    ),
+                    Bin = blockchain_ledger_entry_v1:serialize(Entry1),
+                    EntriesCF = entries_cf(Ledger),
+                    cache_put(Ledger, EntriesCF, Address, Bin);
+                false ->
+                    {error, {insufficient_balance_for_fee, Fee, Balance}}
+            end
+    end.
+
 -spec check_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
 check_balance(Address, Amount, Ledger) ->
     case ?MODULE:find_entry(Address, Ledger) of
@@ -1670,48 +1795,57 @@ credit_dc(Address, Amount, Ledger) ->
 
 -spec debit_dc(Address :: libp2p_crypto:pubkey_bin(),
                Nonce :: non_neg_integer(),
+               Amount :: non_neg_integer(),
                Ledger :: ledger()) -> ok | {error, any()}.
-debit_dc(Address, Nonce, Ledger) ->
-    {ok, Fee} = ?MODULE:transaction_fee(Ledger),
-
-    Entry = case ?MODULE:find_dc_entry(Address, Ledger) of
-                {error, dc_entry_not_found} ->
-                    %% Just create a blank entry if dc_entry_not_found
-                    blockchain_ledger_data_credits_entry_v1:new(0, 0);
-                {error, _}=Error ->
-                    Error;
-                {ok, Entry0} ->
-                    Entry0
-            end,
-
-    case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry) + 1 of
-        false ->
-            {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry)}}};
-        true ->
+debit_dc(Address, Nonce, Amount, Ledger) ->
+    DebitFun =
+        fun(Entry) ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             %% NOTE: If fee = 0, this should still work..
-            case (Balance - Fee) >= 0 of
+            case (Balance - Amount) >= 0 of
                 true ->
-                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Fee)),
+                    Entry1 = blockchain_ledger_data_credits_entry_v1:new(Nonce, (Balance - Amount)),
                     Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
                     EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
-                    {error, {insufficient_dc_balance, Fee, Balance}}
+                    {error, {insufficient_dc_balance, Amount, Balance}}
             end
+        end,
+
+    case ?MODULE:find_dc_entry(Address, Ledger) of
+        {ok, Entry0} ->
+            case Nonce =:= blockchain_ledger_data_credits_entry_v1:nonce(Entry0) + 1 of
+                false ->
+                    {error, {bad_nonce, {data_credit, Nonce, blockchain_ledger_data_credits_entry_v1:nonce(Entry0)}}};
+                true ->
+                    DebitFun(Entry0)
+            end;
+        {error, dc_entry_not_found} ->
+            %% Just create a blank entry if dc_entry_not_found
+            Entry0 = blockchain_ledger_data_credits_entry_v1:new(0, 0),
+            DebitFun(Entry0);
+        {error, _}=Error ->
+            Error
     end.
 
 -spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger()) -> ok | {error, any()}.
-debit_fee(_Address, 0,_Ledger) ->
+debit_fee(_Address, Fee,_Ledger) ->
+    debit_fee(_Address, Fee,_Ledger, false).
+-spec debit_fee(Address :: libp2p_crypto:pubkey_bin(), Fee :: non_neg_integer(), Ledger :: ledger(), MaybeTryImplicitBurn :: boolean()) -> ok | {error, any()}.
+debit_fee(_Address, 0,_Ledger, _MaybeTryImplicitBurn) ->
     ok;
-debit_fee(Address, Fee, Ledger) ->
+debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
     case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, dc_entry_not_found} when MaybeTryImplicitBurn == true ->
+            {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+            ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
         {error, _}=Error ->
             Error;
         {ok, Entry} ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
-            case (Balance - Fee) >= 0 of
-                true ->
+            case {(Balance - Fee) >= 0, MaybeTryImplicitBurn} of
+                {true, _} ->
                     Entry1 = blockchain_ledger_data_credits_entry_v1:new(
                         blockchain_ledger_data_credits_entry_v1:nonce(Entry),
                         (Balance - Fee)
@@ -1719,7 +1853,11 @@ debit_fee(Address, Fee, Ledger) ->
                     Bin = blockchain_ledger_data_credits_entry_v1:serialize(Entry1),
                     EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
-                false ->
+                {false, true} ->
+                    %% user does not have sufficient DC balance, try to do an implicit hnt burn instead
+                    {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
+                    ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
+                {false, false} ->
                     {error, {insufficient_balance, Fee, Balance}}
             end
     end.
@@ -1738,6 +1876,29 @@ check_dc_balance(Address, Amount, Ledger) ->
                     {error, {insufficient_balance, Amount, Balance}};
                 true ->
                     ok
+            end
+    end.
+
+-spec check_dc_or_hnt_balance(Address :: libp2p_crypto:pubkey_bin(), Amount :: non_neg_integer(), Ledger :: ledger(), boolean()) -> ok | {error, any()}.
+check_dc_or_hnt_balance(_Address, 0, _Ledger, _IsFeesEnabled) ->
+    ok;
+check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
+    case ?MODULE:find_dc_entry(Address, Ledger) of
+        {error, dc_entry_not_found} ->
+            {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
+            ?MODULE:check_balance(Address, AmountInHNT, Ledger);
+        {error, _}=Error ->
+            Error;
+        {ok, Entry} ->
+            Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
+            case {(Balance - Amount) >= 0, IsFeesEnabled}  of
+                {true, _} ->
+                    ok;
+                {false, false} ->
+                    {error, {insufficient_balance, Amount, Balance}};
+                {false, true} ->
+                    {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
+                    ?MODULE:check_balance(Address, AmountInHNT, Ledger)
             end
     end.
 
@@ -3428,17 +3589,12 @@ subnet_allocation2_test() ->
 debit_dc_test() ->
     BaseDir = test_utils:tmp_dir("debit_dc_test"),
     Ledger = new(BaseDir),
-    Ledger1 = new_context(Ledger),
-    %% TODO: update thes when txn fee is real
-    %% set default txn fee for now
-    ok = update_transaction_fee(Ledger1),
-    ok = commit_context(Ledger1),
     %% check no dc entry initially
     {error, dc_entry_not_found} = ?MODULE:find_dc_entry(<<"address">>, Ledger),
 
     %% debit dc, note: no dc entry here still
     Ledger2 = new_context(Ledger),
-    ok = ?MODULE:debit_dc(<<"address">>, 1, Ledger2),
+    ok = ?MODULE:debit_dc(<<"address">>, 1, 0, Ledger2),
     ok = commit_context(Ledger2),
 
     %% blank dc entry should pop up here
@@ -3455,5 +3611,15 @@ debit_dc_test() ->
     {ok, Entry} = find_dc_entry(<<"address">>, Ledger),
     ?assertEqual(1000, blockchain_ledger_data_credits_entry_v1:balance(Entry)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+hnt_to_dc_test() ->
+    ?assertEqual({ok, 30000}, hnt_to_dc(1 * ?BONES_PER_HNT, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
+    ok.
+
+dc_to_hnt_test() ->
+    %% NOTE +1 below as dc_to_hnt uses ceil and thus we need to bump our expected figure
+    ?assertEqual({ok, (1 * ?BONES_PER_HNT) + 1} , dc_to_hnt(30000, trunc(0.3 * ?ORACLE_PRICE_SCALING_FACTOR))),
+    ok.
+
 
 -endif.

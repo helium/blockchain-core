@@ -124,7 +124,6 @@ snapshot(Ledger0, Blocks) ->
         %% changing modes?
         Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
         {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
-        {ok, TransactionFee} = blockchain_ledger_v1:transaction_fee(Ledger),
         {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
         {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
         {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
@@ -161,7 +160,7 @@ snapshot(Ledger0, Blocks) ->
                leading_hash = <<>>,
 
                current_height = CurrHeight,
-               transaction_fee = TransactionFee,
+               transaction_fee =  0,
                consensus_members = ConsensusMembers,
 
                election_height = ElectionHeight,
@@ -265,7 +264,7 @@ import(Chain, SHA,
           leading_hash = <<>>,
 
           current_height = CurrHeight,
-          transaction_fee = TransactionFee,
+          transaction_fee =  _TxnFee,
           consensus_members = ConsensusMembers,
 
           election_height = ElectionHeight,
@@ -324,7 +323,6 @@ import(Chain, SHA,
                  Ledger1 = blockchain_ledger_v1:mode(Mode, Ledger0),
                  Ledger = blockchain_ledger_v1:new_context(Ledger1),
                  ok = blockchain_ledger_v1:current_height(CurrHeight, Ledger),
-                 ok = blockchain_ledger_v1:update_transaction_fee(TransactionFee, Ledger),
                  ok = blockchain_ledger_v1:consensus_members(ConsensusMembers, Ledger),
                  ok = blockchain_ledger_v1:election_height(ElectionHeight, Ledger),
                  ok = blockchain_ledger_v1:election_epoch(ElectionEpoch, Ledger),
@@ -449,7 +447,7 @@ v1_to_v2(#blockchain_snapshot_v1{
             leading_hash = <<>>,
 
             current_height = CurrHeight,
-            transaction_fee = TransactionFee,
+            transaction_fee = _TxnFee,
             consensus_members = ConsensusMembers,
 
             election_height = ElectionHeight,
@@ -489,7 +487,7 @@ v1_to_v2(#blockchain_snapshot_v1{
        leading_hash = <<>>,
 
        current_height = CurrHeight,
-       transaction_fee = TransactionFee,
+       transaction_fee = 0,
        consensus_members = ConsensusMembers,
 
        election_height = ElectionHeight,
@@ -531,7 +529,7 @@ v2_to_v1(#blockchain_snapshot_v2{
             leading_hash = <<>>,
 
             current_height = CurrHeight,
-            transaction_fee = TransactionFee,
+            transaction_fee =  _TxnFee,
             consensus_members = ConsensusMembers,
 
             election_height = ElectionHeight,
@@ -571,7 +569,7 @@ v2_to_v1(#blockchain_snapshot_v2{
        leading_hash = <<>>,
 
        current_height = CurrHeight,
-       transaction_fee = TransactionFee,
+       transaction_fee =  0,
        consensus_members = ConsensusMembers,
 
        election_height = ElectionHeight,

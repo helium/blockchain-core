@@ -13,7 +13,7 @@
     tmp_dir/0, tmp_dir/1,
     cleanup_tmp_dir/1,
     nonl/1,
-    create_payment_transaction/6,
+    create_payment_transaction/5,
     atomic_save/2
 ]).
 
@@ -94,6 +94,8 @@ init_chain(Balance, GenesisMembers, ExtraVars) when is_list(GenesisMembers), is_
 
     Chain = blockchain_worker:blockchain(),
     {ok, HeadBlock} = blockchain:head_block(Chain),
+    ok = test_utils:wait_until(fun() ->{ok, 1} =:= blockchain:height(Chain) end),
+
     ?assertEqual(blockchain_block:hash_block(GenesisBlock), blockchain_block:hash_block(HeadBlock)),
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:genesis_hash(Chain)),
@@ -206,8 +208,8 @@ nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
 nonl([]) -> [].
 
-create_payment_transaction(Payer, PayerPrivKey, Amount, Fee, Nonce, Recipient) ->
-    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Fee, Nonce),
+create_payment_transaction(Payer, PayerPrivKey, Amount, Nonce, Recipient) ->
+    Tx = blockchain_txn_payment_v1:new(Payer, Recipient, Amount, Nonce),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     blockchain_txn_payment_v1:sign(Tx, SigFun).
 

@@ -9,7 +9,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
-
+-include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
 -include("include/blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
@@ -22,7 +22,8 @@
     oui/1,
     nonce/1,
     expire_within/1,
-    fee/1,
+    fee/1, fee/2,
+    calculate_fee/2, calculate_fee/3,
     signature/1,
     sign/2,
     is_valid/2,
@@ -50,6 +51,7 @@ new(ID, Owner, ExpireWithin, OUI, Nonce) ->
         expire_within=ExpireWithin,
         oui=OUI,
         nonce=Nonce,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
 
@@ -79,9 +81,13 @@ oui(Txn) ->
 expire_within(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.expire_within.
 
--spec fee(Txn :: txn_state_channel_open()) -> 0.
-fee(_Txn) ->
-    0.
+-spec fee(txn_state_channel_open()) -> non_neg_integer().
+fee(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.fee.
+
+-spec fee(txn_state_channel_open(), non_neg_integer()) -> txn_state_channel_open().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb{fee=Fee}.
 
 -spec signature(Txn :: txn_state_channel_open()) -> binary().
 signature(Txn) ->
@@ -93,10 +99,26 @@ sign(Txn, SigFun) ->
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(Txn),
     Txn#blockchain_txn_state_channel_open_v1_pb{signature=SigFun(EncodedTxn)}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Calculate the txn fee
+%% Returned value is txn_byte_size / 24
+%% @end
+%%--------------------------------------------------------------------
+-spec calculate_fee(txn_state_channel_open(), blockchain:blockchain()) -> non_neg_integer().
+calculate_fee(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+
+-spec calculate_fee(txn_state_channel_open(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, false) ->
+    ?LEGACY_TXN_FEE;
+calculate_fee(Txn, Ledger, true) ->
+    ?fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0, signature = <<0:512>>}, Ledger).
+
 -spec is_valid(Txn :: txn_state_channel_open(),
                Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 is_valid(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
@@ -106,22 +128,30 @@ is_valid(Txn, Chain) ->
         false ->
             {error, bad_signature};
         true ->
-            do_is_valid_checks(Txn, Ledger)
+            do_is_valid_checks(Txn, Chain)
     end.
 
 -spec absorb(Txn :: txn_state_channel_open(),
              Chain :: blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
+    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Ledger) of
-        {error, _}=Error ->
+    TxnFee = ?MODULE:fee(Txn),
+    case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
+        {error, _Reason}=Error ->
             Error;
         ok ->
-            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+            %% TODO we should debit the amount of DC the state channel holds, not 0
+            case blockchain_ledger_v1:debit_dc(Owner, Nonce, 0, Ledger) of
+                {error, _}=Error2 ->
+                    Error2;
+                ok ->
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+            end
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
@@ -143,8 +173,9 @@ to_json(Txn, _Opts) ->
       expire_within => expire_within(Txn)
      }.
 
--spec do_is_valid_checks(txn_state_channel_open(), blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
-do_is_valid_checks(Txn, Ledger) ->
+-spec do_is_valid_checks(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
+do_is_valid_checks(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
     ExpireWithin = ?MODULE:expire_within(Txn),
     ID = ?MODULE:id(Txn),
     Owner = ?MODULE:owner(Txn),
@@ -177,7 +208,15 @@ do_is_valid_checks(Txn, Ledger) ->
                                                     case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
                                                         {error, not_found} ->
                                                             %% No state channel with this ID for this Owner exists
-                                                            ok;
+                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                            TxnFee = ?MODULE:fee(Txn),
+                                                            ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                            case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                                false ->
+                                                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                                true ->
+                                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                                                            end;
                                                         {ok, _} ->
                                                             {error, state_channel_already_exists};
                                                         {error, _}=Err ->
@@ -206,6 +245,7 @@ new_test() ->
         expire_within=10,
         oui=1,
         nonce=1,
+        fee=?LEGACY_TXN_FEE,
         signature = <<>>
     },
     ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1)).
@@ -225,6 +265,10 @@ signature_test() ->
 oui_test() ->
     Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
     ?assertEqual(1, oui(Tx)).
+
+fee_test() ->
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
