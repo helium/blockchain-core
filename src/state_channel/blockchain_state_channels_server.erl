@@ -53,9 +53,9 @@
 }).
 
 -type state() :: #state{}.
--type state_channels() ::  #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
-                                                                  skewed:skewed()}}.
--type streams() :: #{non_neg_integer() => pid()}.
+-type state_channels() :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
+                                                                 skewed:skewed()}}.
+-type streams() :: #{libp2p_crypto:pubkey_bin() => pid()}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -329,10 +329,11 @@ broadcast_banner(SC, #state{streams=Streams}) ->
     case maps:size(Streams) of
         0 -> ok;
         _ ->
-            lists:foldl(fun(Stream, ok) ->
-                                ok = send_banner(SC, Stream)
-                        end,
-                        ok, maps:values(Streams))
+            _Res = blockchain_utils:pmap(
+                     fun(Stream) ->
+                             catch send_banner(SC, Stream)
+                     end, maps:values(Streams)),
+            ok
     end.
 
 -spec update_state_sc_close(

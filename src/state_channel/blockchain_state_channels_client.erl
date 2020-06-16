@@ -139,22 +139,28 @@ handle_info(_Msg, State) ->
                     Stream :: pid(),
                     State :: state()) -> state().
 handle_banner(Banner, _Stream, State) ->
-    BannerSC = blockchain_state_channel_banner_v1:sc(Banner),
-    BannerSCID = blockchain_state_channel_v1:id(BannerSC),
-    case find_sc(BannerSCID, State) of
+    case blockchain_state_channel_banner_v1:sc(Banner) of
         undefined ->
-            %% We have no information about this state channel
-            %% Store it
-            add_sc(BannerSCID, BannerSC, State);
-        OurSC ->
-            %% We already know about this state channel
-            %% Validate this banner
-            case validate_banner(BannerSC, OurSC) of
-                ok ->
+            %% We likely got an empty banner
+            State;
+        BannerSC ->
+            BannerSCID = blockchain_state_channel_v1:id(BannerSC),
+            case find_sc(BannerSCID, State) of
+                undefined ->
+                    %% We have no information about this state channel
+                    %% Store it
                     add_sc(BannerSCID, BannerSC, State);
-                {error, Reason} ->
-                    lager:error("invalid banner, reason: ~p", [Reason]),
-                    State
+                OurSC ->
+                    %% We already know about this state channel
+                    %% Validate this banner
+                    case validate_banner(BannerSC, OurSC) of
+                        ok ->
+                            lager:info("successful banner validation, inserting BannerSC, id: ~p", [BannerSCID]),
+                            add_sc(BannerSCID, BannerSC, State);
+                        {error, Reason} ->
+                            lager:error("invalid banner, reason: ~p", [Reason]),
+                            State
+                    end
             end
     end.
 
@@ -231,7 +237,7 @@ validate_banner(BannerSC, OurSC) ->
         true ->
             ok;
         false ->
-            {error, {invalid_banner_nonce, BannerSC, OurSC}}
+            {error, {invalid_banner_nonce, BannerSCNonce, OurSCNonce}}
     end.
 
 -spec validate_purchase(PurchaseSCID :: binary(),

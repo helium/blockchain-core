@@ -1521,6 +1521,10 @@ multi_sc_gc_test(Config) ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
     end, 30, timer:seconds(1)),
 
+    %% NOTE: There may be a timing issue in this test, why exactly I'm not sure cuz we check the state channel
+    %% right above, could be an underlying issue, needs investigation
+    timer:sleep(timer:seconds(1)),
+
     %% Sending another packet
     DevNonce1 = crypto:strong_rand_bytes(2),
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),

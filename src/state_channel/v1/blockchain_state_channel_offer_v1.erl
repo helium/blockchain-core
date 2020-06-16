@@ -33,6 +33,7 @@
 from_packet(Packet, Hotspot, Region) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, _, _} ->
+            %% TODO: Likely incorrect?
             {error, invalid};
         {devaddr, DevAddr} ->
             #blockchain_state_channel_offer_v1_pb{
