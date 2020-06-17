@@ -76,7 +76,8 @@ get(Addr, Ledger, true) ->
                         end
                 end
         end
-    catch _:_ ->
+    catch C:E ->
+            lager:debug("error ~p:~p", [C, E]),
             ets:update_counter(?MODULE, error, 1, {error, 0}),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
@@ -168,6 +169,7 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
     ets:delete_all_objects(?MODULE),
     {ok, Height} = blockchain_ledger_v1:current_height(blockchain:ledger(NC)),
+    ets:insert(?MODULE, {start_height, Height}),
     {noreply, State#state{height = Height}};
 handle_info(chain_init, State) ->
     try blockchain_worker:blockchain() of
