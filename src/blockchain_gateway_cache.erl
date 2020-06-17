@@ -159,7 +159,7 @@ handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
             %% sweep later so we get some use out of the tail on
             %% rarely updated spots
             ets:select_delete(?MODULE, [{{{'_','$1'},'_'},
-                                         [{'<','$1', Height - RetentionLimit}],
+                                         [{'<','$1', max(1, Height - RetentionLimit)}],
                                          [true]}]),
             {noreply, State#state{height = Height}};
         {error, _Err} ->
