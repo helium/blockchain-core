@@ -2495,8 +2495,9 @@ cache_put(Ledger, CF, Key, Value) ->
 -spec gateway_cache_put(libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway(), ledger()) -> ok.
 gateway_cache_put(Addr, Gw, Ledger) ->
     {_Cache, GwCache} = context_cache(Ledger),
+    MaxSize = application:get_env(blockchain, gw_context_cache_max_size, 75),
     case ets:info(GwCache, size) of
-        N when N > 75 ->
+        N when N > MaxSize ->
             true = ets:insert(GwCache, {Addr, spillover});
         _ ->
             true = ets:insert(GwCache, {Addr, Gw}),
