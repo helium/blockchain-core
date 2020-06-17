@@ -14,6 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_redeem_htlc_v1_pb.hrl").
 
 -export([
+    new/4,  %% tmp api
     new/3,
     hash/1,
     payee/1,
@@ -35,6 +36,11 @@
 
 -type txn_redeem_htlc() :: #blockchain_txn_redeem_htlc_v1_pb{}.
 -export_type([txn_redeem_htlc/0]).
+
+%% new/4 is maintained here until clients are updated to submit txns without fee args
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_redeem_htlc().
+new(Payee, Address, PreImage, _Fee) ->
+    new(Payee, Address, PreImage).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary()) -> txn_redeem_htlc().
 new(Payee, Address, PreImage) ->

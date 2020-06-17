@@ -15,6 +15,11 @@
 -include_lib("helium_proto/include/blockchain_txn_routing_v1_pb.hrl").
 
 -export([
+    update_router_addresses/5,  %% tmp api
+    new_xor/5,  %% tmp api
+    update_xor/6,  %% tmp api
+    request_subnet/5,  %% tmp api
+
     update_router_addresses/4,
     new_xor/4,
     update_xor/5,
@@ -47,6 +52,12 @@
 
 -export_type([txn_routing/0, action/0]).
 
+
+%% update_router_addresses/5 is maintained here until clients are updated to submit txns without fee args
+-spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer(), non_neg_integer()) -> txn_routing().
+update_router_addresses(OUI, Owner, Addresses, _Fee, Nonce) ->
+    update_router_addresses(OUI, Owner, Addresses, Nonce).
+
 -spec update_router_addresses(non_neg_integer(), libp2p_crypto:pubkey_bin(), [binary()], non_neg_integer()) -> txn_routing().
 update_router_addresses(OUI, Owner, Addresses, Nonce) ->
     #blockchain_txn_routing_v1_pb{
@@ -58,6 +69,11 @@ update_router_addresses(OUI, Owner, Addresses, Nonce) ->
        nonce=Nonce,
        signature= <<>>
       }.
+
+%% new_xor/5 is maintained here until clients are updated to submit txns without fee args
+-spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+new_xor(OUI, Owner, Xor, _Fee, Nonce) ->
+    new_xor(OUI, Owner, Xor, Nonce).
 
 -spec new_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), binary(), non_neg_integer()) -> txn_routing().
 new_xor(OUI, Owner, Xor, Nonce) ->
@@ -71,6 +87,11 @@ new_xor(OUI, Owner, Xor, Nonce) ->
        signature= <<>>
       }.
 
+%% update_xor/6 is maintained here until clients are updated to submit txns without fee args
+-spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+update_xor(OUI, Owner, Index, Xor, _Fee, Nonce) ->
+    update_xor(OUI, Owner, Index, Xor, Nonce).
+
 -spec update_xor(non_neg_integer(), libp2p_crypto:pubkey_bin(), non_neg_integer(), binary(), non_neg_integer()) -> txn_routing().
 update_xor(OUI, Owner, Index, Xor, Nonce) ->
     #blockchain_txn_routing_v1_pb{
@@ -82,6 +103,11 @@ update_xor(OUI, Owner, Index, Xor, Nonce) ->
        nonce=Nonce,
        signature= <<>>
       }.
+
+%% request_subnet/5 is maintained here until clients are updated to submit txns without fee args
+-spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer(), non_neg_integer()) -> txn_routing().
+request_subnet(OUI, Owner, SubnetSize, Fee, Nonce) ->
+    request_subnet(OUI, Owner, SubnetSize, Fee, Nonce).
 
 -spec request_subnet(non_neg_integer(), libp2p_crypto:pubkey_bin(), pos_integer(), non_neg_integer()) -> txn_routing().
 request_subnet(OUI, Owner, SubnetSize, Nonce) ->

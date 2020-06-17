@@ -16,6 +16,7 @@
 
 -export([
     new/4,
+    new/5, %% tmp api
     hash/1,
     payer/1,
     payee/1,
@@ -37,6 +38,12 @@
 
 -type txn_payment() :: #blockchain_txn_payment_v1_pb{}.
 -export_type([txn_payment/0]).
+
+%% new/5 is maintained here until clients are updated to submit txns without fee args
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
+          non_neg_integer(), non_neg_integer()) -> txn_payment().
+new(Payer, Recipient, Amount, _Fee, Nonce) ->
+    new(Payer, Recipient, Amount, Nonce).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
           non_neg_integer()) -> txn_payment().

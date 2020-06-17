@@ -45,6 +45,7 @@
 
     init_assumed_valid/2,
 
+    add_gateway_txn/4, assert_loc_txn/6,   %% tmp apis
     add_gateway_txn/2, assert_loc_txn/4,
 
     add_snapshot/2, get_snapshot/2, find_last_snapshot/1,
@@ -1639,6 +1640,15 @@ load_genesis(Dir) ->
 
 %% @doc Creates a signed add_gatewaytransaction with this blockchain's
 %% keys as the gateway, and the given owner and payer
+
+%% add_gateway_txn/4 is maintained here until clients are updated to submit txns without fee args
+-spec add_gateway_txn(OwnerB58::string(),
+                      PayerB58::string() | undefined,
+                      Fee::pos_integer(),
+                      StakingFee::non_neg_integer()) -> {ok, binary()}.
+add_gateway_txn(OwnerB58, PayerB58, _Fee, _StakingFee) ->
+    add_gateway_txn(OwnerB58, PayerB58).
+
 -spec add_gateway_txn(OwnerB58::string(),
                       PayerB58::string() | undefined) -> {ok, binary()}.
 add_gateway_txn(OwnerB58, PayerB58) ->
@@ -1658,6 +1668,17 @@ add_gateway_txn(OwnerB58, PayerB58) ->
 %% @doc Creates a signed assert_location transaction using the keys of
 %% this blockchain as the gateway to be asserted for the given
 %% location, owner and payer.
+
+%% assert_loc_txn/6 is maintained here until clients are updated to submit txns without fee args
+-spec assert_loc_txn(H3String::string(),
+                     OwnerB58::string(),
+                     PayerB58::string() | undefined,
+                     Nonce::non_neg_integer(),
+                     StakingFee::pos_integer(),
+                     Fee::pos_integer()) -> {ok, binary()}.
+assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, _StakingFee, _Fee) ->
+    assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce).
+
 -spec assert_loc_txn(H3String::string(),
                      OwnerB58::string(),
                      PayerB58::string() | undefined,

@@ -14,6 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_security_exchange_v1_pb.hrl").
 
 -export([
+    new/5,  %% tmp api
     new/4,
     hash/1,
     payer/1,
@@ -41,6 +42,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+%% new/5 is maintained here until clients are updated to submit txns without fee args
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
+          non_neg_integer(), non_neg_integer()) -> txn_security_exchange().
+new(Payer, Recipient, Amount, _Fee, Nonce) ->
+    new(Payer, Recipient, Amount, Nonce).
+
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), pos_integer(),
           non_neg_integer()) -> txn_security_exchange().
 new(Payer, Recipient, Amount, Nonce) ->

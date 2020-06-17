@@ -19,6 +19,7 @@
 
 -export([
     new/7,
+    new/8,   %% tmp api
     hash/1,
     payer/1,
     payee/1,
@@ -43,6 +44,12 @@
 
 -type txn_create_htlc() :: #blockchain_txn_create_htlc_v1_pb{}.
 -export_type([txn_create_htlc/0]).
+
+%% new/8 is maintained here until clients are updated to submit txns without fee args
+-spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
+          non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().
+new(Payer, Payee, Address, Hashlock, Timelock, Amount, _Fee, Nonce) ->
+    new(Payer, Payee, Address, Hashlock, Timelock, Amount, Nonce).
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), binary(),
           non_neg_integer(), non_neg_integer(), non_neg_integer()) -> txn_create_htlc().

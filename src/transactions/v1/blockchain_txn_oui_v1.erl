@@ -15,6 +15,7 @@
 
 -export([
     new/5, new/6,
+    new/7, new/8,  %% tmp api
     hash/1,
     owner/1,
     addresses/1,
@@ -48,6 +49,31 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+
+%% new/7 & new/8 are maintained here until clients are updated to submit txns without fee args
+-spec new(
+        OUI :: pos_integer(),
+        Owner :: libp2p_crypto:pubkey_bin(),
+        Addresses :: [libp2p_crypto:pubkey_bin()],
+        Filter :: binary() | undefined,
+        RequestedSubnetSize :: pos_integer() | undefined,
+        StakingFee :: pos_integer(),
+        Fee :: non_neg_integer()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, _StakingFee, _Fee) ->
+    new(OUI, Owner, Addresses, Filter, RequestedSubnetSize).
+
+-spec new(
+        OUI :: pos_integer(),
+        Owner :: libp2p_crypto:pubkey_bin(),
+        Addresses :: [libp2p_crypto:pubkey_bin()],
+        Filter :: binary() | undefined,
+        RequestedSubnetSize :: pos_integer() | undefined,
+        Payer :: libp2p_crypto:pubkey_bin(),
+        StakingFee :: pos_integer(),
+        Fee :: non_neg_integer()) -> txn_oui().
+new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer, _StakingFee, _Fee) ->
+    new(OUI, Owner, Addresses, Filter, RequestedSubnetSize, Payer).
+
 -spec new(
         OUI :: pos_integer(),
         Owner :: libp2p_crypto:pubkey_bin(),

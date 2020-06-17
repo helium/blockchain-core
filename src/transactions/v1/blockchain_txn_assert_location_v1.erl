@@ -16,6 +16,7 @@
 
 -export([
     new/4, new/5,
+    new/6, new/7,   %% tmp api
     hash/1,
     gateway/1,
     owner/1,
@@ -53,6 +54,26 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+%% new/4 & new/5 are maintained here until clients are updated to submit txns without fee args
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Location :: location(),
+          Nonce :: non_neg_integer(),
+          StakingFee :: pos_integer(),
+          Fee :: pos_integer()) -> txn_assert_location().
+new(Gateway, Owner, Location, Nonce, _StakingFee, _Fee) ->
+    new(Gateway, Owner, Location, Nonce).
+
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Payer :: libp2p_crypto:pubkey_bin(),
+          Location :: location(),
+          Nonce :: non_neg_integer(),
+          StakingFee :: pos_integer(),
+          Fee :: pos_integer()) -> txn_assert_location().
+new(Gateway, Owner, Payer, Location, Nonce, _StakingFee, _Fee) ->
+    new(Gateway, Owner, Payer, Location, Nonce).
+
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),

@@ -14,6 +14,7 @@
 
 -export([
     new/3,
+    new/4,  %% tmp api
     hash/1,
     gateway/1,
     oui/1,
@@ -41,6 +42,14 @@
 
 -type txn_update_gateway_oui() :: #blockchain_txn_update_gateway_oui_v1_pb{}.
 -export_type([txn_update_gateway_oui/0]).
+
+%% new/4 is maintained here until clients are updated to submit txns without fee args
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          OUI :: pos_integer(),
+          Nonce :: non_neg_integer(),
+          Fee :: non_neg_integer()) -> txn_update_gateway_oui().
+new(Gateway, OUI, Nonce, _Fee) ->
+    new(Gateway, OUI, Nonce).
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           OUI :: pos_integer(),

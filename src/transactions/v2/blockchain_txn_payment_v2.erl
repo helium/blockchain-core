@@ -18,6 +18,7 @@
 -include_lib("helium_proto/include/blockchain_txn_payment_v2_pb.hrl").
 
 -export([
+         new/4,  %% tmp api
          new/3,
          hash/1,
          payer/1,
@@ -43,6 +44,14 @@
 -type txn_payment_v2() :: #blockchain_txn_payment_v2_pb{}.
 
 -export_type([txn_payment_v2/0]).
+
+%% new/4 is maintained here until clients are updated to submit txns without fee args
+-spec new(Payer :: libp2p_crypto:pubkey_bin(),
+          Payments :: blockchain_payment_v2:payments(),
+          Nonce :: non_neg_integer(),
+          Fee :: non_neg_integer()) -> txn_payment_v2().
+new(Payer, Payments, Nonce, _Fee) ->
+    new(Payer, Payments, Nonce).
 
 -spec new(Payer :: libp2p_crypto:pubkey_bin(),
           Payments :: blockchain_payment_v2:payments(),
