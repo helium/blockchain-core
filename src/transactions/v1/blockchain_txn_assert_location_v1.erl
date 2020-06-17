@@ -15,8 +15,7 @@
 -include("blockchain_utils.hrl").
 
 -export([
-    new/4, new/5,
-    new/6, new/7,   %% tmp api
+    new/4, new/5, new/6, new/7,
     hash/1,
     gateway/1,
     owner/1,
@@ -54,16 +53,12 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-%% new/4 & new/5 are maintained here until clients are updated to submit txns without fee args
--spec new(Gateway :: libp2p_crypto:pubkey_bin(),
-          Owner :: libp2p_crypto:pubkey_bin(),
-          Location :: location(),
-          Nonce :: non_neg_integer(),
-          StakingFee :: pos_integer(),
-          Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce, _StakingFee, _Fee) ->
-    new(Gateway, Owner, Location, Nonce).
 
+%% NOTE: For assert location, we need to maintain new/6 & new/7 in which the StakingFee and Fee can be supplied
+%% this is to continue to allow miner to create, sign and submit add gateway txns
+%% on behalf of mobile clients.  We cannot assume these clients will have the chain present
+%% the supplied fee value will have been calculated by the client
+%% the supplied staking fee will have been derived from the API ( which will have the chain vars )
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Payer :: libp2p_crypto:pubkey_bin(),
@@ -71,14 +66,27 @@ new(Gateway, Owner, Location, Nonce, _StakingFee, _Fee) ->
           Nonce :: non_neg_integer(),
           StakingFee :: pos_integer(),
           Fee :: pos_integer()) -> txn_assert_location().
-new(Gateway, Owner, Payer, Location, Nonce, _StakingFee, _Fee) ->
-    new(Gateway, Owner, Payer, Location, Nonce).
+new(Gateway, Owner, Payer, Location, Nonce, StakingFee, Fee) ->
+    #blockchain_txn_assert_location_v1_pb{
+        gateway=Gateway,
+        owner=Owner,
+        payer = Payer,
+        location=h3:to_string(Location),
+        gateway_signature = <<>>,
+        owner_signature = <<>>,
+        payer_signature = <<>>,
+        nonce=Nonce,
+        staking_fee=StakingFee,
+        fee=Fee
+    }.
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Location :: location(),
-          Nonce :: non_neg_integer()) -> txn_assert_location().
-new(Gateway, Owner, Location, Nonce) ->
+          Nonce :: non_neg_integer(),
+          StakingFee :: pos_integer(),
+          Fee :: pos_integer()) -> txn_assert_location().
+new(Gateway, Owner, Location, Nonce, StakingFee, Fee) ->
     #blockchain_txn_assert_location_v1_pb{
         gateway=Gateway,
         owner=Owner,
@@ -88,8 +96,8 @@ new(Gateway, Owner, Location, Nonce) ->
         owner_signature = <<>>,
         payer_signature = <<>>,
         nonce=Nonce,
-        staking_fee=?LEGACY_STAKING_FEE,
-        fee=?LEGACY_TXN_FEE
+        staking_fee=StakingFee,
+        fee=Fee
     }.
 
 -spec new(Gateway :: libp2p_crypto:pubkey_bin(),
@@ -110,6 +118,26 @@ new(Gateway, Owner, Payer, Location, Nonce) ->
         staking_fee=?LEGACY_STAKING_FEE,
         fee=?LEGACY_TXN_FEE
     }.
+
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Location :: location(),
+          Nonce :: non_neg_integer()) -> txn_assert_location().
+new(Gateway, Owner, Location, Nonce) ->
+    #blockchain_txn_assert_location_v1_pb{
+        gateway=Gateway,
+        owner=Owner,
+        payer = <<>>,
+        location=h3:to_string(Location),
+        gateway_signature = <<>>,
+        owner_signature = <<>>,
+        payer_signature = <<>>,
+        nonce=Nonce,
+        staking_fee=?LEGACY_STAKING_FEE,
+        fee=?LEGACY_TXN_FEE
+    }.
+
+
 
 -spec hash(txn_assert_location()) -> blockchain_txn:hash().
 hash(Txn) ->

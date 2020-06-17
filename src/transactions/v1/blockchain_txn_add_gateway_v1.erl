@@ -14,8 +14,7 @@
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
-    new/2, new/3,
-    new/4, new/5,  %% tmp api
+    new/2, new/3, new/4, new/5,
     hash/1,
     owner/1,
     gateway/1,
@@ -50,16 +49,32 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-%% new/4 & new/5 are maintained here until clients are updated to submit txns without fee args
+
+%% NOTE: For add gateway, we need to maintain new/6 & new/7 in which the StakingFee and Fee can be supplied
+%% this is to continue to allow miner to create, sign and submit add gateway txns
+%% on behalf of mobile clients.  We cannot assume these clients will have the chain present
+%% the supplied fee value will have been calculated by the client
+%% the supplied staking fee will have been derived from the API ( which will have the chain vars )
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, _StakingFee, _Fee) ->
-    new(OwnerAddress, GatewayAddress).
+new(OwnerAddress, GatewayAddress, StakingFee, Fee) ->
+    #blockchain_txn_add_gateway_v1_pb{
+        owner=OwnerAddress,
+        gateway=GatewayAddress,
+        fee=Fee,
+        staking_fee=StakingFee
+    }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin(),
           non_neg_integer(), non_neg_integer()) -> txn_add_gateway().
-new(OwnerAddress, GatewayAddress, Payer, _StakingFee, _Fee) ->
-    new(OwnerAddress, GatewayAddress, Payer).
+new(OwnerAddress, GatewayAddress, Payer, StakingFee, Fee) ->
+    #blockchain_txn_add_gateway_v1_pb{
+        owner=OwnerAddress,
+        gateway=GatewayAddress,
+        payer=Payer,
+        fee=Fee,
+        staking_fee=StakingFee
+    }.
 
 -spec new(libp2p_crypto:pubkey_bin(), libp2p_crypto:pubkey_bin()) -> txn_add_gateway().
 new(OwnerAddress, GatewayAddress) ->
