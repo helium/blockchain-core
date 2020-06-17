@@ -152,12 +152,15 @@ handle_cast(_Msg, State) ->
 
 handle_info({blockchain_event, {add_block, _Hash, _Sync, Ledger}}, State) ->
     %% sweep here
+    RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
     case blockchain_ledger_v1:current_height(Ledger) of
         {ok, Height} ->
             lager:debug("sweeping at ~p", [Height]),
             %% sweep later so we get some use out of the tail on
             %% rarely updated spots
-            ets:select_delete(?MODULE, [{{{'_','$1'},'_'},[{'<','$1', Height - 76}],[true]}]),
+            ets:select_delete(?MODULE, [{{{'_','$1'},'_'},
+                                         [{'<','$1', Height - RetentionLimit}],
+                                         [true]}]),
             {noreply, State#state{height = Height}};
         {error, _Err} ->
             {noreply, State}
@@ -295,7 +298,8 @@ add_in_order(New, Heights) ->
     Top = hd(Heights1),
     %% drop old indices, as they'll be unreachable shortly anyway due
     %% to sweeping
-    lists:filter(fun(X) -> X > Top - 76 end, Heights1).
+    RetentionLimit = application:get_env(blockchain, gw_cache_retention_limit, 76),
+    lists:filter(fun(X) -> X > Top - RetentionLimit end, Heights1).
 
 get_update(_Height, _CurrHeight, _StartHeight, []) ->
     none;
