@@ -174,7 +174,7 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
     case find_packet(PacketHash, State) of
         undefined ->
             %% Drop it, we don't know this packet
-            lager:warning("Dropping purchase, packet_hash: ~p", [PacketHash]),
+            lager:debug("Dropping purchase, packet_hash: ~p", [PacketHash]),
             State;
         Packet ->
             case validate_purchase(PurchaseSCID, PurchaseSC, State) of

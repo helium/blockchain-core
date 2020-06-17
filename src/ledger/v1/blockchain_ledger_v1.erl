@@ -82,7 +82,6 @@
     add_oui/5,
 
     find_routing/2, find_routing_for_packet/2,
-    find_routing_via_eui/3, find_routing_via_devaddr/2,
     find_router_ouis/2,
     update_routing/4,
 

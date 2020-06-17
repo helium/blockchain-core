@@ -90,7 +90,7 @@ offer(Offer, HandlerPid) ->
     spawn(fun() ->
                   case blockchain_state_channel_offer_v1:validate(Offer) of
                       {error, _Reason} ->
-                          lager:warning("offer failed to validate ~p ~p", [_Reason, Offer]);
+                          lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]);
                       true ->
                           SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
                           case SCPacketHandler:handle_offer(Offer, HandlerPid) of
