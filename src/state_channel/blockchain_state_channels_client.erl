@@ -415,13 +415,13 @@ send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
                                                     {ok, NewStream} ->
                                                         unlink(NewStream),
                                                         erlang:monitor(process, NewStream),
-                                                        ok = send_offer(Packet, Swarm, NewStream, Region),
+                                                        ok = send_packet(Packet, Swarm, NewStream, Region),
                                                         {done, add_stream(OUI, NewStream, State)}
                                                 end
                                         end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
             NewState;
         Stream ->
-            ok = send_offer(Packet, Swarm, Stream, Region),
+            ok = send_packet(Packet, Swarm, Stream, Region),
             State
     end.
 
