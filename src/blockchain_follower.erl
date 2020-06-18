@@ -79,6 +79,8 @@ handle_info({blockchain_event, {new_chain, Chain}}, State=#state{follower_mod=Fo
     {ok, FollowerState} = FollowerMod:load_chain(Chain, State#state.follower_state),
     {noreply, State#state{chain=Chain, follower_state=FollowerState}};
 
+handle_info({blockchain_event, _ChainEvent}=Msg, State=#state{ chain=undefined}) ->
+    handle_info(Msg, State#state{chain=blockchain_worker:blockchain()});
 handle_info({blockchain_event, {add_block, Hash, Sync, Ledger}},
             State=#state{chain=Chain, follower_mod=FollowerMod}) ->
     {ok, Block} = blockchain:get_block(Hash, Chain),
