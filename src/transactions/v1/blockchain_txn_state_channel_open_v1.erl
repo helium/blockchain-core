@@ -48,12 +48,16 @@
           Nonce :: non_neg_integer(),
           Amount :: non_neg_integer()) -> txn_state_channel_open().
 new(ID, Owner, ExpireWithin, OUI, Nonce, Amount) ->
+    OvercommitFactor = case blockchain:config(?sc_overcommit) of
+                           {ok, X} -> X;
+                           _ -> 1
+                       end,
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         expire_within=ExpireWithin,
         oui=OUI,
-        amount=Amount,
+        amount=Amount * OvercommitFactor,
         nonce=Nonce,
         fee=?LEGACY_TXN_FEE,
         signature = <<>>
@@ -151,12 +155,16 @@ absorb(Txn, Chain) ->
         {error, _Reason}=Error ->
             Error;
         ok ->
-            Amount = ?MODULE:amount(Txn) * ?OVERCOMMIT,
-            case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
-                {error, _}=Error2 ->
-                    Error2;
-                ok ->
-                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger)
+            case ?MODULE:amount(Txn) of
+                0 ->
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, 0, Ledger);
+                Amount ->
+                    case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
+                        {error, _}=Error2 -> Error2;
+                        ok ->
+                            blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin,
+                                                                   Nonce, Amount, Ledger)
+                    end
             end
     end.
 

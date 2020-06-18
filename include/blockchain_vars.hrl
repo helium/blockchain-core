@@ -287,6 +287,8 @@
 
 %% state channel version, version 1 does not carry value, version 2 does
 -define(sc_version, sc_version).
+%% state channel overcommit multiplier
+-define(sc_overcommit, sc_overcommit).
 
 %% ------------------------------------------------------------------
 %% snapshot vars
