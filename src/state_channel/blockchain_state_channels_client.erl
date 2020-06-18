@@ -242,19 +242,24 @@ validate_banner(BannerSC, OurSC) ->
 -spec validate_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                         State :: state()) -> ok | {error, any()}.
 validate_purchase(Purchase, State) ->
-    %% TODO: Improve purchase validation
     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
     PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
 
-    case find_sc(PurchaseSCID, State) of
-        undefined ->
-            %% We don't have any information about this state channel yet
-            %% Presumably our first packet
-            %% Check that the purchase sc nonce is set to 1
-            %% And the purchase sc summary only has 1 packet in it
-            check_first_purchase(Purchase);
-        OurSC ->
-            compare_purchase_summary(Purchase, OurSC)
+    case blockchain_state_channel_v1:validate(PurchaseSC) of
+        ok ->
+            case find_sc(PurchaseSCID, State) of
+                undefined ->
+                    %% We don't have any information about this state channel yet
+                    %% Presumably our first packet
+                    %% Check that the purchase sc nonce is set to 1
+                    %% And the purchase sc summary only has 1 packet in it
+                    check_first_purchase(Purchase);
+                OurSC ->
+                    compare_purchase_summary(Purchase, OurSC)
+            end;
+        {error, _Reason}=E ->
+            lager:error("purchase sc validation failed, ~p", [_Reason]),
+            {error, {invalid_purchase_sc, E}}
     end.
 
 -spec check_first_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase()) -> ok | {error, any()}.

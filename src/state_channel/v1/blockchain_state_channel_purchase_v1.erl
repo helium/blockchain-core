@@ -8,7 +8,6 @@
 -export([
     new/4,
     hotspot/1, packet_hash/1, region/1, sc/1,
-    signature/1, sign/2,
     encode/1, decode/1
 ]).
 
@@ -30,7 +29,6 @@ new(SC, Hotspot, PacketHash, Region) ->
     #blockchain_state_channel_purchase_v1_pb{
        sc=SC,
        hotspot=Hotspot,
-       signature = <<>>,
        packet_hash=PacketHash,
        region=Region
     }.
@@ -50,16 +48,6 @@ packet_hash(#blockchain_state_channel_purchase_v1_pb{packet_hash=PacketHash}) ->
 -spec sc(purchase()) -> blockchain_state_channel_v1:state_channel().
 sc(#blockchain_state_channel_purchase_v1_pb{sc=SC}) ->
     SC.
-
--spec signature(purchase()) -> binary().
-signature(#blockchain_state_channel_purchase_v1_pb{signature=Signature}) ->
-    Signature.
-
--spec sign(purchase(), function()) -> purchase().
-sign(Purchase, SigFun) ->
-    EncodedReq = ?MODULE:encode(Purchase#blockchain_state_channel_purchase_v1_pb{signature= <<>>}),
-    Signature = SigFun(EncodedReq),
-    Purchase#blockchain_state_channel_purchase_v1_pb{signature=Signature}.
 
 -spec encode(purchase()) -> binary().
 encode(#blockchain_state_channel_purchase_v1_pb{}=Purchase) ->
