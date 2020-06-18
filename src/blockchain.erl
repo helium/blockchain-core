@@ -35,6 +35,7 @@
     delete_temp_blocks/1,
 
     analyze/1, repair/1,
+    crosscheck/1, crosscheck/2,
 
     fold_chain/4,
 
@@ -1329,6 +1330,9 @@ check_recent_blocks(Blockchain) ->
     end.
 
 crosscheck(Blockchain) ->
+    crosscheck(Blockchain, true).
+
+crosscheck(Blockchain, Recalc) ->
     {ok, Height} = height(Blockchain),
     Ledger = ledger(Blockchain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
@@ -1346,7 +1350,7 @@ crosscheck(Blockchain) ->
                             {error, {ledger_delayed_ledger_lag_too_large, Lag}};
                         Lag ->
                             %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
-                            case ledger_at(LedgerHeight, Blockchain, true) of
+                            case ledger_at(LedgerHeight, Blockchain, Recalc) of
                                 {ok, RecalcLedger} ->
                                     {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
                                     {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),

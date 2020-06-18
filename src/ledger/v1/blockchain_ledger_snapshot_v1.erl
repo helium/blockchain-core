@@ -628,13 +628,24 @@ diff(A, B) ->
                               Diff = diff_gateways(AUniq, BUniq, []),
                               [{gateways, Diff} | Acc];
                           blocks ->
-                              AHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- AI],
-                              BHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- BI],
-                              case {AHeightAndHash -- BHeightAndHash, BHeightAndHash -- AHeightAndHash} of
-                                  {[], []} ->
-                                      Acc;
-                                  {ADiffs, BDiffs} ->
-                                      [{Field, [Height || {Height, _Hash} <- ADiffs], [Height || {Height, _Hash} <- BDiffs]} | Acc]
+                              try
+                                  AHeightAndHash = [ begin
+                                                         Block = blockchain_block:deserialize(SerBlock),
+                                                         {blockchain_block:height(Block), blockchain_block:hash_block(Block)}
+                                                     end || SerBlock <- AI],
+                                  BHeightAndHash = [ begin
+                                                         Block = blockchain_block:deserialize(SerBlock),
+                                                         {blockchain_block:height(Block), blockchain_block:hash_block(Block)}
+                                                     end || SerBlock <- BI],
+
+                                  case {AHeightAndHash -- BHeightAndHash, BHeightAndHash -- AHeightAndHash} of
+                                      {[], []} ->
+                                          Acc;
+                                      {ADiffs, BDiffs} ->
+                                          [{Field, [Height || {Height, _Hash} <- ADiffs], [Height || {Height, _Hash} <- BDiffs]} | Acc]
+                                  end
+                              catch _:_ ->
+                                      [diff_error | Acc]
                               end;
                           _ ->
                               [Field | Acc]
@@ -714,7 +725,12 @@ minimize_witnesses(A, B) ->
     B1 = maps:without(AKeys, B),
     case maps:size(B1) of
         0 ->
-            Compare;
+            case Compare of
+                [] ->
+                    no_diff;
+                _ ->
+                    Compare
+            end;
         _ ->
             AMissing =
                 maps:fold(fun(K, _V, Acc) ->
