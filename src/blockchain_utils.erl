@@ -8,11 +8,14 @@
 -export([
     shuffle_from_hash/2,
     shuffle/1,
-    rand_from_hash/1, rand_state/1,
+    rand_from_hash/1,
+    rand_state/1,
     normalize_float/1,
     challenge_interval/1,
-    serialize_hash/1, deserialize_hash/1,
-    hex_to_bin/1, bin_to_hex/1,
+    serialize_hash/1,
+    deserialize_hash/1,
+    hex_to_bin/1,
+    bin_to_hex/1,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -30,17 +33,23 @@
 ]).
 
 -ifdef(TEST).
+
 -include_lib("eunit/include/eunit.hrl").
+
 -endif.
 
 -include("blockchain_vars.hrl").
 
 -define(FREQUENCY, 915).
+
 -define(TRANSMIT_POWER, 28).
+
 -define(MAX_ANTENNA_GAIN, 6).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
--type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
+
+-type gateway_score_map() ::
+    #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
 
 -export_type([gateway_score_map/0, zone_map/0]).
 
@@ -48,9 +57,11 @@
 %% @doc Calculate the amount of DC for the supplied payload
 %% @end
 %%--------------------------------------------------------------------
-
--spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledg(),
-                          PayloadSize :: non_neg_integer()) -> pos_integer().
+-spec calculate_dc_amount(
+    Ledger :: blockchain_ledger_v1:ledg(),
+    PayloadSize :: non_neg_integer()
+) ->
+    pos_integer().
 calculate_dc_amount(Ledger, PayloadSize) ->
     case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
         {ok, DCPayloadSize} ->
@@ -58,11 +69,12 @@ calculate_dc_amount(Ledger, PayloadSize) ->
                 true ->
                     1;
                 false ->
-                    erlang:ceil(PayloadSize/DCPayloadSize)
+                    erlang:ceil(PayloadSize / DCPayloadSize)
             end;
         _ ->
             {error, dc_payload_size_not_set}
     end.
+
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
 %% @end
@@ -70,14 +82,14 @@ calculate_dc_amount(Ledger, PayloadSize) ->
 -spec shuffle_from_hash(binary(), list()) -> list().
 shuffle_from_hash(Hash, L) ->
     ?MODULE:rand_from_hash(Hash),
-    [X ||{_, X} <- lists:sort([{rand:uniform(), E} || E <- L])].
+    [X || {_, X} <- lists:sort([{rand:uniform(), E} || E <- L])].
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list randomly.
 %% @end
 %%--------------------------------------------------------------------
 shuffle(List) ->
-    [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
+    [X || {_, X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -125,11 +137,16 @@ deserialize_hash(String) ->
 %%--------------------------------------------------------------------
 -spec bin_to_hex(binary()) -> string().
 bin_to_hex(Bin) ->
-  lists:flatten([[io_lib:format("~2.16.0b",[X]) || <<X:8>> <= Bin ]]).
+    lists:flatten([[io_lib:format("~2.16.0b", [X]) || <<X:8>> <= Bin]]).
 
 -spec hex_to_bin(binary()) -> binary().
 hex_to_bin(Hex) ->
-  << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
+    <<
+        begin
+            {ok, [V], []} = io_lib:fread("~16u", [X, Y]),
+            <<V:8/integer-little>>
+        end || <<X:8/integer, Y:8/integer>> <= Hex
+    >>.
 
 pmap(F, L) ->
     Width = application:get_env(blockchain, validation_width, 3),
@@ -138,23 +155,32 @@ pmap(F, L) ->
 pmap(F, L, Width) ->
     Parent = self(),
     Len = length(L),
-    Min = floor(Len/Width),
+    Min = floor(Len / Width),
     Rem = Len rem Width,
-    Lengths = lists:duplicate(Rem, Min+1)++ lists:duplicate(Width - Rem, Min),
+    Lengths = lists:duplicate(Rem, Min + 1) ++ lists:duplicate(Width - Rem, Min),
     OL = partition_list(L, Lengths, []),
     St = lists:foldl(
-           fun([], N) ->
-                   N;
-              (IL, N) ->
-                   spawn_opt(
-                     fun() ->
-                             Parent ! {pmap, N, lists:map(F, IL)}
-                     end, [{fullsweep_after, 0}]),
-                   N+1
-           end, 0, OL),
-    L2 = [receive
-              {pmap, N, R} -> {N,R}
-          end || _ <- lists:seq(1, St)],
+        fun
+            ([], N) ->
+                N;
+            (IL, N) ->
+                spawn_opt(
+                    fun () ->
+                        Parent ! {pmap, N, lists:map(F, IL)}
+                    end,
+                    [{fullsweep_after, 0}]
+                ),
+                N + 1
+        end,
+        0,
+        OL
+    ),
+    L2 =
+        [
+            receive
+                {pmap, N, R} -> {N, R}
+            end || _ <- lists:seq(1, St)
+        ],
     {_, L3} = lists:unzip(lists:keysort(1, L2)),
     lists:flatten(L3).
 
@@ -174,7 +200,7 @@ addr2name(Addr) ->
 -spec rand_state(Hash :: binary()) -> rand:state().
 rand_state(Hash) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
-      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+        C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
     rand:seed_s(exs1024s, {A, B, C}).
 
 distance(L1, L1) ->
@@ -205,34 +231,41 @@ score_gateways(Ledger) ->
     case blockchain_ledger_v1:mode(Ledger) of
         delayed ->
             %% Use the cache in delayed ledger mode
-            e2qc:cache(gw_cache, {Height},
-                       fun() ->
-                               score_tagged_gateways(Height, Ledger)
-                       end);
+            e2qc:cache(gw_cache, {Height}, fun () ->
+                score_tagged_gateways(Height, Ledger)
+            end);
         active ->
             %% recalculate in active ledger mode
             score_tagged_gateways(Height, Ledger)
     end.
 
--spec score_tagged_gateways(Height :: pos_integer(),
-                            Ledger :: blockchain_ledger_v1:ledger()) -> gateway_score_map().
+-spec score_tagged_gateways(
+    Height :: pos_integer(),
+    Ledger :: blockchain_ledger_v1:ledger()
+) ->
+    gateway_score_map().
 score_tagged_gateways(Height, Ledger) ->
     Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-    maps:map(fun(A, G) ->
-                     {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
-                     {G, S}
-             end, Gateways).
+    maps:map(
+        fun (A, G) ->
+            {_, _, S} = blockchain_ledger_gateway_v2:score(A, G, Height, Ledger),
+            {G, S}
+        end,
+        Gateways
+    ).
 
 -spec free_space_path_loss(h3:index(), h3:index()) -> float().
 free_space_path_loss(Loc1, Loc2) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
-    ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+    ?TRANSMIT_POWER -
+        (32.44 + 20 * math:log10(?FREQUENCY) + 20 * math:log10(Distance) -
+            ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
 
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
     %% This makes good men sad
-    maps:fold(fun(K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc)  end, #{}, Vars).
+    maps:fold(fun (K, V, Acc) -> maps:put(binary_to_atom(K, utf8), V, Acc) end, #{}, Vars).
 
 -spec get_pubkeybin_sigfun(pid()) -> {libp2p_crypto:pubkey_bin(), function()}.
 get_pubkeybin_sigfun(Swarm) ->
@@ -245,11 +278,11 @@ icdf_select(PopulationList, Rnd) ->
     Sum = lists:sum([Weight || {_Node, Weight} <- PopulationList]),
     icdf_select(PopulationList, normalize_float(Rnd * Sum), normalize_float(Rnd * Sum)).
 
--spec find_txn(Block :: blockchain_block:block(),
-               PredFun :: fun()) -> [blockchain_txn:txn()].
+-spec find_txn(Block :: blockchain_block:block(), PredFun :: fun()) ->
+    [blockchain_txn:txn()].
 find_txn(Block, PredFun) ->
     Txns = blockchain_block:transactions(Block),
-    lists:filter(fun(T) -> PredFun(T) end, Txns).
+    lists:filter(fun (T) -> PredFun(T) end, Txns).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -263,19 +296,19 @@ icdf_select([{Node, Weight} | _], Rnd, _OrigRnd) when Rnd - Weight =< 0 ->
 icdf_select([{_Node, Weight} | Tail], Rnd, OrigRnd) ->
     icdf_select(Tail, normalize_float(Rnd - Weight), OrigRnd).
 
-
-
 -spec map_to_bitvector(#{pos_integer() => boolean()}) -> binary().
 map_to_bitvector(Map) ->
     Sz = maps:size(Map),
     Int = lists:foldl(
-            fun({ID, true}, Acc) ->
-                    Acc bor (1 bsl (ID - 1));
-               (_, Acc) ->
-                    Acc
-            end,
-            0,
-            maps:to_list(Map)),
+        fun
+            ({ID, true}, Acc) ->
+                Acc bor (1 bsl (ID - 1));
+            (_, Acc) ->
+                Acc
+        end,
+        0,
+        maps:to_list(Map)
+    ),
     BitSz = nearest_byte(Sz),
     <<Int:BitSz/little-unsigned-integer>>.
 
@@ -283,20 +316,27 @@ map_to_bitvector(Map) ->
 bitvector_to_map(Count, Vector) ->
     Sz = 8 * size(Vector),
     <<Int:Sz/little-unsigned-integer>> = Vector,
-    L = [begin
-             B = case Int band (1 bsl (ID - 1)) of
-                     0 ->
-                         false;
-                     _ ->
-                         true
-                 end,
-             {ID, B}
-         end
-          || ID <- lists:seq(1, Count)],
+    L =
+        [
+            begin
+                B =
+                    case Int band (1 bsl (ID - 1)) of
+                        0 ->
+                            false;
+                        _ ->
+                            true
+                    end,
+                {ID, B}
+            end || ID <- lists:seq(1, Count)
+        ],
     maps:from_list(L).
 
 nearest_byte(X) ->
-    (X div 8 + case X rem 8 of 0 -> 0; _ -> 1 end) * 8.
+    (X div 8 +
+        case X rem 8 of
+            0 -> 0;
+            _ -> 1
+        end) * 8.
 
 -spec approx_blocks_in_week(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
 approx_blocks_in_week(Ledger) ->
@@ -309,7 +349,7 @@ approx_blocks_in_week(Ledger) ->
             10000
     end.
 
--spec vars_keys_to_list( Data :: binary() ) -> [ binary() ].
+-spec vars_keys_to_list(Data :: binary()) -> [binary()].
 %% @doc Price oracle public keys and also staking keys are encoded like this
 %% <code>
 %% <<KeyLen1/integer, Key1/binary, KeyLen2/integer, Key2/binary, ...>>
@@ -318,7 +358,7 @@ approx_blocks_in_week(Ledger) ->
 %% and returns a list of binary keys
 %% @end
 vars_keys_to_list(Data) when is_binary(Data) ->
-    [ Key || << Len:8/unsigned-integer, Key:Len/binary >> <= Data ].
+    [Key || <<Len:8/unsigned-integer, Key:Len/binary>> <= Data].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -331,10 +371,14 @@ serialize_deserialize_test() ->
 
 pmap_test() ->
     Input = lists:seq(1, 21),
-    {Pids, Results} = lists:unzip(pmap(fun(E) -> {self(), E} end, Input, 6)),
-    Map = lists:foldl(fun(E, A) ->
-                        maps:update_with(E, fun(X) -> X + 1 end, 1, A)
-                end, #{}, Pids),
+    {Pids, Results} = lists:unzip(pmap(fun (E) -> {self(), E} end, Input, 6)),
+    Map = lists:foldl(
+        fun (E, A) ->
+            maps:update_with(E, fun (X) -> X + 1 end, 1, A)
+        end,
+        #{},
+        Pids
+    ),
     ?assertEqual(6, maps:size(Map)),
     ?assertEqual([3, 3, 3, 4, 4, 4], lists:sort(maps:values(Map))),
     ?assertEqual(Input, Results).
@@ -357,10 +401,50 @@ start_swarm(Name, BaseDir) ->
     libp2p_swarm:start(Name, SwarmOpts).
 
 bitvector_roundtrip_test() ->
-    L1 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 16)],
-    L2 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 19)],
-    L3 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 64)],
-    L4 = [begin B = case rand:uniform(2) of 1 -> true; _ -> false end, {N,B} end || N <- lists:seq(1, 122)],
+    L1 =
+        [
+            begin
+                B =
+                    case rand:uniform(2) of
+                        1 -> true;
+                        _ -> false
+                    end,
+                {N, B}
+            end || N <- lists:seq(1, 16)
+        ],
+    L2 =
+        [
+            begin
+                B =
+                    case rand:uniform(2) of
+                        1 -> true;
+                        _ -> false
+                    end,
+                {N, B}
+            end || N <- lists:seq(1, 19)
+        ],
+    L3 =
+        [
+            begin
+                B =
+                    case rand:uniform(2) of
+                        1 -> true;
+                        _ -> false
+                    end,
+                {N, B}
+            end || N <- lists:seq(1, 64)
+        ],
+    L4 =
+        [
+            begin
+                B =
+                    case rand:uniform(2) of
+                        1 -> true;
+                        _ -> false
+                    end,
+                {N, B}
+            end || N <- lists:seq(1, 122)
+        ],
 
     M1 = maps:from_list(L1),
     M2 = maps:from_list(L2),
@@ -374,14 +458,14 @@ bitvector_roundtrip_test() ->
     ok.
 
 oracle_keys_test() ->
-    #{ public := RawEccPK } = libp2p_crypto:generate_keys(ecc_compact),
-    #{ public := RawEdPK } = libp2p_crypto:generate_keys(ed25519),
+    #{public := RawEccPK} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := RawEdPK} = libp2p_crypto:generate_keys(ed25519),
     EccPK = libp2p_crypto:pubkey_to_bin(RawEccPK),
     EdPK = libp2p_crypto:pubkey_to_bin(RawEdPK),
-    TestOracleKeys = << <<(byte_size(Key)):8/integer, Key/binary>> || Key <- [EccPK, EdPK] >>,
+    TestOracleKeys = <<<<(byte_size(Key)):8/integer, Key/binary>> || Key <- [EccPK, EdPK]>>,
     Results = vars_keys_to_list(TestOracleKeys),
     ?assertEqual([EccPK, EdPK], Results),
-    Results1 = [ libp2p_crypto:bin_to_pubkey(K) || K <- Results ],
+    Results1 = [libp2p_crypto:bin_to_pubkey(K) || K <- Results],
     ?assertEqual([RawEccPK, RawEdPK], Results1).
 
 calculate_dc_amount_test() ->
@@ -389,7 +473,7 @@ calculate_dc_amount_test() ->
     Ledger = blockchain_ledger_v1:new(BaseDir),
 
     meck:new(blockchain_ledger_v1, [passthrough]),
-    meck:expect(blockchain_ledger_v1, config, fun(_, _) ->
+    meck:expect(blockchain_ledger_v1, config, fun (_, _) ->
         {ok, 24}
     end),
 

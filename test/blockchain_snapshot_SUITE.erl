@@ -1,7 +1,9 @@
 -module(blockchain_snapshot_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
+
 -include("blockchain_vars.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
@@ -17,7 +19,6 @@
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
-
 %%--------------------------------------------------------------------
 %% @public
 %% @doc
@@ -32,7 +33,6 @@ all() ->
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
 %%--------------------------------------------------------------------
-
 init_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -73,13 +73,12 @@ basic_test(_Config) ->
     ?assertEqual([], blockchain_ledger_snapshot_v1:diff(Snapshot, Snapshot1)),
     ok.
 
-
 %% utils
-
 ledger() ->
     %% Ledger at height: 194196
     %% ActiveGateway Count: 3023
-    {ok, TestDir} = file:get_cwd(),  % this is deep in the test hierarchy
+    % this is deep in the test hierarchy
+    {ok, TestDir} = file:get_cwd(),
 
     Comps = filename:split(TestDir),
     Trimmed = lists:reverse(lists:sublist(lists:reverse(Comps), 5, length(Comps))),
@@ -114,7 +113,9 @@ extract_ledger_tar(PrivDir, LedgerTar) ->
         false ->
             %% ledger tar file not found, download & extract
             ok = ssl:start(),
-            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
+            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request(
+                "https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"
+            ),
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end.

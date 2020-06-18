@@ -51,7 +51,6 @@
 %% ------------------------------------------------------------------
 %% API functions
 %% ------------------------------------------------------------------
-
 start_link(Args) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, Args).
 
@@ -75,29 +74,40 @@ init(Args) ->
     BaseDir = proplists:get_value(base_dir, Args, "data"),
 
     %% allow the parent app to change this if it needs to.
-    MetadataFun = application:get_env(blockchain, metadata_fun,
-                                      fun blockchain_worker:signed_metadata_fun/0),
+    MetadataFun = application:get_env(
+        blockchain,
+        metadata_fun,
+        fun blockchain_worker:signed_metadata_fun/0
+    ),
     SwarmWorkerOpts =
         [
-         {key, proplists:get_value(key, Args)},
-         {base_dir, BaseDir},
-         {libp2p_proxy,
-          [{limit, application:get_env(blockchain, relay_limit, 25)}]},
-         {libp2p_peerbook,
-          [{signed_metadata_fun, MetadataFun},
-           {notify_time, application:get_env(blockchain, peerbook_update_interval, timer:minutes(5))},
-           {allow_rfc1918, application:get_env(blockchain, peerbook_allow_rfc1918, false)}
-          ]},
-         {libp2p_group_gossip,
-          [
-           {stream_client, {?GOSSIP_PROTOCOL_V1, {blockchain_gossip_handler, []}}},   %% NOTE: this config is not used anywhere in bc core or libp2p
-           {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
-           %% in should be ~2/3 out, otherwise nodes with good
-           %% connections will hog all the gossip
-           {peerbook_connections, application:get_env(blockchain, outbound_gossip_connections, 2)},
-           {inbound_connections, application:get_env(blockchain, max_inbound_connections, 6)},
-           {peer_cache_timeout, application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
-          ]}
+            {key, proplists:get_value(key, Args)},
+            {base_dir, BaseDir},
+            {libp2p_proxy, [{limit, application:get_env(blockchain, relay_limit, 25)}]},
+            {libp2p_peerbook, [
+                {signed_metadata_fun, MetadataFun},
+                {notify_time,
+                    application:get_env(
+                        blockchain,
+                        peerbook_update_interval,
+                        timer:minutes(5)
+                    )},
+                {allow_rfc1918,
+                    application:get_env(blockchain, peerbook_allow_rfc1918, false)}
+            ]},
+            {libp2p_group_gossip, [
+                %% NOTE: this config is not used anywhere in bc core or libp2p
+                {stream_client, {?GOSSIP_PROTOCOL_V1, {blockchain_gossip_handler, []}}},
+                {seed_nodes, proplists:get_value(seed_nodes, Args, [])},
+                %% in should be ~2/3 out, otherwise nodes with good
+                %% connections will hog all the gossip
+                {peerbook_connections,
+                    application:get_env(blockchain, outbound_gossip_connections, 2)},
+                {inbound_connections,
+                    application:get_env(blockchain, max_inbound_connections, 6)},
+                {peer_cache_timeout,
+                    application:get_env(blockchain, peer_cache_timeout, 10 * 1000)}
+            ]}
         ] ++ GroupMgrArgs,
     BWorkerOpts = [
         {port, proplists:get_value(port, Args, 0)},

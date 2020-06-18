@@ -1,19 +1,22 @@
 -module(plausible_block_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 
 -include("blockchain.hrl").
 
 -export([
-    all/0, init_per_testcase/2, end_per_testcase/2
+    all/0,
+    init_per_testcase/2,
+    end_per_testcase/2
 ]).
 
 -export([
     basic/1,
     definitely_invalid/1,
     ultimately_invalid/1
-        ]).
+]).
 
 all() ->
     [basic, definitely_invalid, ultimately_invalid].
@@ -21,8 +24,6 @@ all() ->
 init_per_testcase(TestCase, Config) ->
     catch gen_server:stop(blockchain_sup),
     blockchain_ct_utils:init_base_dir_config(?MODULE, TestCase, Config).
-
-
 
 end_per_testcase(_, _Config) ->
     catch gen_server:stop(blockchain_sup),
@@ -35,20 +36,23 @@ basic(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
+        test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Add some blocks
-    Blocks = lists:reverse(lists:foldl(
-        fun(_, Acc) ->
-            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            blockchain:add_block(Block, Chain0),
-            [Block|Acc]
-        end,
-        [],
-        lists:seq(1, BlocksN)
-    )),
+    Blocks = lists:reverse(
+        lists:foldl(
+            fun (_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain0),
+                [Block | Acc]
+            end,
+            [],
+            lists:seq(1, BlocksN)
+        )
+    ),
     LastBlock = lists:last(Blocks),
 
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
@@ -80,7 +84,10 @@ basic(Config) ->
     ok = blockchain:add_block(FinalBlock, Chain),
     ?assertEqual({ok, 82}, blockchain:height(Chain)),
     ?assertEqual({ok, 82}, blockchain:sync_height(Chain)),
-    ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(FinalBlock)}),
+    ?assertEqual(
+        blockchain:head_hash(Chain),
+        {ok, blockchain_block:hash_block(FinalBlock)}
+    ),
     [] = blockchain:get_plausible_blocks(Chain),
     %% try adding the previously plausible block again, it should not work
     exists = blockchain:add_block(LastBlock, Chain),
@@ -94,39 +101,45 @@ definitely_invalid(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
+        test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Add some blocks
-    Blocks = lists:reverse(lists:foldl(
-        fun(_, Acc) ->
-            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            blockchain:add_block(Block, Chain0),
-            [Block|Acc]
-        end,
-        [],
-        lists:seq(1, BlocksN)
-    )),
+    Blocks = lists:reverse(
+        lists:foldl(
+            fun (_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain0),
+                [Block | Acc]
+            end,
+            [],
+            lists:seq(1, BlocksN)
+        )
+    ),
     %% tear down the chain
     gen_server:stop(blockchain_sup),
     os:cmd("rm -rf" ++ proplists:get_value(base_dir, _Opts)),
 
     %% boot an entirely disjoint chain
-    {ok, _Sup1, {PrivKey1, PubKey1}, _Opts1} = test_utils:init(BaseDir++"extra"),
-    {ok, _GenesisMembers1, _GenesisBlock2, _ConsensusMembers1, _} = test_utils:init_chain(Balance, {PrivKey1, PubKey1}),
+    {ok, _Sup1, {PrivKey1, PubKey1}, _Opts1} = test_utils:init(BaseDir ++ "extra"),
+    {ok, _GenesisMembers1, _GenesisBlock2, _ConsensusMembers1,
+        _} = test_utils:init_chain(Balance, {PrivKey1, PubKey1}),
     Chain1 = blockchain_worker:blockchain(),
 
     % Add some blocks
-    Blocks1 = lists:reverse(lists:foldl(
-        fun(_, Acc) ->
-            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            blockchain:add_block(Block, Chain1),
-            [Block|Acc]
-        end,
-        [],
-        lists:seq(1, BlocksN)
-    )),
+    Blocks1 = lists:reverse(
+        lists:foldl(
+            fun (_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain1),
+                [Block | Acc]
+            end,
+            [],
+            lists:seq(1, BlocksN)
+        )
+    ),
     LastBlock = lists:last(Blocks1),
 
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
@@ -146,9 +159,13 @@ definitely_invalid(Config) ->
     %% check the plausible block is not the head of the chain
     ?assertEqual({ok, 81}, blockchain:height(Chain)),
     ?assertEqual({ok, 81}, blockchain:sync_height(Chain)),
-    ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(lists:last(Blocks))}),
+    ?assertEqual(
+        blockchain:head_hash(Chain),
+        {ok, blockchain_block:hash_block(lists:last(Blocks))}
+    ),
     %% make sure the plausible block is not in the chain at all
-    {error, not_found} = blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),
+    {error, not_found} =
+        blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),
     %% make sure the plausible blocks got removed
     [] = blockchain:get_plausible_blocks(Chain),
     ok.
@@ -160,39 +177,46 @@ ultimately_invalid(Config) ->
     Balance = 5000,
     BlocksN = 80,
     {ok, _Sup, {PrivKey, PubKey}, _Opts} = test_utils:init(BaseDir),
-    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, _} = test_utils:init_chain(Balance, {PrivKey, PubKey}),
+    {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, _} =
+        test_utils:init_chain(Balance, {PrivKey, PubKey}),
     Chain0 = blockchain_worker:blockchain(),
     {ok, Genesis} = blockchain:genesis_block(Chain0),
 
     % Add some blocks
-    Blocks = lists:reverse(lists:foldl(
-        fun(_, Acc) ->
-            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            blockchain:add_block(Block, Chain0),
-            [Block|Acc]
-        end,
-        [],
-        lists:seq(1, BlocksN)
-    )),
+    Blocks = lists:reverse(
+        lists:foldl(
+            fun (_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain0),
+                [Block | Acc]
+            end,
+            [],
+            lists:seq(1, BlocksN)
+        )
+    ),
     %% tear down the chain
     gen_server:stop(blockchain_sup),
     os:cmd("rm -rf" ++ proplists:get_value(base_dir, _Opts)),
 
     %% boot an entirely disjoint chain
-    {ok, _Sup1, {PrivKey, PubKey}, _Opts1} = test_utils:init(BaseDir++"extra", {PrivKey, PubKey}),
-    {ok, _GenesisMembers, _GenesisBlock2, ConsensusMembers, _} = test_utils:init_chain(Balance, GenesisMembers, #{}),
+    {ok, _Sup1, {PrivKey, PubKey}, _Opts1} =
+        test_utils:init(BaseDir ++ "extra", {PrivKey, PubKey}),
+    {ok, _GenesisMembers, _GenesisBlock2, ConsensusMembers, _} =
+        test_utils:init_chain(Balance, GenesisMembers, #{}),
     Chain1 = blockchain_worker:blockchain(),
 
     % Add some blocks
-    Blocks1 = lists:reverse(lists:foldl(
-        fun(_, Acc) ->
-            {ok, Block} = test_utils:create_block(ConsensusMembers, []),
-            blockchain:add_block(Block, Chain1),
-            [Block|Acc]
-        end,
-        [],
-        lists:seq(1, BlocksN)
-    )),
+    Blocks1 = lists:reverse(
+        lists:foldl(
+            fun (_, Acc) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                blockchain:add_block(Block, Chain1),
+                [Block | Acc]
+            end,
+            [],
+            lists:seq(1, BlocksN)
+        )
+    ),
     LastBlock = lists:last(Blocks1),
 
     {ok, Chain} = blockchain:new(SimDir, Genesis, undefined, undefined),
@@ -217,10 +241,13 @@ ultimately_invalid(Config) ->
     %% check the plausible block is not the head of the chain
     ?assertEqual({ok, 81}, blockchain:height(Chain)),
     ?assertEqual({ok, 81}, blockchain:sync_height(Chain)),
-    ?assertEqual(blockchain:head_hash(Chain), {ok, blockchain_block:hash_block(lists:last(Blocks))}),
+    ?assertEqual(
+        blockchain:head_hash(Chain),
+        {ok, blockchain_block:hash_block(lists:last(Blocks))}
+    ),
     %% make sure the plausible block is not in the chain at all
-    {error, not_found} = blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),
+    {error, not_found} =
+        blockchain:get_block(blockchain_block:hash_block(LastBlock), Chain),
     %% make sure the plausible blocks got removed
     [] = blockchain:get_plausible_blocks(Chain),
     ok.
-

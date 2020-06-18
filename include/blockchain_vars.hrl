@@ -1,11 +1,9 @@
 %%%% all chain vars should be defined in this file.  please don't call
 %%%% without using the macros defined here.  running:
 %%%% `git grep :config\( | grep -v \?` should not return any lines
-
 %%%
 %%% election vars
 %%%
-
 %% current election version
 -define(election_version, election_version).
 
@@ -48,7 +46,6 @@
 %%%
 %%% ledger vars
 %%%
-
 %% the number of blocks before keep a gateway from affecting the
 %% outcome of threshold var application.
 -define(var_gw_inactivity_threshold, var_gw_inactivity_threshold).
@@ -56,13 +53,13 @@
 %% the number of blocks before a random subset of gatways refresh
 %% their witnesses
 -define(witness_refresh_interval, witness_refresh_interval).
+
 %% seeding the random number for witness_refresh_interval
 -define(witness_refresh_rand_n, witness_refresh_rand_n).
 
 %%%
 %%% meta vars
 %%%
-
 %% the number of blocks between a var txn being accepted either
 %% without a threshold, or once a threshold has been excceeded, and
 %% the var actually being set in the ledger.
@@ -79,13 +76,15 @@
 %% These variables are used in the miner to determine which function should be called to provide
 %% whatever it is that is checked by the predicate.
 %% At the current time they provide a monotonic stream of integers.
--define(predicate_callback_mod, predicate_callback_mod). %% Currently set to: miner
--define(predicate_callback_fun, predicate_callback_fun). %% Currently set to: version
+%% Currently set to: miner
+-define(predicate_callback_mod, predicate_callback_mod).
+
+%% Currently set to: version
+-define(predicate_callback_fun, predicate_callback_fun).
 
 %%%
 %%% miner vars
 %%%
-
 %% The number of consensus members that collectively mine a block. Specified as a positive int.
 -define(num_consensus_members, num_consensus_members).
 
@@ -105,13 +104,11 @@
 %%%
 %%% burn vars
 %%%
-
 -define(token_burn_exchange_rate, token_burn_exchange_rate).
 
 %%%
 %%% poc related vars
 %%%
-
 %% H3 Ring size to exclude when considering the next neighbor hop
 -define(h3_exclusion_ring_dist, h3_exclusion_ring_dist).
 
@@ -148,7 +145,6 @@
 %%%
 %%% score vars
 %%%
-
 %% Rate of decay for score alpha parameter
 %% This acts like network gravity and keeps hotspots from staying at the top of the score graph
 %% for longer periods of time without actually participating in POC
@@ -165,72 +161,100 @@
 %%%
 %%% reward vars
 %%%
-
 %% Pretty much all of these are self-explanatory
 -define(reward_version, reward_version).
+
 -define(monthly_reward, monthly_reward).
+
 -define(securities_percent, securities_percent).
+
 -define(consensus_percent, consensus_percent).
+
 -define(poc_challengees_percent, poc_challengees_percent).
+
 -define(poc_witnesses_percent, poc_witnesses_percent).
+
 -define(poc_challengers_percent, poc_challengers_percent).
+
 -define(dc_percent, dc_percent).
 
 %%%
 %%% bundle txn vars
 %%%
-
 %% Only allow txns of this bundle length to appear on chain
--define(max_bundle_size, max_bundle_size). %% default: 5
+%% default: 5
+-define(max_bundle_size, max_bundle_size).
 
 %% POC V4 vars
 %% ------------------------------------------------------------------
 %% Normalize witnesses to this parent resolution.
--define(poc_v4_parent_res, poc_v4_parent_res). %% default: 11
-%% Number of grid cells to exclude when building a path.
--define(poc_v4_exclusion_cells, poc_v4_exclusion_cells). %% default: 10 for parent_res 11
-%% Exlusion cells from challenger -> target
--define(poc_v4_target_exclusion_cells, poc_v4_target_exclusion_cells). %% default: 6000
-%% ------------------------------------------------------------------
+%% default: 11
+-define(poc_v4_parent_res, poc_v4_parent_res).
 
+%% Number of grid cells to exclude when building a path.
+%% default: 10 for parent_res 11
+-define(poc_v4_exclusion_cells, poc_v4_exclusion_cells).
+
+%% Exlusion cells from challenger -> target
+%% default: 6000
+-define(poc_v4_target_exclusion_cells, poc_v4_target_exclusion_cells).
+
+%% ------------------------------------------------------------------
 %% ------------------------------------------------------------------
 %% RSSI probabilities
 %% Probability associated with a next hop having no rssi information
--define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi). %% default: 0.5
-%% Probability associated with a next hop having good rssi information
--define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi). %% default: 1.0
-%% Probability associated with a next hop having bad rssi information
--define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi). %% default: 0.01
-%% ------------------------------------------------------------------
+%% default: 0.5
+-define(poc_v4_prob_no_rssi, poc_v4_prob_no_rssi).
 
+%% Probability associated with a next hop having good rssi information
+%% default: 1.0
+-define(poc_v4_prob_good_rssi, poc_v4_prob_good_rssi).
+
+%% Probability associated with a next hop having bad rssi information
+%% default: 0.01
+-define(poc_v4_prob_bad_rssi, poc_v4_prob_bad_rssi).
+
+%% ------------------------------------------------------------------
 %% ------------------------------------------------------------------
 %% RSSI probability weights, these MUST sum to 1.0
 %% Weight associated with next hop rssi probability
--define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt). %% default: 0.3
+%% default: 0.3
+-define(poc_v4_prob_rssi_wt, poc_v4_prob_rssi_wt).
+
 %% Weight associated with next hop recent time probability
--define(poc_v4_prob_time_wt, poc_v4_prob_time_wt). %% default: 0.3
+%% default: 0.3
+-define(poc_v4_prob_time_wt, poc_v4_prob_time_wt).
+
 %% Weight associated with next hop witness count probability
--define(poc_v4_prob_count_wt, poc_v4_prob_count_wt). %% default: 0.3
+%% default: 0.3
+-define(poc_v4_prob_count_wt, poc_v4_prob_count_wt).
+
 %% This quantifies how much randomness we want when assigning
 %% probabilities to the witnesses.
 %% ------------------------------------------------------------------
--define(poc_v4_randomness_wt, poc_v4_randomness_wt). %% default: 0.1
+%% default: 0.1
+-define(poc_v4_randomness_wt, poc_v4_randomness_wt).
 
 %% ------------------------------------------------------------------
-
 %% A potential target must have a last poc challenge within this challenge_age
--define(poc_v4_target_challenge_age, poc_v4_target_challenge_age). %% default: 300
+%% default: 300
+-define(poc_v4_target_challenge_age, poc_v4_target_challenge_age).
+
 %% Score curve to calculate the target score probability
--define(poc_v4_target_score_curve, poc_v4_target_score_curve). %% default: 5
+%% default: 5
+-define(poc_v4_target_score_curve, poc_v4_target_score_curve).
 
 %% ------------------------------------------------------------------
 %% Target probability weights, these MUST sum to 1.0
 %% Weight associated with target score probability
--define(poc_v4_target_prob_score_wt, poc_v4_target_prob_score_wt). %% default: 0.8
-%% Weight associated with target being loosely connected probability
--define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt). %% default: 0.2
-%% ------------------------------------------------------------------
+%% default: 0.8
+-define(poc_v4_target_prob_score_wt, poc_v4_target_prob_score_wt).
 
+%% Weight associated with target being loosely connected probability
+%% default: 0.2
+-define(poc_v4_target_prob_edge_wt, poc_v4_target_prob_edge_wt).
+
+%% ------------------------------------------------------------------
 %% ------------------------------------------------------------------
 %%% POC V5 vars
 %% Dictates how much randomness we want in the target selection
@@ -243,12 +267,16 @@
 %% RSSI Bucketing variables
 %% Weight associated with biasing for RSSI centrality measures
 -define(poc_centrality_wt, poc_centrality_wt).
+
 %% Lower bound for known good rssi bucket
 -define(poc_good_bucket_low, poc_good_bucket_low).
+
 %% Upper bound for known good rssi bucket
 -define(poc_good_bucket_high, poc_good_bucket_high).
+
 %% Maximum allowed h3 grid cells for a potential next hop
 -define(poc_max_hop_cells, poc_max_hop_cells).
+
 %% ------------------------------------------------------------------
 %%
 %%
@@ -257,6 +285,7 @@
 %%
 %% Max payments allowed within a single payment_v2 transaction
 -define(max_payments, max_payments).
+
 %% Var to switch off legacy payment txn
 -define(deprecate_payment_v1, deprecate_payment_v1).
 
@@ -268,66 +297,80 @@
 %%
 %% Min state channel expiration (# of blocks), set to 10
 -define(min_expire_within, min_expire_within).
+
 %% Max open state channels per router, set to 2
 -define(max_open_sc, max_open_sc).
+
 %% Max xor filter size, set to 1024*100
 -define(max_xor_filter_size, max_xor_filter_size).
+
 %% Max number of xor filters, set to 5
 -define(max_xor_filter_num, max_xor_filter_num).
+
 %% Max subnet size, 65536
 -define(max_subnet_size, max_subnet_size).
+
 %% Min subnet size, 8
 -define(min_subnet_size, min_subnet_size).
+
 %% Max subnet num
 -define(max_subnet_num, max_subnet_num).
+
 %% Grace period (in num of blocks) for state channels to get GCd
 -define(sc_grace_blocks, sc_grace_blocks).
+
 %% DC Payload size, set to 24
 -define(dc_payload_size, dc_payload_size).
 
 %% ------------------------------------------------------------------
 %% snapshot vars
-
 %% snapshot version, presence indicates if snapshots are enabled or not.
 -define(snapshot_version, snapshot_version).
 
 %% how often we attempt to take a snapshot of the ledger
 -define(snapshot_interval, snapshot_interval).
-%% ------------------------------------------------------------------
 
+%% ------------------------------------------------------------------
 %% ------------------------------------------------------------------
 %% Price oracle variables
 %%
 %% Oracle public keys - encoded like so...
 %% <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
 -define(price_oracle_public_keys, price_oracle_public_keys).
+
 %% How many blocks between price recalculations
 -define(price_oracle_refresh_interval, price_oracle_refresh_interval).
+
 %% How much delta between the current blockchain height and the transaction is allowed
 -define(price_oracle_height_delta, price_oracle_height_delta).
+
 %% How many seconds to delay scanning for prices.
 -define(price_oracle_price_scan_delay, price_oracle_price_scan_delay).
+
 %% How many seconds to stop scanning for oracle prices.
 %% (Will also affect what prices get dropped from the cached list of prices.)
 -define(price_oracle_price_scan_max, price_oracle_price_scan_max).
+
 %% ------------------------------------------------------------------
-
-
 %% ------------------------------------------------------------------
 %% transaction fee vars, denominated in DC
-
 %% determines whether txn fees are enabled, boolean value expected
 -define(txn_fees, txn_fees).
+
 %% valid staking server keys, encoded via <<Len1:8/unsigned-integer, Key1/binary, Len2:8/unsigned-integer, Key2/binary, ...>>
 -define(staking_keys, staking_keys).
+
 %% the staking fee in DC for each OUI
 -define(staking_fee_txn_oui_v1, staking_fee_txn_oui_v1).
+
 %% the staking fee in DC for each OUI/routing address
 -define(staking_fee_txn_oui_v1_per_address, staking_fee_txn_oui_v1_per_address).
+
 %% the staking fee in DC for adding a gateway
 -define(staking_fee_txn_add_gateway_v1, staking_fee_txn_add_gateway_v1).
+
 %% the staking fee in DC for asserting a location
 -define(staking_fee_txn_assert_location_v1, staking_fee_txn_assert_location_v1).
+
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
 -define(txn_fee_multiplier, txn_fee_multiplier).
-

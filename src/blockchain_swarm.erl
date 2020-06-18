@@ -32,6 +32,7 @@
 ]).
 
 -define(SERVER, ?MODULE).
+
 %% define the name of the blockchain swarm, NOTE: libp2p will create and name the ets table based on this name
 -define(SWARM_NAME, blockchain_swarm).
 
@@ -69,12 +70,13 @@ pubkey_bin() ->
 swarm() ->
     whereis(libp2p_swarm:reg_name_from_tid(?SWARM_NAME, libp2p_swarm_sup)).
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec keys() -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
+-spec keys() ->
+    {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun(),
+        libp2p_crypto:ecdh_fun()} | {error, term()}.
 keys() ->
     libp2p_swarm:keys(?SWARM_NAME).
 
@@ -93,7 +95,7 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     {ok, Pid} = libp2p_swarm:start(?SWARM_NAME, Args),
     true = erlang:link(Pid),
-    {ok, #state{swarm=Pid}}.
+    {ok, #state{swarm = Pid}}.
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -103,7 +105,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({'EXIT', Swarm, Reason} , #state{swarm=Swarm}=State) ->
+handle_info({'EXIT', Swarm, Reason}, #state{swarm = Swarm} = State) ->
     lager:error("swarm ~p exited: ~p", [Swarm, Reason]),
     {stop, swarm_exit, State};
 handle_info(_Msg, State) ->
@@ -113,7 +115,7 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{swarm=Swarm}) when is_pid(Swarm) ->
+terminate(_Reason, #state{swarm = Swarm}) when is_pid(Swarm) ->
     _ = libp2p_swarm:stop(Swarm),
     ok;
 terminate(_Reason, _State) ->

@@ -8,6 +8,7 @@
 -behavior(blockchain_block).
 
 -behavior(blockchain_json).
+
 -include("blockchain_json.hrl").
 
 -export([
@@ -20,7 +21,8 @@
     time/1,
     election_info/1,
     hbbft_round/1,
-    set_signatures/2, set_signatures/3,
+    set_signatures/2,
+    set_signatures/3,
     new_genesis_block/1,
     is_genesis/1,
     hash_block/1,
@@ -28,32 +30,38 @@
     seen_votes/1,
     bba_completion/1,
     snapshot_hash/1,
-    verify_signatures/4, verify_signatures/5,
+    verify_signatures/4,
+    verify_signatures/5,
     is_rescue_block/1,
     to_json/2
 ]).
 
 -include("blockchain.hrl").
+
 -include_lib("helium_proto/include/blockchain_block_v1_pb.hrl").
 
 -ifdef(TEST).
+
 -include_lib("eunit/include/eunit.hrl").
+
 -endif.
 
 -type block() :: #blockchain_block_v1_pb{}.
--type block_map() :: #{prev_hash => binary(),
-                       height => non_neg_integer(),
-                       time => non_neg_integer(),
-                       hbbft_round => non_neg_integer(),
-                       transactions => blockchain_txn:txns(),
-                       signatures => [blockchain_block:signature()],
-                       election_epoch => non_neg_integer(),
-                       epoch_start => non_neg_integer(),
-                       rescue_signature => binary(),
-                       seen_votes => [{pos_integer(), binary()}],
-                       bba_completion => binary(),
-                       snapshot_hash => binary()
-                      }.
+
+-type block_map() :: #{
+    prev_hash => binary(),
+    height => non_neg_integer(),
+    time => non_neg_integer(),
+    hbbft_round => non_neg_integer(),
+    transactions => blockchain_txn:txns(),
+    signatures => [blockchain_block:signature()],
+    election_epoch => non_neg_integer(),
+    epoch_start => non_neg_integer(),
+    rescue_signature => binary(),
+    seen_votes => [{pos_integer(), binary()}],
+    bba_completion => binary(),
+    snapshot_hash => binary()
+}.
 
 -export_type([block/0, block_map/0]).
 
@@ -61,48 +69,54 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec new(block_map())-> block().
-new(#{prev_hash := PrevHash,
-      height := Height,
-      time := Time,
-      hbbft_round := HBBFTRound,
-      transactions := Transactions,
-      signatures := Signatures,
-      election_epoch := ElectionEpoch,
-      epoch_start := EpochStart,
-      seen_votes := Votes,
-      bba_completion := Completion} = Map) ->
+-spec new(block_map()) -> block().
+new(
+    #{
+        prev_hash := PrevHash,
+        height := Height,
+        time := Time,
+        hbbft_round := HBBFTRound,
+        transactions := Transactions,
+        signatures := Signatures,
+        election_epoch := ElectionEpoch,
+        epoch_start := EpochStart,
+        seen_votes := Votes,
+        bba_completion := Completion
+    } = Map
+) ->
     #blockchain_block_v1_pb{
-       prev_hash = PrevHash,
-       height = Height,
-       transactions = [blockchain_txn:wrap_txn(T) || T <- Transactions],
-       signatures = [wrap_signature(S) || S <- Signatures],
-       time = Time,
-       hbbft_round=HBBFTRound,
-       election_epoch = ElectionEpoch,
-       epoch_start = EpochStart,
-       seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
-       bba_completion = Completion,
-       snapshot_hash = maps:get(snapshot_hash, Map, <<>>)
-      }.
+        prev_hash = PrevHash,
+        height = Height,
+        transactions = [blockchain_txn:wrap_txn(T) || T <- Transactions],
+        signatures = [wrap_signature(S) || S <- Signatures],
+        time = Time,
+        hbbft_round = HBBFTRound,
+        election_epoch = ElectionEpoch,
+        epoch_start = EpochStart,
+        seen_votes = [wrap_vote(V) || V <- lists:sort(Votes)],
+        bba_completion = Completion,
+        snapshot_hash = maps:get(snapshot_hash, Map, <<>>)
+    }.
 
--spec rescue(block_map())-> block().
-rescue(#{prev_hash := PrevHash,
-         height := Height,
-         time := Time,
-         hbbft_round := HBBFTRound,
-         transactions := Transactions,
-         election_epoch := ElectionEpoch,
-         epoch_start := EpochStart}) ->
+-spec rescue(block_map()) -> block().
+rescue(#{
+    prev_hash := PrevHash,
+    height := Height,
+    time := Time,
+    hbbft_round := HBBFTRound,
+    transactions := Transactions,
+    election_epoch := ElectionEpoch,
+    epoch_start := EpochStart
+}) ->
     #blockchain_block_v1_pb{
-       prev_hash = PrevHash,
-       height = Height,
-       transactions = [blockchain_txn:wrap_txn(Tx) || Tx <- Transactions],
-       time = Time,
-       hbbft_round=HBBFTRound,
-       election_epoch = ElectionEpoch,
-       epoch_start = EpochStart
-      }.
+        prev_hash = PrevHash,
+        height = Height,
+        transactions = [blockchain_txn:wrap_txn(Tx) || Tx <- Transactions],
+        time = Time,
+        hbbft_round = HBBFTRound,
+        election_epoch = ElectionEpoch,
+        epoch_start = EpochStart
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -130,8 +144,7 @@ time(Block) ->
 
 -spec election_info(block()) -> {non_neg_integer(), non_neg_integer()}.
 election_info(Block) ->
-    {Block#blockchain_block_v1_pb.election_epoch,
-     Block#blockchain_block_v1_pb.epoch_start}.
+    {Block#blockchain_block_v1_pb.election_epoch, Block#blockchain_block_v1_pb.epoch_start}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -179,14 +192,15 @@ hbbft_round(Block) ->
 %%--------------------------------------------------------------------
 -spec set_signatures(block(), [blockchain_block:signature()]) -> block().
 set_signatures(Block, Signatures) ->
-    Block#blockchain_block_v1_pb{signatures=[wrap_signature(S) || S <- Signatures]}.
+    Block#blockchain_block_v1_pb{signatures = [wrap_signature(S) || S <- Signatures]}.
 
 -spec set_signatures(block(), [blockchain_block:signature()], binary()) ->
-                            block().
+    block().
 set_signatures(Block, Signatures, Rescue) ->
-    Block#blockchain_block_v1_pb{signatures = [wrap_signature(S)
-                                               || S <- Signatures],
-                                 rescue_signature = Rescue}.
+    Block#blockchain_block_v1_pb{
+        signatures = [wrap_signature(S) || S <- Signatures],
+        rescue_signature = Rescue
+    }.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -194,16 +208,18 @@ set_signatures(Block, Signatures, Rescue) ->
 %%--------------------------------------------------------------------
 -spec new_genesis_block(blockchain_txn:txns()) -> block().
 new_genesis_block(Transactions) ->
-    ?MODULE:new(#{prev_hash => <<0:256>>,
-                  height => 1,
-                  time => 0,
-                  transactions => Transactions,
-                  signatures => [],
-                  hbbft_round => 0,
-                  election_epoch => 1,
-                  epoch_start => 0,
-                  seen_votes => [],
-                  bba_completion => <<>>}).
+    ?MODULE:new(#{
+        prev_hash => <<0:256>>,
+        height => 1,
+        time => 0,
+        transactions => Transactions,
+        signatures => [],
+        hbbft_round => 0,
+        election_epoch => 1,
+        epoch_start => 0,
+        seen_votes => [],
+        bba_completion => <<>>
+    }).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -232,32 +248,35 @@ hash_block(Block) ->
 %% need to verify a rescue block.
 %%  @end
 %% --------------------------------------------------------------------
--spec verify_signatures(Block::binary() | block(),
-                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
-                        Signatures::[blockchain_block:signature()],
-                        Threshold::pos_integer()
-                       ) ->
-                               false |
-                               {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
+-spec verify_signatures(
+    Block :: binary() | block(),
+    ConsensusMembers :: [libp2p_crypto:pubkey_bin()],
+    Signatures :: [blockchain_block:signature()],
+    Threshold :: pos_integer()
+) ->
+    false |
+    {true, [{libp2p_crypto:pubkey_bin(), binary()}]}.
 verify_signatures(Block, ConsensusMembers, Signatures, Threshold) ->
     case verify_signatures(Block, ConsensusMembers, Signatures, Threshold, ignore) of
         {true, Sigs, _Rescue} ->
             {true, Sigs};
-        Else -> Else
+        Else ->
+            Else
     end.
 
-
--spec verify_signatures(Block::binary() | block(),
-                        ConsensusMembers::[libp2p_crypto:pubkey_bin()],
-                        Signatures::[blockchain_block:signature()],
-                        Threshold::pos_integer(),
-                        ignore | binary()
-                       ) ->
-                               false |
-                               {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
+-spec verify_signatures(
+    Block :: binary() | block(),
+    ConsensusMembers :: [libp2p_crypto:pubkey_bin()],
+    Signatures :: [blockchain_block:signature()],
+    Threshold :: pos_integer(),
+    ignore | binary()
+) ->
+    false |
+    {true, [{libp2p_crypto:pubkey_bin(), binary()}], boolean()}.
 %% rescue blocks have no signatures and a rescue signature.
-verify_signatures(#blockchain_block_v1_pb{}=Block, ConsensusMembers, [], _Threshold, Key)
-  when ConsensusMembers /= [] -> % force the other path for old tests :/
+verify_signatures(#blockchain_block_v1_pb{} = Block, ConsensusMembers, [], _Threshold, Key)
+        % force the other path for old tests :/
+        when ConsensusMembers /= [] ->
     EncodedBlock = blockchain_block:serialize(?MODULE:set_signatures(Block, [], <<>>)),
     RescueSig = blockchain_block_v1:rescue_signature(Block),
     verify_rescue_signature(EncodedBlock, RescueSig, Key);
@@ -273,20 +292,28 @@ verify_signatures(Block, ConsensusMembers, Signatures, Threshold, _) ->
     verify_normal_signatures(EncodedBlock, ConsensusMembers, Signatures, Threshold).
 
 verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
-    ValidSignatures0 =
-        blockchain_utils:pmap(
-          fun({Addr, Sig}) ->
-                  case
-                      lists:member(Addr, ConsensusMembers)
-                      andalso libp2p_crypto:verify(Artifact, Sig, libp2p_crypto:bin_to_pubkey(Addr))
-                  of
-                      true -> {Addr, Sig};
-                      false ->
-                          error
-                  end
-          end, lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)),
+    ValidSignatures0 = blockchain_utils:pmap(
+        fun ({Addr, Sig}) ->
+            case lists:member(Addr, ConsensusMembers) andalso
+                     libp2p_crypto:verify(
+                         Artifact,
+                         Sig,
+                         libp2p_crypto:bin_to_pubkey(Addr)
+                     ) of
+                true -> {Addr, Sig};
+                false -> error
+            end
+        end,
+        lists:sublist(blockchain_utils:shuffle(Signatures), Threshold)
+    ),
     ValidSignatures =
-        case lists:any(fun(error) -> true; (_) -> false end, ValidSignatures0) of
+        case lists:any(
+                 fun
+                     (error) -> true;
+                     (_) -> false
+                 end,
+                 ValidSignatures0
+             ) of
             true ->
                 error;
             _ ->
@@ -298,9 +325,9 @@ verify_normal_signatures(Artifact, ConsensusMembers, Signatures, Threshold) ->
                 end
         end,
     F = (length(ConsensusMembers) - 1) div 3,
-    case length(Signatures) =< (3*F)+1 andalso
-         ValidSignatures /= error andalso
-         length(ValidSignatures) >= Threshold of
+    case length(Signatures) =< (3 * F) + 1 andalso
+             ValidSignatures /= error andalso
+             length(ValidSignatures) >= Threshold of
         true ->
             %% at least `Threshold' consensus members signed the block
             {true, ValidSignatures, false};
@@ -325,23 +352,22 @@ is_rescue_block(Block) ->
 -spec to_json(block(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Block, _Opts) ->
     #{
-      height => height(Block),
-      time => time(Block),
-      hash => ?BIN_TO_B64(hash_block(Block)),
-      prev_hash => ?BIN_TO_B64(prev_hash(Block)),
-      transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
-     }.
+        height => height(Block),
+        time => time(Block),
+        hash => ?BIN_TO_B64(hash_block(Block)),
+        prev_hash => ?BIN_TO_B64(prev_hash(Block)),
+        transactions => [?BIN_TO_B64(blockchain_txn:hash(T)) || T <- transactions(Block)]
+    }.
 
 %%
 %% Internal
 %%
-
 -spec wrap_signature(blockchain_block:signature()) -> #blockchain_signature_v1_pb{}.
 wrap_signature({Signer, Signature}) ->
-    #blockchain_signature_v1_pb{signer=Signer, signature=Signature}.
+    #blockchain_signature_v1_pb{signer = Signer, signature = Signature}.
 
 -spec unwrap_signature(#blockchain_signature_v1_pb{}) -> blockchain_block:signature().
-unwrap_signature(#blockchain_signature_v1_pb{signer=Signer, signature=Sig}) ->
+unwrap_signature(#blockchain_signature_v1_pb{signer = Signer, signature = Sig}) ->
     {Signer, Sig}.
 
 -spec wrap_vote({pos_integer(), binary()}) -> #blockchain_seen_vote_v1_pb{}.
@@ -352,36 +378,39 @@ wrap_vote({Idx, Vector}) ->
 unwrap_vote(#blockchain_seen_vote_v1_pb{index = Idx, vector = Vector}) ->
     {Idx, Vector}.
 
-
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
 new_merge(Overrides) ->
-    new(maps:merge(
-          #{ prev_hash => <<>>,
-             height => 1,
-             transactions => [],
-             signatures => [],
-             hbbft_round => 0,
-             time => 0,
-             election_epoch => 0,
-             epoch_start => 0,
-             seen_votes => [],
-             bba_completion => <<>>
-           },
-          Overrides)).
+    new(
+        maps:merge(
+            #{
+                prev_hash => <<>>,
+                height => 1,
+                transactions => [],
+                signatures => [],
+                hbbft_round => 0,
+                time => 0,
+                election_epoch => 0,
+                epoch_start => 0,
+                seen_votes => [],
+                bba_completion => <<>>
+            },
+            Overrides
+        )
+    ).
 
 new_test() ->
     Block = #blockchain_block_v1_pb{
-               prev_hash= <<>>,
-               height=1,
-               transactions=[],
-               signatures= [],
-               hbbft_round = 0,
-               time = 0
-              },
+        prev_hash = <<>>,
+        height = 1,
+        transactions = [],
+        signatures = [],
+        hbbft_round = 0,
+        time = 0
+    },
     ?assertEqual(Block, new_merge(#{})).
 
 prev_hash_test() ->
@@ -406,24 +435,26 @@ signatures_test() ->
 
 hbbft_round_test() ->
     HBBFTRound = 1,
-    Block = new_merge(#{ hbbft_round => HBBFTRound}),
+    Block = new_merge(#{hbbft_round => HBBFTRound}),
     ?assertEqual(HBBFTRound, hbbft_round(Block)).
 
 time_test() ->
     Time = 1,
-    Block = new_merge(#{ time => Time}),
+    Block = new_merge(#{time => Time}),
     ?assertEqual(Time, time(Block)).
 
 set_signatures_test() ->
     Sigs = [{<<"addr">>, <<"signature">>}],
-    Block = new_merge(#{ signatures => Sigs}),
+    Block = new_merge(#{signatures => Sigs}),
     ?assertEqual([], signatures(set_signatures(Block, []))).
 
 new_genesis_test() ->
     Loc = h3:from_geo({37.780586, -122.469471}, 13),
-    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1)],
+    Txs = [
+        blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1),
+        blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1),
+        blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1)
+    ],
     Block = new_genesis_block(Txs),
     ?assertEqual(<<0:256>>, prev_hash(Block)),
     ?assertEqual(1, height(Block)),
@@ -438,21 +469,20 @@ is_genesis_test() ->
 
 verify_signature_test() ->
     Keys = generate_keys(10),
-    [{Payer, {_, PayerPrivKey, _}}, {Recipient, _}|_] = Keys,
+    [{Payer, {_, PayerPrivKey, _}}, {Recipient, _} | _] = Keys,
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
-    Block0 = new_merge(#{ transactions => [SignedTx]}),
+    Block0 = new_merge(#{transactions => [SignedTx]}),
     EncodedBlock = blockchain_block:serialize(set_signatures(Block0, [])),
-    Signatures =
-        lists:foldl(
-            fun({A, {_, _, F}}, Acc) ->
-                Sig = F(EncodedBlock),
-                [{A, Sig}|Acc]
-            end,
-            [],
-            Keys
-        ),
+    Signatures = lists:foldl(
+        fun ({A, {_, _, F}}, Acc) ->
+            Sig = F(EncodedBlock),
+            [{A, Sig} | Acc]
+        end,
+        [],
+        Keys
+    ),
     Block1 = ?MODULE:set_signatures(Block0, Signatures),
     ConsensusMembers = [Addr || {Addr, _} <- Keys],
     ?assertMatch({true, _}, verify_signatures(Block1, ConsensusMembers, Signatures, 7)),
@@ -460,25 +490,30 @@ verify_signature_test() ->
     ?assertMatch(false, verify_signatures(Block1, [], Signatures, 7)),
     ok.
 
-
 json_test() ->
     Loc = h3:from_geo({37.780586, -122.469471}, 13),
-    Txs = [blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1),
-           blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1)],
+    Txs = [
+        blockchain_txn_gen_gateway_v1:new(<<"gateway1">>, <<"owner">>, Loc, 1),
+        blockchain_txn_gen_gateway_v1:new(<<"gateway2">>, <<"owner">>, Loc, 1),
+        blockchain_txn_gen_gateway_v1:new(<<"gateway3">>, <<"owner">>, Loc, 1)
+    ],
     Block = new_genesis_block(Txs),
     Json = to_json(Block, []),
-    ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [height, time, hash, prev_hash, transactions])),
+    ?assert(
+        lists:all(
+            fun (K) -> maps:is_key(K, Json) end,
+            [height, time, hash, prev_hash, transactions]
+        )
+    ),
     ?assertEqual(3, length(maps:get(transactions, Json))).
-
 
 generate_keys(N) ->
     lists:foldl(
-        fun(_, Acc) ->
-            #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+        fun (_, Acc) ->
+            #{public := PubKey, secret := PrivKey} =
+                libp2p_crypto:generate_keys(ecc_compact),
             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}}|Acc]
+            [{libp2p_crypto:pubkey_to_bin(PubKey), {PubKey, PrivKey, SigFun}} | Acc]
         end,
         [],
         lists:seq(1, N)

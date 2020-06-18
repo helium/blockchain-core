@@ -2,7 +2,6 @@
 
 %% @doc a simple process based mutex.
 %% TODO replace this with atomics:compare_exchange once we are on 21.2 or later
-
 -behaviour(gen_server).
 
 -export([acquire/0, acquire/1, release/0, force_release/0, check/0]).
@@ -10,13 +9,14 @@
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -define(holding_lock, holding_lock).
+
 -define(lock_ref, lock_ref).
 
 -spec acquire() -> ok | error.
 acquire() ->
     acquire(infinity).
 
--spec acquire(Timeout:: infinity | pos_integer()) -> ok | error.
+-spec acquire(Timeout :: infinity | pos_integer()) -> ok | error.
 acquire(Timeout) ->
     case get(?holding_lock) of
         undefined ->
@@ -26,10 +26,11 @@ acquire(Timeout) ->
                     put(?lock_ref, Ref),
                     put(?holding_lock, 1),
                     ok
-            catch _:_ ->
-                      %% release it in case we got it anyway
-                      ?MODULE ! {Ref, release},
-                      error
+            catch
+                _:_ ->
+                    %% release it in case we got it anyway
+                    ?MODULE ! {Ref, release},
+                    error
             end;
         N ->
             put(?holding_lock, N + 1),
@@ -53,7 +54,7 @@ release() ->
             ok
     end.
 
-force_release()  ->
+force_release() ->
     erase(?holding_lock),
     ?MODULE ! release.
 
