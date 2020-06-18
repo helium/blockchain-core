@@ -63,9 +63,9 @@ packet(Packet, DefaultRouters, Region) ->
         {error, _Reason} ->
             lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
                         [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-            gen_server:cast(?SERVER, {default_route, Packet, DefaultRouters, Region});
+            gen_server:cast(?SERVER, {default_routers, Packet, DefaultRouters, Region});
         {ok, Routes} ->
-            gen_server:cast(?SERVER, {route, Packet, Routes, Region})
+            gen_server:cast(?SERVER, {routes, Packet, Routes, Region})
     end.
 
 -spec state() -> state().
@@ -91,7 +91,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
-handle_cast({default_route, Packet, DefaultRouters, Region}, #state{swarm=Swarm}=State0) ->
+handle_cast({default_routers, Packet, DefaultRouters, Region}, #state{swarm=Swarm}=State0) ->
     State1 = lists:foldl(
         fun(Address, StateAcc) ->
             case find_stream(Address, StateAcc) of
@@ -109,7 +109,7 @@ handle_cast({default_route, Packet, DefaultRouters, Region}, #state{swarm=Swarm}
         DefaultRouters
     ),
     {noreply, State1};
-handle_cast({route, Packet, Routes, Region}, #state{swarm=Swarm}=State0) ->
+handle_cast({routes, Packet, Routes, Region}, #state{swarm=Swarm}=State0) ->
     State1 = lists:foldl(
         fun(Route, StateAcc) ->
             OUI = blockchain_ledger_routing_v1:oui(Route),
