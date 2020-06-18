@@ -567,7 +567,9 @@ assign_single_witness_prob(Witnesses) ->
              end,
              Witnesses).
 
-limit_witnesses(#{?poc_path_witness_limit := Limit}, RandState, Witnesses) ->
-    blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
+limit_witnesses(#{?poc_path_witness_limit := Limit}, RandState, Witnesses0) ->
+    Witnesses = maps:to_list(Witnesses0),
+    {RandState1, SubSet} = blockchain_utils:deterministic_subset(Limit, RandState, Witnesses),
+    {RandState1, maps:from_list(SubSet)};
 limit_witnesses(_Vars, RandState, Witnesses) ->
     {RandState, Witnesses}.

@@ -335,7 +335,8 @@ deterministic_subset(Limit, RandState, L) ->
                     end,
                     {RandState, []},
                     L),
-    TruncList = lists:sublist(lists:sort(FullList), Limit),
+    TruncList0 = lists:sublist(lists:sort(FullList), Limit),
+    {_, TruncList} = lists:unzip(TruncList0),
     {RandState1, TruncList}.
 
 %% ------------------------------------------------------------------
