@@ -59,7 +59,7 @@ response(Resp) ->
 
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
 packet(Packet, DefaultRouters, Region) ->
-    case find_routing(Packet) of
+    case find_routing(Packet, blockchain_worker:blockchain()) of
         {error, _Reason} ->
             lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
                         [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
@@ -191,12 +191,14 @@ queue_packet(AddressOrOUI, {Packet, Region}, #state{waiting=Waiting}=State) ->
 delete_queued_packet(AddressOrOUI, #state{waiting=Waiting}=State) ->
     State#state{waiting=maps:remove(AddressOrOUI, Waiting)}.
 
--spec find_routing(Packet :: blockchain_helium_packet_v1:packet()) -> {ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
-find_routing(Packet) ->
+-spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
+                   blockchain:blockchain() | undefined) ->{ok, [blockchain_ledger_routing_v1:routing()]} | {error, any()}.
+find_routing(_Packet, undefined) ->
+    {error, chain_undefined};
+find_routing(Packet, Chain) ->
     %% transitional shim for ignoring on-chain OUIs
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
-            Chain = blockchain_worker:blockchain(),
             Ledger = blockchain:ledger(Chain),
             blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger);
         false ->
