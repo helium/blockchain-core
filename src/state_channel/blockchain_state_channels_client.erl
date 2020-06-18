@@ -140,7 +140,7 @@ handle_call(_, _, State) ->
 handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     Packets = get_queued_packet(AddressOrOUI, State0),
     lager:error("failed to dial ~p: ~p dropping ~p packets", [AddressOrOUI, _Reason, erlang:length(Packets)+1]),
-    State1 = delete_queued_packet(AddressOrOUI, State0),
+    State1 = delete_queued_packet(AddressOrOUI, delete_stream(AddressOrOUI, State0)),
     {noreply, State1};
 handle_info({dial_success, AddressOrOUI, Stream}, #state{swarm=Swarm}=State0) ->
     Packets = get_queued_packet(AddressOrOUI, State0),
@@ -173,6 +173,10 @@ find_stream(AddressOrOUI, #state{streams=Streams}) ->
 -spec add_stream(AddressOrOUI :: non_neg_integer() | string(), Stream :: pid() | dialing, State :: state()) -> state().
 add_stream(AddressOrOUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(AddressOrOUI, Stream, Streams)}.
+
+-spec delete_stream(AddressOrOUI :: non_neg_integer() | string(), State :: state()) -> state().
+delete_stream(AddressOrOUI, #state{streams=Streams}=State) ->
+    State#state{streams=maps:remove(AddressOrOUI, Streams)}.
 
 -spec get_queued_packet(AddressOrOUI :: non_neg_integer() | string(), State :: state()) -> [{Packet :: blockchain_helium_packet_v1:packet(), Region :: atom()}].
 get_queued_packet(AddressOrOUI, #state{waiting=Waiting}) ->
