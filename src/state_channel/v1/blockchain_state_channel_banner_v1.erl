@@ -29,7 +29,7 @@ new() ->
 new(SC) ->
     #blockchain_state_channel_banner_v1_pb{sc=SC}.
 
--spec sc(Banner :: banner()) -> blockchain_state_channel_v1:state_channel().
+-spec sc(Banner :: banner()) -> undefined | blockchain_state_channel_v1:state_channel().
 sc(#blockchain_state_channel_banner_v1_pb{sc=SC}) ->
     SC.
 

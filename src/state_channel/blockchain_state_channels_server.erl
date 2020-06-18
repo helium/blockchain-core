@@ -169,25 +169,7 @@ handle_cast({packet, SCPacket, HandlerPid},
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
-                      {error, not_found} ->
-                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                          NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
-                          %% Add this to summaries
-                          blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
-                      {ok, ExistingSummary} ->
-                          %% Update packet count for this client
-                          ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-                          %% Update DC count for this client
-                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                          ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-                          NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
-                                                                                  ExistingNumPackets + 1,
-                                                                                  ExistingSummary),
-                          %% Update summaries
-                          blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
-                  end,
-
+            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
             ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
             NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
 
@@ -202,32 +184,27 @@ handle_cast({packet, SCPacket, HandlerPid},
             %% Since we updated active sc, send new banner
             ok = send_banner(NewSC, HandlerPid),
 
-            NewState = case find_stream(ClientPubkeyBin, State) of
-                           HandlerPid ->
-                               State;
-                           _ ->
-                               %% We either have an undefined stream or a different one
-                               add_stream(ClientPubkeyBin, HandlerPid, State)
-                       end,
-
-            {noreply, NewState#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
+            {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
     {noreply, State};
-handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=ActiveSCID, state_channels=SCs, swarm=Swarm}=State) ->
+handle_cast({offer, SCOffer, HandlerPid},
+            #state{active_sc_id=ActiveSCID, state_channels=SCs, swarm=Swarm, chain=Chain}=State) ->
     %% TODO: handle offer
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
-    DevAddr = blockchain_state_channel_offer_v1:devaddr(SCOffer),
+    Ledger = blockchain:ledger(Chain),
+    Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
     Region = blockchain_state_channel_offer_v1:region(SCOffer),
     Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
+    PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
     {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
-    lager:info("DevAddr: ~p, Hotspot: ~p", [DevAddr, Hotspot]),
+    lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
     %% XXX: Accepting all offers for now
-    ok = send_purchase(ActiveSC, Swarm, HandlerPid, PacketHash, Region),
+    ok = send_purchase(ActiveSC, Hotspot, Swarm, HandlerPid, PacketHash, PayloadSize, Region, Ledger),
     {noreply, State};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -602,13 +579,21 @@ maybe_get_new_active(SCs) ->
     end.
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
+                    Hotspot :: libp2p_crypto:pubkey_bin(),
                     Swarm :: pid(),
                     Stream :: pid(),
                     PacketHash :: binary(),
-                    Region :: atom()) -> ok.
-send_purchase(SC, Swarm, Stream, PacketHash, Region) ->
-    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
-    PurchaseMsg0 = blockchain_state_channel_purchase_v1:new(SC, PubkeyBin, PacketHash, Region),
+                    PayloadSize :: pos_integer(),
+                    Region :: atom(),
+                    Ledger :: blockchain:ledger()) -> ok.
+send_purchase(SC, Hotspot, Swarm, Stream, PacketHash, PayloadSize, Region, Ledger) ->
+    {_PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+    SCNonce = blockchain_state_channel_v1:nonce(SC),
+    NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
+    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0),
+    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+    PurchaseMsg0 = blockchain_state_channel_purchase_v1:new(NewPurchaseSC, Hotspot, PacketHash, Region),
+    %% XXX: Whose signature goes here?
     PurchaseMsg1 = blockchain_state_channel_purchase_v1:sign(PurchaseMsg0, SigFun),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg1, Stream]),
     blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg1).
@@ -628,16 +613,30 @@ send_banner(SC, Stream) ->
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
     blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
 
--spec add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                 Stream :: pid(),
-                 State :: state()) -> state().
-add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
-    State#state{streams=maps:put(ClientPubkeyBin, Stream, Streams)}.
-
--spec find_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                  State :: state()) -> undefined | pid().
-find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
-    maps:get(ClientPubkeyBin, Streams, undefined).
+-spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                        PayloadSize :: pos_integer(),
+                        Ledger :: blockchain:ledger(),
+                        SC :: blockchain_state_channel_v1:state_channel()) ->
+    blockchain_state_channel_v1:state_channel().
+update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
+    case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
+        {error, not_found} ->
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
+            %% Add this to summaries
+            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC);
+        {ok, ExistingSummary} ->
+            %% Update packet count for this client
+            ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
+            %% Update DC count for this client
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
+            NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
+                                                                    ExistingNumPackets + 1,
+                                                                    ExistingSummary),
+            %% Update summaries
+            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

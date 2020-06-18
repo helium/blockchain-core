@@ -8,7 +8,7 @@
 -export([
     from_packet/3,
     hotspot/1,
-    devaddr/1,
+    routing/1,
     region/1,
     packet_hash/1,
     payload_size/1,
@@ -29,15 +29,21 @@
 
 -spec from_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Hotspot :: libp2p_crypto:pubkey_bin(),
-                  Region :: atom()) -> offer() | {error, invalid}.
+                  Region :: atom()) -> offer().
 from_packet(Packet, Hotspot, Region) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
-        {eui, _, _} ->
-            %% TODO: Likely incorrect?
-            {error, invalid};
-        {devaddr, DevAddr} ->
+        {eui, _, _}=Routing ->
             #blockchain_state_channel_offer_v1_pb{
-               devaddr=DevAddr,
+               routing=blockchain_helium_packet_v1:make_routing_info(Routing),
+               packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
+               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
+               hotspot=Hotspot,
+               signature = <<>>,
+               region=Region
+              };
+        {devaddr, _}=Routing ->
+            #blockchain_state_channel_offer_v1_pb{
+               routing=blockchain_helium_packet_v1:make_routing_info(Routing),
                packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
                payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
                hotspot=Hotspot,
@@ -50,9 +56,9 @@ from_packet(Packet, Hotspot, Region) ->
 hotspot(#blockchain_state_channel_offer_v1_pb{hotspot=Hotspot}) ->
     Hotspot.
 
--spec devaddr(offer()) -> non_neg_integer().
-devaddr(#blockchain_state_channel_offer_v1_pb{devaddr=DevAddr}) ->
-    DevAddr.
+-spec routing(offer()) -> blockchain_helium_packet_v1:routing_information().
+routing(#blockchain_state_channel_offer_v1_pb{routing=Routing}) ->
+    Routing.
 
 -spec region(offer()) -> atom().
 region(#blockchain_state_channel_offer_v1_pb{region=Region}) ->

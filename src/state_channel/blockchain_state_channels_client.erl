@@ -149,14 +149,14 @@ handle_banner(Banner, _Stream, State) ->
                 undefined ->
                     %% We have no information about this state channel
                     %% Store it
-                    add_sc(BannerSCID, BannerSC, State);
+                    add_sc(BannerSC, State);
                 OurSC ->
                     %% We already know about this state channel
                     %% Validate this banner
                     case validate_banner(BannerSC, OurSC) of
                         ok ->
                             lager:info("successful banner validation, inserting BannerSC, id: ~p", [BannerSCID]),
-                            add_sc(BannerSCID, BannerSC, State);
+                            add_sc(BannerSC, State);
                         {error, Reason} ->
                             lager:error("invalid banner, reason: ~p", [Reason]),
                             State
@@ -169,15 +169,13 @@ handle_banner(Banner, _Stream, State) ->
                       State :: state()) -> state().
 handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
     PacketHash = blockchain_state_channel_purchase_v1:packet_hash(Purchase),
-    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-    PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
     case find_packet(PacketHash, State) of
         undefined ->
             %% Drop it, we don't know this packet
             lager:debug("Dropping purchase, packet_hash: ~p", [PacketHash]),
             State;
         Packet ->
-            case validate_purchase(PurchaseSCID, PurchaseSC, State) of
+            case validate_purchase(Purchase, State) of
                 ok ->
                     %% ok, send the packet
                     %% remove from state (TODO: check if successful packet delivery?)
@@ -185,7 +183,8 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
                     ok = send_packet(Packet, Swarm, Stream, Region),
                     %% XXX: Update our SC as we used the purchase sc and sent the packet?
                     TempState = delete_packet(PacketHash, State),
-                    add_sc(PurchaseSCID, PurchaseSC, TempState);
+                    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+                    add_sc(PurchaseSC, TempState);
                 {error, Reason} ->
                     lager:error("validate_purchase failed, reason: ~p", [Reason]),
                     %% conflict
@@ -240,17 +239,90 @@ validate_banner(BannerSC, OurSC) ->
             {error, {invalid_banner_nonce, BannerSCNonce, OurSCNonce}}
     end.
 
--spec validate_purchase(PurchaseSCID :: binary(),
-                        PurchaseSC :: blockchain_state_channel_v1:state_channel(),
+-spec validate_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                         State :: state()) -> ok | {error, any()}.
-validate_purchase(PurchaseSCID, PurchaseSC, State) ->
+validate_purchase(Purchase, State) ->
     %% TODO: Improve purchase validation
-    OurSC = find_sc(PurchaseSCID, State),
-    case PurchaseSC == OurSC of
+    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+    PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
+
+    case find_sc(PurchaseSCID, State) of
+        undefined ->
+            %% We don't have any information about this state channel yet
+            %% Presumably our first packet
+            %% Check that the purchase sc nonce is set to 1
+            %% And the purchase sc summary only has 1 packet in it
+            check_first_purchase(Purchase);
+        OurSC ->
+            compare_purchase_summary(Purchase, OurSC)
+    end.
+
+-spec check_first_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase()) -> ok | {error, any()}.
+check_first_purchase(Purchase) ->
+    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+    PurchaseHotspot = blockchain_state_channel_purchase_v1:hotspot(Purchase),
+    PurchaseSCNonce = blockchain_state_channel_v1:nonce(PurchaseSC),
+    case PurchaseSCNonce of
+        1 ->
+            case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
+                {error, not_found}=E ->
+                    %% how did you end here?
+                    E;
+                {ok, PurchaseSCSummary} ->
+                    PurchaseNumPackets = blockchain_state_channel_summary_v1:num_packets(PurchaseSCSummary),
+                    case PurchaseNumPackets == 1 of
+                        true -> ok;
+                        false ->
+                            {error, first_purchase_packet_count_mismatch}
+                    end
+            end;
+        _ ->
+            %% This is first purchase without nonce set to 1?
+            {error, first_purchase_nonce_mismatch}
+    end.
+
+-spec compare_purchase_summary(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
+                               OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
+compare_purchase_summary(Purchase, OurSC) ->
+    OurSCNonce = blockchain_state_channel_v1:nonce(OurSC),
+    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+    PurchaseHotspot = blockchain_state_channel_purchase_v1:hotspot(Purchase),
+    PurchaseSCNonce = blockchain_state_channel_v1:nonce(PurchaseSC),
+
+    case PurchaseSCNonce == OurSCNonce + 1 of
         false ->
-            {error, {invalid_purchase, {PurchaseSC, OurSC}}};
+            {error, {invalid_purchase_nonce, {PurchaseSCNonce, OurSCNonce}}};
         true ->
-            ok
+            case blockchain_state_channel_v1:get_summary(PurchaseHotspot, OurSC) of
+                {error, not_found}=E1 ->
+                    %% we don't know about this, presumably first purchase?
+                    %% check purchase summary
+                    case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
+                        {error, not_found}=E2 ->
+                            %% how did you end here?
+                            {error, {no_summaries, E1, E2}};
+                        {ok, _PurchaseSCSummary} ->
+                            %% XXX: What should we be checking here?
+                            lager:debug("valid purchase"),
+                            ok
+                    end;
+                {ok, OurSCSummary} ->
+                    case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
+                        {error, not_found}=E3 ->
+                            %% how did you get here?
+                            {error, {no_purchase_summary, E3}};
+                        {ok, PurchaseSCSummary} ->
+                            PurchaseNumPackets = blockchain_state_channel_summary_v1:num_packets(PurchaseSCSummary),
+                            OurNumPackets = blockchain_state_channel_summary_v1:num_packets(OurSCSummary),
+                            lager:debug("checking packet count, purchase: ~p, ours: ~p", [PurchaseNumPackets, OurNumPackets]),
+                            case PurchaseNumPackets == OurNumPackets + 1 of
+                                false ->
+                                    {error, {invalid_purchase_packet_count, PurchaseNumPackets, OurNumPackets}};
+                                true ->
+                                    ok
+                            end
+                    end
+            end
     end.
 
 -spec find_packet(PacketHash :: binary(), State :: state()) -> blockchain_helium_packet_v1:packet() | undefined.
@@ -301,10 +373,10 @@ find_stream(OUI, #state{streams=Streams}) ->
 add_stream(OUI, Stream, #state{streams=Streams}=State) ->
     State#state{streams=maps:put(OUI, Stream, Streams)}.
 
--spec add_sc(SCID :: binary(),
-             SC :: blockchain_state_channel_v1:state_channel(),
+-spec add_sc(SC :: blockchain_state_channel_v1:state_channel(),
              State :: state()) -> state().
-add_sc(SCID, SC, #state{state_channels=SCs}=State) ->
+add_sc(SC, #state{state_channels=SCs}=State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
     State#state{state_channels=maps:put(SCID, SC, SCs)}.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.

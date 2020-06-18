@@ -7,7 +7,7 @@
 
 -export([
     new/4,
-    packet_hash/1, region/1, sc/1,
+    hotspot/1, packet_hash/1, region/1, sc/1,
     signature/1, sign/2,
     encode/1, decode/1
 ]).
@@ -34,6 +34,10 @@ new(SC, Hotspot, PacketHash, Region) ->
        packet_hash=PacketHash,
        region=Region
     }.
+
+-spec hotspot(purchase()) -> libp2p_crypto:pubkey_bin().
+hotspot(#blockchain_state_channel_purchase_v1_pb{hotspot=Hotspot}) ->
+    Hotspot.
 
 -spec region(purchase()) -> atom().
 region(#blockchain_state_channel_purchase_v1_pb{region=Region}) ->
