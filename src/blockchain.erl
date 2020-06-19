@@ -12,7 +12,7 @@
     sync_hash/1,
     height/1,
     sync_height/1,
-    ledger/0, ledger/1, ledger/2, ledger_at/2,
+    ledger/0, ledger/1, ledger/2, ledger_at/2, ledger_at/3,
     dir/1,
 
     blocks/1, get_block/2, save_block/2,
