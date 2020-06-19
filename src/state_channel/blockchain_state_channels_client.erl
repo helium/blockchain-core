@@ -56,7 +56,7 @@ response(Resp) ->
                 ok;
             Mod when is_atom(Mod) ->
                 Mod:handle_response(Resp)
-        end.
+        end
     end).
 
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
