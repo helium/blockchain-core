@@ -23,7 +23,7 @@
         byte_size(blockchain_txn:serialize(Txn))) * TxnFeeMultiplier).
 -define(calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier),
     blockchain_utils:calculate_dc_amount(Ledger,
-        byte_size(blockchain_txn:serialize(Txn)) * TxnFeeMultiplier, DCPayloadSize)).
+        byte_size(blockchain_txn:serialize(Txn)), DCPayloadSize) * TxnFeeMultiplier).
 
 
 -define(fee(Txn, Ledger),

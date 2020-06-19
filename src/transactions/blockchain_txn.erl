@@ -913,12 +913,12 @@ txn_fees_payment_v1_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_payment_v1:new(Payer, RandomPubKey1, 100000, 1),
     Txn00Fee = blockchain_txn_payment_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn00Fee),
+    ?assertEqual(35000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_payment_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_payment_v1:sign(Txn01, PayerSigFun),
     Txn02Fee = blockchain_txn_payment_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn02Fee),
+    ?assertEqual(35000, Txn02Fee),
     ok.
 
 txn_fees_payment_v2_test() ->
@@ -929,12 +929,12 @@ txn_fees_payment_v2_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_payment_v2:new(Payer, [V2Payment], 1),
     Txn00Fee = blockchain_txn_payment_v2:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30625, Txn00Fee),
+    ?assertEqual(35000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_payment_v2:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_payment_v2:sign(Txn01, PayerSigFun),
     Txn02Fee = blockchain_txn_payment_v2:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30625, Txn02Fee),
+    ?assertEqual(35000, Txn02Fee),
     ok.
 
 txn_fees_add_gateway_v1_test() ->
@@ -949,7 +949,7 @@ txn_fees_add_gateway_v1_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_add_gateway_v1:new(GWPubkeyBin, OwnerPubkeyBin, Payer),
     Txn00Fee = blockchain_txn_add_gateway_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(63750, Txn00Fee),
+    ?assertEqual(65000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_add_gateway_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_add_gateway_v1:staking_fee(Txn01, ?RANDOM_STAKING_FEE),
@@ -957,7 +957,7 @@ txn_fees_add_gateway_v1_test() ->
     Txn04 = blockchain_txn_add_gateway_v1:sign(Txn03, OwnerSigFun),
     Txn05 = blockchain_txn_add_gateway_v1:sign_payer(Txn04, PayerSigFun),
     Txn05Fee = blockchain_txn_add_gateway_v1:calculate_fee(Txn05, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(63750, Txn05Fee),
+    ?assertEqual(65000, Txn05Fee),
     ok.
 
 txn_fees_assert_location_v1_test() ->
@@ -972,7 +972,7 @@ txn_fees_assert_location_v1_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_assert_location_v1:new(GWPubkeyBin, OwnerPubkeyBin, Payer, ?TEST_LOCATION, 1),
     Txn00Fee = blockchain_txn_assert_location_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(67709, Txn00Fee),
+    ?assertEqual(70000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_assert_location_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_assert_location_v1:staking_fee(Txn01, ?RANDOM_STAKING_FEE),
@@ -980,7 +980,7 @@ txn_fees_assert_location_v1_test() ->
     Txn04 = blockchain_txn_assert_location_v1:sign(Txn03, OwnerSigFun),
     Txn05 = blockchain_txn_assert_location_v1:sign_payer(Txn04, PayerSigFun),
     Txn05Fee = blockchain_txn_assert_location_v1:calculate_fee(Txn05, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(67709, Txn05Fee),
+    ?assertEqual(70000, Txn05Fee),
     ok.
 
 txn_fees_create_htlc_v1_test() ->
@@ -991,12 +991,12 @@ txn_fees_create_htlc_v1_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_create_htlc_v1:new(Payer, RandomPubKey1, RandomPubKey2, Hashlock, 0, 10000, 1),
     Txn00Fee = blockchain_txn_create_htlc_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(51042, Txn00Fee),
+    ?assertEqual(55000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_create_htlc_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_create_htlc_v1:sign(Txn01, PayerSigFun),
     Txn02Fee = blockchain_txn_create_htlc_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(51042, Txn02Fee),
+    ?assertEqual(55000, Txn02Fee),
     ok.
 
 txn_fees_redeem_htlc_v1_test() ->
@@ -1006,12 +1006,12 @@ txn_fees_redeem_htlc_v1_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_redeem_htlc_v1:new(Payee, RandomPubKey1, <<"yolo">>),
     Txn00Fee = blockchain_txn_redeem_htlc_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn00Fee),
+    ?assertEqual(35000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_redeem_htlc_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_redeem_htlc_v1:sign(Txn01, PayeeSigFun),
     Txn02Fee = blockchain_txn_redeem_htlc_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn02Fee),
+    ?assertEqual(35000, Txn02Fee),
     ok.
 
 txn_fees_oui_test() ->
@@ -1025,14 +1025,14 @@ txn_fees_oui_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_oui_v1:new(OUI, OwnerPubkeyBin, [?ADDRESS_KEY1], Filter, 32, Payer),
     Txn00Fee = blockchain_txn_oui_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(67084, Txn00Fee),
+    ?assertEqual(70000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_oui_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_oui_v1:staking_fee(Txn01, ?RANDOM_STAKING_FEE),
     Txn03 = blockchain_txn_oui_v1:sign(Txn02, OwnerSigFun),
     Txn04 = blockchain_txn_oui_v1:sign_payer(Txn03, PayerSigFun),
     Txn04Fee = blockchain_txn_oui_v1:calculate_fee(Txn04, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(67084, Txn04Fee),
+    ?assertEqual(70000, Txn04Fee),
     ok.
 
 txn_fees_routing_test() ->
@@ -1041,13 +1041,13 @@ txn_fees_routing_test() ->
     %% create new txn, and confirm expected fee size
     Txn00 = blockchain_txn_routing_v1:update_router_addresses(0, Owner, [?ADDRESS_KEY1, ?ADDRESS_KEY2],  1),
     Txn00Fee = blockchain_txn_routing_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(37084, Txn00Fee),
+    ?assertEqual(40000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_routing_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_routing_v1:staking_fee(Txn01, ?RANDOM_STAKING_FEE),
     Txn03 = blockchain_txn_routing_v1:sign(Txn02, OwnerSigFun),
     Txn03Fee = blockchain_txn_routing_v1:calculate_fee(Txn03, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(37084, Txn03Fee),
+    ?assertEqual(40000, Txn03Fee),
     ok.
 
 txn_fees_security_exchange_v1_test() ->
@@ -1057,12 +1057,12 @@ txn_fees_security_exchange_v1_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_security_exchange_v1:new(Payer, RandomPubKey1, 100000, 1),
     Txn00Fee = blockchain_txn_security_exchange_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn00Fee),
+    ?assertEqual(35000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_security_exchange_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_security_exchange_v1:sign(Txn01, PayerSigFun),
     Txn02Fee = blockchain_txn_security_exchange_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30209, Txn02Fee),
+    ?assertEqual(35000, Txn02Fee),
     ok.
 
 txn_fees_state_channel_open_v1_test() ->
@@ -1071,12 +1071,12 @@ txn_fees_state_channel_open_v1_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_state_channel_open_v1:new(<<"state_channel_test_id">>, Owner, 10, 1, 1),
     Txn00Fee = blockchain_txn_state_channel_open_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(27917, Txn00Fee),
+    ?assertEqual(30000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_state_channel_open_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_state_channel_open_v1:sign(Txn01, OwnerSigFun),
     Txn02Fee = blockchain_txn_state_channel_open_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(27917, Txn02Fee),
+    ?assertEqual(30000, Txn02Fee),
     ok.
 
 txn_fees_state_channel_close_v1_test() ->
@@ -1103,12 +1103,12 @@ txn_fees_token_burn_v1_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_token_burn_v1:new(Payer, RandomPubKey1, 100000, 1),
     Txn00Fee = blockchain_txn_token_burn_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30417, Txn00Fee),
+    ?assertEqual(35000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_token_burn_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_token_burn_v1:sign(Txn01, PayerSigFun),
     Txn02Fee = blockchain_txn_token_burn_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(30417, Txn02Fee),
+    ?assertEqual(35000, Txn02Fee),
     ok.
 
 txn_fees_update_gateway_oui_v1_test() ->
@@ -1117,12 +1117,12 @@ txn_fees_update_gateway_oui_v1_test() ->
     %% create a new payment txn, and confirm expected fee size
     Txn00 = blockchain_txn_update_gateway_oui_v1:new(GW, 1, 1),
     Txn00Fee = blockchain_txn_update_gateway_oui_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(36459, Txn00Fee),
+    ?assertEqual(40000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
     Txn01 = blockchain_txn_update_gateway_oui_v1:fee(Txn00, Txn00Fee),
     Txn02 = blockchain_txn_update_gateway_oui_v1:sign(Txn01, GWSigFun),
     Txn02Fee = blockchain_txn_update_gateway_oui_v1:calculate_fee(Txn02, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
-    ?assertEqual(36459, Txn02Fee),
+    ?assertEqual(40000, Txn02Fee),
     ok.
 
 
