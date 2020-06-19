@@ -175,6 +175,8 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
                     State;
                 {Packet, NewState} ->
                     Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                    lager:info("successful purchase validation, sending packet: ~p",
+                               [blockchain_helium_packet_v1:packet_hash(Packet)]),
                     ok = send_packet(Packet, Swarm, Stream, Region),
                     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
                     add_sc(PurchaseSC, NewState)
@@ -223,13 +225,47 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
 -spec validate_banner(BannerSC :: blockchain_state_channel_v1:state_channel(),
                       OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
 validate_banner(BannerSC, OurSC) ->
+    %% We check the following conditions here:
+    %% - The nonce in BannerSC is higher or equal than OurSC (not strictly monotonically increasing)
+    %% - All balances in BannerSC are higher or equal than OurSC balances
+
     BannerSCNonce = blockchain_state_channel_v1:nonce(BannerSC),
     OurSCNonce = blockchain_state_channel_v1:nonce(OurSC),
-    case BannerSCNonce == OurSCNonce + 1 of
+    case BannerSCNonce >= OurSCNonce of
         true ->
-            ok;
+            compare_banner_summaries(BannerSC, OurSC);
         false ->
             {error, {invalid_banner_nonce, BannerSCNonce, OurSCNonce}}
+    end.
+
+-spec compare_banner_summaries(BannerSC :: blockchain_state_channel_v1:state_channel(),
+                               OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
+compare_banner_summaries(BannerSC, OurSC) ->
+    %% Every single hotspot in the banner summaries must have higher balances
+    %% than our sc summaries
+
+    OurSCSummaries = blockchain_state_channel_v1:summaries(OurSC),
+
+    Res = lists:all(fun(OurSCSummary) ->
+                            ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(OurSCSummary),
+                            case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, BannerSC) of
+                                {error, not_found} ->
+                                    %% We have the summary but BannerSC does not, not allowed
+                                    false;
+                                {ok, BannerSCSummary} ->
+                                    BannerSCNumPackets = blockchain_state_channel_summary_v1:num_packets(BannerSCSummary),
+                                    BannerSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(BannerSCSummary),
+                                    OurSCNumPackets = blockchain_state_channel_summary_v1:num_packets(OurSCSummary),
+                                    OurSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OurSCSummary),
+                                    (BannerSCNumPackets >= OurSCNumPackets) andalso (BannerSCNumDCs >= OurSCNumDCs)
+                            end
+                    end, OurSCSummaries),
+
+    case Res of
+        false ->
+            {error, {invalid_banner_summaries, BannerSC, OurSC}};
+        true ->
+            ok
     end.
 
 -spec validate_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
