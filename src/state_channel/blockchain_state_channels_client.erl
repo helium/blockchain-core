@@ -45,13 +45,13 @@
           swarm :: pid(),
           state_channels = #{} :: state_channels(),
           streams = #{} :: streams(),
-          packets = #{} :: packets()
+          packets = [] :: packets()
          }).
 
 -type state() :: #state{}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
 -type streams() :: #{non_neg_integer() => pid()}.
--type packets() :: #{binary() => blockchain_helium_packet_v1:packet()}.
+-type packets() :: [blockchain_helium_packet_v1:packet()].
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -168,28 +168,21 @@ handle_banner(Banner, _Stream, State) ->
                       Stream :: pid(),
                       State :: state()) -> state().
 handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
-    PacketHash = blockchain_state_channel_purchase_v1:packet_hash(Purchase),
-    case find_packet(PacketHash, State) of
-        undefined ->
-            %% Drop it, we don't know this packet
-            lager:debug("Dropping purchase, packet_hash: ~p", [PacketHash]),
-            State;
-        Packet ->
-            case validate_purchase(Purchase, State) of
-                ok ->
-                    %% ok, send the packet
-                    %% remove from state (TODO: check if successful packet delivery?)
+    case validate_purchase(Purchase, State) of
+        ok ->
+            case deque_packet(State) of
+                {undefined, _} ->
+                    State;
+                {Packet, NewState} ->
                     Region = blockchain_state_channel_purchase_v1:region(Purchase),
                     ok = send_packet(Packet, Swarm, Stream, Region),
-                    %% XXX: Update our SC as we used the purchase sc and sent the packet?
-                    TempState = delete_packet(PacketHash, State),
                     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-                    add_sc(PurchaseSC, TempState);
-                {error, Reason} ->
-                    lager:error("validate_purchase failed, reason: ~p", [Reason]),
-                    %% conflict
-                    State
-            end
+                    add_sc(PurchaseSC, NewState)
+            end;
+        {error, Reason} ->
+            lager:error("validate_purchase failed, reason: ~p", [Reason]),
+            %% conflict
+            State
     end.
 
 -spec handle_packet(Packet :: blockchain_helium_packet_v1:packet(),
@@ -223,9 +216,9 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
                                          send_to_route(Packet, Route, Region, StateAcc)
                                  end, State, Routes)
              end,
-    %% Hold onto the packet, if a matching purchase comes in later
-    PacketHash = blockchain_helium_packet_v1:packet_hash(Packet),
-    add_packet(PacketHash, Packet, State0).
+
+    %% Hold onto the packet
+    enqueue_packet(Packet, State0).
 
 -spec validate_banner(BannerSC :: blockchain_state_channel_v1:state_channel(),
                       OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
@@ -330,20 +323,18 @@ compare_purchase_summary(Purchase, OurSC) ->
             end
     end.
 
--spec find_packet(PacketHash :: binary(), State :: state()) -> blockchain_helium_packet_v1:packet() | undefined.
-find_packet(PacketHash, #state{packets=Packets}) ->
-    maps:get(PacketHash, Packets, undefined).
+-spec enqueue_packet(Packet :: blockchain_helium_packet_v1:packet(),
+                     State :: state()) -> state().
+enqueue_packet(Packet, #state{packets=Packets}=State) ->
+    State#state{packets=[Packet | Packets]}.
 
--spec add_packet(PacketHash :: binary(),
-                 Packet :: blockchain_helium_packet_v1:packet(),
-                 State :: state()) -> state().
-add_packet(PacketHash, Packet, #state{packets=Packets}=State) ->
-    State#state{packets=maps:put(PacketHash, Packet, Packets)}.
-
--spec delete_packet(PacketHash :: binary(),
-                    State :: state()) -> state().
-delete_packet(PacketHash, #state{packets=Packets}=State) ->
-    State#state{packets=maps:remove(PacketHash, Packets)}.
+-spec deque_packet(State :: state()) -> {undefined | blockchain_helium_packet_v1:packet(), state()}.
+deque_packet(#state{packets=Packets}=State) when length(Packets) > 0 ->
+    %% Remove from tail
+    [ToPop | Rest] = lists:reverse(Packets),
+    {ToPop, State#state{packets=lists:reverse(Rest)}};
+deque_packet(State) ->
+    {undefined, State}.
 
 -spec send_packet(Packet :: blockchain_helium_packet_v1:packet(),
                   Swarm :: pid(),
