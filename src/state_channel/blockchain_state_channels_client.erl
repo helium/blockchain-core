@@ -50,7 +50,8 @@
 
 -type state() :: #state{}.
 -type state_channels() :: #{binary() => blockchain_state_channel_v1:state_channel()}.
--type streams() :: #{non_neg_integer() => pid()}.
+-type stream_val() :: {offer | packet, pid()}.
+-type streams() :: #{non_neg_integer() => stream_val()}.
 -type packets() :: [blockchain_helium_packet_v1:packet()].
 
 %% ------------------------------------------------------------------
@@ -124,7 +125,7 @@ handle_call(_, _, State) ->
     {reply, ok, State}.
 
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
-    FilteredStreams = maps:filter(fun(_Name, Stream) ->
+    FilteredStreams = maps:filter(fun(_Name, {_, Stream}) ->
                                           Stream /= Pid
                                   end, Streams),
     {noreply, State#state{streams=FilteredStreams}};
@@ -206,10 +207,13 @@ handle_packet(Packet, DefaultRouters, Region, State=#state{swarm=Swarm}) ->
                                                          unlink(NewStream),
                                                          erlang:monitor(process, NewStream),
                                                          ok = send_offer(Packet, Swarm, NewStream, Region),
-                                                         add_stream(Router, NewStream, State)
+                                                         add_stream(Router, {offer, NewStream}, State)
                                                  end;
-                                             Stream ->
+                                             {offer, Stream} ->
                                                  ok = send_offer(Packet, Swarm, Stream, Region),
+                                                 StateAcc;
+                                             {packet, Stream} ->
+                                                 ok = send_packet(Packet, Swarm, Stream, Region),
                                                  StateAcc
                                          end
                                  end, State, DefaultRouters);
@@ -397,13 +401,16 @@ send_offer(Packet, Swarm, Stream, Region) ->
 find_sc(SCID, #state{state_channels=SCs}) ->
     maps:get(SCID, SCs, undefined).
 
--spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), State :: state()) -> undefined | pid().
+-spec find_stream(OUIOrDefaultRouter :: non_neg_integer() | string(),
+                  State :: state()) -> undefined | stream_val().
 find_stream(OUI, #state{streams=Streams}) ->
     maps:get(OUI, Streams, undefined).
 
--spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(), Stream :: pid(), State :: state()) -> state().
-add_stream(OUI, Stream, #state{streams=Streams}=State) ->
-    State#state{streams=maps:put(OUI, Stream, Streams)}.
+-spec add_stream(OUIOrDefaultRouter :: non_neg_integer() | string(),
+                 StreamVal :: stream_val(),
+                 State :: state()) -> state().
+add_stream(OUI, StreamVal, #state{streams=Streams}=State) ->
+    State#state{streams=maps:put(OUI, StreamVal, Streams)}.
 
 -spec add_sc(SC :: blockchain_state_channel_v1:state_channel(),
              State :: state()) -> state().
@@ -416,6 +423,7 @@ find_routing(Packet) ->
     %% transitional shim for ignoring on-chain OUIs
     case application:get_env(blockchain, use_oui_routers, true) of
         true ->
+            %% TODO: pass chain in packet/3
             Chain = blockchain_worker:blockchain(),
             Ledger = blockchain:ledger(Chain),
             blockchain_ledger_v1:find_routing_for_packet(Packet, Ledger);
@@ -434,22 +442,59 @@ send_to_route(Packet, Route, Region, State=#state{swarm=Swarm}) ->
                                                 %% was already able to send to one of this OUI's routers
                                                 {done, StateAcc};
                                            (PubkeyBin, {not_done, StateAcc}) ->
-                                                StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                                                case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
-                                                    {error, _Reason} ->
-                                                        lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                                case check_hotspot_in_router_oui(PubkeyBin, OUI) of
+                                                    {error, _} ->
                                                         {not_done, StateAcc};
-                                                    {ok, NewStream} ->
-                                                        unlink(NewStream),
-                                                        erlang:monitor(process, NewStream),
-                                                        ok = send_packet(Packet, Swarm, NewStream, Region),
-                                                        {done, add_stream(OUI, NewStream, State)}
+                                                    packet ->
+                                                        StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                                        case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
+                                                            {error, _Reason} ->
+                                                                lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                                                {not_done, StateAcc};
+                                                            {ok, NewStream} ->
+                                                                unlink(NewStream),
+                                                                erlang:monitor(process, NewStream),
+                                                                ok = send_packet(Packet, Swarm, NewStream, Region),
+                                                                {done, add_stream(OUI, {packet, NewStream}, State)}
+                                                        end;
+                                                    offer ->
+                                                        StreamPeer = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                                        case blockchain_state_channel_handler:dial(Swarm, StreamPeer, []) of
+                                                            {error, _Reason} ->
+                                                                lager:error("failed to dial ~p:~p", [StreamPeer, _Reason]),
+                                                                {not_done, StateAcc};
+                                                            {ok, NewStream} ->
+                                                                unlink(NewStream),
+                                                                erlang:monitor(process, NewStream),
+                                                                ok = send_offer(Packet, Swarm, NewStream, Region),
+                                                                {done, add_stream(OUI, {offer, NewStream}, State)}
+                                                        end
                                                 end
                                         end, {not_done, State}, blockchain_ledger_routing_v1:addresses(Route)),
             NewState;
-        Stream ->
+        {offer, Stream} ->
+            ok = send_offer(Packet, Swarm, Stream, Region),
+            State;
+        {packet, Stream} ->
             ok = send_packet(Packet, Swarm, Stream, Region),
             State
+    end.
+
+-spec check_hotspot_in_router_oui(PubkeyBin :: libp2p_crypto:pubkey_bin(),
+                                  OUI :: pos_integer()) -> offer | packet | {error, any()}.
+check_hotspot_in_router_oui(PubkeyBin, OUI) ->
+    %% TODO: pass chain in packet/3
+    Ledger = blockchain:ledger(blockchain_worker:blockchain()),
+    case blockchain_gateway_cache:get(PubkeyBin, Ledger) of
+        {error, _}=E ->
+            E;
+        {ok, Gw} ->
+            case blockchain_ledger_gateway_v2:oui(Gw) of
+                undefined ->
+                    offer;
+                OUI ->
+                    packet
+            end
     end.
 
 %% ------------------------------------------------------------------

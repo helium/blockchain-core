@@ -415,7 +415,7 @@ witness_recent_time(Witness) ->
 witness_first_time(Witness) ->
     Witness#witness.first_time.
 
--spec oui(gateway()) -> pos_integer().
+-spec oui(gateway()) -> undefined | pos_integer().
 oui(Gateway) ->
     Gateway#gateway_v2.oui.
 
