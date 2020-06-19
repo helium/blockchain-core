@@ -50,12 +50,14 @@ start_link(Args) ->
 
 -spec response(blockchain_state_channel_response_v1:response()) -> any().
 response(Resp) ->
-    case application:get_env(blockchain, sc_client_handler, undefined) of
-        undefined ->
-            ok;
-        Mod when is_atom(Mod) ->
-            Mod:handle_response(Resp)
-    end.
+    erlang:spawn(fun() ->
+        case application:get_env(blockchain, sc_client_handler, undefined) of
+            undefined ->
+                ok;
+            Mod when is_atom(Mod) ->
+                Mod:handle_response(Resp)
+        end.
+    end).
 
 -spec packet(blockchain_helium_packet_v1:packet(), [string()], atom()) -> ok.
 packet(Packet, DefaultRouters, Region) ->
