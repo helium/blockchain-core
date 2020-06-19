@@ -128,7 +128,7 @@ handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     lager:error("failed to dial ~p: ~p dropping ~p packets", [AddressOrOUI, _Reason, erlang:length(Packets)+1]),
     State1 = delete_queued_packet(AddressOrOUI, delete_stream(AddressOrOUI, State0)),
     {noreply, State1};
-handle_info({dial_success, AddressOrOUI, Stream, _Region}, #state{swarm=Swarm}=State0) ->
+handle_info({dial_success, AddressOrOUI, Stream}, #state{swarm=Swarm}=State0) ->
     Packets = get_queued_packet(AddressOrOUI, State0),
     lists:foreach(
         fun({Packet, Region}) ->
@@ -201,7 +201,7 @@ dial_and_send_packet(Swarm, Address, Packet, Region) when is_list(Address) ->
             {ok, Stream} ->
                 unlink(Stream),
                 ok = send_packet(Swarm, Stream, Packet, Region),
-                Self ! {dial_success, Address, Stream, Region}
+                Self ! {dial_success, Address, Stream}
         end
     end),
     ok;
@@ -231,7 +231,7 @@ dial_and_send_packet(Swarm, Route, Packet, Region) ->
                 Self ! {dial_fail, OUI, failed};
             {dialed, Stream} ->
                 ok = send_packet(Swarm, Stream, Packet, Region),
-                Self ! {dial_success, OUI, Stream, Region}
+                Self ! {dial_success, OUI, Stream}
         end
     end),
     ok.
