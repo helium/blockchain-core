@@ -33,6 +33,8 @@
 
     vars/3,
     config/2,  % no version with default, use the set value or fail
+    config/3,  % adding this despite above msg, if bad lemme know!
+
     vars_nonce/1, vars_nonce/2,
     save_threshold_txn/2,
 
@@ -852,6 +854,17 @@ config(ConfigName, Ledger) ->
             {ok, binary_to_term(ConfigVal)};
         not_found ->
             {error, not_found};
+        Error ->
+            Error
+    end.
+
+config(ConfigName, Ledger, Default) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, var_name(ConfigName), []) of
+        {ok, ConfigVal} ->
+            {ok, binary_to_term(ConfigVal)};
+        not_found ->
+            Default;
         Error ->
             Error
     end.

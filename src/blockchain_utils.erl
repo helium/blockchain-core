@@ -26,7 +26,7 @@
     get_pubkeybin_sigfun/1,
     approx_blocks_in_week/1,
     vars_keys_to_list/1,
-    calculate_dc_amount/2,
+    calculate_dc_amount/2, calculate_dc_amount/3,
     deterministic_subset/3
 ]).
 
@@ -50,20 +50,22 @@
 %% @end
 %%--------------------------------------------------------------------
 
--spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledg(),
+-spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledger(),
                           PayloadSize :: non_neg_integer()) -> pos_integer().
 calculate_dc_amount(Ledger, PayloadSize) ->
     case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
         {ok, DCPayloadSize} ->
-            case PayloadSize =< DCPayloadSize of
-                true ->
-                    1;
-                false ->
-                    erlang:ceil(PayloadSize/DCPayloadSize)
-            end;
+            do_calculate_dc_amount(PayloadSize, DCPayloadSize);
         _ ->
             {error, dc_payload_size_not_set}
     end.
+
+-spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledger(),
+                          PayloadSize :: non_neg_integer(),
+                          DCPayloadSize :: pos_integer()) -> pos_integer().
+calculate_dc_amount(_Ledger, PayloadSize, DCPayloadSize) ->
+    do_calculate_dc_amount(PayloadSize, DCPayloadSize).
+
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
 %% @end
@@ -255,6 +257,14 @@ find_txn(Block, PredFun) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec do_calculate_dc_amount(PayloadSize :: non_neg_integer(), DCPayloadSize :: pos_integer()) -> pos_integer().
+do_calculate_dc_amount(PayloadSize, DCPayloadSize)->
+    case PayloadSize =< DCPayloadSize of
+        true ->
+            1;
+        false ->
+            erlang:ceil(PayloadSize/DCPayloadSize)
+    end.
 icdf_select([{_Node, 0.0}], _Rnd, _OrigRnd) ->
     {error, zero_weight};
 icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->

@@ -11,6 +11,7 @@
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_add_gateway_v1_pb.hrl").
 
 -export([
@@ -33,7 +34,7 @@
     is_valid_staking_key/2,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_staking_fee/2,
+    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2,
     print/1,
     to_json/2
 ]).
@@ -159,25 +160,24 @@ fee(Txn, Fee) ->
 %%--------------------------------------------------------------------
 -spec calculate_fee(txn_add_gateway(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    ?calculate_fee_prep(Txn, Chain).
 
--spec calculate_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Ledger, false) ->
+-spec calculate_fee(txn_add_gateway(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, Ledger, true) ->
+calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     case Txn#blockchain_txn_add_gateway_v1_pb.payer of
         Payer when Payer == undefined; Payer == <<>> ->
             %% no payer signature if there's no payer
-            ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
+            ?calculate_fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
                                                       owner_signature = <<0:512>>,
                                                       gateway_signature = <<0:512>>,
-                                                      payer_signature = <<>>}, Ledger);
+                                                      payer_signature = <<>>}, Ledger, DCPayloadSize, TxnFeeMultiplier);
         _ ->
-            ?fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
+            ?calculate_fee(Txn#blockchain_txn_add_gateway_v1_pb{fee=0, staking_fee=0,
                                                       owner_signature = <<0:512>>,
                                                       gateway_signature = <<0:512>>,
-                                                      payer_signature = <<0:512>>}, Ledger)
+                                                      payer_signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier)
     end.
 
 %%--------------------------------------------------------------------

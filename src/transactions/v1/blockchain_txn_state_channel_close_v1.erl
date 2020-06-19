@@ -11,6 +11,7 @@
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_state_channel_close_v1_pb.hrl").
 
 -export([
@@ -18,8 +19,8 @@
     hash/1,
     state_channel/1,
     closer/1,
-    fee/1,
-    calculate_fee/2, calculate_fee/3,
+    fee/1, fee/2,
+    calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
     is_valid/2,
@@ -61,6 +62,10 @@ closer(Txn) ->
 fee(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.fee.
 
+-spec fee(txn_state_channel_close(), non_neg_integer()) -> txn_state_channel_close().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_state_channel_close_v1_pb{fee=Fee}.
+
 -spec signature(txn_state_channel_close()) -> binary().
 signature(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.signature.
@@ -78,13 +83,12 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec calculate_fee(txn_state_channel_close(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    ?calculate_fee_prep(Txn, Chain).
 
--spec calculate_fee(txn_state_channel_close(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Ledger, false) ->
+-spec calculate_fee(txn_state_channel_close(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     0;
-calculate_fee(_Txn, _Ledger, true) ->
+calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, true) ->
     0.  %% for now we are defaulting close fees to 0
 
 -spec is_valid(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.

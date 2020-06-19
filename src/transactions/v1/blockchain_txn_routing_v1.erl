@@ -25,7 +25,7 @@
     action/1,
     fee/1, fee/2,
     staking_fee/1, staking_fee/2,
-    calculate_fee/2, calculate_fee/3, calculate_staking_fee/2, calculate_staking_fee/3,
+    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/3,
     nonce/1,
     signature/1,
     sign/2,
@@ -157,14 +157,13 @@ sign(Txn, SigFun) ->
 %%--------------------------------------------------------------------
 -spec calculate_fee(txn_routing(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    ?calculate_fee_prep(Txn, Chain).
 
--spec calculate_fee(txn_routing(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Ledger, false) ->
+-spec calculate_fee(txn_routing(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, Ledger, true) ->
-    ?fee(Txn#blockchain_txn_routing_v1_pb{fee=0, signature = <<0:512>>}, Ledger).
+calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+    ?calculate_fee(Txn#blockchain_txn_routing_v1_pb{fee=0, staking_fee = 0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
 %%--------------------------------------------------------------------
 %% @doc

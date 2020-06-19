@@ -10,6 +10,7 @@
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
 -include("blockchain_txn_fees.hrl").
+-include("blockchain_vars.hrl").
 -include_lib("helium_proto/include/blockchain_txn_update_gateway_oui_v1_pb.hrl").
 
 -export([
@@ -18,8 +19,8 @@
     gateway/1,
     oui/1,
     nonce/1,
-    fee/1,
-    calculate_fee/2, calculate_fee/3,
+    fee/1, fee/2,
+    calculate_fee/2, calculate_fee/5,
     gateway_owner_signature/1,
     oui_owner_signature/1,
     sign/2,
@@ -77,6 +78,10 @@ nonce(Txn) ->
 fee(Txn) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb.fee.
 
+-spec fee(txn_update_gateway_oui(), non_neg_integer()) -> txn_update_gateway_oui().
+fee(Txn, Fee) ->
+    Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=Fee}.
+
 -spec gateway_owner_signature(txn_update_gateway_oui()) -> binary().
 gateway_owner_signature(Txn) ->
     Txn#blockchain_txn_update_gateway_oui_v1_pb.gateway_owner_signature.
@@ -128,15 +133,13 @@ is_valid_oui_owner(OUIOwner, #blockchain_txn_update_gateway_oui_v1_pb{oui_owner_
 %%--------------------------------------------------------------------
 -spec calculate_fee(txn_update_gateway_oui(), blockchain:blockchain()) -> non_neg_integer().
 calculate_fee(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
-    calculate_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    ?calculate_fee_prep(Txn, Chain).
 
--spec calculate_fee(txn_update_gateway_oui(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_fee(_Txn, _Ledger, false) ->
+-spec calculate_fee(txn_update_gateway_oui(), blockchain_ledger_v1:ledger(), pos_integer(), pos_integer(), boolean()) -> non_neg_integer().
+calculate_fee(_Txn, _Ledger, _DCPayloadSize, _TxnFeeMultiplier, false) ->
     ?LEGACY_TXN_FEE;
-calculate_fee(Txn, Ledger, true) ->
-    ?fee(Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=0, gateway_owner_signature = <<0:512>>, oui_owner_signature = <<0:512>>}, Ledger).
-
+calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
+    ?calculate_fee(Txn#blockchain_txn_update_gateway_oui_v1_pb{fee=0, gateway_owner_signature = <<0:512>>, oui_owner_signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
 
 -spec is_valid(txn_update_gateway_oui(), blockchain:blockchain()) -> ok | {error, any()}.
