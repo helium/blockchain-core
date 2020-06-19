@@ -63,9 +63,9 @@ packet(Packet, DefaultRouters, Region) ->
         {error, _Reason} ->
             lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
                         [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
-            gen_server:cast(?SERVER, {default_routers, Packet, DefaultRouters, Region});
+            gen_server:cast(?SERVER, {handle_packet, Packet, DefaultRouters, Region});
         {ok, Routes} ->
-            gen_server:cast(?SERVER, {routes, Packet, Routes, Region})
+            gen_server:cast(?SERVER, {handle_packet, Packet, Routes, Region})
     end.
 
 -spec state() -> state().
