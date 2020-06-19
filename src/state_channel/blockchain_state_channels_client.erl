@@ -93,6 +93,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 handle_cast({handle_packet, Packet, RoutesOrAddresses, Region}, #state{swarm=Swarm}=State0) ->
+    lager:debug("handle_packet ~p to ~p", [Packet, RoutesOrAddresses]),
     State1 = lists:foldl(
         fun(RouteOrAddress, StateAcc) ->
             StreamKey = case erlang:is_list(RouteOrAddress) of
@@ -101,11 +102,14 @@ handle_cast({handle_packet, Packet, RoutesOrAddresses, Region}, #state{swarm=Swa
             end,
             case find_stream(StreamKey, StateAcc) of
                 undefined ->
+                    lager:debug("stream undef dialing first"),
                     ok = dial_and_send_packet(Swarm, RouteOrAddress, Packet, Region),
                     add_stream(StreamKey, dialing, StateAcc);
                 dialing ->
+                    lager:debug("stream is still dialing queueing packet"),
                     queue_packet(StreamKey, {Packet, Region}, StateAcc);
                 Stream ->
+                    lager:debug("got stream sending packet"),
                     ok = send_packet(Swarm, Stream, Packet, Region),
                     StateAcc
             end
@@ -130,6 +134,7 @@ handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     {noreply, State1};
 handle_info({dial_success, AddressOrOUI, Stream}, #state{swarm=Swarm}=State0) ->
     Packets = get_queued_packet(AddressOrOUI, State0),
+    lager:debug("dial_success sending ~p packets", [erlang:length(Packets)]),
     lists:foreach(
         fun({Packet, Region}) ->
             ok = send_packet(Swarm, Stream, Packet, Region)
@@ -195,6 +200,7 @@ find_routing(Packet, Chain) ->
 dial_and_send_packet(Swarm, Address, Packet, Region) when is_list(Address) ->
     Self = self(),
     erlang:spawn(fun() ->
+        lager:debug("dialing address ~p for packet ~p", [Address, Packet]),
         case blockchain_state_channel_handler:dial(Swarm, Address, []) of
             {error, _Reason} ->
                 Self ! {dial_fail, Address, _Reason};
@@ -208,6 +214,7 @@ dial_and_send_packet(Swarm, Address, Packet, Region) when is_list(Address) ->
 dial_and_send_packet(Swarm, Route, Packet, Region) ->
     Self = self(),
     erlang:spawn(fun() ->
+        lager:debug("dialing addresses ~p for packet ~p", [blockchain_ledger_routing_v1:addresses(Route), Packet]),
         Dialed = lists:foldl(
             fun(_PubkeyBin, {dialed, _}=Acc) ->
                 Acc;
