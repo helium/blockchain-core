@@ -27,6 +27,7 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
+    witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
     oui/1, oui/2
 ]).
@@ -407,6 +408,10 @@ has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
     maps:from_list(Gateway#gateway_v2.witnesses).
+
+-spec witnesses_plain(gateway()) -> [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
+witnesses_plain(Gateway) ->
+    Gateway#gateway_v2.witnesses.
 
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->

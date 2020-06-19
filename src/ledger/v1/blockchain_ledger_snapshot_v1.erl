@@ -12,7 +12,9 @@
          height/1,
          hash/1,
 
-         diff/2
+         diff/2,
+
+         diff_gateways/2
         ]).
 
 %% this assumes that everything will have loaded the genesis block
@@ -655,6 +657,13 @@ diff(A, B) ->
       [],
       Comp).
 
+diff_gateways(A0, B0) ->
+    A = maps:to_list(A0),
+    B = maps:to_list(B0),
+    AUniq = A -- B,
+    BUniq = B -- A,
+    diff_gateways(AUniq, BUniq, []).
+
 diff_gateways([] , [], Acc) ->
     Acc;
 diff_gateways(AList , [], Acc) ->
@@ -698,18 +707,18 @@ minimize_gw(A, B) ->
           [location, version, last_poc_challenge, last_poc_onion_key_hash,
            nonce, alpha, beta, delta, oui]),
     %% but for witnesses, we want to do additional minimization
-    AWits = blockchain_ledger_gateway_v2:witnesses(A),
-    BWits = blockchain_ledger_gateway_v2:witnesses(B),
+    AWits = blockchain_ledger_gateway_v2:witnesses_plain(A),
+    BWits = blockchain_ledger_gateway_v2:witnesses_plain(B),
     [{witnesses, minimize_witnesses(AWits, BWits)} | Compare].
 
 minimize_witnesses(A, B) ->
     Compare =
-        maps:fold(
-          fun(Addr, AWit, Acc) ->
-                  case maps:get(Addr, B, missing) of
-                      missing ->
+        lists:foldl(
+          fun({Addr, AWit}, Acc) ->
+                  case lists:keyfind(Addr, 1, B) of
+                      false ->
                           [{Addr, b_missing} | Acc];
-                      BWit ->
+                      {_, BWit} ->
                           case BWit == AWit of
                               true ->
                                   Acc;
@@ -721,8 +730,8 @@ minimize_witnesses(A, B) ->
                   end
           end,
           [], A),
-    AKeys = maps:keys(A),
-    B1 = maps:without(AKeys, B),
+    {AKeys, _} = lists:unzip(A),
+    B1 = maps:without(AKeys, maps:from_list(B)),
     case maps:size(B1) of
         0 ->
             case Compare of

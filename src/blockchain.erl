@@ -1413,7 +1413,7 @@ compare(LedgerA, LedgerB) ->
                                                                          Acc;
                                                                      {ok, Other} ->
                                                                          [{changed, K, Other, V}|Acc];
-                                                                                  error ->
+                                                                     error ->
                                                                          [{added, K, V}|Acc]
                                                                  end,
                                                           {[K|Keys], Acc1}
