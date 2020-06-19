@@ -36,6 +36,7 @@
 
     analyze/1, repair/1,
     crosscheck/1, crosscheck/2,
+    compare/2,
 
     fold_chain/4,
 
@@ -1349,34 +1350,12 @@ crosscheck(Blockchain, Recalc) ->
                         Lag when Lag > BlockDelay ->
                             {error, {ledger_delayed_ledger_lag_too_large, Lag}};
                         Lag ->
-                            %% compare the leading ledger and the lagging ledger advanced to the leading ledger's height for consistency
+                            %% compare the leading ledger and the lagging ledger advanced to the
+                            %% leading ledger's height for consistency
                             case ledger_at(LedgerHeight, Blockchain, Recalc) of
                                 {ok, RecalcLedger} ->
-                                    {ok, FP} = blockchain_ledger_v1:raw_fingerprint(Ledger, true),
-                                    {ok, RecalcFP} = blockchain_ledger_v1:raw_fingerprint(RecalcLedger, true),
-                                    case FP == RecalcFP of
-                                        false ->
-                                            Mismatches = [ K || K <- maps:keys(FP), maps:get(K, FP) /= maps:get(K, RecalcFP), K /= <<"ledger_fingerprint">> ],
-                                            MismatchesWithChanges = lists:map(fun(M) ->
-                                                                                      X = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, Ledger),
-                                                                                      {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(fp_to_cf(M), fun({K, V}, {Keys, Acc}) ->
-                                                                                                                                                              Acc1 = case maps:find(K, X) of
-                                                                                                                                                                         {ok, V} ->
-                                                                                                                                                                             Acc;
-                                                                                                                                                                         {ok, Other} ->
-                                                                                                                                                                             [{changed, K, Other, V}|Acc];
-                                                                                                                                                                         error ->
-                                                                                                                                                                             [{added, K, V}|Acc]
-                                                                                                                                                                     end,
-                                                                                                                                                              {[K|Keys], Acc1}
-                                                                                                                                                      end, {[], []}, RecalcLedger),
-                                                                                      Changes = maps:fold(fun(K, V, A) ->
-                                                                                                                  [{deleted, K, V}|A]
-                                                                                                          end, Changes0, maps:without(AllKeys, X)),
-                                                                                      {fp_to_cf(M), Changes}
-                                                                              end, Mismatches),
-                                            {error, {fingerprint_mismatch, MismatchesWithChanges}};
-                                        true ->
+                                    case compare(Ledger, RecalcLedger) of
+                                        ok ->
                                             %% check if the ledger is the same height as the chain
                                             case Height == LedgerHeight of
                                                 false ->
@@ -1388,7 +1367,9 @@ crosscheck(Blockchain, Recalc) ->
                                                         false ->
                                                             ok
                                                     end
-                                            end
+                                            end;
+                                        Error ->
+                                            Error
                                     end;
                                 Error ->
                                     Error
@@ -1399,6 +1380,42 @@ crosscheck(Blockchain, Recalc) ->
             end;
         Error ->
             Error
+    end.
+
+compare(LedgerA, LedgerB) ->
+    {ok, FPA} = blockchain_ledger_v1:raw_fingerprint(LedgerA, true),
+    {ok, FPB} = blockchain_ledger_v1:raw_fingerprint(LedgerB, true),
+    case FPA == FPB of
+        false ->
+            Mismatches = [ K || K <- maps:keys(FPA), maps:get(K, FPB) /= maps:get(K, FPB),
+                                K /= <<"ledger_fingerprint">> ],
+            MismatchesWithChanges =
+                lists:map(
+                  fun(M) ->
+                          X = blockchain_ledger_v1:cf_fold(
+                                fp_to_cf(M),
+                                fun({K, V}, Acc) -> maps:put(K, V, Acc) end, #{}, LedgerA),
+                          {AllKeys, Changes0} = blockchain_ledger_v1:cf_fold(
+                                                  fp_to_cf(M),
+                                                  fun({K, V}, {Keys, Acc}) ->
+                                                          Acc1 = case maps:find(K, X) of
+                                                                     {ok, V} ->
+                                                                         Acc;
+                                                                     {ok, Other} ->
+                                                                         [{changed, K, Other, V}|Acc];
+                                                                                  error ->
+                                                                         [{added, K, V}|Acc]
+                                                                 end,
+                                                          {[K|Keys], Acc1}
+                                                  end, {[], []}, LedgerB),
+                          Changes = maps:fold(fun(K, V, A) ->
+                                                      [{deleted, K, V}|A]
+                                              end, Changes0, maps:without(AllKeys, X)),
+                          {fp_to_cf(M), Changes}
+                  end, Mismatches),
+            {error, {fingerprint_mismatch, MismatchesWithChanges}};
+        true ->
+            ok
     end.
 
 analyze(Blockchain) ->
