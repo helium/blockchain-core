@@ -91,41 +91,27 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% gen_server message handling
 %% ------------------------------------------------------------------
-handle_cast({default_routers, Packet, DefaultRouters, Region}, #state{swarm=Swarm}=State0) ->
+
+handle_cast({handle_packet, Packet, RoutesOrAddresses, Region}, #state{swarm=Swarm}=State0) ->
     State1 = lists:foldl(
-        fun(Address, StateAcc) ->
-            case find_stream(Address, StateAcc) of
+        fun(RouteOrAddress, StateAcc) ->
+            StreamKey = case erlang:is_list(RouteOrAddress) of
+                true -> RouteOrAddress;
+                false -> blockchain_ledger_routing_v1:oui(RouteOrAddress)
+            end,
+            case find_stream(StreamKey, StateAcc) of
                 undefined ->
-                    ok = dial_address_and_send_packet(Swarm, Address, Packet, Region),
-                    add_stream(Address, dialing, StateAcc);
+                    ok = dial_and_send_packet(Swarm, RouteOrAddress, Packet, Region),
+                    add_stream(StreamKey, dialing, StateAcc);
                 dialing ->
-                    queue_packet(Address, {Packet, Region}, StateAcc);
+                    queue_packet(StreamKey, {Packet, Region}, StateAcc);
                 Stream ->
                     ok = send_packet(Swarm, Stream, Packet, Region),
                     StateAcc
             end
         end,
         State0,
-        DefaultRouters
-    ),
-    {noreply, State1};
-handle_cast({routes, Packet, Routes, Region}, #state{swarm=Swarm}=State0) ->
-    State1 = lists:foldl(
-        fun(Route, StateAcc) ->
-            OUI = blockchain_ledger_routing_v1:oui(Route),
-            case find_stream(OUI, StateAcc) of
-                undefined ->
-                    ok = dial_route_and_send_packet(Swarm, Route, Packet, Region),
-                    add_stream(OUI, dialing, StateAcc);
-                dialing ->
-                    queue_packet(OUI, {Packet, Region}, StateAcc);
-                Stream ->
-                    ok = send_packet(Swarm, Stream, Packet, Region),
-                    StateAcc
-            end
-        end,
-        State0,
-        Routes
+        RoutesOrAddresses
     ),
     {noreply, State1};
 handle_cast(_Msg, State) ->
@@ -205,8 +191,8 @@ find_routing(Packet, Chain) ->
             {error, oui_routing_disabled}
     end.
 
--spec dial_address_and_send_packet(pid(), string(), blockchain_helium_packet_v1:packet(), atom()) -> ok.
-dial_address_and_send_packet(Swarm, Address, Packet, Region) ->
+-spec dial_and_send_packet(pid(), string() | blockchain_ledger_routing_v1:routing(), blockchain_helium_packet_v1:packet(), atom()) -> ok.
+dial_and_send_packet(Swarm, Address, Packet, Region) when is_list(Address) ->
     Self = self(),
     erlang:spawn(fun() ->
         case blockchain_state_channel_handler:dial(Swarm, Address, []) of
@@ -218,10 +204,8 @@ dial_address_and_send_packet(Swarm, Address, Packet, Region) ->
                 Self ! {dial_success, Address, Stream, Region}
         end
     end),
-    ok.
-
--spec dial_route_and_send_packet(pid(), blockchain_ledger_routing_v1:routing(), blockchain_helium_packet_v1:packet(), atom()) -> ok.
-dial_route_and_send_packet(Swarm, Route, Packet, Region) ->
+    ok;
+dial_and_send_packet(Swarm, Route, Packet, Region) ->
     Self = self(),
     erlang:spawn(fun() ->
         Dialed = lists:foldl(
