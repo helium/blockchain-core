@@ -353,6 +353,7 @@ commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     prewarm_gateways(Mode, Height, Ledger, GwCache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
     rocksdb:release_batch(Context),
+    ok = rocksdb:flush(DB, [wait, allow_write_stall]),
     delete_context(Ledger),
     ok.
 
