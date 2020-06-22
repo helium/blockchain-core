@@ -37,6 +37,7 @@
              | blockchain_txn_price_oracle_submission_v1:txn_price_oracle_submission()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
+-type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
 -type txns() :: [txn()].
 -export_type([hash/0, txn/0, txns/0]).
 
@@ -311,17 +312,18 @@ types(L) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun()) ->
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback()) ->
                                ok | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit) ->
     absorb_and_commit(Block, Chain0, BeforeCommit, false).
 
--spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
+-spec absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
                                ok | {error, any()}.
 absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
     Ledger1 = blockchain_ledger_v1:new_context(Ledger0),
     Chain1 = blockchain:ledger(Ledger1, Chain0),
+
     Transactions0 = blockchain_block:transactions(Block),
     Transactions = lists:sort(fun sort/2, (Transactions0)),
     case ?MODULE:validate(Transactions, Chain1, Rescue) of
@@ -329,7 +331,8 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
-                    case BeforeCommit() of
+                    Hash = blockchain_block:hash_block(Block),
+                    case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             absorb_delayed(Block, Chain0);
@@ -346,7 +349,7 @@ absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             {error, invalid_txns}
     end.
 
--spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), fun(), boolean()) ->
+-spec unvalidated_absorb_and_commit(blockchain_block:block(), blockchain:blockchain(), before_commit_callback(), boolean()) ->
                                ok | {error, any()}.
 unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
     Ledger0 = blockchain:ledger(Chain0),
@@ -360,7 +363,8 @@ unvalidated_absorb_and_commit(Block, Chain0, BeforeCommit, Rescue) ->
             case ?MODULE:absorb_block(Block, Rescue, Chain1) of
                 {ok, Chain2} ->
                     Ledger2 = blockchain:ledger(Chain2),
-                    case BeforeCommit() of
+                    Hash = blockchain_block:hash_block(Block),
+                    case BeforeCommit(Chain2, Hash) of
                         ok ->
                             ok = blockchain_ledger_v1:commit_context(Ledger2),
                             absorb_delayed(Block, Chain0);
