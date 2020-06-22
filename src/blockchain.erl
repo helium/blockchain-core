@@ -2085,13 +2085,12 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
                         end;
                     context ->
                         %% get context, insert into cache
-                        Ctxt = blockchain_ledger_v1:get_context(Ledger1),
-                        blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
+                        %% Ctxt = blockchain_ledger_v1:get_context(Ledger1),
+                        %% blockchain_ledger_v1:context_snapshot(Ctxt, Ledger),
                         %% commit context
                         blockchain_ledger_v1:commit_context(Ledger1),
                         {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-                        %% this should hit the just-cached value, and
-                        %% is maybe not as safe as a snapshot
+                        %% this should create the new cache entry?
                         {ok, Ledger2} = ledger_at(Height, Blockchain),
                         ok = blockchain_worker:notify({add_block, Hash, Syncing, Ledger2});
                     checkpoint ->
