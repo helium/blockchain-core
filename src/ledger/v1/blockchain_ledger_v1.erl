@@ -17,6 +17,8 @@
 
     new_snapshot/1, context_snapshot/2, has_snapshot/2, release_snapshot/1, snapshot/1,
 
+    drop_snapshots/1,
+
     current_height/1, current_height/2, increment_height/2,
     consensus_members/1, consensus_members/2,
     election_height/1, election_height/2,
@@ -435,6 +437,11 @@ snapshot(Ledger) ->
         S ->
             {ok, S}
     end.
+
+-spec drop_snapshots(ledger()) -> ok.
+drop_snapshots(#ledger_v1{snapshots=Cache}) ->
+    ets:delete_all_objects(Cache),
+    ok.
 
 atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
         SL = case Mode of
