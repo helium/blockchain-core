@@ -7,6 +7,8 @@
          snapshot/2,
          import/3,
 
+         take/1, take/2,
+
          get_blocks/1,
 
          height/1,
@@ -125,87 +127,94 @@ snapshot(Ledger0, Blocks) ->
         %% TODO: actually verify we're delayed here instead of
         %% changing modes?
         Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
-        {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
-        {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
-        {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
-        {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
-        {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-        DelayedVars = blockchain_ledger_v1:snapshot_delayed_vars(Ledger),
-        ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
-        {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
-        Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
-        Gateways = blockchain_ledger_v1:snapshot_gateways(Ledger),
-        %% need to write these on the ledger side
-        PoCs = blockchain_ledger_v1:snapshot_pocs(Ledger),
-        Accounts = blockchain_ledger_v1:snapshot_accounts(Ledger),
-        DCAccounts = blockchain_ledger_v1:snapshot_dc_accounts(Ledger),
-        SecurityAccounts = blockchain_ledger_v1:snapshot_security_accounts(Ledger),
-
-        %%{ok, TokenBurnRate} = blockchain_ledger_v1:token_burn_exchange_rate(Ledger),
-
-        HTLCs = blockchain_ledger_v1:snapshot_htlcs(Ledger),
-
-        OUIs = blockchain_ledger_v1:snapshot_ouis(Ledger),
-        Subnets = blockchain_ledger_v1:snapshot_subnets(Ledger),
-        {ok, OUICounter} = blockchain_ledger_v1:get_oui_counter(Ledger),
-
-        Hexes = blockchain_ledger_v1:snapshot_hexes(Ledger),
-
-        StateChannels = blockchain_ledger_v1:snapshot_state_channels(Ledger),
-
-        {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
-        {ok, OraclePriceList} = blockchain_ledger_v1:current_oracle_price_list(Ledger),
-
-        Snapshot =
-            #blockchain_snapshot_v2{
-               previous_snapshot_hash = <<>>,
-               leading_hash = <<>>,
-
-               current_height = CurrHeight,
-               transaction_fee =  0,
-               consensus_members = ConsensusMembers,
-
-               election_height = ElectionHeight,
-               election_epoch = ElectionEpoch,
-
-               delayed_vars = DelayedVars,
-               threshold_txns = ThresholdTxns,
-
-               master_key = MasterKey,
-               vars_nonce = VarsNonce,
-               vars = Vars,
-
-               gateways = Gateways,
-               pocs = PoCs,
-
-               accounts = Accounts,
-               dc_accounts = DCAccounts,
-
-               %%token_burn_rate = TokenBurnRate,
-               token_burn_rate = 0,
-
-               security_accounts = SecurityAccounts,
-
-               htlcs = HTLCs,
-
-               ouis = OUIs,
-               subnets = Subnets,
-               oui_counter = OUICounter,
-
-               hexes = Hexes,
-
-               state_channels = StateChannels,
-
-               blocks = Blocks,
-
-               oracle_price = OraclePrice,
-               oracle_price_list = OraclePriceList
-              },
-
-        {ok, Snapshot}
+        take(Ledger, Blocks)
     catch C:E:S ->
             {error, {error_taking_snapshot, C, E, S}}
     end.
+
+take(Ledger) ->
+    take(Ledger, []).
+
+take(Ledger, Blocks) ->
+    {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
+    {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
+    {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
+    DelayedVars = blockchain_ledger_v1:snapshot_delayed_vars(Ledger),
+    ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
+    {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
+    Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
+    Gateways = blockchain_ledger_v1:snapshot_gateways(Ledger),
+    %% need to write these on the ledger side
+    PoCs = blockchain_ledger_v1:snapshot_pocs(Ledger),
+    Accounts = blockchain_ledger_v1:snapshot_accounts(Ledger),
+    DCAccounts = blockchain_ledger_v1:snapshot_dc_accounts(Ledger),
+    SecurityAccounts = blockchain_ledger_v1:snapshot_security_accounts(Ledger),
+
+    %%{ok, TokenBurnRate} = blockchain_ledger_v1:token_burn_exchange_rate(Ledger),
+
+    HTLCs = blockchain_ledger_v1:snapshot_htlcs(Ledger),
+
+    OUIs = blockchain_ledger_v1:snapshot_ouis(Ledger),
+    Subnets = blockchain_ledger_v1:snapshot_subnets(Ledger),
+    {ok, OUICounter} = blockchain_ledger_v1:get_oui_counter(Ledger),
+
+    Hexes = blockchain_ledger_v1:snapshot_hexes(Ledger),
+
+    StateChannels = blockchain_ledger_v1:snapshot_state_channels(Ledger),
+
+    {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
+    {ok, OraclePriceList} = blockchain_ledger_v1:current_oracle_price_list(Ledger),
+
+    Snapshot =
+        #blockchain_snapshot_v2{
+           previous_snapshot_hash = <<>>,
+           leading_hash = <<>>,
+
+           current_height = CurrHeight,
+           transaction_fee =  0,
+           consensus_members = ConsensusMembers,
+
+           election_height = ElectionHeight,
+           election_epoch = ElectionEpoch,
+
+           delayed_vars = DelayedVars,
+           threshold_txns = ThresholdTxns,
+
+           master_key = MasterKey,
+           vars_nonce = VarsNonce,
+           vars = Vars,
+
+           gateways = Gateways,
+           pocs = PoCs,
+
+           accounts = Accounts,
+           dc_accounts = DCAccounts,
+
+           %%token_burn_rate = TokenBurnRate,
+           token_burn_rate = 0,
+
+           security_accounts = SecurityAccounts,
+
+           htlcs = HTLCs,
+
+           ouis = OUIs,
+           subnets = Subnets,
+           oui_counter = OUICounter,
+
+           hexes = Hexes,
+
+           state_channels = StateChannels,
+
+           blocks = Blocks,
+
+           oracle_price = OraclePrice,
+           oracle_price_list = OraclePriceList
+          },
+
+    {ok, Snapshot}.
+
 
 serialize(Snapshot) ->
     serialize(Snapshot, blocks).
