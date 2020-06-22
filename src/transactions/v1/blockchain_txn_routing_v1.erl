@@ -25,7 +25,7 @@
     action/1,
     fee/1, fee/2,
     staking_fee/1, staking_fee/2,
-    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/3,
+    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     nonce/1,
     signature/1,
     sign/2,
@@ -174,14 +174,15 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec calculate_staking_fee(txn_routing(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    Fee = blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger),
+    calculate_staking_fee(Txn, Ledger, Fee, [], blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_staking_fee(txn_routing(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_staking_fee(_Txn, _Ledger, false) ->
+-spec calculate_staking_fee(txn_routing(), blockchain_ledger_v1:ledger(), non_neg_integer(), [{atom(), non_neg_integer()}], boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, _Fee, _ExtraData, false) ->
     0;
-calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=_Txn, Ledger, true) ->
-    blockchain_ledger_v1:staking_fee_txn_oui_v1_per_address(Ledger) * SubnetSize;
-calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Chain, true) ->
+calculate_staking_fee(#blockchain_txn_routing_v1_pb{update = {request_subnet, SubnetSize}}=_Txn, _Ledger, Fee, _ExtraData, true) ->
+    Fee * SubnetSize;
+calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Ledger, _Fee, _ExtraData, true) ->
     0.
 
 %%--------------------------------------------------------------------

@@ -36,7 +36,7 @@
     is_valid_payer/1,
     is_valid/2,
     absorb/2,
-    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/3,
+    calculate_fee/2, calculate_fee/5, calculate_staking_fee/2, calculate_staking_fee/5,
     print/1,
     to_json/2
 ]).
@@ -182,13 +182,14 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 -spec calculate_staking_fee(txn_assert_location(), blockchain:blockchain()) -> non_neg_integer().
 calculate_staking_fee(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
-    calculate_staking_fee(Txn, Ledger, blockchain_ledger_v1:txn_fees_active(Ledger)).
+    Fee = blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger),
+    calculate_staking_fee(Txn, Ledger, Fee, [],blockchain_ledger_v1:txn_fees_active(Ledger)).
 
--spec calculate_staking_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), boolean()) -> non_neg_integer().
-calculate_staking_fee(_Txn, _Ledger, false) ->
+-spec calculate_staking_fee(txn_assert_location(), blockchain_ledger_v1:ledger(), non_neg_integer(), [{atom(), non_neg_integer()}], boolean()) -> non_neg_integer().
+calculate_staking_fee(_Txn, _Ledger, _Fee, _ExtraData, false) ->
     ?LEGACY_STAKING_FEE;
-calculate_staking_fee(_Txn, Ledger, true) ->
-    blockchain_ledger_v1:staking_fee_txn_assert_location_v1(Ledger).
+calculate_staking_fee(_Txn, _Ledger, Fee, _ExtraData, true) ->
+    Fee.
 
 %%--------------------------------------------------------------------
 %% @doc
