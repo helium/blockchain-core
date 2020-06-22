@@ -290,7 +290,7 @@ mark_key(Key, Ledger) ->
 -spec new_context(ledger()) -> ledger().
 new_context(Ledger) ->
     %% accumulate ledger changes in a read-through ETS cache
-    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
+    Cache = ets:new(ledger_cache, [set, protected, {keypos, 1}]),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     context_cache(Cache, GwCache, Ledger).
 
@@ -306,7 +306,7 @@ flatten_cache({Cache, GwCache}) ->
     {ets:tab2list(Cache), ets:tab2list(GwCache)}.
 
 install_context({FlatCache, FlatGwCache}, Ledger) ->
-    Cache = ets:new(txn_cache, [set, protected, {keypos, 1}]),
+    Cache = ets:new(ledger_cache, [set, protected, {keypos, 1}]),
     ets:insert(Cache, FlatCache),
     GwCache = ets:new(gw_cache, [set, protected, {keypos, 1}]),
     ets:insert(GwCache, FlatGwCache),
