@@ -2073,13 +2073,29 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
                 blockchain_ledger_v1:delete_context(Ledger1),
                 Error0;
             ok ->
-                blockchain_ledger_v1:commit_context(Ledger1),
-                case blockchain_ledger_v1:new_snapshot(Ledger) of
-                    {error, Reason}=Error ->
-                        lager:error("Error creating snapshot, Reason: ~p", [Reason]),
-                        Error;
-                    {ok, NewLedger} ->
-                        ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                case application:get_env(blockchain, ledger_cache_mode, context) of
+                    snapshot ->
+                        blockchain_ledger_v1:commit_context(Ledger1),
+                        case blockchain_ledger_v1:new_snapshot(Ledger) of
+                            {error, Reason}=Error ->
+                                lager:error("Error creating snapshot, Reason: ~p", [Reason]),
+                                Error;
+                            {ok, NewLedger} ->
+                                ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+                        end;
+                    context ->
+                        %% get context, insert into cache
+                        Ctxt = blockchain_ledger_v1:get_context(Ledger1),
+                        blockchain_ledger_v1:context_snapshot(Ctxt, Ledger1),
+                        %% commit context
+                        blockchain_ledger_v1:commit_context(Ledger1),
+                        {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+                        %% this should hit the just-cached value, and
+                        %% is maybe not as safe as a snapshot
+                        {ok, Ledger2} = ledger_at(Height, Blockchain),
+                        ok = blockchain_worker:notify({add_block, Hash, Syncing, Ledger2});
+                    checkpoint ->
+                        error(checkpoint_not_implemented)
                 end
         end
     catch What:Why:Stack ->
