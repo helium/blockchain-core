@@ -2555,7 +2555,7 @@ cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
-            Keys = lists:usort(lists:flatten(ets:match(Cache, {{'_', '$1'}, '_'}))),
+            Keys = ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CF}],['$2']}]),
             {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, OriginalAcc}),
             process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
     end.
