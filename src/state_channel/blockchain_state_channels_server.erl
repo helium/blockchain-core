@@ -44,6 +44,7 @@
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
+    scf :: rocksdb:cf_handle() | undefined,
     chain = undefined :: blockchain:blockchain() | undefined,
     swarm = undefined :: pid() | undefined,
     owner = undefined :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
@@ -124,11 +125,12 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
+    SCF = blockchain_state_channels_db_owner:sc_servers_cf(),
     SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    {ok, #state{db=DB, swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
+    {ok, #state{db=DB, scf=SCF, swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
 
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -150,7 +152,7 @@ handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=Stat
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
 handle_cast({packet, SCPacket, HandlerPid},
-            #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_Owner, OwnerSigFun}}=State) ->
+            #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_Owner, OwnerSigFun}}=State) ->
     Ledger = blockchain:ledger(Chain),
 
     %% Get the client (i.e. the hotspot who received this packet)
@@ -176,7 +178,7 @@ handle_cast({packet, SCPacket, HandlerPid},
 
             %% Save state channel to db
             ok = blockchain_state_channel_v1:save(DB, NewSC, Skewed1),
-            ok = store_active_sc_id(DB, ActiveSCID),
+            ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
             %% Put new state_channel in our map
             lager:info("packet: ~p successfully validated, updating state",
@@ -323,7 +325,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -341,7 +343,7 @@ update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=Active
                     end,
 
     %% Delete closed state channel from sc database
-    ok = delete_closed_sc(DB, ID),
+    ok = delete_closed_sc(DB, SCF, ID),
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
@@ -447,9 +449,9 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
     end.
 
 -spec update_state_with_ledger_channels(State :: state()) -> state().
-update_state_with_ledger_channels(#state{db=DB}=State) ->
+update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ConvertedSCs = convert_to_state_channels(State),
-    DBSCs = case get_state_channels(DB) of
+    DBSCs = case get_state_channels(DB, SCF) of
                 {error, _} ->
                     #{};
                 {ok, SCIDs} ->
@@ -476,15 +478,15 @@ update_state_with_ledger_channels(#state{db=DB}=State) ->
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
     %% Delete these from sc db
-    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, CID) end, ClosedSCIDs),
+    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("SCs: ~p, NewActiveSCID: ~p", [SCs, NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
--spec get_state_channels(DB :: rocksdb:db_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
-get_state_channels(DB) ->
-    case rocksdb:get(DB, ?STATE_CHANNELS, [{sync, true}]) of
+-spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
+get_state_channels(DB, SCF) ->
+    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, [{sync, true}]) of
         {ok, Bin} ->
             lager:info("found sc: ~p, from db", [Bin]),
             {ok, erlang:binary_to_term(Bin)};
@@ -497,9 +499,10 @@ get_state_channels(DB) ->
     end.
 
 -spec store_active_sc_id(DB :: rocksdb:db_handle(),
+                         SCF :: rocksdb:cf_handle(),
                          ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
-store_active_sc_id(DB, ID) ->
-    case get_state_channels(DB) of
+store_active_sc_id(DB, SCF, ID) ->
+    case get_state_channels(DB, SCF) of
         {error, _}=Error ->
             Error;
         {ok, SCIDs} ->
@@ -507,14 +510,16 @@ store_active_sc_id(DB, ID) ->
                 true ->
                     ok;
                 false ->
-                    rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID|SCIDs]), [{sync, true}])
+                    ToInsert = erlang:term_to_binary([ID|SCIDs]),
+                    rocksdb:put(DB, SCF, ?STATE_CHANNELS, ToInsert, [{sync, true}])
             end
     end.
 
 -spec delete_closed_sc(DB :: rocksdb:db_handle(),
+                       SCF :: rocksdb:cf_handle(),
                        ID :: blockchain_state_channel_v1:id()) -> ok.
-delete_closed_sc(DB, ID) ->
-    case get_state_channels(DB) of
+delete_closed_sc(DB, SCF, ID) ->
+    case get_state_channels(DB, SCF) of
         {error, _} ->
             %% Can't delete anything
             ok;
@@ -524,7 +529,8 @@ delete_closed_sc(DB, ID) ->
                     %% not in db
                     ok;
                 true ->
-                    rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary(lists:delete(ID, SCIDs)), [{sync, true}])
+                    ToInsert = erlang:term_to_binary(lists:delete(ID, SCIDs)),
+                    rocksdb:put(DB, SCF, ?STATE_CHANNELS, ToInsert, [{sync, true}])
             end
     end.
 

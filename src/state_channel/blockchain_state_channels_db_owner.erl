@@ -14,7 +14,11 @@
 
 %% api exports
 -export([start_link/1,
-         db/0]).
+         db/0,
+         sc_servers_cf/0,
+         sc_client_banners_cf/0,
+         sc_client_purchases_cf/0
+        ]).
 
 %% gen_server exports
 -export([
@@ -29,7 +33,11 @@
 -define(DB_FILE, "state_channels.db").
 
 -record(state, {
-          db :: rocksdb:db_handle()
+          db :: rocksdb:db_handle(),
+          default :: rocksdb:cf_handle(),
+          sc_client_banners_cf :: rocksdb:cf_handle(),
+          sc_client_purchases_cf :: rocksdb:cf_handle(),
+          sc_servers_cf :: rocksdb:cf_handle()
          }).
 
 %% api functions
@@ -40,16 +48,47 @@ start_link(Args) ->
 db() ->
     gen_server:call(?MODULE, db).
 
+-spec sc_client_purchases_cf() -> rocksdb:cf_handle().
+sc_client_purchases_cf() ->
+    gen_server:call(?MODULE, sc_client_purchases_cf).
+
+-spec sc_client_banners_cf() -> rocksdb:cf_handle().
+sc_client_banners_cf() ->
+    gen_server:call(?MODULE, sc_client_banners_cf).
+
+-spec sc_servers_cf() -> rocksdb:cf_handle().
+sc_servers_cf() ->
+    gen_server:call(?MODULE, sc_servers_cf).
+
 %% gen_server callbacks
 init(Args) ->
     lager:info("~p init with ~p", [?MODULE, Args]),
     erlang:process_flag(trap_exit, true),
     BaseDir = maps:get(base_dir, Args),
-    {ok, DB} = open_db(BaseDir),
-    {ok, #state{db=DB}}.
+    CFs = maps:get(cfs, Args, ["default", "sc_servers_cf", "sc_client_banners_cf", "sc_client_purchases_cf"]),
+    case open_db(BaseDir, CFs) of
+        {error, _Reason} ->
+            %% Go into a tight loop
+            init(Args);
+        {ok, DB, [DefaultCF, SCServersCF, BannersCF, PurchasesCF]} ->
+            State = #state{
+                       db=DB,
+                       default=DefaultCF,
+                       sc_client_banners_cf=BannersCF,
+                       sc_client_purchases_cf=PurchasesCF,
+                       sc_servers_cf=SCServersCF
+                      },
+            {ok, State}
+    end.
 
 handle_call(db, _From, #state{db=DB}=State) ->
     {reply, DB, State};
+handle_call(sc_client_purchases_cf, _From, #state{sc_client_purchases_cf=PCF}=State) ->
+    {reply, PCF, State};
+handle_call(sc_client_banners_cf, _From, #state{sc_client_banners_cf=BCF}=State) ->
+    {reply, BCF, State};
+handle_call(sc_servers_cf, _From, #state{sc_servers_cf=CF}=State) ->
+    {reply, CF, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -74,10 +113,34 @@ terminate(_Reason, #state{db=DB}) ->
     ok.
 
 %% Helper functions
--spec open_db(file:filename_all()) -> {ok, rocksdb:db_handle()}.
-open_db(Dir) ->
-    DBDir = filename:join(Dir, ?DB_FILE),
-    ok = filelib:ensure_dir(DBDir),
+-spec open_db(Dir::file:filename_all(),
+              CFNames::[string()]) -> {ok, rocksdb:db_handle(), [rocksdb:cf_handle()]} |
+                                      {error, any()}.
+open_db(Dir, CFNames) ->
+    ok = filelib:ensure_dir(Dir),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
-    rocksdb:open(DBDir, DBOptions).
+    DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
+    ExistingCFs =
+        case rocksdb:list_column_families(Dir, DBOptions) of
+            {ok, CFs0} ->
+                CFs0;
+            {error, _} ->
+                ["default"]
+        end,
+
+    CFOpts = GlobalOpts,
+    case rocksdb:open_with_cf(Dir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, DB, OpenedCFs} ->
+            L1 = lists:zip(ExistingCFs, OpenedCFs),
+            L2 = lists:map(
+                fun(CF) ->
+                    {ok, CF1} = rocksdb:create_column_family(DB, CF, CFOpts),
+                    {CF, CF1}
+                end,
+                CFNames -- ExistingCFs
+            ),
+            L3 = L1 ++ L2,
+            {ok, DB, [proplists:get_value(X, L3) || X <- CFNames]}
+    end.
