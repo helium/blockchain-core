@@ -1161,7 +1161,17 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
                                               erlang:error({add_gateway_error, Reason})
                                       end
                               end, GW0, WitnessInfo),
-            update_gateway(GW1, GatewayAddress, Ledger)
+            GW2 = case config(?poc_witness_retention_limit, Ledger) of
+                      {ok, Limit} ->
+                          Witnesses = blockchain_ledger_gateway_v2:witnesses(GW1),
+                          {ok, Height} = current_height(Ledger),
+                          %% this doesn't need to be hard to predict, just random
+                          RandState = blockchain_utils:rand_state(integer_to_binary(Height)),
+                          Witnesses1 = blockchain_utils:deterministic_subset(Limit, RandState, Witnesses),
+                          blockchain_ledger_gateway_v2:witnesses(Witnesses1, GW1);
+                      _ -> GW1
+                  end,
+            update_gateway(GW2, GatewayAddress, Ledger)
     end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),

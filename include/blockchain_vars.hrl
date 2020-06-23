@@ -149,6 +149,9 @@
 %% during targeting
 -define(poc_witness_consideration_limit, poc_witness_consideration_limit).
 
+%% Number of witnesses a gateway will be allowed to be retain on disk
+-define(poc_witness_retention_limit, poc_witness_retention_limit).
+
 %%%
 %%% score vars
 %%%

@@ -172,10 +172,10 @@ addr2name(Addr) ->
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
     N.
 
--spec rand_state(Hash :: binary()) -> rand:state().
-rand_state(Hash) ->
+-spec rand_state(HashableBin :: binary()) -> rand:state().
+rand_state(HashableBin) ->
     <<A:85/integer-unsigned-little, B:85/integer-unsigned-little,
-      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, Hash),
+      C:86/integer-unsigned-little, _/binary>> = crypto:hash(sha256, HashableBin),
     rand:seed_s(exs1024s, {A, B, C}).
 
 distance(L1, L1) ->
