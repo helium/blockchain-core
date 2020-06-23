@@ -3,6 +3,8 @@
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-include("include/blockchain_vars.hrl").
+
 -export([prop_target_check/0]).
 
 prop_target_check() ->
@@ -90,23 +92,23 @@ ledger() ->
     blockchain_ledger_v1:new(PrivDir).
 
 targeting_vars() ->
-    #{poc_v4_target_prob_score_wt => 0.1,
-      poc_v4_target_prob_edge_wt => 0.2,
-      poc_v5_target_prob_randomness_wt => 0.7,
-      poc_v4_target_challenge_age => 300,
-      poc_v4_target_exclusion_cells => 6000,
-      poc_v4_target_score_curve => 5
+    #{?poc_v4_target_prob_score_wt => 0.1,
+      ?poc_v4_target_prob_edge_wt => 0.2,
+      ?poc_v5_target_prob_randomness_wt => 0.7,
+      ?poc_v4_target_challenge_age => 300,
+      ?poc_v4_target_exclusion_cells => 6000,
+      ?poc_v4_target_score_curve => 5
      }.
 
 default_vars() ->
-    #{poc_v4_exclusion_cells => 10,
-      poc_v4_parent_res => 11,
-      poc_v4_prob_bad_rssi => 0.01,
-      poc_v4_prob_count_wt => 0.3,
-      poc_v4_prob_good_rssi => 1.0,
-      poc_v4_prob_no_rssi => 0.5,
-      poc_v4_prob_rssi_wt => 0.3,
-      poc_v4_prob_time_wt => 0.3,
-      poc_v4_randomness_wt => 0.1,
-      poc_path_witness_limit => 20,
-      poc_version => 5}.
+    #{?poc_v4_exclusion_cells => 10,
+      ?poc_v4_parent_res => 11,
+      ?poc_v4_prob_bad_rssi => 0.01,
+      ?poc_v4_prob_count_wt => 0.3,
+      ?poc_v4_prob_good_rssi => 1.0,
+      ?poc_v4_prob_no_rssi => 0.5,
+      ?poc_v4_prob_rssi_wt => 0.3,
+      ?poc_v4_prob_time_wt => 0.3,
+      ?poc_v4_randomness_wt => 0.1,
+      ?poc_witness_consideration_limit => 20,
+      ?poc_version => 5}.

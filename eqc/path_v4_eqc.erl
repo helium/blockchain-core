@@ -2,6 +2,9 @@
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-include("include/blockchain_vars.hrl").
+
 -import(eqc_utils,
         [ledger/1,
          dead_hotspots/0,
@@ -153,22 +156,22 @@ check_target_and_path_members_not_dead(TargetPubkeyBin, Path) ->
     ).
 
 poc_v8_vars() ->
-    #{poc_version => 8,
+    #{?poc_version => 8,
       %% lower range for good rssi
-      poc_good_bucket_low => -115,
+      ?poc_good_bucket_low => -115,
       %% upper range for good rssi
-      poc_good_bucket_high => -80,
+      ?poc_good_bucket_high => -80,
       %% math:sqrt(3) * 9.4 * (2000-1) ~ 32.5km, where 9.4 = hex_edge_length
-      poc_max_hop_cells => 2000,
+      ?poc_max_hop_cells => 2000,
       %% half random next hop selection
-      poc_v4_randomness_wt => 0.5,
+      ?poc_v4_randomness_wt => 0.5,
       %% other half based for next hop selection based on witness rssi centrality
-      poc_centrality_wt => 0.5,
+      ?poc_centrality_wt => 0.5,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_rssi_wt => 0.0,
+      ?poc_v4_prob_rssi_wt => 0.0,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_time_wt => 0.0,
+      ?poc_v4_prob_time_wt => 0.0,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_count_wt => 0.0,
-      poc_path_witness_limit => 20
+      ?poc_v4_prob_count_wt => 0.0,
+      ?poc_witness_consideration_limit => 20
      }.

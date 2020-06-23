@@ -130,7 +130,7 @@ choose_zone(RandState, HexList) ->
             {ok, {Hex, HexRandState}}
     end.
 
-limit_addrs(#{?poc_path_witness_limit := Limit}, RandState, Witnesses) ->
+limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) ->
     blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
 limit_addrs(_Vars, RandState, Witnesses) ->
     {RandState, Witnesses}.
