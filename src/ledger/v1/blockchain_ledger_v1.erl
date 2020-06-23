@@ -2383,13 +2383,15 @@ current_oracle_price_list(Ledger) ->
             Other
     end.
 
-clean(#ledger_v1{dir=Dir, db=DB}=L) ->
+clean(#ledger_v1{dir=Dir, db=DB} = L) ->
     delete_context(L),
     DBDir = filename:join(Dir, ?DB_FILE),
     catch ok = rocksdb:close(DB),
+    drop_snapshots(L),
     rocksdb:destroy(DBDir, []).
 
-close(#ledger_v1{db=DB}) ->
+close(#ledger_v1{db=DB} = L) ->
+    drop_snapshots(L),
     rocksdb:close(DB).
 
 compact(#ledger_v1{db=DB, active=Active, delayed=Delayed}) ->
