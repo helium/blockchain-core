@@ -384,6 +384,10 @@ new_snapshot(#ledger_v1{db=DB,
             {ok, Height} = current_height(Ledger),
             DelayedLedger = blockchain_ledger_v1:mode(delayed, Ledger),
             {ok, DelayedHeight} = current_height(DelayedLedger),
+            case ets:lookup(Cache, DelayedHeight - 1) of
+                [] -> ok;
+                [OldSnap] -> drop_snapshot(OldSnap)
+            end,
             ets:delete(Cache, DelayedHeight - 1),
             ets:insert(Cache, {Height, {snapshot, SnapshotHandle}}),
             {ok, Ledger#ledger_v1{snapshot=SnapshotHandle}};
@@ -440,7 +444,15 @@ snapshot(Ledger) ->
 
 -spec drop_snapshots(ledger()) -> ok.
 drop_snapshots(#ledger_v1{snapshots=Cache}) ->
+    ets:foldl(fun drop_snapshot/1, ignored),
     ets:delete_all_objects(Cache),
+    ok.
+
+%% release rocks snapshots
+drop_snapshot({_Ht, {snapshot, Ref}}) ->
+    rocksdb:release_snapshot(Ref);
+%% nothing to do for ledger_at computed snaps
+drop_snapshot(_) ->
     ok.
 
 atom_to_cf(Atom, #ledger_v1{mode = Mode} = Ledger) ->
