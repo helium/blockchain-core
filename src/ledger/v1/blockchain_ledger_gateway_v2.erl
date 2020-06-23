@@ -44,7 +44,7 @@
 -record(witness, {
           nonce :: non_neg_integer(),
           count :: non_neg_integer(),
-          hist = erlang:error(no_histogram) :: #{integer() => integer()}, %% sampled rssi histogram
+          hist = erlang:error(no_histogram) :: [{integer(), integer()}], %% sampled rssi histogram
           first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
           recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
           time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
@@ -61,13 +61,14 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} :: witnesses(),
+    witnesses = [] :: witnesses_int(),
     oui = undefined :: undefined | pos_integer()
 }).
 
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
--type witnesses() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
+-type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
@@ -449,6 +450,10 @@ serialize(Gw) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-dialyzer([
+    {nowarn_function, deserialize/1}
+]).
+
 -spec deserialize(binary()) -> gateway().
 deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
