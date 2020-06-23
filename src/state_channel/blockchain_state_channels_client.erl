@@ -127,7 +127,7 @@ handle_cast({handle_packet, Packet, RoutesOrAddresses, Region, Chain}, #state{sw
     lager:debug("handle_packet ~p to ~p", [Packet, RoutesOrAddresses]),
     State1 = lists:foldl(
                fun(RouteOrAddress, StateAcc) ->
-                       StreamKey = case erlang:is_list(RouteOrAddress) of
+                       StreamKey = case erlang:is_list(RouteOrAddress) of %% NOTE: This is actually a string check
                                        true ->
                                            {address, RouteOrAddress};
                                        false ->
