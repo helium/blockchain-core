@@ -49,7 +49,12 @@ init([BaseDir]) ->
     ),
     ServerOpts = #{swarm => Swarm},
     ClientOpts = #{swarm => Swarm},
-    DbOwnerOpts = #{base_dir => BaseDir},
+    DbOwnerOpts = #{base_dir => BaseDir,
+                    cfs => ["default",
+                            "sc_servers_cf",
+                            "sc_client_banners_cf",
+                            "sc_client_purchases_cf"]
+                   },
     ChildSpecs = [
         ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
         ?WORKER(blockchain_state_channels_server, [ServerOpts]),
