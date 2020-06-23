@@ -24,7 +24,8 @@
     sc_gc_test/1,
     multi_sc_gc_test/1,
     crash_sc_sup_test/1,
-    hotspot_in_router_oui_test/1
+    hotspot_in_router_oui_test/1,
+    default_routers_test/1
 ]).
 
 -include("blockchain.hrl").
@@ -51,7 +52,8 @@ all() ->
         sc_gc_test,
         multi_sc_gc_test,
         crash_sc_sup_test,
-        hotspot_in_router_oui_test
+        hotspot_in_router_oui_test,
+        default_routers_test
     ].
 
 %%--------------------------------------------------------------------
@@ -1824,6 +1826,110 @@ hotspot_in_router_oui_test(Config) ->
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
 
     ok.
+
+default_routers_test(Config) ->
+    [RouterNode, GatewayNode1|_] = Nodes = ?config(nodes, Config),
+    ConsensusMembers = ?config(consensus_members, Config),
+
+    %% Get router chain, swarm and pubkey_bin
+    RouterChain = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
+    RouterSwarm = ct_rpc:call(RouterNode, blockchain_swarm, swarm, []),
+    RouterPubkeyBin = ct_rpc:call(RouterNode, blockchain_swarm, pubkey_bin, []),
+
+    %% Check that the meck txn forwarding works
+    Self = self(),
+    ok = setup_meck_txn_forwarding(RouterNode, Self),
+
+    %% Create OUI txn
+    SignedOUITxn = create_oui_txn(1, RouterNode, [], 8),
+    ct:pal("SignedOUITxn: ~p", [SignedOUITxn]),
+
+    %% Create state channel open txn
+    ID = crypto:strong_rand_bytes(24),
+    ExpireWithin = 11,
+    Nonce = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
+
+    %% Add block with oui and sc open txns
+    {ok, Block0} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedOUITxn, SignedSCOpenTxn]),
+    ct:pal("Block0: ~p", [Block0]),
+
+    %% Get sc open block hash for verification later
+    SCOpenBlockHash = blockchain_block:hash_block(Block0),
+
+    %% Fake gossip block
+    ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block0, RouterChain, Self, RouterSwarm]),
+
+    %% Wait till the block is gossiped
+    ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
+
+    %% Set app env to use default routers on all nodes
+    _ = blockchain_ct_utils:pmap(
+          fun(Node) ->
+                  ct_rpc:call(Node, application, set_env, [blockchain, use_oui_routers, false])
+          end, Nodes),
+    timer:sleep(timer:seconds(1)),
+
+    %% Include the router in default routers list
+    DefaultRouters = [libp2p_crypto:pubkey_bin_to_p2p(RouterPubkeyBin)],
+
+    %% Checking that state channel got created properly
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+
+    %% Check that the nonce of the sc server is okay
+    ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
+
+    GatewayNode1Chain = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
+
+    %% Sending first packet and routing using the default routers
+    DevNonce0 = crypto:strong_rand_bytes(2),
+    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, DefaultRouters, 'US915', GatewayNode1Chain]),
+
+    %% Checking state channel on server/client
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    %% Sending another packet
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, DefaultRouters, 'US915', GatewayNode1Chain]),
+
+    %% Checking state channel on server/client
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+    end, 30, timer:seconds(1)),
+
+    %% Adding 20 fake blocks to get the state channel to expire
+    FakeBlocks = 20,
+    ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+
+    %% Adding close txn to blockchain
+    receive
+        {txn, Txn} ->
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
+                                                             blockchain_helium_packet_v1:payload(Packet1)]),
+            {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
+            ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
+    after 10000 ->
+        ct:fail("txn timeout")
+    end,
+
+    %% Wait for close txn to appear
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+
+    RouterLedger = blockchain:ledger(RouterChain),
+    ok = blockchain_ct_utils:wait_until(fun() ->
+        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
+    end, 10, timer:seconds(1)),
+
+    ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
+
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% Helper functions

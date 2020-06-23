@@ -59,6 +59,7 @@ send_packet(Pid, Packet) ->
 
 -spec send_offer(pid(), blockchain_state_channel_packet_offer_v1:offer()) -> ok.
 send_offer(Pid, Offer) ->
+    lager:info("sending offer: ~p, pid: ~p", [Offer, Pid]),
     Pid ! {send_offer, Offer},
     ok.
 
