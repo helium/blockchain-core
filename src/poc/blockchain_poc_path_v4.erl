@@ -38,6 +38,7 @@
 ]).
 
 -include("blockchain_utils.hrl").
+-include("blockchain_vars.hrl").
 
 -type path() :: [libp2p_crypto:pubkey_bin()].
 -type prob_map() :: #{libp2p_crypto:pubkey_bin() => float()}.
@@ -111,7 +112,8 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
     case blockchain_ledger_gateway_v2:witnesses(Gateway) of
         W when map_size(W) == 0 ->
             {error, no_witness};
-        Witnesses ->
+        Witnesses0 ->
+            {RandState1, Witnesses} = limit_witnesses(Vars, RandState, Witnesses0),
             %% If this gateway has witnesses, it is implied that it's location cannot be undefined
             GatewayLoc = blockchain_ledger_gateway_v2:location(Gateway),
             %% Filter witnesses
@@ -132,7 +134,7 @@ next_hop(GatewayBin, Ledger, HeadBlockTime, Vars, RandState, Indices) ->
                     PWitness = witness_prob(Vars, PWitnessRSSI, PWitnessTime, PWitnessCount, PWitnessRSSICentrality),
                     PWitnessList = lists:keysort(1, maps:to_list(PWitness)),
                     %% Select witness using icdf
-                    {RandVal, NewRandState} = rand:uniform_s(RandState),
+                    {RandVal, NewRandState} = rand:uniform_s(RandState1),
                     case blockchain_utils:icdf_select(PWitnessList, RandVal) of
                         {error, _}=E ->
                             E;
@@ -564,3 +566,10 @@ assign_single_witness_prob(Witnesses) ->
                      end
              end,
              Witnesses).
+
+limit_witnesses(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses0) ->
+    Witnesses = maps:to_list(Witnesses0),
+    {RandState1, SubSet} = blockchain_utils:deterministic_subset(Limit, RandState, Witnesses),
+    {RandState1, maps:from_list(SubSet)};
+limit_witnesses(_Vars, RandState, Witnesses) ->
+    {RandState, Witnesses}.

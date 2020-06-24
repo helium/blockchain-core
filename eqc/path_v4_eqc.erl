@@ -2,6 +2,9 @@
 
 -include_lib("eqc/include/eqc.hrl").
 -include_lib("eunit/include/eunit.hrl").
+
+-include("include/blockchain_vars.hrl").
+
 -import(eqc_utils,
         [ledger/1,
          dead_hotspots/0,
@@ -16,11 +19,19 @@ prop_path_check() ->
     ?FORALL({Hash, PathLimit, ChallengerIndex},
             {gen_hash(), gen_path_limit(), gen_challenger_index()},
             begin
+                {ok, GWCache} = blockchain_gateway_cache:start_link(),
                 Ledger = ledger(poc_v8_vars()),
                 application:set_env(blockchain, disable_score_cache, true),
                 {ok, _Pid} = blockchain_score_cache:start_link(),
                 ActiveGateways = blockchain_ledger_v1:active_gateways(Ledger),
                 LedgerVars = ledger_vars(Ledger),
+
+                %% use this to artificially constrain path limit for testing
+                %% PathLimit = 5,
+
+                %% use this to make timings more realistic for pi
+                %% disks, set to 1 or 2
+                application:set_env(blockchain, find_gateway_sim_delay, 0),
 
                 %% Overwrite poc_path_limit for checking generated path limits
                 Vars = maps:put(poc_path_limit, PathLimit, LedgerVars),
@@ -29,7 +40,7 @@ prop_path_check() ->
                 {ChallengerPubkeyBin, _ChallengerLoc} = find_challenger(ChallengerIndex, ActiveGateways),
 
                 {ok, {TargetPubkeyBin, TargetRandState}} = blockchain_poc_target_v3:target(ChallengerPubkeyBin, Hash, Ledger, Vars),
-                {_Time, Path} = timer:tc(fun() ->
+                {Time, Path} = timer:tc(fun() ->
                                                 blockchain_poc_path_v4:build(TargetPubkeyBin,
                                                                              TargetRandState,
                                                                              Ledger,
@@ -37,6 +48,33 @@ prop_path_check() ->
                                                                              Vars)
                                         end),
 
+                %% change the default to true to collect and display
+                %% time stats at each run
+                case application:get_env(blockchain, collect_stats, false) of
+                    true ->
+                        Runs =
+                            case get(runs) of
+                                undefined ->
+                                    put(runs, [Time]),
+                                    [Time];
+                                R ->
+                                    R1 = [Time | R],
+                                    put(runs, R1),
+                                    R1
+                            end,
+
+                        L = length(Runs),
+                        Avg = trunc(lists:sum(Runs) / L),
+                        Med = case L < 5 of
+                                  true -> no_med;
+                                  _ -> lists:nth((L div 2), lists:sort(Runs))
+                              end,
+                        Max = lists:max(Runs),
+
+                        io:fwrite(standard_error, "build took avg ~p med ~p max ~p time ~p us\n", [Avg, Med, Max, Time]);
+                    false ->
+                        ok
+                end,
                 PathLength = length(Path),
 
                 %% ok = maybe_output_paths(TargetPubkeyBin, Path, Time),
@@ -56,9 +94,12 @@ prop_path_check() ->
 
                 blockchain_ledger_v1:close(Ledger),
                 blockchain_score_cache:stop(),
+                gen_server:stop(GWCache),
 
                 ?WHENFAIL(begin
-                              blockchain_ledger_v1:close(Ledger)
+                              blockchain_ledger_v1:close(Ledger),
+                              blockchain_score_cache:stop(),
+                              gen_server:stop(GWCache)
                           end,
                           %% TODO: split into multiple verifiers instead of a single consolidated one
                           conjunction([
@@ -115,21 +156,22 @@ check_target_and_path_members_not_dead(TargetPubkeyBin, Path) ->
     ).
 
 poc_v8_vars() ->
-    #{poc_version => 8,
+    #{?poc_version => 8,
       %% lower range for good rssi
-      poc_good_bucket_low => -115,
+      ?poc_good_bucket_low => -115,
       %% upper range for good rssi
-      poc_good_bucket_high => -80,
+      ?poc_good_bucket_high => -80,
       %% math:sqrt(3) * 9.4 * (2000-1) ~ 32.5km, where 9.4 = hex_edge_length
-      poc_max_hop_cells => 2000,
+      ?poc_max_hop_cells => 2000,
       %% half random next hop selection
-      poc_v4_randomness_wt => 0.5,
+      ?poc_v4_randomness_wt => 0.5,
       %% other half based for next hop selection based on witness rssi centrality
-      poc_centrality_wt => 0.5,
+      ?poc_centrality_wt => 0.5,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_rssi_wt => 0.0,
+      ?poc_v4_prob_rssi_wt => 0.0,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_time_wt => 0.0,
+      ?poc_v4_prob_time_wt => 0.0,
       %% zeroed this because half random + half centrality
-      poc_v4_prob_count_wt => 0.0
+      ?poc_v4_prob_count_wt => 0.0,
+      ?poc_witness_consideration_limit => 20
      }.

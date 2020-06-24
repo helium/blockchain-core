@@ -34,11 +34,13 @@ target(ChallengerPubkeyBin, Hash, Ledger, Vars) ->
               Vars :: map(),
               HexList :: [h3:h3_index()],
               Attempted :: [{h3:h3_index(), rand:state()}]) -> {ok, {libp2p_crypto:pubkey_bin(), rand:state()}}.
-target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState} | Tail]=_Attempted) ->
+target_(ChallengerPubkeyBin, Ledger, Vars, HexList, [{Hex, HexRandState0} | Tail]=_Attempted) ->
     %% Get a list of gateway pubkeys within this hex
-    {ok, AddrList} = blockchain_ledger_v1:get_hex(Hex, Ledger),
+    {ok, AddrList0} = blockchain_ledger_v1:get_hex(Hex, Ledger),
     %% Remove challenger if present and also remove gateways who haven't challenged
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    {HexRandState, AddrList} = limit_addrs(Vars, HexRandState0, AddrList0),
 
     case filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) of
         FilteredList when length(FilteredList) >= 1 ->
@@ -82,7 +84,7 @@ filter(AddrList, ChallengerPubkeyBin, Ledger, Height, Vars) ->
                 Height :: non_neg_integer(),
                 Vars :: map()) -> boolean().
 is_active(GwPubkeyBin, Ledger, Height, Vars) ->
-    {ok, Gateway} = blockchain_ledger_v1:find_gateway_info(GwPubkeyBin, Ledger),
+    {ok, Gateway} = blockchain_gateway_cache:get(GwPubkeyBin, Ledger),
     case blockchain_ledger_gateway_v2:last_poc_challenge(Gateway) of
         undefined ->
             %% No POC challenge, don't include
@@ -127,3 +129,8 @@ choose_zone(RandState, HexList) ->
         {ok, Hex} ->
             {ok, {Hex, HexRandState}}
     end.
+
+limit_addrs(#{?poc_witness_consideration_limit := Limit}, RandState, Witnesses) ->
+    blockchain_utils:deterministic_subset(Limit, RandState, Witnesses);
+limit_addrs(_Vars, RandState, Witnesses) ->
+    {RandState, Witnesses}.
