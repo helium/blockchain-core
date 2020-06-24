@@ -404,7 +404,7 @@ witnesses(Gateway) ->
     Gateway#gateway_v2.witnesses.
 
 -spec witnesses(#{libp2p_crypto:pubkey_bin() => gateway_witness()}, gateway()) ->
-                       #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+                       gateway().
 witnesses(Witnesses, Gateway) ->
     Gateway#gateway_v2{witnesses = Witnesses}.
 

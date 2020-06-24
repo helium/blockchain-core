@@ -1167,8 +1167,10 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
                           {ok, Height} = current_height(Ledger),
                           %% this doesn't need to be hard to predict, just random
                           RandState = blockchain_utils:rand_state(integer_to_binary(Height)),
-                          Witnesses1 = blockchain_utils:deterministic_subset(Limit, RandState, Witnesses),
-                          blockchain_ledger_gateway_v2:witnesses(Witnesses1, GW1);
+                          %% TODO this will need to change when 513 lands
+                          {_, Witnesses1} = blockchain_utils:deterministic_subset(Limit, RandState,
+                                                                                  maps:to_list(Witnesses)),
+                          blockchain_ledger_gateway_v2:witnesses(maps:from_list(Witnesses1), GW1);
                       _ -> GW1
                   end,
             update_gateway(GW2, GatewayAddress, Ledger)
