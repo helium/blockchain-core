@@ -11,7 +11,13 @@
 %% Macros
 -define(calculate_fee_prep(Txn, Chain),
     Ledger = blockchain:ledger(Chain),
-    DCPayloadSize = blockchain_ledger_v1:config(?dc_payload_size, Ledger, 1),
+    DCPayloadSize =
+            case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+                {ok, Val} ->
+                    Val;
+                {error, not_found} ->
+                    1
+            end,
     IsTxnFeesActive = blockchain_ledger_v1:txn_fees_active(Ledger),
     TxnFeeMultiplier = blockchain_ledger_v1:txn_fee_multiplier(Ledger),
     ?MODULE:calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, IsTxnFeesActive)).
