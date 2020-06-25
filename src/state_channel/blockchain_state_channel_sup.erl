@@ -52,8 +52,8 @@ init([BaseDir]) ->
     DbOwnerOpts = #{base_dir => BaseDir,
                     cfs => ["default",
                             "sc_servers_cf",
-                            "sc_client_banners_cf",
-                            "sc_client_purchases_cf"]
+                            "sc_clients_cf"
+                           ]
                    },
     ChildSpecs = [
         ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
