@@ -1705,7 +1705,7 @@ create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
 create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 0),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
 check_all_closed([]) ->

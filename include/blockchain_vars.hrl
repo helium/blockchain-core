@@ -288,6 +288,10 @@
 -define(sc_grace_blocks, sc_grace_blocks).
 %% DC Payload size, set to 24
 -define(dc_payload_size, dc_payload_size).
+%% state channel version
+-define(sc_version, sc_version).
+%% state channel overcommit multiplier
+-define(sc_overcommit, sc_overcommit).
 
 %% ------------------------------------------------------------------
 %% snapshot vars

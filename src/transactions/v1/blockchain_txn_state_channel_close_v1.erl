@@ -157,7 +157,7 @@ absorb(Txn, Chain) ->
     TxnFee = ?MODULE:fee(Txn),
     case blockchain_ledger_v1:debit_fee(Closer, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error -> Error;
-        ok -> blockchain_ledger_v1:delete_state_channel(ID, Owner, Ledger)
+        ok -> blockchain_ledger_v1:close_state_channel(Owner, Closer, SC, ID, Ledger)
     end.
 
 
@@ -181,7 +181,7 @@ to_json(Txn, _Opts) ->
 -ifdef(TEST).
 
 new_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = #blockchain_txn_state_channel_close_v1_pb{
         state_channel=SC,
         closer= <<"closer">>
@@ -189,28 +189,28 @@ new_test() ->
     ?assertEqual(Tx, new(SC, <<"closer">>)).
 
 state_channel_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(SC, state_channel(Tx)).
 
 closer_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(<<"closer">>, closer(Tx)).
 
 fee_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(0, fee(Tx)).
 
 signature_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     ?assertEqual(<<>>, signature(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Closer = libp2p_crypto:pubkey_to_bin(PubKey),
     Tx0 = new(SC, Closer),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
@@ -220,7 +220,7 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 0),
     Tx = new(SC, <<"closer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
