@@ -9,10 +9,11 @@
 -include("blockchain_json.hrl").
 
 -export([
-    new/2, new/4,
+    new/3, new/5,
     id/1,
     owner/1,
     nonce/1, nonce/2,
+    amount/1, amount/2,
     root_hash/1, root_hash/2,
     state/1, state/2,
     expire_at_block/1, expire_at_block/2,
@@ -24,6 +25,7 @@
     add_payload/3,
     get_summary/2,
     num_packets_for/2, num_dcs_for/2,
+    total_packets/1, total_dcs/1,
 
     to_json/2
 ]).
@@ -43,12 +45,13 @@
 
 -export_type([state_channel/0, id/0]).
 
--spec new(binary(), libp2p_crypto:pubkey_bin()) -> state_channel().
-new(ID, Owner) ->
+-spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> state_channel().
+new(ID, Owner, Amount) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
         owner=Owner,
         nonce=0,
+        credits=Amount,
         summaries=[],
         root_hash= <<>>,
         state=open,
@@ -57,13 +60,15 @@ new(ID, Owner) ->
 
 -spec new(ID :: binary(),
           Owner :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer(),
           BlockHash :: binary(),
           ExpireAtBlock :: pos_integer()) -> {state_channel(), skewed:skewed()}.
-new(ID, Owner, BlockHash, ExpireAtBlock) ->
+new(ID, Owner, Amount, BlockHash, ExpireAtBlock) ->
     SC = #blockchain_state_channel_v1_pb{
             id=ID,
             owner=Owner,
             nonce=0,
+            credits=Amount,
             summaries=[],
             root_hash= <<>>,
             state=open,
@@ -87,6 +92,14 @@ nonce(#blockchain_state_channel_v1_pb{nonce=Nonce}) ->
 -spec nonce(non_neg_integer(), state_channel()) -> state_channel().
 nonce(Nonce, SC) ->
     SC#blockchain_state_channel_v1_pb{nonce=Nonce}.
+
+-spec amount(state_channel()) -> non_neg_integer().
+amount(#blockchain_state_channel_v1_pb{credits=Amount}) ->
+    Amount.
+
+-spec amount(non_neg_integer(), state_channel()) -> state_channel().
+amount(Amount, SC) ->
+    SC#blockchain_state_channel_v1_pb{credits=Amount}.
 
 -spec summaries(state_channel()) -> summaries().
 summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
@@ -140,6 +153,12 @@ num_packets_for(ClientPubkeyBin, SC) ->
             {ok, blockchain_state_channel_summary_v1:num_packets(Summary)}
     end.
 
+-spec total_packets(SC :: state_channel()) -> non_neg_integer().
+total_packets(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
+    lists:foldl(fun(Summary, Acc) ->
+                        Acc + blockchain_state_channel_summary_v1:num_packets(Summary)
+                end, 0, Summaries).
+
 -spec num_dcs_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                   SC :: state_channel()) -> {ok, non_neg_integer()} | {error, not_found}.
 num_dcs_for(ClientPubkeyBin, SC) ->
@@ -148,6 +167,12 @@ num_dcs_for(ClientPubkeyBin, SC) ->
         {ok, Summary} ->
             {ok, blockchain_state_channel_summary_v1:num_dcs(Summary)}
     end.
+
+-spec total_dcs(SC :: state_channel()) -> non_neg_integer().
+total_dcs(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
+    lists:foldl(fun(Summary, Acc) ->
+                        Acc + blockchain_state_channel_summary_v1:num_dcs(Summary)
+                end, 0, Summaries).
 
 -spec root_hash(state_channel()) -> skewed:hash().
 root_hash(#blockchain_state_channel_v1_pb{root_hash=RootHash}) ->
@@ -297,18 +322,20 @@ new_test() ->
         id= <<"1">>,
         owner= <<"owner">>,
         nonce=0,
+        credits=0,
         summaries=[],
         root_hash= <<>>,
         state=open,
         expire_at_block=0
     },
-    ?assertEqual(SC, new(<<"1">>, <<"owner">>)).
+    ?assertEqual(SC, new(<<"1">>, <<"owner">>, 0)).
 
 new2_test() ->
     SC = #blockchain_state_channel_v1_pb{
         id= <<"1">>,
         owner= <<"owner">>,
         nonce=0,
+        credits=0,
         summaries=[],
         root_hash= <<>>,
         state=open,
@@ -316,25 +343,25 @@ new2_test() ->
     },
     BlockHash = <<"yolo">>,
     Skewed = skewed:new(BlockHash),
-    ?assertEqual({SC, Skewed}, new(<<"1">>, <<"owner">>, <<"yolo">>, 100)).
+    ?assertEqual({SC, Skewed}, new(<<"1">>, <<"owner">>, 0, <<"yolo">>, 100)).
 
 id_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(<<"1">>, id(SC)).
 
 owner_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(<<"owner">>, owner(SC)).
 
 nonce_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(0, nonce(SC)),
     ?assertEqual(1, nonce(nonce(1, SC))).
 
 summaries_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual([], summaries(SC)),
     Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
     ExpectedSummaries = [Summary],
@@ -345,13 +372,13 @@ summaries_test() ->
 summaries_not_found_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual({error, not_found}, get_summary(PubKeyBin, SC)).
 
 update_summaries_test() ->
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     io:format("Summaries0: ~p~n", [summaries(SC)]),
     ?assertEqual([], summaries(SC)),
     Summary = blockchain_state_channel_summary_v1:new(PubKeyBin),
@@ -365,22 +392,22 @@ update_summaries_test() ->
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
 root_hash_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(<<>>, root_hash(SC)),
     ?assertEqual(<<"root_hash">>, root_hash(root_hash(<<"root_hash">>, SC))).
 
 state_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(open, state(SC)),
     ?assertEqual(closed, state(state(closed, SC))).
 
 expire_at_block_test() ->
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(0, expire_at_block(SC)),
     ?assertEqual(1234567, expire_at_block(expire_at_block(1234567, SC))).
 
 encode_decode_test() ->
-    SC0 = new(<<"1">>, <<"owner">>),
+    SC0 = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(SC0, decode(encode(SC0))),
     #{public := PubKey0} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin0 = libp2p_crypto:pubkey_to_bin(PubKey0),
@@ -396,7 +423,7 @@ encode_decode_test() ->
 save_fetch_test() ->
     BaseDir = test_utils:tmp_dir("save_fetch_test"),
     {ok, DB} = open_db(BaseDir),
-    SC = new(<<"1">>, <<"owner">>),
+    SC = new(<<"1">>, <<"owner">>, 0),
     Skewed = skewed:new(<<"yolo">>),
     ?assertEqual(ok, save(DB, SC, Skewed)),
     ?assertEqual({ok, {SC, Skewed}}, fetch(DB, <<"1">>)).
