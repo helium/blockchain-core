@@ -42,11 +42,11 @@ get(Addr, Ledger) ->
           CacheRead :: boolean()) ->
     {ok, blockchain_ledger_gateway_v2:gateway()} | {error, _}.
 get(Addr, Ledger, false) ->
-    ets:update_counter(?MODULE, total, 1, {total, 0}),
+    catch ets:update_counter(?MODULE, total, 1, {total, 0}),
     blockchain_ledger_v1:find_gateway_info(Addr, Ledger);
 get(Addr, Ledger, true) ->
-    ets:update_counter(?MODULE, total, 1, {total, 0}),
     try
+        ets:update_counter(?MODULE, total, 1, {total, 0}),
         {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
         %% first try the context cache
         case blockchain_ledger_v1:gateway_cache_get(Addr, Ledger) of
@@ -78,7 +78,7 @@ get(Addr, Ledger, true) ->
         end
     catch C:E ->
             lager:debug("error ~p:~p", [C, E]),
-            ets:update_counter(?MODULE, error, 1, {error, 0}),
+            catch ets:update_counter(?MODULE, error, 1, {error, 0}),
             blockchain_ledger_v1:find_gateway_info(Addr, Ledger)
     end.
 

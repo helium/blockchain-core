@@ -33,6 +33,7 @@
 
     vars/3,
     config/2,  % no version with default, use the set value or fail
+
     vars_nonce/1, vars_nonce/2,
     save_threshold_txn/2,
 
@@ -2566,7 +2567,7 @@ cache_fold(Ledger, CF, Fun0, OriginalAcc, Opts) ->
         {Cache, _GwCache} ->
             %% fold using the cache wrapper
             Fun = mk_cache_fold_fun(Cache, CF, Start, End, Fun0),
-            Keys = ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CF}],['$2']}]),
+            Keys = lists:sort(ets:select(Cache, [{{{'$1','$2'},'_'},[{'==','$1', CF}],['$2']}])),
             {TrailingKeys, Res0} = rocks_fold(Ledger, CF, Opts, Fun, {Keys, OriginalAcc}),
             process_fun(TrailingKeys, Cache, CF, Start, End, Fun0, Res0)
     end.
