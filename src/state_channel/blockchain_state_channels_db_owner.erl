@@ -16,8 +16,7 @@
 -export([start_link/1,
          db/0,
          sc_servers_cf/0,
-         sc_client_banners_cf/0,
-         sc_client_purchases_cf/0
+         sc_clients_cf/0
         ]).
 
 %% gen_server exports
@@ -35,9 +34,8 @@
 -record(state, {
           db :: rocksdb:db_handle(),
           default :: rocksdb:cf_handle(),
-          sc_client_banners_cf :: rocksdb:cf_handle(),
-          sc_client_purchases_cf :: rocksdb:cf_handle(),
-          sc_servers_cf :: rocksdb:cf_handle()
+          sc_servers_cf :: rocksdb:cf_handle(),
+          sc_clients_cf :: rocksdb:cf_handle()
          }).
 
 %% api functions
@@ -48,45 +46,38 @@ start_link(Args) ->
 db() ->
     gen_server:call(?MODULE, db).
 
--spec sc_client_purchases_cf() -> rocksdb:cf_handle().
-sc_client_purchases_cf() ->
-    gen_server:call(?MODULE, sc_client_purchases_cf).
-
--spec sc_client_banners_cf() -> rocksdb:cf_handle().
-sc_client_banners_cf() ->
-    gen_server:call(?MODULE, sc_client_banners_cf).
-
 -spec sc_servers_cf() -> rocksdb:cf_handle().
 sc_servers_cf() ->
     gen_server:call(?MODULE, sc_servers_cf).
+
+-spec sc_clients_cf() -> rocksdb:cf_handle().
+sc_clients_cf() ->
+    gen_server:call(?MODULE, sc_clients_cf).
 
 %% gen_server callbacks
 init(Args) ->
     lager:info("~p init with ~p", [?MODULE, Args]),
     erlang:process_flag(trap_exit, true),
     BaseDir = maps:get(base_dir, Args),
-    CFs = maps:get(cfs, Args, ["default", "sc_servers_cf", "sc_client_banners_cf", "sc_client_purchases_cf"]),
+    CFs = maps:get(cfs, Args, ["default", "sc_servers_cf", "sc_clients_cf"]),
     case open_db(BaseDir, CFs) of
         {error, _Reason} ->
             %% Go into a tight loop
             init(Args);
-        {ok, DB, [DefaultCF, SCServersCF, BannersCF, PurchasesCF]} ->
+        {ok, DB, [DefaultCF, SCServersCF, SCClientsCF]} ->
             State = #state{
                        db=DB,
                        default=DefaultCF,
-                       sc_client_banners_cf=BannersCF,
-                       sc_client_purchases_cf=PurchasesCF,
-                       sc_servers_cf=SCServersCF
+                       sc_servers_cf=SCServersCF,
+                       sc_clients_cf=SCClientsCF
                       },
             {ok, State}
     end.
 
 handle_call(db, _From, #state{db=DB}=State) ->
     {reply, DB, State};
-handle_call(sc_client_purchases_cf, _From, #state{sc_client_purchases_cf=PCF}=State) ->
-    {reply, PCF, State};
-handle_call(sc_client_banners_cf, _From, #state{sc_client_banners_cf=BCF}=State) ->
-    {reply, BCF, State};
+handle_call(sc_clients_cf, _From, #state{sc_clients_cf=CF}=State) ->
+    {reply, CF, State};
 handle_call(sc_servers_cf, _From, #state{sc_servers_cf=CF}=State) ->
     {reply, CF, State};
 handle_call(_Msg, _From, State) ->
