@@ -394,7 +394,7 @@ import(Chain, SHA,
                                       Hash = blockchain_block:hash_block(Block),
                                       ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger2),
 
-                                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
+                                      ok = blockchain_ledger_v1:maybe_gc_scs(Chain),
 
                                       ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
                                   _ ->

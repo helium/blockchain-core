@@ -31,6 +31,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -238,9 +239,11 @@ update_state_sc_open(Txn,
         %% Do the map put when we are the owner of the state_channel
         Owner ->
             ID = blockchain_txn_state_channel_open_v1:id(Txn),
+            Amt = blockchain_txn_state_channel_open_v1:amount(Txn),
             ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
             {SC, Skewed} = blockchain_state_channel_v1:new(ID,
                                                            Owner,
+                                                           Amt,
                                                            BlockHash,
                                                            (BlockHeight + ExpireWithin)),
 
@@ -375,7 +378,11 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
                  State :: state()) -> state().
 load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
     {ok, SCMap} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
-    ConvertedSCs = convert_to_state_channels(SCMap, Chain),
+    SCMod = case blockchain_ledger_v1:config(?sc_version, Ledger) of
+                {ok, 2} -> blockchain_ledger_state_channel_v2;
+                _ -> blockchain_ledger_state_channel_v1
+            end,
+    ConvertedSCs = convert_to_state_channels(SCMap, SCMod, Chain),
 
     DBSCs = case get_state_channels(DB) of
                 {error, _} ->
@@ -456,14 +463,19 @@ delete_closed_sc(DB, ID) ->
             end
     end.
 
--spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map(), blockchain:blockchain()) -> state_channels().
-convert_to_state_channels(LedgerSCs, Chain) ->
+-spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map(), atom(), blockchain:blockchain()) -> state_channels().
+convert_to_state_channels(LedgerSCs, SCMod, Chain) ->
     {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
-                     Owner = blockchain_ledger_state_channel_v1:owner(LedgerStateChannel),
-                     ExpireAt = blockchain_ledger_state_channel_v1:expire_at_block(LedgerStateChannel),
-                     SC0 = blockchain_state_channel_v1:new(ID, Owner),
-                     Nonce = blockchain_ledger_state_channel_v1:nonce(LedgerStateChannel),
+                     Owner = SCMod:owner(LedgerStateChannel),
+                     ExpireAt = SCMod:expire_at_block(LedgerStateChannel),
+                     Amount = case SCMod of
+                                  blockchain_ledger_state_channel_v2 -> SCMod:amount(LedgerStateChannel);
+                                  _ -> 0
+                              end,
+
+                     SC0 = blockchain_state_channel_v1:new(ID, Owner, Amount),
+                     Nonce = SCMod:nonce(LedgerStateChannel),
                      Filter = fun(T) -> blockchain_txn:type(T) == blockchain_txn_state_channel_open_v1 andalso
                                         blockchain_txn_state_channel_open_v1:id(T) == ID andalso
                                         blockchain_txn_state_channel_open_v1:nonce(T) == Nonce

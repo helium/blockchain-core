@@ -662,7 +662,7 @@ absorb_delayed_(Block, Chain0) ->
             Hash = blockchain_block:hash_block(Block),
             Ledger0 = blockchain:ledger(Chain0),
             ok = blockchain_ledger_v1:maybe_gc_pocs(Chain0, Ledger0),
-            ok = blockchain_ledger_v1:maybe_gc_scs(Ledger0),
+            ok = blockchain_ledger_v1:maybe_gc_scs(Chain0),
             ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger0),
             ok = blockchain_ledger_v1:maybe_recalc_price(Chain0, Ledger0),
             ok;
@@ -883,12 +883,12 @@ sc_depends_on_test() ->
     RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(2, Payer1, gen_pubkeys(3), 1), SigFun),
 
     %% sc opens for payer
-    SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1), SigFun),
-    SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2), SigFun),
-    SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3), SigFun),
+    SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1, 0), SigFun),
+    SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2, 0), SigFun),
+    SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3, 0), SigFun),
 
     %% sc open for payer1
-    SC4 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer1, 30, 2, 1), SigFun),
+    SC4 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer1, 30, 2, 1, 0), SigFun),
 
     ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, RT1, SC1, SC2])))),
     ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2])))),

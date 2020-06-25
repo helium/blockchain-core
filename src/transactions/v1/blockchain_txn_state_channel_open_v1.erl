@@ -15,12 +15,13 @@
 -include_lib("helium_proto/include/blockchain_txn_state_channel_open_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/6,
     hash/1,
     id/1,
     owner/1,
     oui/1,
     nonce/1,
+    amount/1,
     expire_within/1,
     fee/1, fee/2,
     calculate_fee/2, calculate_fee/5,
@@ -43,14 +44,17 @@
           Owner :: libp2p_crypto:pubkey_bin(),
           ExpireWithin :: pos_integer(),
           OUI :: non_neg_integer(),
-          Nonce :: non_neg_integer()) -> txn_state_channel_open().
-new(ID, Owner, ExpireWithin, OUI, Nonce) ->
+          Nonce :: non_neg_integer(),
+          Amount :: non_neg_integer()
+         ) -> txn_state_channel_open().
+new(ID, Owner, ExpireWithin, OUI, Nonce, Amount) ->
     #blockchain_txn_state_channel_open_v1_pb{
         id=ID,
         owner=Owner,
         expire_within=ExpireWithin,
         oui=OUI,
         nonce=Nonce,
+        amount=Amount,
         fee=?LEGACY_TXN_FEE,
         signature = <<>>
     }.
@@ -72,6 +76,10 @@ owner(Txn) ->
 -spec nonce(Txn :: txn_state_channel_open()) -> non_neg_integer().
 nonce(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.nonce.
+
+-spec amount(Txn :: txn_state_channel_open()) -> non_neg_integer().
+amount(Txn) ->
+    Txn#blockchain_txn_state_channel_open_v1_pb.amount.
 
 -spec oui(Txn :: txn_state_channel_open()) -> non_neg_integer().
 oui(Txn) ->
@@ -139,17 +147,22 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
+    Original = ?MODULE:amount(Txn),
     TxnFee = ?MODULE:fee(Txn),
     case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            %% TODO we should debit the amount of DC the state channel holds, not 0
-            case blockchain_ledger_v1:debit_dc(Owner, Nonce, 0, Ledger) of
+            Amount = case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
+                        {ok, Overcommit} -> Original * Overcommit;
+                        _ -> 0
+                     end,
+            case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
                 {error, _}=Error2 ->
                     Error2;
                 ok ->
-                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger)
+                    blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin,
+                                                           Nonce, Original, Amount, Ledger)
             end
     end.
 
@@ -243,35 +256,40 @@ new_test() ->
         owner= <<"owner">>,
         expire_within=10,
         oui=1,
+        amount=10,
         nonce=1,
         fee=?LEGACY_TXN_FEE,
         signature = <<>>
     },
-    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1)).
+    ?assertEqual(Tx, new(<<"id">>, <<"owner">>, 10, 1, 1, 10)).
 
 id_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<"id">>, id(Tx)).
 
 owner_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<"owner">>, owner(Tx)).
 
 signature_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(<<>>, signature(Tx)).
 
+amount_test() ->
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
+    ?assertEqual(10, amount(Tx)).
+
 oui_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(1, oui(Tx)).
 
 fee_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
 sign_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Tx0 = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx0 = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
     Tx1 = sign(Tx0, SigFun),
     Sig1 = signature(Tx1),
@@ -279,9 +297,9 @@ sign_test() ->
     ?assert(libp2p_crypto:verify(EncodedTx1, Sig1, PubKey)).
 
 to_json_test() ->
-    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1),
+    Tx = new(<<"id">>, <<"owner">>, 10, 1, 1, 10),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, id, owner, oui, fee, nonce, expire_within])).
+                      [type, hash, id, owner, amount, oui, fee, nonce, expire_within])).
 
 -endif.
