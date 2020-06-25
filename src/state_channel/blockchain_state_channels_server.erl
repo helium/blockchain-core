@@ -152,7 +152,7 @@ handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=Stat
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
 handle_cast({packet, SCPacket, HandlerPid},
-            #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_Owner, OwnerSigFun}}=State) ->
+            #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_, OwnerSigFun}}=State) ->
     Ledger = blockchain:ledger(Chain),
 
     %% Get the client (i.e. the hotspot who received this packet)
@@ -172,12 +172,13 @@ handle_cast({packet, SCPacket, HandlerPid},
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1, OwnerSigFun),
+            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
             ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
             NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
+            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
 
             %% Save state channel to db
-            ok = blockchain_state_channel_v1:save(DB, NewSC, Skewed1),
+            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
             ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
             %% Put new state_channel in our map
@@ -185,9 +186,9 @@ handle_cast({packet, SCPacket, HandlerPid},
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
             %% Since we updated active sc, send new banner
-            ok = send_banner(NewSC, HandlerPid),
+            ok = send_banner(SignedSC, HandlerPid),
 
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
+            {noreply, State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)}}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
@@ -607,9 +608,10 @@ maybe_get_new_active(SCs) ->
 send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0, OwnerSigFun),
+    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0),
+    SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
-    PurchaseMsg = blockchain_state_channel_purchase_v1:new(NewPurchaseSC, Hotspot, PacketHash, Region),
+    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg, Stream]),
     blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg).
 
@@ -631,29 +633,27 @@ send_banner(SC, Stream) ->
 -spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                         PayloadSize :: pos_integer(),
                         Ledger :: blockchain:ledger(),
-                        SC :: blockchain_state_channel_v1:state_channel(),
-                        OwnerSigFun :: libp2p_crypto:sig_fun()) ->
+                        SC :: blockchain_state_channel_v1:state_channel()) ->
     blockchain_state_channel_v1:state_channel().
-update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC, OwnerSigFun) ->
-    NewSC = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
-                {error, not_found} ->
-                    NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
-                    NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
-                    %% Add this to summaries
-                    blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC);
-                {ok, ExistingSummary} ->
-                    %% Update packet count for this client
-                    ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-                    %% Update DC count for this client
-                    NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
-                    ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-                    NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
-                                                                            ExistingNumPackets + 1,
-                                                                            ExistingSummary),
-                    %% Update summaries
-                    blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC)
-            end,
-    blockchain_state_channel_v1:sign(NewSC, OwnerSigFun).
+update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
+    case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
+        {error, not_found} ->
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
+            %% Add this to summaries
+            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC);
+        {ok, ExistingSummary} ->
+            %% Update packet count for this client
+            ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
+            %% Update DC count for this client
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
+            NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
+                                                                    ExistingNumPackets + 1,
+                                                                    ExistingSummary),
+            %% Update summaries
+            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC)
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
