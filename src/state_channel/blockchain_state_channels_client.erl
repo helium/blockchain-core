@@ -38,8 +38,7 @@
 
 -record(state,{
           db :: rocksdb:db_handle(),
-          bcf :: rocksdb:cf_handle(), %% banners cf
-          pcf :: rocksdb:cf_handle(), %% purchases cf
+          cf :: rocksdb:cf_handle(),
           swarm :: pid(),
           streams = #{} :: streams(),
           packets = [] :: [blockchain_helium_packet_v1:packet()],
@@ -104,9 +103,8 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
-    BCF = blockchain_state_channels_db_owner:sc_client_banners_cf(),
-    PCF = blockchain_state_channels_db_owner:sc_client_purchases_cf(),
-    State = #state{db=DB, bcf=BCF, pcf=PCF, swarm=Swarm},
+    CF = blockchain_state_channels_db_owner:sc_clients_cf(),
+    State = #state{db=DB, cf=CF, swarm=Swarm},
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -120,8 +118,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 handle_cast({banner, Banner, HandlerPid}, State) ->
-    NewState = handle_banner(Banner, HandlerPid, State),
-    {noreply, NewState};
+    ok = handle_banner(Banner, HandlerPid, State),
+    {noreply, State};
 handle_cast({purchase, Purchase, HandlerPid}, State) ->
     NewState = handle_purchase(Purchase, HandlerPid, State),
     {noreply, NewState};
@@ -221,6 +219,48 @@ handle_info(_Msg, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec handle_banner(Banner :: blockchain_state_channel_banner_v1:banner(),
+                    Stream :: pid(),
+                    State :: state()) -> ok | {error, any()}.
+handle_banner(Banner, Stream, State) ->
+    case blockchain_state_channel_banner_v1:sc(Banner) of
+        undefined ->
+            ok;
+        BannerSC ->
+            case is_valid_sc(BannerSC, Stream, State) of
+                {error, causal_conflict} ->
+                    store_state_channel(BannerSC, State);
+                _ ->
+                    ok
+            end
+    end.
+
+-spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
+                      Stream :: pid(),
+                      State :: state()) -> state().
+handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
+    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
+
+    case is_valid_sc(PurchaseSC, Stream, State) of
+        {error, causal_conflict} ->
+            %% store conflicted sc
+            ok = store_state_channel(PurchaseSC, State),
+            State;
+        ok ->
+            case deque_packet(State) of
+                {undefined, _} ->
+                    State;
+                {Packet, NewState} ->
+                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                    lager:debug("successful purchase validation, sending packet: ~p",
+                                [blockchain_helium_packet_v1:packet_hash(Packet)]),
+                    ok = send_packet(Swarm, Stream, Packet, Region),
+                    NewState
+            end;
+        _ ->
+            State
+    end.
 
 -spec find_stream(AddressOrOUI :: string() | non_neg_integer(),
                   State :: state()) -> undefined | dialing |pid().
@@ -359,198 +399,6 @@ send_offer(Swarm, Stream, Packet, Region) ->
     lager:info("OfferMsg1: ~p", [OfferMsg1]),
     blockchain_state_channel_handler:send_offer(Stream, OfferMsg1).
 
--spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
-                      Stream :: pid(),
-                      State :: state()) -> state().
-handle_purchase(Purchase, Stream, #state{db=DB, pcf=PCF, swarm=Swarm}=State) ->
-    case validate_purchase(Purchase, State) of
-        ok ->
-            case deque_packet(State) of
-                {undefined, _} ->
-                    State;
-                {Packet, NewState} ->
-                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
-                    lager:debug("successful purchase validation, sending packet: ~p",
-                               [blockchain_helium_packet_v1:packet_hash(Packet)]),
-                    ok = send_packet(Swarm, Stream, Packet, Region),
-                    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-                    PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
-                    ok = store_state_channel(DB, PCF, PurchaseSCID, PurchaseSC),
-                    NewState
-            end;
-        {error, Reason} ->
-            lager:error("validate_purchase failed, reason: ~p", [Reason]),
-            %% conflict
-            State
-    end.
-
--spec handle_banner(Banner :: blockchain_state_channel_banner_v1:banner(),
-                    Stream :: pid(),
-                    State :: state()) -> state().
-handle_banner(Banner, _Stream, #state{db=DB, bcf=BCF}=State) ->
-    case blockchain_state_channel_banner_v1:sc(Banner) of
-        undefined ->
-            %% We likely got an empty banner
-            State;
-        BannerSC ->
-            BannerSCID = blockchain_state_channel_v1:id(BannerSC),
-            case get_state_channel(DB, BCF, BannerSCID) of
-                {error, _} ->
-                    %% We have no information about this state channel
-                    %% Store it
-                    ok = store_state_channel(DB, BCF, BannerSCID, BannerSC),
-                    State;
-                {ok, OurSC} ->
-                    %% We already know about this state channel
-                    %% Validate this banner
-                    case validate_banner(BannerSC, OurSC) of
-                        ok ->
-                            lager:debug("successful banner validation, inserting BannerSC, id: ~p", [BannerSCID]),
-                            ok = store_state_channel(DB, BCF, BannerSCID, BannerSC),
-                            State;
-                        {error, Reason} ->
-                            lager:error("invalid banner, reason: ~p", [Reason]),
-                            State
-                    end
-            end
-    end.
-
--spec validate_banner(BannerSC :: blockchain_state_channel_v1:state_channel(),
-                      OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
-validate_banner(BannerSC, OurSC) ->
-    %% We check the following conditions here:
-    %% - The nonce in BannerSC is higher or equal than OurSC (not strictly monotonically increasing)
-    %% - All balances in BannerSC are higher or equal than OurSC balances
-    BannerSCNonce = blockchain_state_channel_v1:nonce(BannerSC),
-    OurSCNonce = blockchain_state_channel_v1:nonce(OurSC),
-    case BannerSCNonce >= OurSCNonce of
-        true ->
-            compare_banner_summaries(BannerSC, OurSC);
-        false ->
-            {error, {invalid_banner_nonce, BannerSCNonce, OurSCNonce}}
-    end.
-
--spec compare_banner_summaries(BannerSC :: blockchain_state_channel_v1:state_channel(),
-                               OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
-compare_banner_summaries(BannerSC, OurSC) ->
-    %% Every single hotspot in the banner summaries must have higher balances
-    %% than our sc summaries
-
-    OurSCSummaries = blockchain_state_channel_v1:summaries(OurSC),
-
-    Res = lists:all(fun(OurSCSummary) ->
-                            ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(OurSCSummary),
-                            case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, BannerSC) of
-                                {error, not_found} ->
-                                    %% We have the summary but BannerSC does not, not allowed
-                                    false;
-                                {ok, BannerSCSummary} ->
-                                    BannerSCNumPackets = blockchain_state_channel_summary_v1:num_packets(BannerSCSummary),
-                                    BannerSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(BannerSCSummary),
-                                    OurSCNumPackets = blockchain_state_channel_summary_v1:num_packets(OurSCSummary),
-                                    OurSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OurSCSummary),
-                                    (BannerSCNumPackets >= OurSCNumPackets) andalso (BannerSCNumDCs >= OurSCNumDCs)
-                            end
-                    end, OurSCSummaries),
-
-    case Res of
-        false ->
-            {error, {invalid_banner_summaries, BannerSC, OurSC}};
-        true ->
-            ok
-    end.
-
--spec validate_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
-                        State :: blockchain_state_channels_client:state()) -> ok | {error, any()}.
-validate_purchase(Purchase, #state{db=DB, pcf=PCF}) ->
-    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-    PurchaseSCID = blockchain_state_channel_v1:id(PurchaseSC),
-
-    case blockchain_state_channel_v1:validate(PurchaseSC) of
-        ok ->
-            case get_state_channel(DB, PCF, PurchaseSCID) of
-                {error, _} ->
-                    %% We don't have any information about this state channel yet
-                    %% Presumably our first packet
-                    %% Check that the purchase sc nonce is set to 1
-                    %% And the purchase sc summary only has 1 packet in it
-                    check_first_purchase(Purchase);
-                {ok, OurSC} ->
-                    compare_purchase_summary(Purchase, OurSC)
-            end;
-        {error, _Reason}=E ->
-            lager:error("purchase sc validation failed, ~p", [_Reason]),
-            {error, {invalid_purchase_sc, E}}
-    end.
-
--spec check_first_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase()) -> ok | {error, any()}.
-check_first_purchase(Purchase) ->
-    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-    PurchaseHotspot = blockchain_state_channel_purchase_v1:hotspot(Purchase),
-    PurchaseSCNonce = blockchain_state_channel_v1:nonce(PurchaseSC),
-    case PurchaseSCNonce of
-        1 ->
-            case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
-                {error, not_found}=E ->
-                    %% how did you end here?
-                    E;
-                {ok, PurchaseSCSummary} ->
-                    PurchaseNumPackets = blockchain_state_channel_summary_v1:num_packets(PurchaseSCSummary),
-                    case PurchaseNumPackets == 1 of
-                        true -> ok;
-                        false ->
-                            {error, first_purchase_packet_count_mismatch}
-                    end
-            end;
-        _ ->
-            %% This is first purchase without nonce set to 1?
-            {error, first_purchase_nonce_mismatch}
-    end.
-
--spec compare_purchase_summary(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
-                               OurSC :: blockchain_state_channel_v1:state_channel()) -> ok | {error, any()}.
-compare_purchase_summary(Purchase, OurSC) ->
-    OurSCNonce = blockchain_state_channel_v1:nonce(OurSC),
-    PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
-    PurchaseHotspot = blockchain_state_channel_purchase_v1:hotspot(Purchase),
-    PurchaseSCNonce = blockchain_state_channel_v1:nonce(PurchaseSC),
-
-    case PurchaseSCNonce == OurSCNonce + 1 of
-        false ->
-            {error, {invalid_purchase_nonce, {PurchaseSCNonce, OurSCNonce}}};
-        true ->
-            case blockchain_state_channel_v1:get_summary(PurchaseHotspot, OurSC) of
-                {error, not_found}=E1 ->
-                    %% we don't know about this, presumably first purchase?
-                    %% check purchase summary
-                    case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
-                        {error, not_found}=E2 ->
-                            %% how did you end here?
-                            {error, {no_summaries, E1, E2}};
-                        {ok, _PurchaseSCSummary} ->
-                            %% XXX: What should we be checking here?
-                            lager:debug("valid purchase"),
-                            ok
-                    end;
-                {ok, OurSCSummary} ->
-                    case blockchain_state_channel_v1:get_summary(PurchaseHotspot, PurchaseSC) of
-                        {error, not_found}=E3 ->
-                            %% how did you get here?
-                            {error, {no_purchase_summary, E3}};
-                        {ok, PurchaseSCSummary} ->
-                            PurchaseNumPackets = blockchain_state_channel_summary_v1:num_packets(PurchaseSCSummary),
-                            OurNumPackets = blockchain_state_channel_summary_v1:num_packets(OurSCSummary),
-                            lager:debug("checking packet count, purchase: ~p, ours: ~p", [PurchaseNumPackets, OurNumPackets]),
-                            case PurchaseNumPackets == OurNumPackets + 1 of
-                                false ->
-                                    {error, {invalid_purchase_packet_count, PurchaseNumPackets, OurNumPackets}};
-                                true ->
-                                    ok
-                            end
-                    end
-            end
-    end.
-
 -spec is_hotspot_in_router_oui(Swarm :: pid(),
                                OUI :: pos_integer(),
                                Chain :: blockchain:blockchain()) -> boolean().
@@ -569,7 +417,6 @@ is_hotspot_in_router_oui(Swarm, OUI, Chain) ->
             end
     end.
 
-
 -spec send_packet_or_offer(Swarm :: pid(),
                            Stream :: pid(),
                            Packet :: blockchain_helium_packet_v1:packet(),
@@ -585,14 +432,70 @@ send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain) ->
     end.
 
 %% ------------------------------------------------------------------
-%% DB interaction
+%% State channel validation functions
 %% ------------------------------------------------------------------
+-spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
+                  Stream :: pid(),
+                  State :: state()) -> ok | {error, any()}.
+is_valid_sc(SC, Stream, State) ->
+    case blockchain_state_channel_v1:validate(SC) of
+        {error, Reason}=E ->
+            ok = libp2p_framed_stream:close(Stream),
+            lager:error("invalid banner sc signature, reason: ~p", [Reason]),
+            E;
+        ok ->
+            case is_active_sc(SC) of
+                false ->
+                    lager:error("inactive banner sc"),
+                    ok = libp2p_framed_stream:close(Stream),
+                    ok;
+                true ->
+                    case is_causally_correct_sc(SC, State) of
+                        true ->
+                            overwrite_state_channel(SC, State);
+                        false ->
+                            ok = libp2p_framed_stream:close(Stream),
+                            {error, causal_conflict}
+                    end
+            end
+    end.
 
--spec get_state_channel(DB :: rocksdb:db_handle(),
-                        CF :: rocksdb:cf_handle(),
-                        SCID :: blockchain_state_channel_v1:id()) ->
-    {ok, blockchain_state_channel_v1:state_channel()} | {error, any()}.
-get_state_channel(DB, CF, SCID) ->
+-spec is_active_sc(SC :: blockchain_state_channel_v1:state_channel()) -> boolean().
+is_active_sc(SC) ->
+    %% TODO: cache chain in state?
+    Ledger = blockchain:ledger(blockchain_worker:blockchain()),
+    SCOwner = blockchain_state_channel_v1:owner(SC),
+    SCID = blockchain_state_channel_v1:id(SC),
+    {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
+    lists:member(SCID, LedgerSCIDs).
+
+-spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
+                             State :: state()) -> boolean().
+is_causally_correct_sc(SC, State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+
+    case get_state_channels(SCID, State) of
+        {error, not_found} ->
+            true;
+        {error, _} ->
+            %% rocks blew up
+            false;
+        {ok, [KnownSC]} ->
+            %% Check if SC is causally correct
+            caused == blockchain_state_channel_v1:causality(KnownSC, SC) orelse
+            equal == blockchain_state_channel_v1:causality(KnownSC, SC);
+        {ok, _KnownSCs} ->
+            %% We have a conflict among incoming state channels
+            false
+    end.
+
+%% ------------------------------------------------------------------
+%% DB functions
+%% ------------------------------------------------------------------
+-spec get_state_channels(SCID :: blockchain_state_channel_v1:id(),
+                         State :: state()) ->
+    {ok, [blockchain_state_channel_v1:state_channel()]} | {error, any()}.
+get_state_channels(SCID, #state{db=DB, cf=CF}) ->
     case rocksdb:get(DB, CF, SCID, [{sync, true}]) of
         {ok, Bin} ->
             {ok, erlang:binary_to_term(Bin)};
@@ -603,14 +506,26 @@ get_state_channel(DB, CF, SCID) ->
             Error
     end.
 
--spec store_state_channel(DB :: rocksdb:db_handle(),
-                          CF :: rocksdb:cf_handle(),
-                          SCID :: blockchain_state_channel_v1:id(),
-                          SC :: blockchain_state_channel_v1:state_channel()) ->
-    ok | {error, any()}.
-store_state_channel(DB, CF, SCID, SC) ->
-    %% NOTE: This overwrites any state channel in any column family
-    ToInsert = erlang:term_to_binary(SC),
+-spec store_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
+                          State :: state()) -> ok | {error, any()}.
+store_state_channel(SC, #state{db=DB, cf=CF}=State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    case get_state_channels(SCID, State) of
+        {ok, SCs} ->
+            ToInsert = erlang:term_to_binary([SC | SCs]),
+            rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]);
+        {error, not_found} ->
+            ToInsert = erlang:term_to_binary([SC]),
+            rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]);
+        {error, _}=E ->
+            E
+    end.
+
+-spec overwrite_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
+                              State :: state()) -> ok | {error, any()}.
+overwrite_state_channel(SC, #state{db=DB, cf=CF}) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    ToInsert = erlang:term_to_binary([SC]),
     rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).
 
 %% ------------------------------------------------------------------
