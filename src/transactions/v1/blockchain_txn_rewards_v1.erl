@@ -238,10 +238,15 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
             Error;
         {ok, Block} ->
             Transactions = blockchain_block:transactions(Block),
-            get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
-                                  poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
-                                  poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
-                                  poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards))
+            case lists:any(fun(Txn) -> blockchain_txn:type(Txn) == ?MODULE end, Transactions) of
+                true ->
+                    {error, already_existing_rewards};
+                false ->
+                    get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
+                                          poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
+                                          poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
+                                          poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards))
+            end
     end.
 
 %%--------------------------------------------------------------------
