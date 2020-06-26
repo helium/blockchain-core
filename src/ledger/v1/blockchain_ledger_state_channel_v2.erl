@@ -6,17 +6,19 @@
 -module(blockchain_ledger_state_channel_v2).
 
 -export([
-    new/5,
+    new/6,
     id/1, id/2,
     owner/1, owner/2,
     nonce/1, nonce/2,
     amount/1, amount/2,
+    original/1, original/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1,
     close_proposal/3,
     closer/1,
     state_channel/1,
-    close_state/1
+    close_state/1,
+    is_v2/1
 ]).
 
 -ifdef(TEST).
@@ -27,6 +29,7 @@
     id :: binary(),
     owner :: binary(),
     expire_at_block :: pos_integer(),
+    original :: non_neg_integer(),
     amount :: non_neg_integer(),
     nonce :: non_neg_integer(),
     closer :: libp2p_crypto:pubkey_bin(),
@@ -41,14 +44,16 @@
 -spec new(ID :: binary(),
           Owner :: binary(),
           ExpireAtBlock :: pos_integer(),
-          Amount :: non_neg_integer(),
+          OriginalAmtDC :: non_neg_integer(),
+          TotalAmtDC :: non_neg_integer(),
           Nonce :: non_neg_integer()) -> state_channel_v2().
-new(ID, Owner, ExpireAtBlock, Amount, Nonce) ->
+new(ID, Owner, ExpireAtBlock, OriginalAmount, TotalAmount, Nonce) ->
     #ledger_state_channel_v2{
        id=ID,
        owner=Owner,
        expire_at_block=ExpireAtBlock,
-       amount=Amount,
+       original=OriginalAmount,
+       amount=TotalAmount,
        nonce=Nonce
       }.
 
@@ -91,6 +96,14 @@ amount(#ledger_state_channel_v2{amount=Amount}) ->
 -spec amount(Amount :: non_neg_integer(), SC :: state_channel_v2()) -> state_channel_v2().
 amount(Amount, SC) ->
     SC#ledger_state_channel_v2{amount=Amount}.
+
+-spec original(state_channel_v2()) -> non_neg_integer().
+original(#ledger_state_channel_v2{original=Original}) ->
+    Original.
+
+-spec original(Amount :: non_neg_integer(), SC :: state_channel_v2()) -> state_channel_v2().
+original(Original, SC) ->
+    SC#ledger_state_channel_v2{original=Original}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -143,6 +156,9 @@ state_channel(SC) ->
 close_state(SC) ->
     SC#ledger_state_channel_v2.close_state.
 
+is_v2(#ledger_state_channel_v2{}) -> true;
+is_v2(_) -> false.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -178,34 +194,45 @@ new_test() ->
         owner = <<"owner">>,
         expire_at_block = 10,
         amount = 10,
+        original = 5,
         nonce = 1
     },
-    ?assertEqual(SC, new(<<"id">>, <<"owner">>, 10, 10, 1)).
+    ?assertEqual(SC, new(<<"id">>, <<"owner">>, 10, 5, 10, 1)).
 
 id_test() ->
-    SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
     ?assertEqual(<<"id">>, id(SC)),
     ?assertEqual(<<"id2">>, id(id(<<"id2">>, SC))).
 
 owner_test() ->
-    SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
     ?assertEqual(<<"owner">>, owner(SC)),
     ?assertEqual(<<"owner2">>, owner(owner(<<"owner2">>, SC))).
 
 expire_at_block_test() ->
-    SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
     ?assertEqual(10, expire_at_block(SC)),
     ?assertEqual(20, expire_at_block(expire_at_block(20, SC))).
 
 nonce_test() ->
-    SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
     ?assertEqual(1, nonce(SC)),
     ?assertEqual(2, nonce(nonce(2, SC))).
 
 amount_test() ->
-    SC = new(<<"id">>, <<"owner">>, 10, 10, 1),
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
     ?assertEqual(10, amount(SC)),
     ?assertEqual(20, amount(amount(20, SC))).
+
+original_test() ->
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
+    ?assertEqual(5, original(SC)),
+    ?assertEqual(7, original(original(7, SC))).
+
+is_v2_test() ->
+    SC = new(<<"id">>, <<"owner">>, 10, 5, 10, 1),
+    ?assertEqual(true, is_v2(SC)),
+    ?assertEqual(false, is_v2(<<"not v2">>)).
 
 maybe_dispute_test() ->
     SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"key1">>, 100),
