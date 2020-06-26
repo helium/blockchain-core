@@ -239,9 +239,11 @@ update_state_sc_open(Txn,
         %% Do the map put when we are the owner of the state_channel
         Owner ->
             ID = blockchain_txn_state_channel_open_v1:id(Txn),
+            Amt = blockchain_txn_state_channel_open_v1:amount(Txn),
             ExpireWithin = blockchain_txn_state_channel_open_v1:expire_within(Txn),
             {SC, Skewed} = blockchain_state_channel_v1:new(ID,
                                                            Owner,
+                                                           Amt,
                                                            BlockHash,
                                                            (BlockHeight + ExpireWithin)),
 
