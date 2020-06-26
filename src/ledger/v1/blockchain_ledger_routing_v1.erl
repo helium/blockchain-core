@@ -15,7 +15,8 @@
     update/3,
     nonce/1, nonce/2,
     serialize/1, deserialize/1,
-    subnet_mask_to_size/1, subnet_size_to_mask/1
+    subnet_mask_to_size/1, subnet_size_to_mask/1,
+    is_routing/1
 ]).
 
 -ifdef(TEST).
@@ -158,6 +159,12 @@ subnet_mask_to_size(Mask) ->
 subnet_size_to_mask(Size) ->
     ?BITS_23 bxor ((Size bsr 2) - 1).
 
+-spec is_routing(any()) -> boolean().
+is_routing(#routing_v1{}) ->
+    true;
+is_routing(_) ->
+    false.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -217,5 +224,13 @@ replace_test() ->
     ?assertEqual([1, 2, 3, 6, 5], replace(3, 6, List)),
     ?assertEqual([1, 2, 3, 4, 6], replace(4, 6, List)),
     ok.
+
+is_routing_test() ->
+    Routing = new(1, ?KEY2, [], <<>>, <<>>, 0),
+    ?assert(is_routing(Routing)),
+    SomeOtherThing1 = "yolo",
+    ?assertNot(is_routing(SomeOtherThing1)),
+    SomeOtherThing2 = ["not", "routing"],
+    ?assertNot(is_routing(SomeOtherThing2)).
 
 -endif.

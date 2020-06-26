@@ -35,10 +35,6 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
@@ -58,6 +54,17 @@
 -type state_channels() :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
                                                                  skewed:skewed()}}.
 -type streams() :: #{libp2p_crypto:pubkey_bin() => pid()}.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-export([insert_fake_sc_skewed/2]).
+
+-spec insert_fake_sc_skewed(FakeSC :: blockchain_state_channel_v1:state_channel(),
+                            FakeSkewed :: skewed:skewed()) -> ok.
+insert_fake_sc_skewed(FakeSC, FakeSkewed) ->
+    gen_server:call(?SERVER, {insert_fake_sc_skewed, FakeSC, FakeSkewed}, infinity).
+
+-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -138,6 +145,16 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
                 {SC, _} -> {ok, blockchain_state_channel_v1:nonce(SC)}
             end,
     {reply, Reply, State};
+handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
+            #state{db=DB, state_channels=SCs, streams=Streams, owner={_, OwnerSigFun}}=State) ->
+    %% NOTE: This function is for testing, we should do something else probably
+    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
+    FakeSCID = blockchain_state_channel_v1:id(FakeSC),
+    SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
+    lager:info("broadcasting fake banner: ~p, to: ~p", [SignedFakeSC, Streams]),
+    ok = broadcast_banner(SignedFakeSC, State),
+    {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
 handle_call(active_sc, _From, State) ->
@@ -172,10 +189,15 @@ handle_cast({packet, SCPacket, HandlerPid},
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
-            ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-            NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
-            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+            SC3 = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+                      {ok, 2} ->
+                          SC1;
+                      _ ->
+                          SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
+                          ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+                          blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
+                  end,
+            SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
 
             %% Save state channel to db
             ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
@@ -185,17 +207,16 @@ handle_cast({packet, SCPacket, HandlerPid},
             lager:info("packet: ~p successfully validated, updating state",
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
-            %% Since we updated active sc, send new banner
-            ok = send_banner(SignedSC, HandlerPid),
-
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)}}
+            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+            NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
+            erlang:monitor(process, HandlerPid),
+            {noreply, NewState}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
-    %% TODO: handle offer
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     Ledger = blockchain:ledger(Chain),
@@ -204,12 +225,13 @@ handle_cast({offer, SCOffer, HandlerPid},
     Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
-    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-    %% XXX: Accepting all offers for now
-    ok = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
-    {noreply, State};
+    {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
+    NewState = maybe_add_stream(Hotspot, HandlerPid, State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
+    erlang:monitor(process, HandlerPid),
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -269,6 +291,22 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec maybe_add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       Stream :: pid(),
+                       State :: state()) -> state().
+maybe_add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
+    case find_stream(ClientPubkeyBin, State) of
+        undefined ->
+            State#state{streams=maps:put(ClientPubkeyBin, Stream, Streams)};
+        _FoundStream ->
+            State
+    end.
+
+-spec find_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  State :: state()) -> undefined | pid().
+find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
+    maps:get(ClientPubkeyBin, Streams, undefined).
+
 -spec update_state_sc_open(
         Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
         BlockHash :: blockchain_block:hash(),
@@ -604,7 +642,7 @@ maybe_get_new_active(SCs) ->
                     PayloadSize :: pos_integer(),
                     Region :: atom(),
                     Ledger :: blockchain:ledger(),
-                    OwnerSigFun :: libp2p_crypto:sig_fun()) -> ok.
+                    OwnerSigFun :: libp2p_crypto:sig_fun()) -> {ok, blockchain_state_channel_v1:state_channel()}.
 send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
@@ -613,7 +651,8 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, Owne
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg, Stream]),
-    blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg).
+    ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
+    {ok, SignedPurchaseSC}.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
 active_sc(#state{active_sc_id=undefined}) ->
@@ -641,7 +680,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
             NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
             %% Add this to summaries
-            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC);
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
         {ok, ExistingSummary} ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
@@ -652,14 +691,5 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
                                                                     ExistingNumPackets + 1,
                                                                     ExistingSummary),
             %% Update summaries
-            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC)
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
     end.
-
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
--ifdef(TEST).
-
-%% TODO: add some eunits here...
-
--endif.
