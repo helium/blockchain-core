@@ -147,13 +147,14 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
+    Original = ?MODULE:amount(Txn),
     TxnFee = ?MODULE:fee(Txn),
     case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error ->
             Error;
         ok ->
             Amount = case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
-                        {ok, Overcommit} -> ?MODULE:amount(Txn) * Overcommit;
+                        {ok, Overcommit} -> Original * Overcommit;
                         _ -> 0
                      end,
             case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
@@ -161,7 +162,7 @@ absorb(Txn, Chain) ->
                     Error2;
                 ok ->
                     blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin,
-                                                           Nonce, Amount, Ledger)
+                                                           Nonce, Original, Amount, Ledger)
             end
     end.
 

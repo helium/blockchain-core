@@ -88,7 +88,7 @@
     update_routing/4,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
-    add_state_channel/6,
+    add_state_channel/7,
     close_state_channel/5,
 
     allocate_subnet/2,
@@ -542,6 +542,9 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             [cache_fold(Ledger, CF,
                         fun({K, V}, Acc) when Mod == t2b ->
                                 [{K, erlang:binary_to_term(V)} | Acc];
+                           ({K, V}, Acc) when Mod == state_channel ->
+                                {_Mod, SC} = deserialize_state_channel(V),
+                                [{K, SC} | Acc];
                            ({K, V}, Acc) when Mod /= undefined ->
                                 [{K, Mod:deserialize(V)} | Acc];
                            (X, Acc) -> [X | Acc]
@@ -555,7 +558,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                      {PoCsCF, t2b},
                      {SecuritiesCF, blockchain_ledger_security_entry_v1},
                      {RoutingCF, blockchain_ledger_routing_v1},
-                     {SCsCF, get_sc_mod(Ledger)}, % depends on chain var
+                     {SCsCF, state_channel},
                      {SubnetsCF, undefined}
                     ]],
         L = lists:append(L0, DefaultVals),
@@ -2274,9 +2277,10 @@ find_scs_by_owner(Owner, Ledger) ->
                         Owner :: libp2p_crypto:pubkey_bin(),
                         ExpireWithin :: pos_integer(),
                         Nonce :: non_neg_integer(),
+                        Original :: non_neg_integer(),
                         Amount :: non_neg_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
-add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
+add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
     Key = state_channel_key(ID, Owner),
@@ -2284,8 +2288,8 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Amount, Ledger) ->
         {ok, 2} ->
             Routing = blockchain_ledger_state_channel_v2:new(ID, Owner,
                                                              CurrHeight+ExpireWithin,
-                                                             Amount, Nonce),
-            blockchain_ledger_state_channel_v1:serialize(Routing);
+                                                             Original, Amount, Nonce),
+            blockchain_ledger_state_channel_v2:serialize(Routing);
         _ ->
             Routing = blockchain_ledger_state_channel_v1:new(ID, Owner,
                                                              CurrHeight+ExpireWithin, Nonce),
@@ -3149,7 +3153,7 @@ load_state_channels(SCs, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     maps:map(
       fun(ID, Channel) ->
-              SCMod = get_sc_mod(Ledger),
+              SCMod = get_sc_mod(Channel, Ledger),
               BChannel = SCMod:serialize(Channel),
               cache_put(Ledger, SCsCF, ID, BChannel)
       end,
@@ -3186,9 +3190,13 @@ load_hexes(Hexes0, Ledger) ->
             ok
     end.
 
-get_sc_mod(Ledger) ->
+get_sc_mod(Channel, Ledger) ->
     case ?MODULE:config(?sc_version, Ledger) of
-        {ok, 2} -> blockchain_ledger_state_channel_v2;
+        {ok, 2} ->
+            case blockchain_ledger_state_channel_v2:is_v2(Channel) of
+                true -> blockchain_ledger_state_channel_v2;
+                false -> blockchain_ledger_state_channel_v1
+            end;
         _ -> blockchain_ledger_state_channel_v1
     end.
 
