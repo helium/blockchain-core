@@ -26,23 +26,23 @@
 -endif.
 
 -record(ledger_state_channel_v2, {
-    id :: binary(),
-    owner :: binary(),
+    id :: blockchain_state_channel_v1:id(),
+    owner :: libp2p_crypto:pubkey_bin(),
     expire_at_block :: pos_integer(),
     original :: non_neg_integer(),
     amount :: non_neg_integer(),
     nonce :: non_neg_integer(),
     closer :: libp2p_crypto:pubkey_bin(),
-    sc :: blockchain_state_channel_v1:state_channel(),
-    close_state :: closed | dispute
+    sc :: undefined | blockchain_state_channel_v1:state_channel(),
+    close_state :: closed | dispute | undefined
 }).
 
 -type state_channel_v2() :: #ledger_state_channel_v2{}.
 
 -export_type([state_channel_v2/0]).
 
--spec new(ID :: binary(),
-          Owner :: binary(),
+-spec new(ID :: blockchain_state_channel_v1:id(),
+          Owner :: libp2p_crypto:pubkey_bin(),
           ExpireAtBlock :: pos_integer(),
           OriginalAmtDC :: non_neg_integer(),
           TotalAmtDC :: non_neg_integer(),
@@ -57,19 +57,19 @@ new(ID, Owner, ExpireAtBlock, OriginalAmount, TotalAmount, Nonce) ->
        nonce=Nonce
       }.
 
--spec id(state_channel_v2()) -> binary().
+-spec id(state_channel_v2()) -> blockchain_state_channel_v1:id().
 id(#ledger_state_channel_v2{id=ID}) ->
     ID.
 
--spec id(ID :: binary(), SC :: state_channel_v2()) -> state_channel_v2().
+-spec id(ID :: blockchain_state_channel_v1:id(), SC :: state_channel_v2()) -> state_channel_v2().
 id(ID, SC) ->
     SC#ledger_state_channel_v2{id=ID}.
 
--spec owner(state_channel_v2()) -> binary().
+-spec owner(state_channel_v2()) -> libp2p_crypto:pubkey_bin().
 owner(#ledger_state_channel_v2{owner=Owner}) ->
     Owner.
 
--spec owner(Owner :: binary(), SC :: state_channel_v2()) -> state_channel_v2().
+-spec owner(Owner :: libp2p_crypto:pubkey_bin(), SC :: state_channel_v2()) -> state_channel_v2().
 owner(Owner, SC) ->
     SC#ledger_state_channel_v2{owner=Owner}.
 
