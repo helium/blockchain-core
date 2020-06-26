@@ -20,7 +20,7 @@
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/3, fetch/2,
-    summaries/1, summaries/2, update_summaries/3,
+    summaries/1, summaries/2, update_summary_for/3,
 
     add_payload/3,
     get_summary/2,
@@ -113,10 +113,10 @@ summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
 summaries(Summaries, SC) ->
     SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
 
--spec update_summaries(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                       NewSummary :: blockchain_state_channel_summary_v1:summary(),
-                       SC :: state_channel()) -> state_channel().
-update_summaries(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+-spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                         NewSummary :: blockchain_state_channel_summary_v1:summary(),
+                         SC :: state_channel()) -> state_channel().
+update_summary_for(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
     case get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
             SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]};
@@ -457,7 +457,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    NewSC1 = blockchain_state_channel_v1:update_summaries(PubKeyBin, NewSummary, NewSC),
+    NewSC1 = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
