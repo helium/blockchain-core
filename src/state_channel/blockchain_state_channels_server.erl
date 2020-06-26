@@ -17,7 +17,10 @@
     offer/2,
     state_channels/0,
     active_sc_id/0,
-    active_sc/0
+    active_sc/0,
+
+    %% For testing
+    state_channels/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -118,6 +121,10 @@ active_sc_id() ->
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
 
+-spec state_channels(SCMap :: state_channels()) -> ok.
+state_channels(SCMap) ->
+    gen_server:call(?SERVER, {state_channels, SCMap}, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -138,6 +145,10 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
                 {SC, _} -> {ok, blockchain_state_channel_v1:nonce(SC)}
             end,
     {reply, Reply, State};
+handle_call({state_channels, SCMap}, _From, State) ->
+    %% NOTE: Entirely replace state_channels with the input one
+    %% We also want this to return, hence a call
+    {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
 handle_call(active_sc, _From, State) ->
@@ -641,7 +652,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
             NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
             %% Add this to summaries
-            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC);
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
         {ok, ExistingSummary} ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
@@ -652,7 +663,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
                                                                     ExistingNumPackets + 1,
                                                                     ExistingSummary),
             %% Update summaries
-            blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC)
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
     end.
 
 %% ------------------------------------------------------------------
