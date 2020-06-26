@@ -482,8 +482,8 @@ is_causally_correct_sc(SC, State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            caused == blockchain_state_channel_v1:causality(KnownSC, SC) orelse
-            equal == blockchain_state_channel_v1:causality(KnownSC, SC);
+            caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
+            equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC);
         {ok, _KnownSCs} ->
             %% We have a conflict among incoming state channels
             false
