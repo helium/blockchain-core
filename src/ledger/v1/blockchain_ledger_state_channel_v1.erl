@@ -11,7 +11,8 @@
     owner/1, owner/2,
     nonce/1, nonce/2,
     expire_at_block/1, expire_at_block/2,
-    serialize/1, deserialize/1
+    serialize/1, deserialize/1,
+    is_v1/1
 ]).
 
 -ifdef(TEST).
@@ -73,6 +74,10 @@ nonce(#ledger_state_channel_v1{nonce=Nonce}) ->
 nonce(Nonce, SC) ->
     SC#ledger_state_channel_v1{nonce=Nonce}.
 
+-spec is_v1(state_channel()) -> boolean().
+is_v1(#ledger_state_channel_v1{}) -> true;
+is_v1(_) -> false.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Version 1
@@ -129,5 +134,10 @@ nonce_test() ->
     SC = new(<<"id">>, <<"owner">>, 10, 1),
     ?assertEqual(1, nonce(SC)),
     ?assertEqual(2, nonce(nonce(2, SC))).
+
+is_v1_test() ->
+    SC = new(<<"id">>, <<"owner">>, 10, 1),
+    ?assertEqual(true, is_v1(SC)),
+    ?assertEqual(false, is_v1(<<"not v1">>)).
 
 -endif.
