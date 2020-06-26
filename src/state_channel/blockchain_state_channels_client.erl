@@ -228,11 +228,14 @@ handle_banner(Banner, Stream, State) ->
         undefined ->
             ok;
         BannerSC ->
-            case is_valid_sc(BannerSC, Stream, State) of
+            case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
+                    ok = libp2p_framed_stream:close(Stream),
                     store_state_channel(BannerSC, State);
-                _ ->
-                    ok
+                {error, _} ->
+                    libp2p_framed_stream:close(Stream);
+                ok ->
+                    overwrite_state_channel(BannerSC, State)
             end
     end.
 
@@ -242,24 +245,29 @@ handle_banner(Banner, Stream, State) ->
 handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
 
-    case is_valid_sc(PurchaseSC, Stream, State) of
+    case is_valid_sc(PurchaseSC, State) of
         {error, causal_conflict} ->
-            %% store conflicted sc
             ok = store_state_channel(PurchaseSC, State),
+            ok = libp2p_framed_stream:close(Stream),
+            State;
+        {error, _} ->
+            ok = libp2p_framed_stream:close(Stream),
             State;
         ok ->
             case deque_packet(State) of
                 {undefined, _} ->
+                    %% XXX: We somehow don't have this packet in our queue,
+                    %% what should we do? close the stream maybe?
+                    %% store the state channel?
                     State;
                 {Packet, NewState} ->
                     Region = blockchain_state_channel_purchase_v1:region(Purchase),
                     lager:debug("successful purchase validation, sending packet: ~p",
                                 [blockchain_helium_packet_v1:packet_hash(Packet)]),
                     ok = send_packet(Swarm, Stream, Packet, Region),
+                    ok = overwrite_state_channel(PurchaseSC, NewState),
                     NewState
-            end;
-        _ ->
-            State
+            end
     end.
 
 -spec find_stream(AddressOrOUI :: string() | non_neg_integer(),
@@ -435,26 +443,21 @@ send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain) ->
 %% State channel validation functions
 %% ------------------------------------------------------------------
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
-                  Stream :: pid(),
                   State :: state()) -> ok | {error, any()}.
-is_valid_sc(SC, Stream, State) ->
+is_valid_sc(SC, State) ->
     case blockchain_state_channel_v1:validate(SC) of
         {error, Reason}=E ->
-            ok = libp2p_framed_stream:close(Stream),
-            lager:error("invalid banner sc signature, reason: ~p", [Reason]),
+            lager:error("invalid sc, reason: ~p", [Reason]),
             E;
         ok ->
             case is_active_sc(SC) of
                 false ->
-                    lager:error("inactive banner sc"),
-                    ok = libp2p_framed_stream:close(Stream),
-                    ok;
+                    {error, inactive_sc};
                 true ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
-                            overwrite_state_channel(SC, State);
+                            ok;
                         false ->
-                            ok = libp2p_framed_stream:close(Stream),
                             {error, causal_conflict}
                     end
             end
