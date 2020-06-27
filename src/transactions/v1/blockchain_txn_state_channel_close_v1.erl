@@ -61,7 +61,7 @@ state_channel(Txn) ->
 state_channel_id(Txn) ->
     blockchain_state_channel_v1:id(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
 
--spec state_channel_owner(txn_state_channel_close()) -> binary().
+-spec state_channel_owner(txn_state_channel_close()) -> libp2p_crypto:pubkey_bin().
 state_channel_owner(Txn) ->
     blockchain_state_channel_v1:owner(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
 
