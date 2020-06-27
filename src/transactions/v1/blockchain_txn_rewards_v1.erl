@@ -263,9 +263,24 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
-    {ok, DCPercent} = blockchain:config(?dc_percent, Ledger),
-    {ok, SCGrace} = blockchain:config(?sc_grace_blocks, Ledger),
-    {ok, SCVersion} = blockchain:config(?sc_version, Ledger),
+    DCPercent = case blockchain:config(?dc_percent, Ledger) of
+                    {ok, R1} ->
+                        R1;
+                    _ ->
+                        0
+                end,
+    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+                  {ok, R2} ->
+                      R2;
+                  _ ->
+                      0
+              end,
+    SCVersion = case blockchain:config(?sc_version, Ledger) of
+                    {ok, R3} ->
+                        R3;
+                    _ ->
+                        1
+                end,
     POCVersion = case blockchain:config(?poc_version, Ledger) of
                      {ok, V} -> V;
                      _ -> 1
@@ -669,7 +684,9 @@ dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version
       end,
       DCRewards,
       Transactions
-     ).
+     );
+dc_rewards(_Txns, _EndHeight, _Vars, _Ledger, DCRewards) ->
+    DCRewards.
 
 normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
                                   dc_percent := DCPercent}) ->
