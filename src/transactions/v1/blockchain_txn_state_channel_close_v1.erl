@@ -57,7 +57,7 @@ hash(Txn) ->
 state_channel(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.state_channel.
 
--spec state_channel_id(txn_state_channel_close()) -> binary().
+-spec state_channel_id(txn_state_channel_close()) -> blockchain_state_channel_v1:id().
 state_channel_id(Txn) ->
     blockchain_state_channel_v1:id(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
 
