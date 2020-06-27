@@ -2304,6 +2304,11 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
           end,
     cache_put(Ledger, SCsCF, Key, Bin).
 
+-spec close_state_channel(Owner :: libp2p_crypto:pubkey_bin(),
+                          Closer :: libp2p_crypto:pubkey_bin(),
+                          SC :: blockchain_state_channel_v1:state_channel(),
+                          SCID :: binary(),
+                          Ledger :: ledger()) -> ok.
 close_state_channel(Owner, Closer, SC, SCID, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(SCID, Owner),
@@ -3648,7 +3653,11 @@ state_channels_v2_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
+<<<<<<< HEAD
     ok = add_state_channel(ID, Owner, 10, Nonce, Amount, 50, Ledger2),
+=======
+    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
+>>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
@@ -3658,7 +3667,11 @@ state_channels_v2_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
+<<<<<<< HEAD
     ok = close_state_channel(ID, Owner, Owner, ID, Ledger3),
+=======
+    ok = close_state_channel(Owner, Owner, SC, ID, Ledger3),
+>>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger3),
     {ok, SC0} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),

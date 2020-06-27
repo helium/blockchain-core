@@ -18,6 +18,9 @@
     new/2,
     hash/1,
     state_channel/1,
+    state_channel_id/1,
+    state_channel_owner/1,
+    state_channel_expire_at/1,
     closer/1,
     fee/1, fee/2,
     calculate_fee/2, calculate_fee/5,
@@ -53,6 +56,18 @@ hash(Txn) ->
 -spec state_channel(txn_state_channel_close()) -> blockchain_state_channel_v1:state_channel().
 state_channel(Txn) ->
     Txn#blockchain_txn_state_channel_close_v1_pb.state_channel.
+
+-spec state_channel_id(txn_state_channel_close()) -> binary().
+state_channel_id(Txn) ->
+    blockchain_state_channel_v1:id(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
+
+-spec state_channel_owner(txn_state_channel_close()) -> binary().
+state_channel_owner(Txn) ->
+    blockchain_state_channel_v1:owner(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
+
+-spec state_channel_expire_at(txn_state_channel_close()) -> pos_integer().
+state_channel_expire_at(Txn) ->
+    blockchain_state_channel_v1:expire_at_block(Txn#blockchain_txn_state_channel_close_v1_pb.state_channel).
 
 -spec closer(txn_state_channel_close()) -> libp2p_crypto:pubkey_bin().
 closer(Txn) ->
