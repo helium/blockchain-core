@@ -263,6 +263,7 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
     DCPercent = case blockchain:config(?dc_percent, Ledger) of
                     {ok, R1} ->
                         R1;
@@ -294,6 +295,7 @@ get_reward_vars(Start, End, Ledger) ->
         poc_challengers_percent => PocChallengersPercent,
         poc_witnesses_percent => PocWitnessesPercent,
         consensus_percent => ConsensusPercent,
+        consensus_members => ConsensusMembers,
         dc_percent => DCPercent,
         sc_grace_blocks => SCGrace,
         sc_version => SCVersion,
@@ -679,7 +681,17 @@ dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version
                             Acc
                     end;
                 false ->
-                    Acc
+                    %% check for transaction fees above the minimum and credit the overages to the consensus group
+                    Type = blockchain_txn:type(Txn),
+                    try Type:calculate_fee(Txn, Ledger) - Type:fee(Txn) of
+                        Overage when Overage > 0 ->
+                            maps:update_with(overages, fun(Overages) -> Overages + Overage end, Overage, Acc);
+                        _ ->
+                            Acc
+                    catch
+                        _:_ ->
+                            Acc
+                    end
             end
       end,
       DCRewards,
@@ -689,8 +701,19 @@ dc_rewards(_Txns, _EndHeight, _Vars, _Ledger, DCRewards) ->
     DCRewards.
 
 normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
+                                   consensus_members := ConsensusMembers,
                                   dc_percent := DCPercent}) ->
-    DCRewards = maps:remove(seen, DCRewards0),
+    DCRewards1 = maps:remove(seen, DCRewards0),
+    DCRewards = case maps:take(overages, DCRewards1) of
+                    {OverageTotal, NewMap} ->
+                        OveragePerMember = OverageTotal div length(ConsensusMembers),
+                        lists:foldl(fun(Member, Acc) ->
+                                            maps:update_with(Member, fun(Balance) -> Balance + OveragePerMember end, OveragePerMember, Acc)
+                                    end, NewMap, ConsensusMembers);
+                    error ->
+                        %% no overages to account for
+                        DCRewards1
+                end,
     TotalDCs = lists:sum(maps:values(DCRewards)),
     DCReward = EpochReward * DCPercent,
     maps:fold(
@@ -1174,7 +1197,8 @@ dc_rewards_test() ->
         epoch_reward => 1000,
         dc_percent => 0.3,
         sc_version => 2,
-        sc_grace_blocks => 5
+        sc_grace_blocks => 5,
+        consensus_members => [<<"c">>, <<"d">>]
     },
 
     LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
