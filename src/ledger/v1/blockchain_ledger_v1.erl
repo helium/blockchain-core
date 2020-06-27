@@ -2306,7 +2306,7 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
 -spec close_state_channel(Owner :: libp2p_crypto:pubkey_bin(),
                           Closer :: libp2p_crypto:pubkey_bin(),
                           SC :: blockchain_state_channel_v1:state_channel(),
-                          SCID :: binary(),
+                          SCID :: blockchain_state_channel_v1:id(),
                           Ledger :: ledger()) -> ok.
 close_state_channel(Owner, Closer, SC, SCID, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
