@@ -313,33 +313,7 @@ init(Args) ->
         end,
     true = lists:all(fun(E) -> E == ok end,
                      [ libp2p_swarm:listen(SwarmTID, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port)) || Port <- Ports ]),
-    QuickSyncMode = application:get_env(blockchain, quick_sync_mode, assumed_valid),
-    {Mode, Info} =
-        case application:get_env(blockchain, honor_quick_sync, false) of
-            true ->
-                case QuickSyncMode of
-                    assumed_valid -> {normal, undefined};
-                    blessed_snapshot ->
-                        {ok, Hash} = application:get_env(blockchain, blessed_snapshot_block_hash),
-                        {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
-                        case Blockchain of
-                            undefined ->
-                                {snapshot, {Hash, Height}};
-                            {no_genesis, _} ->
-                                {snapshot, {Hash, Height}};
-                            _Chain ->
-                                {ok, CurrHeight} = blockchain:height(Blockchain),
-                                case CurrHeight >= Height of
-                                    %% already loaded the snapshot
-                                    true -> {normal, undefined};
-                                    false -> {snapshot, {Hash, Height}}
-                                end
-                        end
-                end;
-            false ->
-                %% full sync only ever syncs blocks, so just sync blocks
-                {normal, undefined}
-        end,
+    {Mode, Info} = get_sync_mode(Blockchain),
 
     {ok, #state{swarm = Swarm, swarm_tid = SwarmTID, blockchain = Blockchain,
                 gossip_ref = Ref, mode = Mode, snapshot_info = Info}}.
@@ -434,8 +408,9 @@ handle_call(_Msg, _From, State) ->
 
 handle_cast({load, BaseDir, GenDir}, #state{blockchain=undefined}=State) ->
     {Blockchain, Ref} = load_chain(State#state.swarm, BaseDir, GenDir),
+    {Mode, Info} = get_sync_mode(Blockchain),
     notify({new_chain, Blockchain}),
-    {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref}};
+    {noreply, State#state{blockchain = Blockchain, gossip_ref = Ref, mode=Mode, snapshot_info=Info}};
 handle_cast({integrate_genesis_block, GenesisBlock}, #state{blockchain={no_genesis, Blockchain},
                                                             swarm_tid=SwarmTid}=State) ->
     case blockchain_block:is_genesis(GenesisBlock) of
@@ -926,3 +901,34 @@ schedule_sync(State) ->
                   end
           end,
     State#state{sync_timer=Ref}.
+
+
+get_sync_mode(Blockchain) ->
+    case application:get_env(blockchain, honor_quick_sync, false) of
+        true ->
+            case application:get_env(blockchain, quick_sync_mode, assumed_valid) of
+                assumed_valid -> {normal, undefined};
+                blessed_snapshot ->
+                    {ok, Hash} = application:get_env(blockchain, blessed_snapshot_block_hash),
+                    {ok, Height} = application:get_env(blockchain, blessed_snapshot_block_height),
+                    Autoload = application:get_env(blockchain, autoload, true),
+                    case Blockchain of
+                        undefined when Autoload == false ->
+                            {normal, undefined};
+                        undefined ->
+                            {snapshot, {Hash, Height}};
+                        {no_genesis, _} ->
+                            {snapshot, {Hash, Height}};
+                        _Chain ->
+                            {ok, CurrHeight} = blockchain:height(Blockchain),
+                            case CurrHeight >= Height of
+                                %% already loaded the snapshot
+                                true -> {normal, undefined};
+                                false -> {snapshot, {Hash, Height}}
+                            end
+                    end
+            end;
+        false ->
+            %% full sync only ever syncs blocks, so just sync blocks
+            {normal, undefined}
+    end.
