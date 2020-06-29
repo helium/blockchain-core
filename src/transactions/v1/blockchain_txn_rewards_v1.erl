@@ -682,6 +682,10 @@ dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version
                     end;
                 false ->
                     %% check for transaction fees above the minimum and credit the overages to the consensus group
+                    %% XXX this calculation may not be entirely correct if the fees change during the epoch. However,
+                    %% since an epoch may stretch past the lagging ledger, we cannot know for certain what the fee
+                    %% structure was at any point in this epoch so we make the reasonable conclusion to use the
+                    %% conditions at the end of the epoch to calculate fee overages for the purposes of rewards.
                     Type = blockchain_txn:type(Txn),
                     try Type:calculate_fee(Txn, Ledger) - Type:fee(Txn) of
                         Overage when Overage > 0 ->
