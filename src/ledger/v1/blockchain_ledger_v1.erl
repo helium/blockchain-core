@@ -3200,9 +3200,9 @@ get_sc_mod(Channel, Ledger) ->
         _ -> blockchain_ledger_state_channel_v1
     end.
 
-deserialize_state_channel(<<1, SC/binary>>) ->
+deserialize_state_channel(<<1, _/binary>> = SC) ->
     {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:deserialize(SC)};
-deserialize_state_channel(<<2, SC/binary>>) ->
+deserialize_state_channel(<<2, _/binary>> = SC) ->
     {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:deserialize(SC)}.
 
 %% ------------------------------------------------------------------
@@ -3609,7 +3609,7 @@ state_channels_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 10, Nonce, 0, Ledger2),
+    ok = add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
@@ -3641,7 +3641,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Ledger2),
+    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, 50, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
@@ -3651,7 +3651,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-    ok = close_state_channel(ID, Owner, Owner, Ledger3),
+    ok = close_state_channel(ID, Owner, Owner, ID, Ledger3),
     ok = commit_context(Ledger3),
     {ok, SC0} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
@@ -3682,8 +3682,8 @@ find_scs_by_owner_test() ->
 
     Ledger2 = new_context(Ledger),
     %% Add two state channels for this owner
-    ok = add_state_channel(ID1, Owner, 10, Nonce, 0, Ledger2),
-    ok = add_state_channel(ID2, Owner, 10, Nonce, 0, Ledger2),
+    ok = add_state_channel(ID1, Owner, 10, Nonce, 0, 0, Ledger2),
+    ok = add_state_channel(ID2, Owner, 10, Nonce, 0, 0, Ledger2),
     ok = commit_context(Ledger2),
 
     {ok, FoundIDs} = find_sc_ids_by_owner(Owner, Ledger),
