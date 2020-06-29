@@ -1249,6 +1249,17 @@ staking_key_add_gateway(Config) ->
 
     ?assertMatch({error,payer_invalid_staking_key}, blockchain_txn:is_valid(SignedPayerAddGatewayTx02, Chain)),
 
+    %% check no staking key fails
+    AddGatewayTx000 = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+
+    %% set the fees on the base txn and then sign the various txns
+    AddGatewayTx001 = blockchain_txn_add_gateway_v1:fee(AddGatewayTx000, AddGatewayTxFee),
+    AddGatewayTx002 = blockchain_txn_add_gateway_v1:staking_fee(AddGatewayTx001, AddGatewayStFee),
+
+    SignedOwnerAddGatewayTx002 = blockchain_txn_add_gateway_v1:sign(AddGatewayTx002, OwnerSigFun),
+    SignedGatewayAddGatewayTx002 = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx002, GatewaySigFun),
+    ?assertMatch({error,payer_invalid_staking_key}, blockchain_txn:is_valid(SignedGatewayAddGatewayTx002, Chain)),
+
     ok.
 
 %%--------------------------------------------------------------------
