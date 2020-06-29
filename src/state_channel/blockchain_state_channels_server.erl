@@ -20,7 +20,7 @@
     active_sc/0,
 
     %% For testing
-    state_channels/1
+    insert_fake_sc_skewed/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -121,9 +121,10 @@ active_sc_id() ->
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
 
--spec state_channels(SCMap :: state_channels()) -> ok.
-state_channels(SCMap) ->
-    gen_server:call(?SERVER, {state_channels, SCMap}, infinity).
+-spec insert_fake_sc_skewed(FakeSC :: blockchain_state_channel_v1:state_channel(),
+                            FakeSkewed :: skewed:skewed()) -> ok.
+insert_fake_sc_skewed(FakeSC, FakeSkewed) ->
+    gen_server:call(?SERVER, {insert_fake_sc_skewed, FakeSC, FakeSkewed}, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -145,9 +146,15 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
                 {SC, _} -> {ok, blockchain_state_channel_v1:nonce(SC)}
             end,
     {reply, Reply, State};
-handle_call({state_channels, SCMap}, _From, State) ->
-    %% NOTE: Entirely replace state_channels with the input one
-    %% We also want this to return, hence a call
+handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
+            #state{db=DB, state_channels=SCs, streams=Streams, owner={_, OwnerSigFun}}=State) ->
+    %% NOTE: This function is for testing, we should do something else probably
+    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
+    FakeSCID = blockchain_state_channel_v1:id(FakeSC),
+    SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
+    lager:info("broadcasting fake banner: ~p, to: ~p", [SignedFakeSC, Streams]),
+    ok = broadcast_banner(SignedFakeSC, State),
     {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};

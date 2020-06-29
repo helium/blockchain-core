@@ -1984,9 +1984,9 @@ sc_conflict_test(Config) ->
     GatewayNode1Chain = ct_rpc:call(GatewayNode1, blockchain_worker, blockchain, []),
 
     %% Sending 1 packet
-    DevNonce0 = crypto:strong_rand_bytes(2),
-    Packet0 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce0, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet0, [], 'US915', GatewayNode1Chain]),
+    DevNonce1 = crypto:strong_rand_bytes(2),
+    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915', GatewayNode1Chain]),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1994,9 +1994,9 @@ sc_conflict_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Sending another packet
-    DevNonce1 = crypto:strong_rand_bytes(2),
-    Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915', GatewayNode1Chain]),
+    DevNonce2 = crypto:strong_rand_bytes(2),
+    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915', GatewayNode1Chain]),
 
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -2006,19 +2006,17 @@ sc_conflict_test(Config) ->
     %% ========================================================================
     %% ====== SC SERVER MANIPULATION ==========================================
     %% Get some preliminary data from sc server
-    ActiveSCID = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc_id, []),
     ActiveSC = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc, []),
     {ok, GwSummary} = blockchain_state_channel_v1:get_summary(GatewayPubkeyBin, ActiveSC),
 
     %% Insert a differing version of ActiveSC in the state channel server
     %% in which we have reduced the packet and dc count
     FakeGwSummary = blockchain_state_channel_summary_v1:num_packets(4, blockchain_state_channel_summary_v1:num_dcs(4, GwSummary)),
-    FakeActiveSC = blockchain_state_channel_v1:update_summary_for(GatewayPubkeyBin, FakeGwSummary, ActiveSC),
+    FakeActiveSC = blockchain_state_channel_v1:nonce(1, blockchain_state_channel_v1:update_summary_for(GatewayPubkeyBin, FakeGwSummary, ActiveSC)),
     FakeSkewed = skewed:new(SCOpenBlockHash),
-    FakeSCMap = #{ActiveSCID => {FakeActiveSC, FakeSkewed}},
 
     %% Fuck up state_channels map in sc server with the fake one
-    ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, state_channels, [FakeSCMap]),
+    ok = ct_rpc:call(RouterNode, blockchain_state_channels_server, insert_fake_sc_skewed, [FakeActiveSC, FakeSkewed]),
 
     %% Check that we are running fake sc in the server
     InsertedFakeActiveSC = ct_rpc:call(RouterNode, blockchain_state_channels_server, active_sc, []),
@@ -2026,12 +2024,23 @@ sc_conflict_test(Config) ->
 
     ?assertNotEqual(ActiveSC, InsertedFakeActiveSC),
     ?assertNotEqual(GwSummary, InsertedFakeGwSummary),
+
     %% ========================================================================
 
-    %% Sending yet another packet
-    DevNonce2 = crypto:strong_rand_bytes(2),
-    Packet2 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce2, 0.0),
-    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet2, [], 'US915', GatewayNode1Chain]),
+    %% At this point we should have inserted causal conflict for the client
+    %% No further packets from this client should go through
+    %% Still try to send some more packets
+    %% Sending 3rd packet
+    DevNonce3 = crypto:strong_rand_bytes(2),
+    Packet3 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce3, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, [], 'US915', GatewayNode1Chain]),
+
+    timer:sleep(timer:seconds(1)),
+
+    %% Sending 4th packet
+    DevNonce4 = crypto:strong_rand_bytes(2),
+    Packet4 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce4, 0.0),
+    ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet4, [], 'US915', GatewayNode1Chain]),
 
     %% Adding 20 fake blocks to get the state channel to expire
     FakeBlocks = 20,
@@ -2041,8 +2050,8 @@ sc_conflict_test(Config) ->
     %% Adding close txn to blockchain
     receive
         {txn, Txn} ->
-            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet0),
-                                                             blockchain_helium_packet_v1:payload(Packet1)]),
+            true = check_sc_close(Txn, ID, SCOpenBlockHash, [blockchain_helium_packet_v1:payload(Packet1),
+                                                             blockchain_helium_packet_v1:payload(Packet2)]),
             {ok, Block1} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [Txn]]),
             ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block1, RouterChain, Self, RouterSwarm])
     after 10000 ->
@@ -2056,8 +2065,6 @@ sc_conflict_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
     end, 10, timer:seconds(1)),
-
-    ok = RouterLedger,
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
 

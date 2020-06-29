@@ -230,11 +230,16 @@ handle_banner(Banner, Stream, State) ->
         BannerSC ->
             case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
+                    lager:error("causal_conflict for banner sc: ~p", [BannerSC]),
                     ok = libp2p_framed_stream:close(Stream),
-                    store_state_channel(BannerSC, State);
-                {error, _} ->
-                    libp2p_framed_stream:close(Stream);
+                    ok = append_state_channel(BannerSC, State),
+                    ok;
+                {error, Reason} ->
+                    lager:error("reason: ~p", [Reason]),
+                    ok = libp2p_framed_stream:close(Stream),
+                    ok;
                 ok ->
+                    lager:info("valid banner"),
                     overwrite_state_channel(BannerSC, State)
             end
     end.
@@ -247,7 +252,8 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
 
     case is_valid_sc(PurchaseSC, State) of
         {error, causal_conflict} ->
-            ok = store_state_channel(PurchaseSC, State),
+            lager:error("causal_conflict for purchase sc: ~p", [PurchaseSC]),
+            ok = append_state_channel(PurchaseSC, State),
             ok = libp2p_framed_stream:close(Stream),
             State;
         {error, _} ->
@@ -481,13 +487,17 @@ is_causally_correct_sc(SC, State) ->
         {error, not_found} ->
             true;
         {error, _} ->
+            lager:error("rocks blew up"),
             %% rocks blew up
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
-            equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC);
-        {ok, _KnownSCs} ->
+            Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
+                     equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            lager:info("causality check: ~p, this sc: ~p, known_sc: ~p", [Check, SC, KnownSC]),
+            Check;
+        {ok, KnownSCs} ->
+            lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
             %% We have a conflict among incoming state channels
             false
     end.
@@ -509,9 +519,9 @@ get_state_channels(SCID, #state{db=DB, cf=CF}) ->
             Error
     end.
 
--spec store_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
-                          State :: state()) -> ok | {error, any()}.
-store_state_channel(SC, #state{db=DB, cf=CF}=State) ->
+-spec append_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
+                           State :: state()) -> ok | {error, any()}.
+append_state_channel(SC, #state{db=DB, cf=CF}=State) ->
     SCID = blockchain_state_channel_v1:id(SC),
     case get_state_channels(SCID, State) of
         {ok, SCs} ->
