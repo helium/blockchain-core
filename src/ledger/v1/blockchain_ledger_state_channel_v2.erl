@@ -146,7 +146,7 @@ close_proposal(Closer, SC, SCEntry) ->
             %% already marked as dispute
             %% Check to see if the nonce is updated, if so replace
             CurrentNonce = blockchain_state_channel_v1:nonce(SC),
-            PreviousNonce = blockchain_state_channel_v1:none(state_channel(SCEntry)),
+            PreviousNonce = blockchain_state_channel_v1:nonce(state_channel(SCEntry)),
 
             case CurrentNonce > PreviousNonce andalso Closer == closer(SCEntry) of
                 true ->
