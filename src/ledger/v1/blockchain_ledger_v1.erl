@@ -55,7 +55,7 @@
     request_poc/5,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
-    maybe_gc_scs/2,
+    maybe_gc_scs/1,
 
     find_entry/2,
     credit_account/3, debit_account/4, debit_fee_from_account/3,
@@ -1420,7 +1420,8 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
-maybe_gc_scs(Chain, Ledger) ->
+maybe_gc_scs(Chain) ->
+    Ledger = blockchain:ledger(Chain),
     {ok, Height} = current_height(Ledger),
     {ok, Block} = blockchain:get_block(Height, Chain),
     {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
