@@ -143,8 +143,17 @@ close_proposal(Closer, SC, SCEntry) ->
                     SCEntry#ledger_state_channel_v2{closer=NewCloser, sc=NewSC, close_state=dispute}
             end;
         dispute ->
-            %% already marked as dispute, just keep it that way
-            SCEntry
+            %% already marked as dispute
+            %% Check to see if the nonce is updated, if so replace
+            CurrentNonce = blockchain_state_channel_v1:nonce(SC),
+            PreviousNonce = blockchain_state_channel_v1:none(state_channel(SCEntry)),
+
+            case CurrentNonce > PreviousNonce andalso Closer == closer(SCEntry) of
+                true ->
+                    SCEntry#ledger_state_channel_v2{sc=SC};
+                false ->
+                    SCEntry
+            end
     end.
 
 closer(SC) ->
