@@ -55,7 +55,7 @@
     request_poc/5,
     delete_poc/3, delete_pocs/2,
     maybe_gc_pocs/2,
-    maybe_gc_scs/1,
+    maybe_gc_scs/2,
 
     find_entry/2,
     credit_account/3, debit_account/4, debit_fee_from_account/3,
@@ -1421,8 +1421,10 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
-maybe_gc_scs(Ledger) ->
+maybe_gc_scs(Chain, Ledger) ->
     {ok, Height} = current_height(Ledger),
+    {ok, Block} = blockchain:get_block(Height, Chain),
+    {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
 
     case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
@@ -1444,15 +1446,19 @@ maybe_gc_scs(Ledger) ->
                                                    blockchain_ledger_state_channel_v1 ->
                                                        [KeyHash | Acc];
                                                    blockchain_ledger_state_channel_v2 ->
-                                                       case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                           undefined -> [KeyHash | Acc]; %% due to tests must handle
-                                                           dispute -> [KeyHash | Acc]; %% confiscate overcommit
-                                                           closed ->
-                                                               SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
-                                                               Owner = blockchain_state_channel_v1:owner(SC0),
-                                                               Credit = calc_remaining_dcs(SC0),
-                                                               ok = credit_dc(Owner, Credit, Ledger),
-                                                               [KeyHash | Acc]
+                                                       case (ExpireAtBlock + Grace) < EpochStart of
+                                                           false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
+                                                           true ->
+                                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                                   undefined -> [KeyHash | Acc]; %% due to tests must handle
+                                                                   dispute -> [KeyHash | Acc];
+                                                                   closed -> %% refund overcommit DCs
+                                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                                       Owner = blockchain_state_channel_v1:owner(SC0),
+                                                                       Credit = calc_remaining_dcs(SC0),
+                                                                       ok = credit_dc(Owner, Credit, Ledger),
+                                                                       [KeyHash | Acc]
+                                                               end
                                                        end
                                                end
                                        end
