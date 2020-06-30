@@ -130,17 +130,29 @@ deserialize(<<2, Bin/binary>>) ->
 close_proposal(Closer, SC, SCEntry) ->
     case close_state(SCEntry) of
         undefined ->
-            %% we've never gotten a close request for this before, so...
-            SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed};
+            case is_sc_participant(Closer, SC) of
+                false ->
+                    %% just ignore this; leave it undefined
+                    SCEntry;
+                true ->
+                    %% we've never gotten a close request for this before, so...
+                    SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed}
+            end;
         closed ->
-            %% ok so we've already marked this entry as closed... maybe we should
-            %% dispute it
-            case maybe_dispute(Closer, closer(SCEntry), SC, state_channel(SCEntry)) of
-                closed ->
-                    SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed};
-                {dispute, NewCloser, NewSC} ->
-                    %% store the "latest" (as judged by nonce)
-                    SCEntry#ledger_state_channel_v2{closer=NewCloser, sc=NewSC, close_state=dispute}
+            case is_sc_participant(Closer, SC) of
+                false ->
+                    %% ignore
+                    SCEntry;
+                true ->
+                    %% ok so we've already marked this entry as closed... maybe we should
+                    %% dispute it
+                    case maybe_dispute(SC, state_channel(SCEntry)) of
+                        closed ->
+                            SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed};
+                        {dispute, NewSC} ->
+                            %% store the "latest" (as judged by nonce)
+                            SCEntry#ledger_state_channel_v2{sc=NewSC, close_state=dispute}
+                    end
             end;
         dispute ->
             %% already marked as dispute
@@ -148,10 +160,11 @@ close_proposal(Closer, SC, SCEntry) ->
             CurrentNonce = blockchain_state_channel_v1:nonce(SC),
             PreviousNonce = blockchain_state_channel_v1:nonce(state_channel(SCEntry)),
 
-            case CurrentNonce > PreviousNonce andalso Closer == closer(SCEntry) of
+            case CurrentNonce > PreviousNonce andalso is_sc_participant(Closer, SC) of
                 true ->
                     SCEntry#ledger_state_channel_v2{sc=SC};
                 false ->
+                    %% ignore
                     SCEntry
             end
     end.
@@ -171,26 +184,21 @@ is_v2(_) -> false.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-maybe_dispute(Closer, Closer, SC, SC) -> closed;
-maybe_dispute(Closer, Closer, CurrentSC, PreviousSC) ->
+maybe_dispute(SC, SC) -> closed;
+maybe_dispute(CurrentSC, PreviousSC) ->
     CurrentNonce = blockchain_state_channel_v1:nonce(CurrentSC),
     PreviousNonce = blockchain_state_channel_v1:nonce(PreviousSC),
     if
         CurrentNonce > PreviousNonce -> closed;
-        CurrentNonce < PreviousNonce -> {dispute, Closer, PreviousSC};
-        true -> closed
-    end;
-%% this could happen when some other actor sends a close that arrives
-%% late and has a more recent view of the state channel than the one we
-%% have in our ledger.
-maybe_dispute(_Closer, Other, CurrentSC, PreviousSC) ->
-    CurrentNonce = blockchain_state_channel_v1:nonce(CurrentSC),
-    PreviousNonce = blockchain_state_channel_v1:nonce(PreviousSC),
-    if
-        CurrentNonce > PreviousNonce -> {dispute, Other, CurrentSC};
-        CurrentNonce < PreviousNonce -> closed;
-        true -> closed
+        CurrentNonce < PreviousNonce -> {dispute, PreviousSC};
+        true -> closed %% nonces are equal but should've been matched above
     end.
+
+is_sc_participant(Closer, SC) ->
+    Summaries = blockchain_state_channel_v1:summaries(SC),
+    Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
+    Owner = blockchain_state_channel_v1:owner(SC),
+    lists:member(Closer, [Owner | Clients]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -248,11 +256,17 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
-    Closer = <<"closer">>,
-    ?assertEqual(closed, maybe_dispute(Closer, Closer, SC0, SC0)),
-    ?assertEqual(closed, maybe_dispute(Closer, Closer, Nonce8, Nonce4)),
-    ?assertEqual({dispute, Closer, Nonce8}, maybe_dispute(Closer, Closer, Nonce4, Nonce8)),
-    ?assertEqual(closed, maybe_dispute(Closer, <<"other">>, Nonce4, Nonce8)),
-    ?assertEqual({dispute, <<"other">>, Nonce8}, maybe_dispute(Closer, <<"other">>, Nonce8, Nonce4)).
+    ?assertEqual(closed, maybe_dispute(SC0, SC0)),
+    ?assertEqual(closed, maybe_dispute(Nonce8, Nonce4)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce4, Nonce8)).
+
+is_sc_participant_test() ->
+    Ids = [<<"key1">>, <<"key2">>, <<"key3">>],
+    Summaries = [ blockchain_state_channel_summary_v1:new(I) || I <- Ids ],
+    SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"owner">>, 100),
+    SC1 = blockchain_state_channel_v1:summaries(Summaries, SC0),
+    ?assertEqual(false, is_sc_participant(<<"nope">>, SC1)),
+    ?assertEqual(true, is_sc_participant(<<"key2">>, SC1)),
+    ?assertEqual(true, is_sc_participant(<<"owner">>, SC1)).
 
 -endif.
