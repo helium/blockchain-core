@@ -48,7 +48,9 @@
 
 -export_type([state_channel/0, id/0]).
 
--spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> state_channel().
+-spec new(ID :: id(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer()) -> state_channel().
 new(ID, Owner, Amount) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
@@ -61,7 +63,7 @@ new(ID, Owner, Amount) ->
         expire_at_block=0
     }.
 
--spec new(ID :: binary(),
+-spec new(ID :: id(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Amount :: non_neg_integer(),
           BlockHash :: binary(),
@@ -517,80 +519,80 @@ causality_test() ->
     Summary3 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
 
     %% base, equal
-    BaseSC1 = new(<<"1">>, <<"owner">>),
-    BaseSC2 = new(<<"1">>, <<"owner">>),
+    BaseSC1 = new(<<"1">>, <<"owner">>, 1),
+    BaseSC2 = new(<<"1">>, <<"owner">>, 1),
     ?assertEqual(equal, compare_causality(BaseSC1, BaseSC2)),
 
     %% no summary, increasing nonce
-    SC1 = new(<<"1">>, <<"owner">>),
-    SC2 = nonce(1, new(<<"1">>, <<"owner">>)),
+    SC1 = new(<<"1">>, <<"owner">>, 1),
+    SC2 = nonce(1, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(caused, compare_causality(SC1, SC2)),
     ?assertEqual(effect_of, compare_causality(SC2, SC1)),
 
     %% 0 (same) nonce, with differing summary, conflict
-    SC3 = summaries([Summary2], new(<<"1">>, <<"owner">>)),
-    SC4 = summaries([Summary1], new(<<"1">>, <<"owner">>)),
+    SC3 = summaries([Summary2], new(<<"1">>, <<"owner">>, 1)),
+    SC4 = summaries([Summary1], new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(conflict, compare_causality(SC3, SC4)),
     ?assertEqual(conflict, compare_causality(SC4, SC3)),
 
     %% SC6 is allowed after SC5
-    SC5 = new(<<"1">>, <<"owner">>),
-    SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>))),
+    SC5 = new(<<"1">>, <<"owner">>, 1),
+    SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC6)),
     ?assertEqual(effect_of, compare_causality(SC6, SC5)),
 
     %% SC7 is allowed after SC5
     %% NOTE: skipped a nonce here (should this actually be allowed?)
-    SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>))),
+    SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC7)),
     ?assertEqual(effect_of, compare_causality(SC7, SC5)),
 
     %% SC9 has higher nonce than SC8, however,
     %% SC9 does not have summary which SC8 has, conflict
-    SC8 = summaries([Summary1], nonce(8, new(<<"1">>, <<"owner">>))),
-    SC9 = nonce(9, new(<<"1">>, <<"owner">>)),
+    SC8 = summaries([Summary1], nonce(8, new(<<"1">>, <<"owner">>, 1))),
+    SC9 = nonce(9, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(conflict, compare_causality(SC8, SC9)),
     ?assertEqual(conflict, compare_causality(SC9, SC8)),
 
     %% same non-zero nonce, with differing summary, conflict
-    SC10 = nonce(10, new(<<"1">>, <<"owner">>)),
-    SC11 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>))),
+    SC10 = nonce(10, new(<<"1">>, <<"owner">>, 1)),
+    SC11 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC10, SC11)),
     ?assertEqual(conflict, compare_causality(SC11, SC10)),
 
     %% natural progression
-    SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>))),
-    SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>))),
+    SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC12, SC13)),
     ?assertEqual(effect_of, compare_causality(SC13, SC12)),
 
     %% definite conflict, since summary for a client is missing in higher nonce sc
-    SC14 = summaries([Summary1], nonce(11, new(<<"1">>, <<"owner">>))),
-    SC15 = summaries([Summary2], nonce(10, new(<<"1">>, <<"owner">>))),
+    SC14 = summaries([Summary1], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    SC15 = summaries([Summary2], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC14, SC15)),
     ?assertEqual(conflict, compare_causality(SC15, SC14)),
 
     %% another natural progression
-    SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>))),
-    SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>))),
+    SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC16, SC17)),
     ?assertEqual(effect_of, compare_causality(SC17, SC16)),
 
     %% another definite conflict, since higher nonce sc does not have previous summary
-    SC18 = summaries([Summary1, Summary3], nonce(10, new(<<"1">>, <<"owner">>))),
-    SC19 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>))),
+    SC18 = summaries([Summary1, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC19 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC18, SC19)),
     ?assertEqual(conflict, compare_causality(SC19, SC18)),
 
     %% yet another conflict, since a higher nonce sc has an older client summary
-    SC20 = summaries([Summary2, Summary3], nonce(10, new(<<"1">>, <<"owner">>))),
-    SC21 = summaries([Summary1, Summary3], nonce(11, new(<<"1">>, <<"owner">>))),
+    SC20 = summaries([Summary2, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC21 = summaries([Summary1, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC20, SC21)),
     ?assertEqual(conflict, compare_causality(SC21, SC20)),
 
     %% natural progression with nonce skip
-    SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>))),
-    SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>))),
+    SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC22, SC23)),
     ?assertEqual(effect_of, compare_causality(SC23, SC22)),
 
