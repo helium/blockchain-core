@@ -60,19 +60,8 @@ init(Args) ->
     erlang:process_flag(trap_exit, true),
     BaseDir = maps:get(base_dir, Args),
     CFs = maps:get(cfs, Args, ["default", "sc_servers_cf", "sc_clients_cf"]),
-    case open_db(BaseDir, CFs) of
-        {error, _Reason} ->
-            %% Go into a tight loop
-            init(Args);
-        {ok, DB, [DefaultCF, SCServersCF, SCClientsCF]} ->
-            State = #state{
-                       db=DB,
-                       default=DefaultCF,
-                       sc_servers_cf=SCServersCF,
-                       sc_clients_cf=SCClientsCF
-                      },
-            {ok, State}
-    end.
+    {ok, DB, [DefaultCF, SCServersCF, SCClientsCF]} = open_db(BaseDir, CFs),
+    {ok, #state{db=DB, default=DefaultCF, sc_servers_cf=SCServersCF, sc_clients_cf=SCClientsCF}}.
 
 handle_call(db, _From, #state{db=DB}=State) ->
     {reply, DB, State};
