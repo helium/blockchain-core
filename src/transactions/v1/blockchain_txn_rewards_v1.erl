@@ -160,7 +160,7 @@ calculate_rewards(Start, End, Chain) ->
     case get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) of
         {error, _Reason}=Error ->
             Error;
-        {ok, POCChallengersRewards, POCChallengeesRewards, POCWitnessesRewards} ->
+        {ok, POCChallengersRewards, POCChallengeesRewards, POCWitnessesRewards, DCRewards} ->
             SecuritiesRewards = securities_rewards(Ledger, Vars),
             % Forcing calculation of EpochReward to always be around ElectionInterval (30 blocks) so that there is less incentive to stay in the consensus group
             ConsensusEpochReward = calculate_epoch_reward(1, Start, End, Ledger),
@@ -186,7 +186,7 @@ calculate_rewards(Start, End, Chain) ->
                        end,
                        [],
                        [ConsensusRewards, SecuritiesRewards, POCChallengersRewards,
-                        POCChallengeesRewards, POCWitnessesRewards]
+                        POCChallengeesRewards, POCWitnessesRewards, DCRewards]
                       ),
             {ok, Result}
     end.
@@ -221,17 +221,18 @@ to_json(Txn, _Opts) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec get_rewards_for_epoch(non_neg_integer(), non_neg_integer(),
-                         blockchain:blockchain(), map(), blockchain_ledger_v1:ledger()) -> {ok, map(), map(), map()}
+                         blockchain:blockchain(), map(), blockchain_ledger_v1:ledger()) -> {ok, map(), map(), map(), map()}
                                                                             | {error, any()}.
 
 get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) ->
-    get_rewards_for_epoch(Start, End, Chain, Vars, Ledger, #{}, #{}, #{}).
+    get_rewards_for_epoch(Start, End, Chain, Vars, Ledger, #{}, #{}, #{}, #{}).
 
-get_rewards_for_epoch(Start, End, _Chain, Vars, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards) when Start == End+1 ->
+get_rewards_for_epoch(Start, End, _Chain, Vars, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) when Start == End+1 ->
     {ok, normalize_challenger_rewards(ChallengerRewards, Vars),
      normalize_challengee_rewards(ChallengeeRewards, Vars),
-     normalize_witness_rewards(WitnessRewards, Vars)};
-get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards) ->
+     normalize_witness_rewards(WitnessRewards, Vars),
+     normalize_dc_rewards(DCRewards, Vars)};
+get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason}=Error ->
             lager:error("failed to get block ~p ~p", [_Reason, Current]),
@@ -245,7 +246,8 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                     get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
                                           poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
                                           poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
-                                          poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards))
+                                          poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards),
+                                          dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
             end
     end.
 
@@ -261,6 +263,25 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocChallengersPercent} = blockchain:config(?poc_challengers_percent, Ledger),
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
+    {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
+    DCPercent = case blockchain:config(?dc_percent, Ledger) of
+                    {ok, R1} ->
+                        R1;
+                    _ ->
+                        0
+                end,
+    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+                  {ok, R2} ->
+                      R2;
+                  _ ->
+                      0
+              end,
+    SCVersion = case blockchain:config(?sc_version, Ledger) of
+                    {ok, R3} ->
+                        R3;
+                    _ ->
+                        1
+                end,
     POCVersion = case blockchain:config(?poc_version, Ledger) of
                      {ok, V} -> V;
                      _ -> 1
@@ -274,6 +295,10 @@ get_reward_vars(Start, End, Ledger) ->
         poc_challengers_percent => PocChallengersPercent,
         poc_witnesses_percent => PocWitnessesPercent,
         consensus_percent => ConsensusPercent,
+        consensus_members => ConsensusMembers,
+        dc_percent => DCPercent,
+        sc_grace_blocks => SCGrace,
+        sc_version => SCVersion,
         poc_version => POCVersion
     }.
 
@@ -609,6 +634,100 @@ normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
         end,
         #{},
         WitnessRewards
+    ).
+
+dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version := 2}, Ledger, DCRewards) ->
+    lists:foldl(
+      fun(Txn, Acc) ->
+              %% check the state channel's grace period ended in this epoch
+            case blockchain_txn:type(Txn) == blockchain_txn_state_channel_close_v1 andalso
+                 blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn) + GraceBlocks < EndHeight
+            of
+                true ->
+                    SCID = blockchain_txn_state_channel_close_v1:state_channel_id(Txn),
+                    case lists:member(SCID, maps:get(seen, DCRewards, [])) of
+                        false ->
+                            %% haven't seen this state channel yet, pull the final result from the ledger
+                            {ok, SC} = blockchain_ledger_v1:find_state_channel(blockchain_txn_state_channel_close_v1:state_channel_id(Txn),
+                                                                               blockchain_txn_state_channel_close_v1:state_channel_owner(Txn),
+                                                                               Ledger),
+                            %% check for a holdover v1 channel
+                            case blockchain_ledger_state_channel_v2:is_v2(SC) of
+                                true ->
+                                    %% pull out the final version of the state channel
+                                    FinalSC = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                    Summaries = blockchain_state_channel_v1:summaries(FinalSC),
+
+                                    %% check the dispute status
+                                    Bonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                 dispute ->
+                                                    %% the owner of the state channel did a naughty thing, divide their overcommit between the participants
+                                                     OverCommit = blockchain_ledger_state_channel_v2:amount(SC) -blockchain_ledger_state_channel_v2:original(SC),
+                                                     OverCommit div length(Summaries);
+                                                 _ ->
+                                                     0
+                                             end,
+
+                                    lists:foldl(fun(Summary, Acc1) ->
+                                                        Key = blockchain_state_channel_summary_v1:client_pubkeybin(Summary),
+                                                        DCs = blockchain_state_channel_summary_v1:num_dcs(Summary) + Bonus,
+                                                        maps:update_with(Key, fun(V) -> V + DCs end, DCs, Acc1)
+                                                end, maps:update_with(seen, fun(Seen) -> [SCID|Seen] end, [SCID], Acc),
+                                                Summaries);
+                                false ->
+                                    Acc
+                            end;
+                        true ->
+                            Acc
+                    end;
+                false ->
+                    %% check for transaction fees above the minimum and credit the overages to the consensus group
+                    %% XXX this calculation may not be entirely correct if the fees change during the epoch. However,
+                    %% since an epoch may stretch past the lagging ledger, we cannot know for certain what the fee
+                    %% structure was at any point in this epoch so we make the reasonable conclusion to use the
+                    %% conditions at the end of the epoch to calculate fee overages for the purposes of rewards.
+                    Type = blockchain_txn:type(Txn),
+                    try Type:calculate_fee(Txn, Ledger) - Type:fee(Txn) of
+                        Overage when Overage > 0 ->
+                            maps:update_with(overages, fun(Overages) -> Overages + Overage end, Overage, Acc);
+                        _ ->
+                            Acc
+                    catch
+                        _:_ ->
+                            Acc
+                    end
+            end
+      end,
+      DCRewards,
+      Transactions
+     );
+dc_rewards(_Txns, _EndHeight, _Vars, _Ledger, DCRewards) ->
+    DCRewards.
+
+normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
+                                   consensus_members := ConsensusMembers,
+                                  dc_percent := DCPercent}) ->
+    DCRewards1 = maps:remove(seen, DCRewards0),
+    DCRewards = case maps:take(overages, DCRewards1) of
+                    {OverageTotal, NewMap} ->
+                        OveragePerMember = OverageTotal div length(ConsensusMembers),
+                        lists:foldl(fun(Member, Acc) ->
+                                            maps:update_with(Member, fun(Balance) -> Balance + OveragePerMember end, OveragePerMember, Acc)
+                                    end, NewMap, ConsensusMembers);
+                    error ->
+                        %% no overages to account for
+                        DCRewards1
+                end,
+    TotalDCs = lists:sum(maps:values(DCRewards)),
+    DCReward = EpochReward * DCPercent,
+    maps:fold(
+        fun(Key, NumDCs, Acc) ->
+            PercentofReward = (NumDCs*100/TotalDCs)/100,
+            Amount = erlang:round(PercentofReward*DCReward),
+            maps:put({gateway, data_credits, Key}, Amount, Acc)
+        end,
+        #{},
+        DCRewards
     ).
 
 %%--------------------------------------------------------------------
@@ -1071,6 +1190,47 @@ old_poc_witnesses_rewards_test() ->
     },
     ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Ledger, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+
+dc_rewards_test() ->
+    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_2_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 1000,
+        dc_percent => 0.3,
+        sc_version => 2,
+        sc_grace_blocks => 5,
+        consensus_members => [<<"c">>, <<"d">>]
+    },
+
+    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
+    SC = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
+
+    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+
+    Txns = [
+         blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>)
+    ],
+    %% NOTE: Rewards are split 33-66%
+    Rewards = #{
+        {gateway, data_credits, <<"a">>} => 100,
+        {gateway, data_credits, <<"b">>} => 200
+    },
+    ?assertEqual(Rewards, normalize_dc_rewards(dc_rewards(Txns, 100, Vars, Ledger1, #{}), Vars)).
+
 
 to_json_test() ->
     Tx = #blockchain_txn_rewards_v1_pb{start_epoch=1, end_epoch=30, rewards=[]},
