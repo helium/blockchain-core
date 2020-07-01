@@ -3665,11 +3665,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-<<<<<<< HEAD
-    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, 50, Ledger2),
-=======
     ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
->>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
@@ -3679,11 +3675,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-<<<<<<< HEAD
-    ok = close_state_channel(ID, Owner, Owner, ID, Ledger3),
-=======
     ok = close_state_channel(Owner, Owner, SC, ID, Ledger3),
->>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger3),
     {ok, SC0} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
@@ -3691,7 +3683,6 @@ state_channels_v2_test() ->
     meck:unload(?MODULE),
 
     ok.
-
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),
