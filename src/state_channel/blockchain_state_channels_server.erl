@@ -212,7 +212,6 @@ handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
-    %% TODO: handle offer
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     Ledger = blockchain:ledger(Chain),
@@ -224,7 +223,6 @@ handle_cast({offer, SCOffer, HandlerPid},
     {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-    %% XXX: Accepting all offers for now
     ok = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
     {noreply, State};
 handle_cast(_Msg, State) ->
