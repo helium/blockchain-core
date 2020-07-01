@@ -17,10 +17,7 @@
     offer/2,
     state_channels/0,
     active_sc_id/0,
-    active_sc/0,
-
-    %% For testing
-    insert_fake_sc_skewed/2
+    active_sc/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -37,10 +34,6 @@
 
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
@@ -61,6 +54,17 @@
 -type state_channels() :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
                                                                  skewed:skewed()}}.
 -type streams() :: #{libp2p_crypto:pubkey_bin() => pid()}.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-export([insert_fake_sc_skewed/2]).
+
+-spec insert_fake_sc_skewed(FakeSC :: blockchain_state_channel_v1:state_channel(),
+                            FakeSkewed :: skewed:skewed()) -> ok.
+insert_fake_sc_skewed(FakeSC, FakeSkewed) ->
+    gen_server:call(?SERVER, {insert_fake_sc_skewed, FakeSC, FakeSkewed}, infinity).
+
+-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -120,11 +124,6 @@ active_sc_id() ->
 -spec active_sc() -> undefined | blockchain_state_channel_v1:state_channel().
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
-
--spec insert_fake_sc_skewed(FakeSC :: blockchain_state_channel_v1:state_channel(),
-                            FakeSkewed :: skewed:skewed()) -> ok.
-insert_fake_sc_skewed(FakeSC, FakeSkewed) ->
-    gen_server:call(?SERVER, {insert_fake_sc_skewed, FakeSC, FakeSkewed}, infinity).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -672,12 +671,3 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
             %% Update summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
     end.
-
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
--ifdef(TEST).
-
-%% TODO: add some eunits here...
-
--endif.
