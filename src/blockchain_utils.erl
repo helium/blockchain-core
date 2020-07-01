@@ -51,7 +51,7 @@
 %%--------------------------------------------------------------------
 
 -spec calculate_dc_amount(Ledger :: blockchain_ledger_v1:ledger(),
-                          PayloadSize :: non_neg_integer()) -> pos_integer().
+                          PayloadSize :: non_neg_integer()) -> pos_integer() | {error, any()}.
 calculate_dc_amount(Ledger, PayloadSize) ->
     case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
         {ok, DCPayloadSize} ->
