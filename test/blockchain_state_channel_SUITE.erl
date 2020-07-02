@@ -242,6 +242,8 @@ full_test(Config) ->
     Packet1 = blockchain_ct_utils:join_packet(?APPKEY, DevNonce1, 0.0),
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet1, [], 'US915']),
 
+    timer:sleep(timer:seconds(1)),
+
     %% Checking state channel on server/client
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
