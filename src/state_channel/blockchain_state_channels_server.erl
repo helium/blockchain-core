@@ -204,8 +204,10 @@ handle_cast({packet, SCPacket, HandlerPid},
 
             %% Since we updated active sc, send new banner
             ok = send_banner(SignedSC, HandlerPid),
-
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)}}
+            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+            NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
+            erlang:monitor(process, HandlerPid),
+            {noreply, NewState}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
@@ -224,7 +226,9 @@ handle_cast({offer, SCOffer, HandlerPid},
     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
     ok = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
-    {noreply, State};
+    NewState = maybe_add_stream(Hotspot, HandlerPid, State),
+    erlang:monitor(process, HandlerPid),
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -284,6 +288,22 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec maybe_add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       Stream :: pid(),
+                       State :: state()) -> state().
+maybe_add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
+    case find_stream(ClientPubkeyBin, State) of
+        undefined ->
+            State#state{streams=maps:put(ClientPubkeyBin, Stream, Streams)};
+        _FoundStream ->
+            State
+    end.
+
+-spec find_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  State :: state()) -> undefined | pid().
+find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
+    maps:get(ClientPubkeyBin, Streams, undefined).
+
 -spec update_state_sc_open(
         Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
         BlockHash :: blockchain_block:hash(),
