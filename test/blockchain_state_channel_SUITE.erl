@@ -81,11 +81,12 @@ test_cases() ->
     ].
 
 init_per_group(sc_v1, Config) ->
-    Config;
+    [{sc_version, 1} | Config];
 init_per_group(sc_v2, Config) ->
     SCVars = ?config(sc_vars, Config),
     SCV2Vars = maps:merge(SCVars, #{sc_version => 2, sc_overcommit => 2}),
-    [{sc_vars, SCV2Vars} | Config].
+    %% Also adding the sc_version to the config here for cross-checking in helper functions
+    [{sc_vars, SCV2Vars}, {sc_version, 2} | Config].
 
 end_per_group(_, _Config) ->
     ok.
@@ -134,6 +135,7 @@ init_per_testcase(Test, Config) ->
 
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
     SCVars = ?config(sc_vars, Config),
+    ct:pal("SCVars: ~p", [SCVars]),
 
     {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, SCVars)),
 
@@ -263,7 +265,7 @@ full_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -356,7 +358,7 @@ dup_packets_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -464,7 +466,7 @@ expired_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -544,7 +546,7 @@ replay_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -639,7 +641,7 @@ multiple_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -677,7 +679,7 @@ multiple_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 24),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2, Config),
 
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])),
 
@@ -813,15 +815,17 @@ multi_owner_multi_sc_test(Config) ->
 
     4 = length(lists:usort([SC11, SC12, SC21, SC22])),
 
+    LedgerSCMod = ledger_sc_mod(Config),
+
     %% Check that the state channels being created are legit
-    ?assertEqual(ID11, blockchain_ledger_state_channel_v1:id(SC11)),
-    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC11)),
-    ?assertEqual(ID12, blockchain_ledger_state_channel_v1:id(SC12)),
-    ?assertEqual(RouterPubkeyBin1, blockchain_ledger_state_channel_v1:owner(SC12)),
-    ?assertEqual(ID21, blockchain_ledger_state_channel_v1:id(SC21)),
-    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC21)),
-    ?assertEqual(ID22, blockchain_ledger_state_channel_v1:id(SC22)),
-    ?assertEqual(RouterPubkeyBin2, blockchain_ledger_state_channel_v1:owner(SC22)),
+    ?assertEqual(ID11, LedgerSCMod:id(SC11)),
+    ?assertEqual(RouterPubkeyBin1, LedgerSCMod:owner(SC11)),
+    ?assertEqual(ID12, LedgerSCMod:id(SC12)),
+    ?assertEqual(RouterPubkeyBin1, LedgerSCMod:owner(SC12)),
+    ?assertEqual(ID21, LedgerSCMod:id(SC21)),
+    ?assertEqual(RouterPubkeyBin2, LedgerSCMod:owner(SC21)),
+    ?assertEqual(ID22, LedgerSCMod:id(SC22)),
+    ?assertEqual(RouterPubkeyBin2, LedgerSCMod:owner(SC22)),
 
     %% Add 20 more blocks to get the state channel to expire
     FakeBlocks = 20,
@@ -896,7 +900,7 @@ multi_active_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -1183,7 +1187,7 @@ crash_single_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1309,8 +1313,8 @@ crash_multi_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1, Config),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])),
@@ -1473,7 +1477,7 @@ sc_gc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -1553,8 +1557,8 @@ multi_sc_gc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1),
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID1, Config),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1])),
@@ -1648,7 +1652,7 @@ crash_sc_sup_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -1798,7 +1802,7 @@ hotspot_in_router_oui_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -1899,7 +1903,7 @@ default_routers_test(Config) ->
     DefaultRouters = [libp2p_crypto:pubkey_bin_to_p2p(RouterPubkeyBin)],
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -1996,7 +2000,7 @@ sc_conflict_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 2),
 
     %% Checking that state channel got created properly
-    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID),
+    true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config),
 
     %% Check that the nonce of the sc server is okay
     ?assertEqual({ok, 0}, ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])),
@@ -2147,11 +2151,12 @@ check_all_closed(IDs) ->
               ct:fail("still unclosed ~p", [IDs])
     end.
 
-check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID) ->
+check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID, Config) ->
+    LedgerSCMod = ledger_sc_mod(Config),
     RouterLedger = blockchain:ledger(RouterChain),
     {ok, SC} = ct_rpc:call(RouterNode, blockchain_ledger_v1, find_state_channel, [ID, RouterPubkeyBin, RouterLedger]),
-    C1 = ID == blockchain_ledger_state_channel_v1:id(SC),
-    C2 = RouterPubkeyBin == blockchain_ledger_state_channel_v1:owner(SC),
+    C1 = ID == LedgerSCMod:id(SC),
+    C2 = RouterPubkeyBin == LedgerSCMod:owner(SC),
     C1 andalso C2.
 
 add_block(RouterNode, RouterChain, ConsensusMembers, Txns) ->
@@ -2215,3 +2220,8 @@ debug(Node) ->
     ct:pal("active: ~p", [A]),
     {P, S, A}.
 
+ledger_sc_mod(Config) ->
+    case ?config(sc_version, Config) of
+        1 -> blockchain_ledger_state_channel_v1;
+        2 -> blockchain_ledger_state_channel_v2
+    end.
