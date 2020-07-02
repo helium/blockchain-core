@@ -4,7 +4,16 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("blockchain_ct_utils.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([
+         all/0,
+         init_per_suite/1,
+         end_per_suite/1,
+         init_per_testcase/2,
+         end_per_testcase/2,
+         groups/0,
+         init_per_group/2,
+         end_per_group/2
+        ]).
 
 -export([
     basic_test/1,
@@ -36,6 +45,19 @@
 %%--------------------------------------------------------------------
 
 all() ->
+    [{group, sc_v1}, {group, sc_v2}].
+
+groups() ->
+    [{sc_v1,
+      [],
+      test_cases()
+     },
+     {sc_v2,
+      [],
+      test_cases()
+     }].
+
+test_cases() ->
     [
         basic_test,
         full_test,
@@ -57,6 +79,33 @@ all() ->
         default_routers_test,
         sc_conflict_test
     ].
+
+init_per_group(sc_v1, Config) ->
+    Config;
+init_per_group(sc_v2, Config) ->
+    SCVars = ?config(sc_vars, Config),
+    SCV2Vars = maps:merge(SCVars, #{sc_version => 2, sc_overcommit => 2}),
+    [{sc_vars, SCV2Vars} | Config].
+
+end_per_group(_, _Config) ->
+    ok.
+
+init_per_suite(Config) ->
+    %% init_per_suite is the FIRST thing that runs and is common for both groups
+
+    SCVars = #{max_open_sc => 2,                    %% Max open state channels per router, set to 2
+               min_expire_within => 10,             %% Min state channel expiration (# of blocks)
+               max_xor_filter_size => 1024*100,     %% Max xor filter size, set to 1024*100
+               max_xor_filter_num => 5,             %% Max number of xor filters, set to 5
+               max_subnet_size => 65536,            %% Max subnet size
+               min_subnet_size => 8,                %% Min subnet size
+               max_subnet_num => 20,                %% Max subnet num
+               dc_payload_size => 24,               %% DC payload size for calculating DCs
+               sc_grace_blocks => 5},               %% Grace period (in num of blocks) for state channels to get GCd
+    [{sc_vars, SCVars} | Config].
+
+end_per_suite(_Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -84,17 +133,9 @@ init_per_testcase(Test, Config) ->
     ConsensusAddrs = lists:sublist(lists:sort(Addrs), NumConsensusMembers),
 
     DefaultVars = #{num_consensus_members => NumConsensusMembers},
-    ExtraVars = #{max_open_sc => 2,
-                  min_expire_within => 10,
-                  max_xor_filter_size => 1024*100,
-                  max_xor_filter_num => 5,
-                  max_subnet_size => 65536,
-                  min_subnet_size => 8,
-                  max_subnet_num => 20,
-                  sc_grace_blocks => 5,
-                  dc_payload_size => 24},
+    SCVars = ?config(sc_vars, Config),
 
-    {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, ExtraVars)),
+    {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, SCVars)),
 
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
