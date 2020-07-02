@@ -159,7 +159,7 @@ subnet_mask_to_size(Mask) ->
 subnet_size_to_mask(Size) ->
     ?BITS_23 bxor ((Size bsr 2) - 1).
 
--spec is_routing(routing()) -> boolean().
+-spec is_routing(any()) -> boolean().
 is_routing(#routing_v1{}) ->
     true;
 is_routing(_) ->
