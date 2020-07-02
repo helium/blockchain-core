@@ -1,6 +1,14 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Blockchain State Channel Banner ==
+%%
+%% The SC Banner serves as a "greeting" of sorts, essentially letting the
+%% sc client know that it can get ready for the offer/purchase flow.
+%%
+%% Anytime the state channel on the sc server changes, it sends out a new
+%% banner to all it's known streams at which point the client's can (if need be)
+%% update their respective states.
+%%
 %% @end
 %%%-------------------------------------------------------------------
 -module(blockchain_state_channel_banner_v1).
