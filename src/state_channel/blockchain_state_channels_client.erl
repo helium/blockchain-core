@@ -193,10 +193,10 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm, chain=Chain
     lager:info("handle_packet ~p to ~p", [Packet, RoutesOrAddresses]),
     State1 = lists:foldl(
                fun(RouteOrAddress, StateAcc) ->
-                       StreamKey = case erlang:is_list(RouteOrAddress) of %% NOTE: This is actually a string check
-                                       true ->
-                                           {address, RouteOrAddress};
+                       StreamKey = case blockchain_ledger_routing_v1:is_routing(RouteOrAddress) of
                                        false ->
+                                           {address, RouteOrAddress};
+                                       true ->
                                            {oui, blockchain_ledger_routing_v1:oui(RouteOrAddress)}
                                    end,
 
