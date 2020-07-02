@@ -84,7 +84,8 @@
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
 
-    find_routing/2, find_routing_for_packet/2, find_router_ouis/2,
+    find_routing/2, find_routing_for_packet/2,
+    find_router_ouis/2,
     update_routing/4,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
@@ -2148,55 +2149,66 @@ find_routing(OUI, Ledger) ->
 
 -spec find_routing_for_packet(blockchain_helium_packet_v1:packet(), ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]}
                                                                                  | {error, any()}.
-find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
+find_routing_for_packet(Packet, Ledger) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, DevEUI, AppEUI} ->
-            %% ok, search the xor filters
-            Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
-            RoutingCF = routing_cf(Ledger),
-            Res = cache_fold(Ledger, RoutingCF,
-                             fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
-                                     Route = blockchain_ledger_routing_v1:deserialize(V),
-                                     case lists:any(fun(Filter) ->
-                                                            xor16:contain({Filter, fun xxhash:hash64/1}, Key)
-                                                    end, blockchain_ledger_routing_v1:filters(Route)) of
-                                         true ->
-                                             [Route | Acc];
-                                         false ->
-                                             Acc
-                                     end;
-                                ({_K, _V}, Acc) ->
-                                     Acc
-                             end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
-            case Res of
-                [] ->
-                    {error, eui_not_matched};
-                _ ->
-                    {ok, Res}
-            end;
+            find_routing_via_eui(DevEUI, AppEUI, Ledger);
         {devaddr, DevAddr0} ->
-            DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
-            case <<DevAddr0:32/integer-unsigned-little>> of
-                <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
-                    %% use the subnets
-                    SubnetCF = subnets_cf(Ledger),
-                    {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-                    Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
-                    catch rocksdb:iterator_close(Itr),
-                    case Dest of
-                        error ->
-                            {error, subnet_not_found};
-                        _ ->
-                            case find_routing(Dest, Ledger) of
-                                {ok, Route} ->
-                                    {ok, [Route]};
-                                Error ->
-                                    Error
-                            end
-                    end;
-                <<_:25/integer, Prefix:7/integer>> ->
-                    {error, {unknown_devaddr_prefix, Prefix}}
-            end
+            find_routing_via_devaddr(DevAddr0, Ledger)
+    end.
+
+-spec find_routing_via_eui(DevEUI :: non_neg_integer(),
+                           AppEUI :: non_neg_integer(),
+                           Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
+    %% ok, search the xor filters
+    Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
+    RoutingCF = routing_cf(Ledger),
+    Res = cache_fold(Ledger, RoutingCF,
+                     fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
+                             Route = blockchain_ledger_routing_v1:deserialize(V),
+                             case lists:any(fun(Filter) ->
+                                                    xor16:contain({Filter, fun xxhash:hash64/1}, Key)
+                                            end, blockchain_ledger_routing_v1:filters(Route)) of
+                                 true ->
+                                     [Route | Acc];
+                                 false ->
+                                     Acc
+                             end;
+                        ({_K, _V}, Acc) ->
+                             Acc
+                     end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
+    case Res of
+        [] ->
+            {error, eui_not_matched};
+        _ ->
+            {ok, Res}
+    end.
+
+-spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
+                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_devaddr(DevAddr0, Ledger=#ledger_v1{db=DB}) ->
+    DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
+    case <<DevAddr0:32/integer-unsigned-little>> of
+        <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
+            %% use the subnets
+            SubnetCF = subnets_cf(Ledger),
+            {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+            Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+            catch rocksdb:iterator_close(Itr),
+            case Dest of
+                error ->
+                    {error, subnet_not_found};
+                _ ->
+                    case find_routing(Dest, Ledger) of
+                        {ok, Route} ->
+                            {ok, [Route]};
+                        Error ->
+                            Error
+                    end
+            end;
+        <<_:25/integer, Prefix:7/integer>> ->
+            {error, {unknown_devaddr_prefix, Prefix}}
     end.
 
 -spec find_router_ouis(RouterPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -2250,7 +2262,7 @@ find_state_channel(ID, Owner, Ledger) ->
     end.
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
-                           Leger :: ledger()) -> {ok, [binary()]}.
+                           Ledger :: ledger()) -> {ok, [binary()]}.
 find_sc_ids_by_owner(Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     OwnerLength = byte_size(Owner),
@@ -3607,11 +3619,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-<<<<<<< HEAD
-    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, 50, Ledger2),
-=======
     ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
->>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
@@ -3621,11 +3629,7 @@ state_channels_v2_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-<<<<<<< HEAD
-    ok = close_state_channel(ID, Owner, Owner, ID, Ledger3),
-=======
     ok = close_state_channel(Owner, Owner, SC, ID, Ledger3),
->>>>>>> 8e9ebb5... WIP for Data Credit rewards
     ok = commit_context(Ledger3),
     {ok, SC0} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
@@ -3633,7 +3637,6 @@ state_channels_v2_test() ->
     meck:unload(?MODULE),
 
     ok.
-
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),

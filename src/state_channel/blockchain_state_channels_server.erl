@@ -14,8 +14,10 @@
     start_link/1,
     nonce/1,
     packet/2,
+    offer/2,
     state_channels/0,
-    active_sc_id/0
+    active_sc_id/0,
+    active_sc/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -33,26 +35,36 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
+    scf :: rocksdb:cf_handle() | undefined,
     chain = undefined :: blockchain:blockchain() | undefined,
     swarm = undefined :: pid() | undefined,
-    owner = undefined :: {libp2p_crypto:pubkey_bin(), function()} | undefined,
+    owner = undefined :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
     state_channels = #{} :: state_channels(),
     active_sc_id = undefined :: undefined | blockchain_state_channel_v1:id(),
-    sc_packet_handler = undefined :: undefined | atom()
+    sc_packet_handler = undefined :: undefined | atom(),
+    streams = #{} :: streams()
 }).
 
 -type state() :: #state{}.
--type state_channels() ::  #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
-                                                                  skewed:skewed()}}.
+-type state_channels() :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
+                                                                 skewed:skewed()}}.
+-type streams() :: #{libp2p_crypto:pubkey_bin() => pid()}.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-export([insert_fake_sc_skewed/2]).
+
+-spec insert_fake_sc_skewed(FakeSC :: blockchain_state_channel_v1:state_channel(),
+                            FakeSkewed :: skewed:skewed()) -> ok.
+insert_fake_sc_skewed(FakeSC, FakeSkewed) ->
+    gen_server:call(?SERVER, {insert_fake_sc_skewed, FakeSC, FakeSkewed}, infinity).
+
+-endif.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -74,13 +86,32 @@ packet(Packet, HandlerPid) ->
                           SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
                           case SCPacketHandler:handle_packet(Packet, HandlerPid) of
                               ok ->
-                                  gen_server:cast(?SERVER, {packet, Packet});
+                                  gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
                               {error, Why} ->
                                   lager:error("handle_packet failed: ~p", [Why])
                           end
                   end
           end),
     ok.
+
+-spec offer(blockchain_state_channel_offer_v1:offer(), pid()) -> ok.
+offer(Offer, HandlerPid) ->
+    spawn(fun() ->
+                  case blockchain_state_channel_offer_v1:validate(Offer) of
+                      {error, _Reason} ->
+                          lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]);
+                      true ->
+                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+                          case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+                              ok ->
+                                  gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
+                              {error, Why} ->
+                                  lager:error("handle_offer failed: ~p", [Why])
+                          end
+                  end
+          end),
+    ok.
+
 
 -spec state_channels() -> state_channels().
 state_channels() ->
@@ -90,6 +121,10 @@ state_channels() ->
 active_sc_id() ->
     gen_server:call(?SERVER, active_sc_id, infinity).
 
+-spec active_sc() -> undefined | blockchain_state_channel_v1:state_channel().
+active_sc() ->
+    gen_server:call(?SERVER, active_sc, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -97,11 +132,12 @@ init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
+    SCF = blockchain_state_channels_db_owner:sc_servers_cf(),
     SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    {ok, #state{db=DB, swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
+    {ok, #state{db=DB, scf=SCF, swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
 
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
@@ -109,19 +145,31 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
                 {SC, _} -> {ok, blockchain_state_channel_v1:nonce(SC)}
             end,
     {reply, Reply, State};
+handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
+            #state{db=DB, state_channels=SCs, streams=Streams, owner={_, OwnerSigFun}}=State) ->
+    %% NOTE: This function is for testing, we should do something else probably
+    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
+    FakeSCID = blockchain_state_channel_v1:id(FakeSC),
+    SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
+    lager:info("broadcasting fake banner: ~p, to: ~p", [SignedFakeSC, Streams]),
+    ok = broadcast_banner(SignedFakeSC, State),
+    {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
+handle_call(active_sc, _From, State) ->
+    {reply, active_sc(State), State};
 handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
     {reply, ActiveSCID, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, SCPacket}, #state{active_sc_id=undefined}=State) ->
+handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
-handle_cast({packet, SCPacket},
-            #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
+handle_cast({packet, SCPacket, HandlerPid},
+            #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_, OwnerSigFun}}=State) ->
     Ledger = blockchain:ledger(Chain),
 
     %% Get the client (i.e. the hotspot who received this packet)
@@ -141,37 +189,46 @@ handle_cast({packet, SCPacket},
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC2 = case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC1) of
-                      {error, not_found} ->
-                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                          NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
-                          %% Add this to summaries
-                          blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1);
-                      {ok, ExistingSummary} ->
-                          %% Update packet count for this client
-                          ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
-                          %% Update DC count for this client
-                          NumDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
-                          ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
-                          NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
-                                                                                  ExistingNumPackets + 1,
-                                                                                  ExistingSummary),
-                          %% Update summaries
-                          blockchain_state_channel_v1:update_summaries(ClientPubkeyBin, NewSummary, SC1)
-                  end,
-
+            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
             ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
             NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
+            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
 
             %% Save state channel to db
-            ok = blockchain_state_channel_v1:save(DB, NewSC, Skewed1),
-            ok = store_active_sc_id(DB, ActiveSCID),
+            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+            ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
             %% Put new state_channel in our map
             lager:info("packet: ~p successfully validated, updating state",
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
-            {noreply, State#state{state_channels=maps:update(ActiveSCID, {NewSC, Skewed1}, SCs)}}
+
+            %% Since we updated active sc, send new banner
+            ok = send_banner(SignedSC, HandlerPid),
+            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+            NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
+            erlang:monitor(process, HandlerPid),
+            {noreply, NewState}
     end;
+handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
+    lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
+    {noreply, State};
+handle_cast({offer, SCOffer, HandlerPid},
+            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
+    lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
+
+    Ledger = blockchain:ledger(Chain),
+    Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
+    Region = blockchain_state_channel_offer_v1:region(SCOffer),
+    Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
+    PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
+    PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
+    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
+
+    ok = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
+    NewState = maybe_add_stream(Hotspot, HandlerPid, State),
+    erlang:monitor(process, HandlerPid),
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -182,8 +239,8 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            Ledger = blockchain:ledger(Chain),
-            LoadState = load_state(Ledger, State#state{chain=Chain}),
+            TempState = State#state{chain=Chain},
+            LoadState = update_state_with_ledger_channels(TempState),
             lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
     end;
@@ -213,6 +270,11 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                end,
 
     {noreply, NewState};
+handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
+    FilteredStreams = maps:filter(fun(_Name, Stream) ->
+                                          Stream /= Pid
+                                  end, Streams),
+    {noreply, State#state{streams=FilteredStreams}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -226,6 +288,22 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec maybe_add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       Stream :: pid(),
+                       State :: state()) -> state().
+maybe_add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
+    case find_stream(ClientPubkeyBin, State) of
+        undefined ->
+            State#state{streams=maps:put(ClientPubkeyBin, Stream, Streams)};
+        _FoundStream ->
+            State
+    end.
+
+-spec find_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  State :: state()) -> undefined | pid().
+find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
+    maps:get(ClientPubkeyBin, Streams, undefined).
+
 -spec update_state_sc_open(
         Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
         BlockHash :: blockchain_block:hash(),
@@ -234,7 +312,7 @@ terminate(_Reason, _State) ->
 update_state_sc_open(Txn,
                      BlockHash,
                      BlockHeight,
-                     #state{owner={Owner, _}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+                     #state{owner={Owner, OwnerSigFun}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
         Owner ->
@@ -247,23 +325,43 @@ update_state_sc_open(Txn,
                                                            BlockHash,
                                                            (BlockHeight + ExpireWithin)),
 
+            SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+
             case ActiveSCID of
                 undefined ->
+                    %% Switching active sc, broadcast banner
+                    lager:info("broadcasting banner: ~p", [SignedSC]),
+                    ok = broadcast_banner(SignedSC, State),
+
                     %% Don't have any active state channel
                     %% Set this one to active
-                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs), active_sc_id=ID};
+                    State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs), active_sc_id=ID};
                 _A ->
-                    State#state{state_channels=maps:put(ID, {SC, Skewed}, SCs)}
+                    State#state{state_channels=maps:put(ID, {SignedSC, Skewed}, SCs)}
             end;
         _ ->
             %% Don't do anything cuz we're not the owner
             State
     end.
 
+-spec broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
+                       State :: state()) -> ok.
+broadcast_banner(undefined, _) -> ok;
+broadcast_banner(SC, #state{streams=Streams}) ->
+    case maps:size(Streams) of
+        0 -> ok;
+        _ ->
+            _Res = blockchain_utils:pmap(
+                     fun(Stream) ->
+                             catch send_banner(SC, Stream)
+                     end, maps:values(Streams)),
+            ok
+    end.
+
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -281,9 +379,15 @@ update_state_sc_close(Txn, #state{db=DB, state_channels=SCs, active_sc_id=Active
                     end,
 
     %% Delete closed state channel from sc database
-    ok = delete_closed_sc(DB, ID),
+    ok = delete_closed_sc(DB, SCF, ID),
 
-    State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID}.
+    NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
+
+    %% Switching active sc, broadcast banner
+    lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
+    ok = broadcast_banner(active_sc(NewState), NewState),
+
+    NewState.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -324,7 +428,13 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                             end
                     end,
 
-    State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels}.
+    NewState = State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels},
+
+    %% Switching active sc, broadcast banner
+    ok = broadcast_banner(active_sc(NewState), NewState),
+
+    NewState.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -374,17 +484,10 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
             )
     end.
 
--spec load_state(Ledger :: blockchain_ledger_v1:ledger(),
-                 State :: state()) -> state().
-load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
-    {ok, SCMap} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
-    SCMod = case blockchain_ledger_v1:config(?sc_version, Ledger) of
-                {ok, 2} -> blockchain_ledger_state_channel_v2;
-                _ -> blockchain_ledger_state_channel_v1
-            end,
-    ConvertedSCs = convert_to_state_channels(SCMap, SCMod, Chain),
-
-    DBSCs = case get_state_channels(DB) of
+-spec update_state_with_ledger_channels(State :: state()) -> state().
+update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
+    ConvertedSCs = convert_to_state_channels(State),
+    DBSCs = case get_state_channels(DB, SCF) of
                 {error, _} ->
                     #{};
                 {ok, SCIDs} ->
@@ -411,15 +514,15 @@ load_state(Ledger, #state{db=DB, owner={Owner, _}, chain=Chain}=State) ->
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
     %% Delete these from sc db
-    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, CID) end, ClosedSCIDs),
+    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("SCs: ~p, NewActiveSCID: ~p", [SCs, NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
--spec get_state_channels(DB :: rocksdb:db_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
-get_state_channels(DB) ->
-    case rocksdb:get(DB, ?STATE_CHANNELS, [{sync, true}]) of
+-spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
+get_state_channels(DB, SCF) ->
+    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, [{sync, true}]) of
         {ok, Bin} ->
             lager:info("found sc: ~p, from db", [Bin]),
             {ok, erlang:binary_to_term(Bin)};
@@ -432,9 +535,10 @@ get_state_channels(DB) ->
     end.
 
 -spec store_active_sc_id(DB :: rocksdb:db_handle(),
+                         SCF :: rocksdb:cf_handle(),
                          ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
-store_active_sc_id(DB, ID) ->
-    case get_state_channels(DB) of
+store_active_sc_id(DB, SCF, ID) ->
+    case get_state_channels(DB, SCF) of
         {error, _}=Error ->
             Error;
         {ok, SCIDs} ->
@@ -442,14 +546,16 @@ store_active_sc_id(DB, ID) ->
                 true ->
                     ok;
                 false ->
-                    rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary([ID|SCIDs]), [{sync, true}])
+                    ToInsert = erlang:term_to_binary([ID|SCIDs]),
+                    rocksdb:put(DB, SCF, ?STATE_CHANNELS, ToInsert, [{sync, true}])
             end
     end.
 
 -spec delete_closed_sc(DB :: rocksdb:db_handle(),
+                       SCF :: rocksdb:cf_handle(),
                        ID :: blockchain_state_channel_v1:id()) -> ok.
-delete_closed_sc(DB, ID) ->
-    case get_state_channels(DB) of
+delete_closed_sc(DB, SCF, ID) ->
+    case get_state_channels(DB, SCF) of
         {error, _} ->
             %% Can't delete anything
             ok;
@@ -459,12 +565,19 @@ delete_closed_sc(DB, ID) ->
                     %% not in db
                     ok;
                 true ->
-                    rocksdb:put(DB, ?STATE_CHANNELS, erlang:term_to_binary(lists:delete(ID, SCIDs)), [{sync, true}])
+                    ToInsert = erlang:term_to_binary(lists:delete(ID, SCIDs)),
+                    rocksdb:put(DB, SCF, ?STATE_CHANNELS, ToInsert, [{sync, true}])
             end
     end.
 
--spec convert_to_state_channels(blockchain_ledger_v1:state_channel_map(), atom(), blockchain:blockchain()) -> state_channels().
-convert_to_state_channels(LedgerSCs, SCMod, Chain) ->
+-spec convert_to_state_channels(State :: state()) -> state_channels().
+convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
+    Ledger = blockchain:ledger(Chain),
+    {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
+    SCMod = case blockchain_ledger_v1:config(?sc_version, Ledger) of
+                {ok, 2} -> blockchain_ledger_state_channel_v2;
+                _ -> blockchain_ledger_state_channel_v1
+            end,
     {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
                      Owner = SCMod:owner(LedgerStateChannel),
@@ -490,8 +603,9 @@ convert_to_state_channels(LedgerSCs, SCMod, Chain) ->
                                                           (_, _Hash) -> return
                                                        end, undefined, Head, Chain),
                      SC1 = blockchain_state_channel_v1:expire_at_block(ExpireAt, SC0),
+                     SignedSC = blockchain_state_channel_v1:sign(SC1, OwnerSigFun),
                      Skewed = skewed:new(BlockHash),
-                     {SC1, Skewed}
+                     {SignedSC, Skewed}
              end,
              LedgerSCs).
 
@@ -518,11 +632,60 @@ maybe_get_new_active(SCs) ->
             ID
     end.
 
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
--ifdef(TEST).
+-spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
+                    Hotspot :: libp2p_crypto:pubkey_bin(),
+                    Stream :: pid(),
+                    PacketHash :: binary(),
+                    PayloadSize :: pos_integer(),
+                    Region :: atom(),
+                    Ledger :: blockchain:ledger(),
+                    OwnerSigFun :: libp2p_crypto:sig_fun()) -> ok.
+send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
+    SCNonce = blockchain_state_channel_v1:nonce(SC),
+    NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
+    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0),
+    SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
+    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
+    lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg, Stream]),
+    blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg).
 
-%% TODO: add some eunits here...
+-spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
+active_sc(#state{active_sc_id=undefined}) ->
+    undefined;
+active_sc(#state{state_channels=SCs, active_sc_id=ActiveSCID}) ->
+    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    ActiveSC.
 
--endif.
+-spec send_banner(SC :: blockchain_state_channel_v1:state_channel(),
+                  Stream :: pid()) -> ok.
+send_banner(SC, Stream) ->
+    %% NOTE: The banner itself is not signed, however, the state channel
+    %% it contains should be signed already
+    BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
+    blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
+
+-spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                        PayloadSize :: pos_integer(),
+                        Ledger :: blockchain:ledger(),
+                        SC :: blockchain_state_channel_v1:state_channel()) ->
+    blockchain_state_channel_v1:state_channel().
+update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
+    case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
+        {error, not_found} ->
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
+            %% Add this to summaries
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
+        {ok, ExistingSummary} ->
+            %% Update packet count for this client
+            ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
+            %% Update DC count for this client
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
+            NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
+                                                                    ExistingNumPackets + 1,
+                                                                    ExistingSummary),
+            %% Update summaries
+            blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
+    end.

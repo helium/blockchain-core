@@ -17,9 +17,10 @@
          frequency/1,
          datarate/1,
          snr/1,
+         packet_hash/1,
 
-         encode/1, decode/1
-
+         encode/1, decode/1,
+         make_routing_info/1
         ]).
 
 -include("blockchain.hrl").
@@ -29,9 +30,10 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type routing_information() :: #routing_information_pb{}.
 -type routing_info() :: {devaddr, DevAddr::non_neg_integer()} | {eui, DevEUI::non_neg_integer(), AppEUI::non_neg_integer()}.
 -type packet() :: #packet_pb{}.
--export_type([packet/0, routing_info/0]).
+-export_type([packet/0, routing_info/0, routing_information/0]).
 
 -spec new() -> packet().
 new() ->
@@ -106,6 +108,10 @@ datarate(#packet_pb{datarate=DR}) ->
 snr(#packet_pb{snr=SNR}) ->
     SNR.
 
+-spec packet_hash(packet()) -> binary().
+packet_hash(Packet) ->
+    crypto:hash(sha256, term_to_binary(Packet)).
+
 -spec encode(packet()) -> binary().
 encode(#packet_pb{}=Packet) ->
     packet_pb:encode_msg(Packet).
@@ -114,12 +120,7 @@ encode(#packet_pb{}=Packet) ->
 decode(BinaryPacket) ->
     packet_pb:decode_msg(BinaryPacket, packet_pb).
 
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
-
--spec make_routing_info(routing_info()) -> #routing_information_pb{}.
+-spec make_routing_info(routing_info()) -> routing_information().
 make_routing_info({devaddr, DevAddr}) ->
     #routing_information_pb{data={devaddr, DevAddr}};
 make_routing_info({eui, DevEUI, AppEUI}) ->

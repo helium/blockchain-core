@@ -20,14 +20,16 @@
     signature/1, sign/2, validate/1,
     encode/1, decode/1,
     save/3, fetch/2,
-    summaries/1, summaries/2, update_summaries/3,
+    summaries/1, summaries/2, update_summary_for/3,
 
     add_payload/3,
     get_summary/2,
     num_packets_for/2, num_dcs_for/2,
     total_packets/1, total_dcs/1,
 
-    to_json/2
+    to_json/2,
+
+    compare_causality/2
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
@@ -42,10 +44,13 @@
 -type id() :: binary().
 -type state() :: open | closed.
 -type summaries() :: [blockchain_state_channel_summary_v1:summary()].
+-type temporal_relation() :: equal | effect_of | caused | conflict.
 
 -export_type([state_channel/0, id/0]).
 
--spec new(binary(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> state_channel().
+-spec new(ID :: id(),
+          Owner :: libp2p_crypto:pubkey_bin(),
+          Amount :: non_neg_integer()) -> state_channel().
 new(ID, Owner, Amount) ->
     #blockchain_state_channel_v1_pb{
         id=ID,
@@ -58,7 +63,7 @@ new(ID, Owner, Amount) ->
         expire_at_block=0
     }.
 
--spec new(ID :: binary(),
+-spec new(ID :: id(),
           Owner :: libp2p_crypto:pubkey_bin(),
           Amount :: non_neg_integer(),
           BlockHash :: binary(),
@@ -110,10 +115,10 @@ summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
 summaries(Summaries, SC) ->
     SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
 
--spec update_summaries(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
-                       NewSummary :: blockchain_state_channel_summary_v1:summary(),
-                       SC :: state_channel()) -> state_channel().
-update_summaries(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+-spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                         NewSummary :: blockchain_state_channel_summary_v1:summary(),
+                         SC :: state_channel()) -> state_channel().
+update_summary_for(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
     case get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
             SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]};
@@ -289,6 +294,45 @@ to_json(SC, _Opts) ->
       expire_at_block => expire_at_block(SC)
      }.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get causal relation between SC1 and SC2.
+%% If SC1 -> SC2, return caused
+%% If SC2 -> SC1, return effect_of
+%% If SC1 == SC2, return equal
+%% In all other scenarios, return conflict
+%% @end
+%%--------------------------------------------------------------------
+-spec compare_causality(SC1 :: state_channel(), SC2 :: state_channel()) -> temporal_relation().
+compare_causality(SC1, SC2) ->
+    N1 = ?MODULE:nonce(SC1),
+    N2 = ?MODULE:nonce(SC2),
+
+    {_, Res} = case {N1, N2} of
+                   {N, N} ->
+                       %% nonces are equal, summaries must be equal
+                       SC1Summaries = ?MODULE:summaries(SC1),
+                       SC2Summaries = ?MODULE:summaries(SC2),
+                       case SC1Summaries == SC2Summaries of
+                           false ->
+                               {done, conflict};
+                           true ->
+                               {done, equal}
+                       end;
+                   {N1, N2} when N1 < N2 ->
+                       %% SC2 claims to have a higher nonce than SC1
+                       %% Every hotspot in SC1 summary must have either the same/lower packet and dc count
+                       %% when compared to SC2 summary
+                       check_causality(?MODULE:summaries(SC1), SC2, caused);
+                   {N1, N2} when N1 > N2 ->
+                       %% SC1 claims to have an equal/higher nonce than SC1
+                       %% Every hotspot in SC2 summary must have either same/lower packet and dc count
+                       %% when compared to SC1 summary
+                       check_causality(?MODULE:summaries(SC2), SC1, effect_of)
+               end,
+    Res.
+
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
@@ -311,6 +355,34 @@ can_fit(ClientPubkeyBin, Summaries) ->
             true
     end.
 
+-spec check_causality(SCSummaries :: summaries(),
+                      OtherSC :: state_channel(),
+                      Init :: caused | effect_of) -> {done, temporal_relation()}.
+check_causality(SCSummaries, OtherSC, Init) ->
+    lists:foldl(fun(_SCSummary, {done, Acc}) ->
+                        {done, Acc};
+                   (SCSummary, {not_done, Acc}) ->
+                        ClientPubkeyBin = blockchain_state_channel_summary_v1:client_pubkeybin(SCSummary),
+                        case ?MODULE:get_summary(ClientPubkeyBin, OtherSC) of
+                            {error, _} ->
+                                %% OtherSC does not have this client's summary, conflict
+                                {done, conflict};
+                            {ok, OtherSCSummary} ->
+                                %% We found summary for this client in OtherSC
+                                %% Check balances
+                                SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
+                                SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
+                                OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
+                                OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
+                                Check = (OtherSCNumPackets >= SC1NumPackets) andalso (OtherSCNumDCs >= SC1NumDCs),
+                                case Check of
+                                    false ->
+                                        {done, conflict};
+                                    true ->
+                                        {not_done, Acc}
+                                end
+                        end
+                end, {not_done, Init}, SCSummaries).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -387,7 +459,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    NewSC1 = blockchain_state_channel_v1:update_summaries(PubKeyBin, NewSummary, NewSC),
+    NewSC1 = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
@@ -434,5 +506,96 @@ open_db(Dir) ->
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
     {ok, _DB} = rocksdb:open(DBDir, DBOptions).
+
+causality_test() ->
+    BaseDir = test_utils:tmp_dir("causality_test"),
+    {ok, _DB} = open_db(BaseDir),
+    #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(PubKeyBin))),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(4, blockchain_state_channel_summary_v1:num_dcs(4, blockchain_state_channel_summary_v1:new(PubKeyBin))),
+    Summary3 = blockchain_state_channel_summary_v1:num_packets(1, blockchain_state_channel_summary_v1:num_dcs(1, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
+
+    %% base, equal
+    BaseSC1 = new(<<"1">>, <<"owner">>, 1),
+    BaseSC2 = new(<<"1">>, <<"owner">>, 1),
+    ?assertEqual(equal, compare_causality(BaseSC1, BaseSC2)),
+
+    %% no summary, increasing nonce
+    SC1 = new(<<"1">>, <<"owner">>, 1),
+    SC2 = nonce(1, new(<<"1">>, <<"owner">>, 1)),
+    ?assertEqual(caused, compare_causality(SC1, SC2)),
+    ?assertEqual(effect_of, compare_causality(SC2, SC1)),
+
+    %% 0 (same) nonce, with differing summary, conflict
+    SC3 = summaries([Summary2], new(<<"1">>, <<"owner">>, 1)),
+    SC4 = summaries([Summary1], new(<<"1">>, <<"owner">>, 1)),
+    ?assertEqual(conflict, compare_causality(SC3, SC4)),
+    ?assertEqual(conflict, compare_causality(SC4, SC3)),
+
+    %% SC6 is allowed after SC5
+    SC5 = new(<<"1">>, <<"owner">>, 1),
+    SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(caused, compare_causality(SC5, SC6)),
+    ?assertEqual(effect_of, compare_causality(SC6, SC5)),
+
+    %% SC7 is allowed after SC5
+    %% NOTE: skipped a nonce here (should this actually be allowed?)
+    SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(caused, compare_causality(SC5, SC7)),
+    ?assertEqual(effect_of, compare_causality(SC7, SC5)),
+
+    %% SC9 has higher nonce than SC8, however,
+    %% SC9 does not have summary which SC8 has, conflict
+    SC8 = summaries([Summary1], nonce(8, new(<<"1">>, <<"owner">>, 1))),
+    SC9 = nonce(9, new(<<"1">>, <<"owner">>, 1)),
+    ?assertEqual(conflict, compare_causality(SC8, SC9)),
+    ?assertEqual(conflict, compare_causality(SC9, SC8)),
+
+    %% same non-zero nonce, with differing summary, conflict
+    SC10 = nonce(10, new(<<"1">>, <<"owner">>, 1)),
+    SC11 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(conflict, compare_causality(SC10, SC11)),
+    ?assertEqual(conflict, compare_causality(SC11, SC10)),
+
+    %% natural progression
+    SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(caused, compare_causality(SC12, SC13)),
+    ?assertEqual(effect_of, compare_causality(SC13, SC12)),
+
+    %% definite conflict, since summary for a client is missing in higher nonce sc
+    SC14 = summaries([Summary1], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    SC15 = summaries([Summary2], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(conflict, compare_causality(SC14, SC15)),
+    ?assertEqual(conflict, compare_causality(SC15, SC14)),
+
+    %% another natural progression
+    SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(caused, compare_causality(SC16, SC17)),
+    ?assertEqual(effect_of, compare_causality(SC17, SC16)),
+
+    %% another definite conflict, since higher nonce sc does not have previous summary
+    SC18 = summaries([Summary1, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC19 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(conflict, compare_causality(SC18, SC19)),
+    ?assertEqual(conflict, compare_causality(SC19, SC18)),
+
+    %% yet another conflict, since a higher nonce sc has an older client summary
+    SC20 = summaries([Summary2, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC21 = summaries([Summary1, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(conflict, compare_causality(SC20, SC21)),
+    ?assertEqual(conflict, compare_causality(SC21, SC20)),
+
+    %% natural progression with nonce skip
+    SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
+    SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>, 1))),
+    ?assertEqual(caused, compare_causality(SC22, SC23)),
+    ?assertEqual(effect_of, compare_causality(SC23, SC22)),
+
+    ok.
 
 -endif.
