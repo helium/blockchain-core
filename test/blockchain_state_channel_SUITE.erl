@@ -16,27 +16,27 @@
         ]).
 
 -export([
-    basic_test/1,
-    full_test/1,
-    dup_packets_test/1,
-    expired_test/1,
-    replay_test/1,
-    multiple_test/1,
-    multi_owner_multi_sc_test/1,
-    multi_active_sc_test/1,
-    open_without_oui_test/1,
-    max_scs_open_test/1,
-    oui_not_found_test/1,
-    unknown_owner_test/1,
-    crash_single_sc_test/1,
-    crash_multi_sc_test/1,
-    sc_gc_test/1,
-    multi_sc_gc_test/1,
-    crash_sc_sup_test/1,
-    hotspot_in_router_oui_test/1,
-    default_routers_test/1,
-    sc_conflict_test/1
-]).
+         basic_test/1,
+         full_test/1,
+         dup_packets_test/1,
+         expired_test/1,
+         replay_test/1,
+         multiple_test/1,
+         multi_owner_multi_sc_test/1,
+         multi_active_sc_test/1,
+         open_without_oui_test/1,
+         max_scs_open_test/1,
+         oui_not_found_test/1,
+         unknown_owner_test/1,
+         crash_single_sc_test/1,
+         crash_multi_sc_test/1,
+         sc_gc_test/1,
+         multi_sc_gc_test/1,
+         crash_sc_sup_test/1,
+         hotspot_in_router_oui_test/1,
+         default_routers_test/1,
+         sc_conflict_test/1
+        ]).
 
 -include("blockchain.hrl").
 
@@ -83,10 +83,22 @@ test_cases() ->
 init_per_group(sc_v1, Config) ->
     [{sc_version, 1} | Config];
 init_per_group(sc_v2, Config) ->
-    SCVars = ?config(sc_vars, Config),
-    SCV2Vars = maps:merge(SCVars, #{sc_version => 2, sc_overcommit => 2}),
+    SCV1Vars = ?config(sc_vars, Config),
+    SCV2Vars = #{sc_version => 2,
+                 sc_overcommit => 2,
+                 %% XXX: sc v2 will not be gced and removed from ledger unless there are rewards being paid out
+                 reward_version => 2,
+                 monthly_reward => 50000 * 1000000,
+                 securities_percent => 0.35,
+                 consensus_percent => 0.1,
+                 poc_challengees_percent => 0.05,
+                 poc_witnesses_percent => 0.05,
+                 poc_challengers_percent => 0.15,
+                 dc_percent => 0.30},
+
+    ExtraVars = maps:merge(SCV1Vars, SCV2Vars),
     %% Also adding the sc_version to the config here for cross-checking in helper functions
-    [{sc_vars, SCV2Vars}, {sc_version, 2} | Config].
+    [{sc_vars, ExtraVars}, {sc_version, 2} | Config].
 
 end_per_group(_, _Config) ->
     ok.
@@ -137,7 +149,8 @@ init_per_testcase(Test, Config) ->
     SCVars = ?config(sc_vars, Config),
     ct:pal("SCVars: ~p", [SCVars]),
 
-    {InitialVars, _Config} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, SCVars)),
+    {InitVarTxn, _MasterKey} = blockchain_ct_utils:create_vars(maps:merge(DefaultVars, SCVars)),
+    ct:pal("InitVarTxn: ~p", [InitVarTxn]),
 
     % Create genesis block
     GenPaymentTxs = [blockchain_txn_coinbase_v1:new(Addr, Balance) || Addr <- Addrs],
@@ -148,7 +161,7 @@ init_per_testcase(Test, Config) ->
     GenGwTxns = [blockchain_txn_gen_gateway_v1:new(Addr, hd(ConsensusAddrs), h3:from_geo({37.780586, -122.469470}, 13), 0)
                  || Addr <- Addrs],
 
-    Txs = InitialVars ++ GenPaymentTxs ++ GenDCsTxs ++ GenGwTxns ++ [GenConsensusGroupTx],
+    Txs = InitVarTxn ++ GenPaymentTxs ++ GenDCsTxs ++ GenGwTxns ++ [GenConsensusGroupTx],
     GenesisBlock = blockchain_block:new_genesis_block(Txs),
 
     %% tell each node to integrate the genesis block
@@ -248,7 +261,9 @@ full_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -292,10 +307,17 @@ full_test(Config) ->
         {ok, 2} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
     end, 30, timer:seconds(1)),
 
-    %% Adding 20 fake blocks to get the state channel to expire
-    FakeBlocks = 20,
+    %% Adding 30 fake blocks to get the state channel to expire
+    FakeBlocks = 30,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 32),
+
+    Blocks = ct_rpc:call(RouterNode, blockchain, blocks, [RouterChain]),
+    ok = lists:foreach(fun(Block) ->
+                               H = blockchain_block:height(Block),
+                               Ts = ct_rpc:call(RouterNode, blockchain_block, transactions, [Block]),
+                               ct:pal("H: ~p, Ts: ~p", [H, Ts])
+                       end, maps:values(Blocks)),
 
     %% Adding close txn to blockchain
     receive
@@ -309,11 +331,26 @@ full_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 33),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
+        {ok, Res} = ct_rpc:call(RouterNode,
+                                blockchain_ledger_v1,
+                                find_sc_ids_by_owner,
+                                [RouterPubkeyBin, RouterLedger]),
+        ct:pal("Res: ~p", [Res]),
+
+        [LedgerSCID] = Res,
+
+        {ok, LedgerSC} = ct_rpc:call(RouterNode,
+                                     blockchain_ledger_v1,
+                                     find_state_channel,
+                                     [LedgerSCID, RouterPubkeyBin, RouterLedger]),
+
+        ct:pal("LedgerSC: ~p", [LedgerSC]),
+
+        Res == []
     end, 10, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
@@ -341,7 +378,9 @@ dup_packets_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -449,7 +488,9 @@ expired_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
@@ -529,7 +570,9 @@ replay_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
@@ -599,7 +642,9 @@ replay_test(Config) ->
     ReplayID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("ReplaySignedSCOpenTxn: ~p", [ReplaySignedSCOpenTxn]),
 
     {error, {invalid_txns, [ReplaySignedSCOpenTxn]}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [ReplaySignedSCOpenTxn]]),
@@ -629,7 +674,9 @@ multiple_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 20,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
@@ -671,7 +718,7 @@ multiple_test(Config) ->
 
     %% Create another state channel
     ID2 = crypto:strong_rand_bytes(24),
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce + 1),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, OUI, Nonce + 1, Amount),
 
     {ok, Block2} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [SignedSCOpenTxn2]]),
     ok = ct_rpc:call(RouterNode, blockchain_gossip_handler, add_block, [Block2, RouterChain, Self, RouterSwarm]),
@@ -721,14 +768,17 @@ multi_owner_multi_sc_test(Config) ->
     ok = setup_meck_txn_forwarding(RouterNode2, Self),
 
     %% Create OUI txn for RouterNode1
+    OUI1 = 1,
     SignedOUITxn1 = create_oui_txn(1, RouterNode1, [], 8),
 
     %% Create 3 SCs for RouterNode1
     Expiry = 20,
     ID11 = crypto:strong_rand_bytes(24),
     ID12 = crypto:strong_rand_bytes(24),
-    SignedSCOpenTxn11 = create_sc_open_txn(RouterNode1, ID11, Expiry, 1, 1),
-    SignedSCOpenTxn12 = create_sc_open_txn(RouterNode1, ID12, Expiry, 1, 2),
+    Amount = 1,
+    Nonce = 1,
+    SignedSCOpenTxn11 = create_sc_open_txn(RouterNode1, ID11, Expiry, OUI1, Nonce, Amount),
+    SignedSCOpenTxn12 = create_sc_open_txn(RouterNode1, ID12, Expiry, OUI1, Nonce + 1, Amount),
 
     % Adding block with first set of txns
     Txns1 = [SignedOUITxn1,
@@ -762,13 +812,14 @@ multi_owner_multi_sc_test(Config) ->
     ok = blockchain_ct_utils:wait_until_height(GatewayNode1, 3),
 
     %% Create OUI txn for RouterNode2
-    SignedOUITxn2 = create_oui_txn(2, RouterNode2, [], 8),
+    OUI2 = 2,
+    SignedOUITxn2 = create_oui_txn(OUI2, RouterNode2, [], 8),
     ID21 = crypto:strong_rand_bytes(24),
     ID22 = crypto:strong_rand_bytes(24),
 
     %% Create OUI txn for RouterNode2
-    SignedSCOpenTxn21 = create_sc_open_txn(RouterNode2, ID21, Expiry, 1, 1),
-    SignedSCOpenTxn22 = create_sc_open_txn(RouterNode2, ID22, Expiry, 1, 2),
+    SignedSCOpenTxn21 = create_sc_open_txn(RouterNode2, ID21, Expiry, OUI2, 1, Amount),
+    SignedSCOpenTxn22 = create_sc_open_txn(RouterNode2, ID22, Expiry, OUI2, 2, Amount),
 
     %% Create second set of txns
     Txns2 = [SignedOUITxn2,
@@ -882,7 +933,8 @@ multi_active_sc_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 45,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
@@ -926,7 +978,8 @@ multi_active_sc_test(Config) ->
     ID2 = crypto:strong_rand_bytes(24),
     ExpireWithin2 = 90,
     Nonce2 = 2,
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, 1, Nonce2),
+    Amount = 1,
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, 1, Nonce2, Amount),
     ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
 
     %% Adding block
@@ -1027,7 +1080,8 @@ open_without_oui_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
@@ -1051,19 +1105,21 @@ max_scs_open_test(Config) ->
     %% Create state channel open txn
     ID1 = crypto:strong_rand_bytes(24),
     Nonce1 = 1,
-    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce1),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, OUI, Nonce1, Amount),
     ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
 
     %% Create state channel open txn
     ID2 = crypto:strong_rand_bytes(24),
     Nonce2 = 2,
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, 1, Nonce2),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin, OUI, Nonce2, Amount),
     ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
 
     %% Create state channel open txn
     ID3 = crypto:strong_rand_bytes(24),
     Nonce3 = 3,
-    SignedSCOpenTxn3 = create_sc_open_txn(RouterNode, ID3, ExpireWithin, 1, Nonce3),
+    SignedSCOpenTxn3 = create_sc_open_txn(RouterNode, ID3, ExpireWithin, OUI, Nonce3, Amount),
     ct:pal("SignedSCOpenTxn3: ~p", [SignedSCOpenTxn3]),
 
     %% Adding block
@@ -1092,8 +1148,8 @@ oui_not_found_test(Config) ->
     ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce1 = 1,
-
-    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 2, Nonce1),
+    Amount = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 2, Nonce1, Amount),
     ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
 
     %% Adding block
@@ -1141,7 +1197,9 @@ unknown_owner_test(Config) ->
     ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce1 = 1,
-    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, 1, Nonce1),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin, OUI, Nonce1, Amount),
     ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
 
     %% Adding block
@@ -1170,7 +1228,9 @@ crash_single_sc_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -1289,14 +1349,16 @@ crash_multi_sc_test(Config) ->
     ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin1 = 11,
     Nonce1 = 1,
-    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin1, 1, Nonce1),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin1, OUI, Nonce1, Amount),
     ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
 
     %% Create second state channel open txn
     ID2 = crypto:strong_rand_bytes(24),
     ExpireWithin2 = 21,
     Nonce2 = 2,
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, 1, Nonce2),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, OUI, Nonce2, Amount),
     ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
 
     %% Add block with oui and sc open txns
@@ -1463,7 +1525,9 @@ sc_gc_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -1536,14 +1600,16 @@ multi_sc_gc_test(Config) ->
     ID1 = crypto:strong_rand_bytes(24),
     ExpireWithin1 = 11,
     Nonce1 = 1,
-    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin1, 1, Nonce1),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn1 = create_sc_open_txn(RouterNode, ID1, ExpireWithin1, OUI, Nonce1, Amount),
     ct:pal("SignedSCOpenTxn1: ~p", [SignedSCOpenTxn1]),
 
     %% Create second state channel open txn
     ID2 = crypto:strong_rand_bytes(24),
     ExpireWithin2 = 150,
     Nonce2 = 2,
-    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, 1, Nonce2),
+    SignedSCOpenTxn2 = create_sc_open_txn(RouterNode, ID2, ExpireWithin2, OUI, Nonce2, Amount),
     ct:pal("SignedSCOpenTxn2: ~p", [SignedSCOpenTxn2]),
 
     %% Add block with oui and sc open txns
@@ -1635,7 +1701,9 @@ crash_sc_sup_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -1785,7 +1853,9 @@ hotspot_in_router_oui_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -1876,7 +1946,9 @@ default_routers_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -1983,7 +2055,9 @@ sc_conflict_test(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     Nonce = 1,
-    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, 1, Nonce),
+    Amount = 1,
+    OUI = 1,
+    SignedSCOpenTxn = create_sc_open_txn(RouterNode, ID, ExpireWithin, OUI, Nonce, Amount),
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Add block with oui and sc open txns
@@ -2127,10 +2201,10 @@ create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
     OUITxn = blockchain_txn_oui_v1:new(OUI, RouterPubkeyBin, [RouterPubkeyBin], Filter, SubnetSize),
     blockchain_txn_oui_v1:sign(OUITxn, RouterSigFun).
 
-create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
+create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce, Amount) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 0),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, Amount),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
 create_update_gateway_oui_txn(GatewayNode, OUI, Nonce, OwnerSigFun, RouterSigFun) ->
@@ -2165,12 +2239,12 @@ add_block(RouterNode, RouterChain, ConsensusMembers, Txns) ->
 
 add_and_gossip_fake_blocks(NumFakeBlocks, ConsensusMembers, Node, Swarm, Chain, From) ->
     lists:foreach(
-        fun(_) ->
-            {ok, B} = ct_rpc:call(Node, test_utils, create_block, [ConsensusMembers, []]),
-            _ = ct_rpc:call(Node, blockchain_gossip_handler, add_block, [B, Chain, From, Swarm])
-        end,
-        lists:seq(1, NumFakeBlocks)
-    ).
+      fun(_I) ->
+              {ok, B} = ct_rpc:call(Node, test_utils, create_block, [ConsensusMembers, []]),
+              _ = ct_rpc:call(Node, blockchain_gossip_handler, add_block, [B, Chain, From, Swarm])
+      end,
+      lists:seq(1, NumFakeBlocks)
+     ).
 
 setup_meck_txn_forwarding(Node, From) ->
     ok = ct_rpc:call(Node, meck_test_util, forward_submit_txn, [From]),

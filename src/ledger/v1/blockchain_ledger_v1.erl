@@ -1438,6 +1438,7 @@ maybe_gc_scs(Chain) ->
                                SCsCF,
                                fun({KeyHash, BinSC}, Acc) ->
                                        {Mod, SC} = deserialize_state_channel(BinSC),
+                                       lager:info("gcing scs, Mod: ~p, SC: ~p", [Mod, SC]),
                                        ExpireAtBlock = Mod:expire_at_block(SC),
                                        case (ExpireAtBlock + Grace) < Height of
                                            false ->
@@ -1458,6 +1459,7 @@ maybe_gc_scs(Chain) ->
                                                                        Owner = blockchain_state_channel_v1:owner(SC0),
                                                                        Credit = calc_remaining_dcs(SC0),
                                                                        ok = credit_dc(Owner, Credit, Ledger),
+                                                                       lager:info("refunding overcommit DCs, SC0: ~p, Owner: ~p, Credit: ~p", [SC0, Owner, Credit]),
                                                                        [KeyHash | Acc]
                                                                end
                                                        end
@@ -1465,6 +1467,7 @@ maybe_gc_scs(Chain) ->
                                        end
                                end, []),
                     ok = lists:foreach(fun(KeyHash) ->
+                                               lager:info("cache_delete for KeyHash: ~p", [KeyHash]),
                                                cache_delete(Ledger, SCsCF, KeyHash)
                                        end,
                                        Alters),
