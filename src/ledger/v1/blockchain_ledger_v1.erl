@@ -1422,6 +1422,7 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
+-spec maybe_gc_scs(blockchain:blockchain()) -> ok.
 maybe_gc_scs(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = current_height(Ledger),
@@ -1477,6 +1478,7 @@ maybe_gc_scs(Chain) ->
             ok
     end.
 
+-spec calc_remaining_dcs( blockchain_state_channel_v1:state_channel() ) -> non_neg_integer().
 calc_remaining_dcs(SC) ->
     UsedDC = blockchain_state_channel_v1:total_dcs(SC),
     ReservedDC = blockchain_state_channel_v1:amount(SC),
@@ -3173,6 +3175,8 @@ snapshot_state_channels(Ledger) ->
           end, #{},
           []))).
 
+-spec load_state_channels([tuple()], ledger()) -> ok.
+%% @doc Loads the cache with state channels from a snapshot
 load_state_channels(SCs, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     maps:map(
@@ -3214,6 +3218,10 @@ load_hexes(Hexes0, Ledger) ->
             ok
     end.
 
+-spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
+                           blockchain_ledger_state_channel_v2:state_channel_v2(),
+                  Ledger :: ledger() ) -> blockchain_ledger_state_channel_v1
+                                          | blockchain_ledger_state_channel_v2.
 get_sc_mod(Channel, Ledger) ->
     case ?MODULE:config(?sc_version, Ledger) of
         {ok, 2} ->
@@ -3224,6 +3232,9 @@ get_sc_mod(Channel, Ledger) ->
         _ -> blockchain_ledger_state_channel_v1
     end.
 
+-spec deserialize_state_channel( <<_:8, _:_*8>> ) ->
+    { blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel() } |
+    { blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2() }.
 deserialize_state_channel(<<1, _/binary>> = SC) ->
     {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:deserialize(SC)};
 deserialize_state_channel(<<2, _/binary>> = SC) ->
