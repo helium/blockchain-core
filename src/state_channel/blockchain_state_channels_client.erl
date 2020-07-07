@@ -152,24 +152,48 @@ handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
 handle_info({dial_success, OUI, Stream}, #state{swarm=Swarm, chain=Chain}=State0) when is_integer(OUI) ->
     Packets = get_waiting_packet(OUI, State0),
     lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
-    lists:foreach(
-        fun({Packet, Region}) ->
-                ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain)
-        end,
-        Packets
-    ),
+
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            lists:foreach(
+              fun({Packet, Region}) ->
+                      ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain)
+              end,
+              Packets
+             );
+        _ ->
+            lists:foreach(
+              fun({Packet, Region}) ->
+                      ok = send_packet(Swarm, Stream, Packet, Region)
+              end,
+              Packets
+             )
+    end,
+
     erlang:monitor(process, Stream),
     State1 = add_stream(OUI, Stream, remove_packet_from_waiting(OUI, State0)),
     {noreply, State1};
-handle_info({dial_success, Address, Stream}, #state{swarm=Swarm}=State0) ->
+handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=State0) ->
     Packets = get_waiting_packet(Address, State0),
     lager:debug("dial_success sending ~p packet offers", [erlang:length(Packets)]),
-    lists:foreach(
-        fun({Packet, Region}) ->
-            ok = send_offer(Swarm, Stream, Packet, Region)
-        end,
-        Packets
-    ),
+
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            lists:foreach(
+              fun({Packet, Region}) ->
+                      ok = send_offer(Swarm, Stream, Packet, Region)
+              end,
+              Packets
+             );
+        _ ->
+            lists:foreach(
+              fun({Packet, Region}) ->
+                      ok = send_packet(Swarm, Stream, Packet, Region)
+              end,
+              Packets
+             )
+    end,
+
     erlang:monitor(process, Stream),
     State1 = add_stream(Address, Stream, remove_packet_from_waiting(Address, State0)),
     {noreply, State1};
@@ -211,8 +235,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm, chain=Chain
                                        lager:debug("stream is still dialing queueing packet"),
                                        add_packet_to_waiting(Address, {Packet, Region}, StateAcc);
                                    Stream ->
-                                       lager:debug("got stream sending offer"),
-                                       ok = send_offer(Swarm, Stream, Packet, Region),
+                                       ok = send_packet_when_v1(Swarm, Stream, Packet, Region, Chain),
                                        StateAcc
                                end;
                            {oui, OUI} ->
@@ -226,7 +249,12 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm, chain=Chain
                                        add_packet_to_waiting(OUI, {Packet, Region}, StateAcc);
                                    Stream ->
                                        lager:debug("got stream sending offer"),
-                                       ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain),
+                                       case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+                                           {ok, 2} ->
+                                               ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain);
+                                           _ ->
+                                               ok = send_packet(Swarm, Stream, Packet, Region)
+                                       end,
                                        StateAcc
                                end
                        end
@@ -351,7 +379,7 @@ find_routing(Packet, Chain) ->
                     Packet :: blockchain_helium_packet_v1:packet(),
                     Region :: atom(),
                     Chain :: blockchain:blockchain()) -> ok.
-dial_and_send(Swarm, Address, Packet, Region, _Chain) when is_list(Address) ->
+dial_and_send(Swarm, Address, Packet, Region, Chain) when is_list(Address) ->
     Self = self(),
     erlang:spawn(fun() ->
         lager:debug("dialing address ~p for packet ~p", [Address, Packet]),
@@ -360,7 +388,7 @@ dial_and_send(Swarm, Address, Packet, Region, _Chain) when is_list(Address) ->
                 Self ! {dial_fail, Address, _Reason};
             {ok, Stream} ->
                 unlink(Stream),
-                ok = send_offer(Swarm, Stream, Packet, Region),
+                ok = send_packet_when_v1(Swarm, Stream, Packet, Region, Chain),
                 Self ! {dial_success, Address, Stream}
         end
     end),
@@ -391,7 +419,12 @@ dial_and_send(Swarm, Route, Packet, Region, Chain) ->
             not_dialed ->
                 Self ! {dial_fail, OUI, failed};
             {dialed, Stream} ->
-                ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain),
+                case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+                    {ok, 2} ->
+                        ok = send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain);
+                    _ ->
+                        ok = send_packet(Swarm, Stream, Packet, Region)
+                end,
                 Self ! {dial_success, OUI, Stream}
         end
     end),
@@ -448,6 +481,21 @@ send_packet_or_offer(Swarm, Stream, Packet, Region, OUI, Chain) ->
             send_offer(Swarm, Stream, Packet, Region);
         true ->
             send_packet(Swarm, Stream, Packet, Region)
+    end.
+
+-spec send_packet_when_v1(Swarm :: pid(),
+                          Stream :: pid(),
+                          Packet :: blockchain_helium_packet_v1:packet(),
+                          Region :: atom(),
+                          Chain :: blockchain:blockchain()) -> ok.
+send_packet_when_v1(Swarm, Stream, Packet, Region, Chain) ->
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            lager:debug("got stream sending offer"),
+            ok = send_offer(Swarm, Stream, Packet, Region);
+        _ ->
+            lager:debug("got stream sending packet"),
+            ok = send_packet(Swarm, Stream, Packet, Region)
     end.
 
 %% ------------------------------------------------------------------
