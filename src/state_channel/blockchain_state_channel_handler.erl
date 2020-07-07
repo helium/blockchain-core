@@ -19,7 +19,8 @@
     send_offer/2,
     send_purchase/2,
     send_response/2,
-    send_banner/2
+    send_banner/2,
+    send_rejection/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -75,6 +76,12 @@ send_banner(Pid, Banner) ->
     Pid ! {send_banner, Banner},
     ok.
 
+-spec send_rejection(pid(), blockchain_state_channel_rejection_v1:rejection()) -> ok.
+send_rejection(Pid, Rejection) ->
+    lager:info("sending rejection: ~p, pid: ~p", [Rejection, Pid]),
+    Pid ! {send_rejection, Rejection},
+    ok.
+
 -spec send_response(pid(), blockchain_state_channel_response_v1:response()) -> ok.
 send_response(Pid, Resp) ->
     Pid ! {send_response, Resp},
@@ -107,6 +114,9 @@ handle_data(client, Data, State) ->
         {purchase, Purchase} ->
             lager:info("sc_handler client got purchase: ~p", [Purchase]),
             blockchain_state_channels_client:purchase(Purchase, self());
+        {reject, Rejection} ->
+            lager:info("sc_handler client got rejection: ~p", [Rejection]),
+            blockchain_state_channels_client:reject(Rejection, self());
         {response, Resp} ->
             lager:debug("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
@@ -132,6 +142,9 @@ handle_info(client, {send_packet, Packet}, State) ->
     {noreply, State, Data};
 handle_info(server, {send_banner, Banner}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Banner),
+    {noreply, State, Data};
+handle_info(server, {send_rejection, Rejection}, State) ->
+    Data = blockchain_state_channel_message_v1:encode(Rejection),
     {noreply, State, Data};
 handle_info(server, {send_purchase, Purchase}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Purchase),
