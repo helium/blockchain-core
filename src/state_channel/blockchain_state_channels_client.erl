@@ -361,7 +361,7 @@ find_routing(Packet, Chain) ->
     end.
 
 -spec dial(Swarm :: pid(),
-                    Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
+           Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
 dial(Swarm, Address) when is_list(Address) ->
     Self = self(),
     erlang:spawn(fun() ->
@@ -453,7 +453,7 @@ send_packet_or_offer(Stream, OUI, Packet, Region, #state{swarm=Swarm, chain=Chai
                 {ok, N} -> N;
                 _ -> 1
             end,
-    case (is_hotspot_in_router_oui(Swarm, OUI, Chain) andalso SCVer > 2) orelse SCVer == 1 of
+    case (is_hotspot_in_router_oui(Swarm, OUI, Chain) andalso SCVer >= 2) orelse SCVer == 1 of
         false ->
             ok = send_offer(Swarm, Stream, Packet, Region),
             enqueue_packet(Stream, Packet, State);
@@ -468,7 +468,7 @@ send_packet_or_offer(Stream, OUI, Packet, Region, #state{swarm=Swarm, chain=Chai
                           State :: #state{}) -> #state{}.
 send_packet_when_v1(Stream, Packet, Region, #state{swarm=Swarm, chain=Chain}=State) ->
     case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
+        {ok, N} when N > 1 ->
             lager:debug("got stream sending offer"),
             ok = send_offer(Swarm, Stream, Packet, Region),
             enqueue_packet(Stream, Packet, State);
