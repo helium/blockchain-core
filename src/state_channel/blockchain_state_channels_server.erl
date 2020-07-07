@@ -189,10 +189,15 @@ handle_cast({packet, SCPacket, HandlerPid},
             Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
             {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
-            ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-            NewSC = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
-            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+            SC3 = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+                      {ok, 2} ->
+                          SC1;
+                      _ ->
+                          SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
+                          ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+                          blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
+                  end,
+            SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
 
             %% Save state channel to db
             ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
