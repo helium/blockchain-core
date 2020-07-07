@@ -169,15 +169,19 @@ close_proposal(Closer, SC, SCEntry) ->
             end
     end.
 
+-spec closer( state_channel_v2() ) -> libp2p_crypto:pubkey_bin().
 closer(SC) ->
     SC#ledger_state_channel_v2.closer.
 
+-spec state_channel( state_channel_v2() ) -> blockchain_state_channel_v1:state_channel().
 state_channel(SC) ->
     SC#ledger_state_channel_v2.sc.
 
+-spec close_state( state_channel_v2() ) -> undefined|closed|dispute.
 close_state(SC) ->
     SC#ledger_state_channel_v2.close_state.
 
+-spec is_v2( term() ) -> boolean().
 is_v2(#ledger_state_channel_v2{}) -> true;
 is_v2(_) -> false.
 
