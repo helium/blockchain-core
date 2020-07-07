@@ -222,11 +222,11 @@ handle_cast({offer, SCOffer, HandlerPid},
     Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
     PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
-    {ActiveSC, _} = maps:get(ActiveSCID, SCs, undefined),
+    {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-    ok = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
-    NewState = maybe_add_stream(Hotspot, HandlerPid, State),
+    {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
+    NewState = maybe_add_stream(Hotspot, HandlerPid, State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
     erlang:monitor(process, HandlerPid),
     {noreply, NewState};
 handle_cast(_Msg, State) ->
@@ -639,7 +639,7 @@ maybe_get_new_active(SCs) ->
                     PayloadSize :: pos_integer(),
                     Region :: atom(),
                     Ledger :: blockchain:ledger(),
-                    OwnerSigFun :: libp2p_crypto:sig_fun()) -> ok.
+                    OwnerSigFun :: libp2p_crypto:sig_fun()) -> {ok, blockchain_state_channel_v1:state_channel()}.
 send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
@@ -648,7 +648,8 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, Owne
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg, Stream]),
-    blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg).
+    ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
+    {ok, SignedPurchaseSC}.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
 active_sc(#state{active_sc_id=undefined}) ->
