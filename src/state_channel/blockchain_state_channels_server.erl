@@ -106,7 +106,8 @@ offer(Offer, HandlerPid) ->
                               ok ->
                                   gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
                               {error, Why} ->
-                                  lager:error("handle_offer failed: ~p", [Why])
+                                  lager:error("handle_offer failed: ~p, initiating offer rejection...", [Why]),
+                                  gen_server:cast(?SERVER, {reject_offer, Offer, HandlerPid})
                           end
                   end
           end),
@@ -214,6 +215,10 @@ handle_cast({packet, SCPacket, HandlerPid},
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
+    {noreply, State};
+handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
+    lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),
+    ok = send_rejection(HandlerPid),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
@@ -668,6 +673,11 @@ send_banner(SC, Stream) ->
     %% it contains should be signed already
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
     blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
+
+-spec send_rejection(Stream :: pid()) -> ok.
+send_rejection(Stream) ->
+    RejectionMsg = blockchain_state_channel_rejection_v1:new(),
+    blockchain_state_channel_handler:send_rejection(Stream, RejectionMsg).
 
 -spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                         PayloadSize :: pos_integer(),
