@@ -14,6 +14,7 @@
          packet/3,
          purchase/2,
          banner/2,
+         reject/2,
          state/0,
          response/1]).
 
@@ -89,6 +90,11 @@ purchase(Purchase, HandlerPid) ->
 banner(Banner, HandlerPid) ->
     gen_server:cast(?SERVER, {banner, Banner, HandlerPid}).
 
+-spec reject(Rejection :: blockchain_state_channel_rejection_v1:rejection(),
+             HandlerPid :: pid()) -> ok.
+reject(Rejection, HandlerPid) ->
+    gen_server:cast(?SERVER, {reject, Rejection, HandlerPid}).
+
 %% ------------------------------------------------------------------
 %% init, terminate and code_change
 %% ------------------------------------------------------------------
@@ -125,6 +131,13 @@ handle_cast({packet, Packet, DefaultRouters, Region}, #state{chain=Chain}=State)
                        handle_packet(Packet, DefaultRouters, Region, State);
                    {ok, Routes} ->
                        handle_packet(Packet, Routes, Region, State)
+               end,
+    {noreply, NewState};
+handle_cast({reject, Rejection, HandlerPid}, State) ->
+    lager:warning("Got rejection: ~p for: ~p, dropping packet", [Rejection, HandlerPid]),
+    NewState = case dequeue_packet(HandlerPid, State) of
+                   {undefined, State} -> State;
+                   {_, NS} -> NS
                end,
     {noreply, NewState};
 handle_cast(_Msg, State) ->
