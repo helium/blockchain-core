@@ -202,8 +202,6 @@ handle_cast({packet, SCPacket, HandlerPid},
             lager:info("packet: ~p successfully validated, updating state",
                        [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
-            %% Since we updated active sc, send new banner
-            ok = send_banner(SignedSC, HandlerPid),
             TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
             NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
             erlang:monitor(process, HandlerPid),
