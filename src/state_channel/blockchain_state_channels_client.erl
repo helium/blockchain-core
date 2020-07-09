@@ -285,7 +285,7 @@ handle_banner(Banner, Stream, State) ->
 -spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                       Stream :: pid(),
                       State :: state()) -> state().
-handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
+handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
 
     case is_valid_sc(PurchaseSC, State) of
@@ -300,11 +300,11 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
         ok ->
             DCBudget = blockchain_state_channel_v1:amount(PurchaseSC),
             TotalDCs = blockchain_state_channel_v1:total_dcs(PurchaseSC),
+            RemainingDCs = max(0, DCBudget - TotalDCs),
 
-            case DCBudget >= TotalDCs of
+            case RemainingDCs > 0 of
                 false ->
                     lager:error("insufficient dcs for purchase sc: ~p", [PurchaseSC]),
-                    ok = append_state_channel(PurchaseSC, State),
                     ok = libp2p_framed_stream:close(Stream),
                     State;
                 true ->
@@ -316,12 +316,22 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
                             ok = overwrite_state_channel(PurchaseSC, State0),
                             State0;
                         {Packet, NewState} ->
-                            Region = blockchain_state_channel_purchase_v1:region(Purchase),
-                            lager:debug("successful purchase validation, sending packet: ~p",
-                                        [blockchain_helium_packet_v1:packet_hash(Packet)]),
-                            ok = send_packet(Swarm, Stream, Packet, Region),
-                            ok = overwrite_state_channel(PurchaseSC, NewState),
-                            NewState
+                            Ledger = blockchain:ledger(Chain),
+                            Payload = blockchain_state_channel_packet_v1:payload(Packet),
+                            PacketDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
+                            case RemainingDCs >= PacketDCs of
+                                false ->
+                                    lager:error("current packet (~p) (dc charge: ~p) will exceed remaining DCs (~p) in this SC, dropping",
+                                                [Packet, PacketDCs, RemainingDCs]),
+                                    NewState;
+                                true ->
+                                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                                    lager:debug("successful purchase validation, sending packet: ~p",
+                                                [blockchain_helium_packet_v1:packet_hash(Packet)]),
+                                    ok = send_packet(Swarm, Stream, Packet, Region),
+                                    ok = overwrite_state_channel(PurchaseSC, NewState),
+                                    NewState
+                            end
                     end
             end
     end.
