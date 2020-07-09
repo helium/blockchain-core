@@ -325,12 +325,29 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                                 [Packet, PacketDCs, RemainingDCs]),
                                     NewState;
                                 true ->
-                                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
-                                    lager:debug("successful purchase validation, sending packet: ~p",
-                                                [blockchain_helium_packet_v1:packet_hash(Packet)]),
-                                    ok = send_packet(Swarm, Stream, Packet, Region),
-                                    ok = overwrite_state_channel(PurchaseSC, NewState),
-                                    NewState
+                                    %% now we need to make sure that our DC count between the previous
+                                    %% and the current SC is _at least_ increased by this packet's
+                                    %% DC cost.
+                                    PrevTotal = get_previous_total_dcs(PurchaseSC, NewState),
+                                    case (TotalDCs - PrevTotal) >= PacketDCs of
+                                        true ->
+                                            Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                                            lager:debug("successful purchase validation, sending packet: ~p",
+                                                        [blockchain_helium_packet_v1:packet_hash(Packet)]),
+                                            ok = send_packet(Swarm, Stream, Packet, Region),
+                                            ok = overwrite_state_channel(PurchaseSC, NewState),
+                                            NewState;
+                                        false ->
+                                            %% We are not getting paid, so re-enqueue this packet and
+                                            %% do not send it. Close the stream.
+                                            lager:error("purchase not valid - did not pay for packet: ~p, reenqueuing.",
+                                                        [Packet]),
+                                            NewState0 = enqueue_packet(Stream, Packet, NewState),
+                                            ok = libp2p_framed_stream:close(Stream),
+                                            %% append this state channel, so we know about it
+                                            ok = append_state_channel(PurchaseSC, NewState0),
+                                            NewState0
+                                    end
                             end
                     end
             end
@@ -567,6 +584,24 @@ is_causally_correct_sc(SC, State) ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
             %% We have a conflict among incoming state channels
             false
+    end.
+
+get_previous_total_dcs(SC, State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+
+    case get_state_channels(SCID, State) of
+        {error, not_found} -> 0;
+        {error, _} ->
+            lager:error("rocks blew up"),
+            0;
+        {ok, [PreviousSC]} ->
+            blockchain_state_channel_v1:total_dcs(PreviousSC);
+        {ok, PrevSCs} ->
+            lager:error("multiple copies of state channels for id: ~p, returning current total",
+                        [PrevSCs]),
+            %% returning this value will cause the test that we got paid to fail
+            %% and the packet will get re-enqueued.
+            blockchain_state_channel_v1:total_dcs(SC)
     end.
 
 %% ------------------------------------------------------------------
