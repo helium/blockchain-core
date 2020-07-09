@@ -102,6 +102,7 @@
     maybe_recalc_price/2,
     add_oracle_price/2,
     current_oracle_price/1,
+    next_oracle_prices/1,
     current_oracle_price_list/1,
 
     apply_raw_changes/2,
@@ -2361,6 +2362,52 @@ current_oracle_price(Ledger) ->
         Other ->
             Other
     end.
+
+-spec next_oracle_prices(blockchain:blockchain()) -> [{NextPrice :: non_neg_integer(), AtTime :: pos_integer()}].
+next_oracle_prices(Blockchain) ->
+    Ledger = blockchain:ledger(Blockchain),
+    DefaultCF = default_cf(Ledger),
+    {ok, CurrentHeight} = current_height(Ledger),
+    {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
+    {ok, DelaySecs} = blockchain:config(?price_oracle_price_scan_delay, Ledger),
+    {ok, MaxSecs} = blockchain:config(?price_oracle_price_scan_max, Ledger),
+
+    LastUpdate = CurrentHeight - (CurrentHeight rem Interval),
+
+    {ok, Block} = blockchain:get_block(LastUpdate, Blockchain),
+    {ok, LastPrice} = current_oracle_price(Ledger),
+    BlockT = blockchain_block:time(Block),
+
+    StartScan = BlockT - DelaySecs, % typically 1 hour (in seconds)
+    EndScan = (BlockT - MaxSecs) + DelaySecs, % typically 1 day (in seconds)
+    {ok, Prices} = current_oracle_price_list(Ledger),
+
+    %% get the prices currently too new to be considered
+    PendingPrices = trim_price_list(StartScan, Prices),
+
+    %% get the prices expiring in the next DelaySecs
+    ExpiringPrices = [ P || P <- Prices, blockchain_ledger_oracle_price_entry:timestamp(P) < EndScan],
+
+    %% walk the times a price will mature or expire and check if that causes a price change
+    %% note we take the tail of the reversed result here as the first element in the accumulator is the current price/time
+    tl(lists:reverse(lists:foldl(
+      fun(T, [{Price, _Time}|_]=Acc) ->
+              %% calculate what the price would be at time T, which is either a time
+              %% a price is expiring or a time a price has matured past DelaySecs
+              {NewPrice, _} = recalc_price(LastPrice, T, DefaultCF, Ledger),
+              %% if the price changes, add it to the accumulator
+              case NewPrice /= Price of
+                  true ->
+                      [{NewPrice, T}|Acc];
+                  false ->
+                      Acc
+              end
+      end,
+      %% supply the current price and current block time as the initial values of the accumulator
+      [{LastPrice, BlockT}],
+      %% calculate both the times when an old price report will expire, and a pending report will become active
+      lists:usort([ blockchain_ledger_oracle_price_entry:timestamp(P) + MaxSecs || P <- ExpiringPrices] ++
+                 [ blockchain_ledger_oracle_price_entry:timestamp(P) + DelaySecs || P <- PendingPrices])))).
 
 -spec current_oracle_price_list(ledger()) ->
     {ok, [ blockchain_ledger_oracle_price_entry:oracle_price_entry() ]}
