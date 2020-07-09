@@ -148,14 +148,12 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
             end,
     {reply, Reply, State};
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
-            #state{db=DB, state_channels=SCs, streams=Streams, owner={_, OwnerSigFun}}=State) ->
+            #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
     %% NOTE: This function is for testing, we should do something else probably
     ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
     FakeSCID = blockchain_state_channel_v1:id(FakeSC),
     SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
     SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
-    lager:info("broadcasting fake banner: ~p, to: ~p", [SignedFakeSC, Streams]),
-    ok = broadcast_banner(SignedFakeSC, State),
     {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
     {reply, SCs, State};
@@ -171,7 +169,7 @@ handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=Stat
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
 handle_cast({packet, SCPacket, HandlerPid},
-            #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain, owner={_, OwnerSigFun}}=State) ->
+            #state{active_sc_id=ActiveSCID, state_channels=SCs, chain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
 
     %% Get the client (i.e. the hotspot who received this packet)
@@ -188,30 +186,9 @@ handle_cast({packet, SCPacket, HandlerPid},
             %% ActiveSCID should always be in our state_channels map
             {SC, Skewed} = maps:get(ActiveSCID, SCs),
             %% Get payload from packet
-            Payload = blockchain_helium_packet_v1:payload(Packet),
             %% Add this payload to state_channel's skewed merkle
-            {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
-            SC3 = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-                      {ok, 2} ->
-                          SC1;
-                      _ ->
-                          SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
-                          ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-                          blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
-                  end,
-            SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
-
-            %% Save state channel to db
-            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-            ok = store_active_sc_id(DB, SCF, ActiveSCID),
-
-            %% Put new state_channel in our map
-            lager:info("packet: ~p successfully validated, updating state",
-                       [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
-
-            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-            NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
-            erlang:monitor(process, HandlerPid),
+            NewState = process_packet(ClientPubkeyBin, Packet, SC,
+                                      Skewed, HandlerPid, State),
             {noreply, NewState}
     end;
 handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
@@ -240,14 +217,29 @@ handle_cast({offer, SCOffer, HandlerPid},
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
             {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
-            lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-            {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
-                                        PayloadSize, Region, Ledger, OwnerSigFun),
-            NewState = maybe_add_stream(Hotspot, HandlerPid,
-                                        State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
-            erlang:monitor(process, HandlerPid),
-            {noreply, NewState}
+            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
+            DCAmount = blockchain_state_channel_v1:amount(ActiveSC),
+            case (TotalDCs + NumDCs) > DCAmount andalso
+                 application:get_env(blockchain, prevent_sc_overspend, true) of
+                true ->
+                    %% will overspend so drop
+                    %% TODO we should switch to the next state channel here
+                    lager:error("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
+                                [DCAmount, NumDCs, SCOffer]),
+                    ok = send_rejection(HandlerPid),
+                    {noreply, State};
+                false ->
+                    lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
+
+                    {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
+                                                PayloadSize, Region, Ledger, OwnerSigFun),
+                    NewState = maybe_add_stream(Hotspot, HandlerPid,
+                                                State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
+                    erlang:monitor(process, HandlerPid),
+                    {noreply, NewState}
+            end
     end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
@@ -308,6 +300,44 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec process_packet(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
+                     Packet :: blockchain_helium_packet_v1:packet(),
+                     SC :: blockchain_state_channel_v1:state_channel(),
+                     Skewed :: skewed:skewed(),
+                     HandlerPid :: pid(),
+                     State :: state()) -> NewState :: state().
+process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
+               #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs,
+                      owner={_, OwnerSigFun}, chain=Chain}=State) ->
+    Ledger = blockchain:ledger(Chain),
+    Payload = blockchain_helium_packet_v1:payload(Packet),
+    {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
+
+    SC3 = case blockchain:config(sc_version, Ledger) of
+              {ok, 2} ->
+                  %% we don't update the state channel summary here
+                  %% it happens in `send_purchase' for v2 SCs
+                  SC1;
+              _ ->
+                  SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
+                  ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+                  blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
+          end,
+    SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
+
+    %% Save state channel to db
+    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+    ok = store_active_sc_id(DB, SCF, ActiveSCID),
+
+    lager:info("packet: ~p successfully validated, updating state",
+                       [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
+
+    %% Put new state_channel in our map
+    TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+    NewState = maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState),
+    erlang:monitor(process, HandlerPid),
+    NewState.
+
 -spec maybe_add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Stream :: pid(),
                        State :: state()) -> state().

@@ -14,7 +14,7 @@
     original/1, original/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1,
-    close_proposal/3,
+    close_proposal/4,
     closer/1,
     state_channel/1,
     close_state/1,
@@ -126,14 +126,19 @@ deserialize(<<2, Bin/binary>>) ->
 
 -spec close_proposal( Closer :: libp2p_crypto:pubkey_bin(),
                       StateChannel :: blockchain_state_channel_v1:state_channel(),
+                      ExplicitConflict :: boolean(),
                       SCEntry :: state_channel_v2() ) -> state_channel_v2().
-close_proposal(Closer, SC, SCEntry) ->
+close_proposal(Closer, SC, ExplicitConflict, SCEntry) ->
+    Overpaid = original(SCEntry) < blockchain_state_channel_v1:total_dcs(SC),
     case close_state(SCEntry) of
         undefined ->
             case is_sc_participant(Closer, SC) of
                 false ->
                     %% just ignore this; leave it undefined
                     SCEntry;
+                true when ExplicitConflict == true; Overpaid == true ->
+                    %% we've never gotten a close request for this before, so...
+                    SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=dispute};
                 true ->
                     %% we've never gotten a close request for this before, so...
                     SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed}
@@ -146,9 +151,11 @@ close_proposal(Closer, SC, SCEntry) ->
                 true ->
                     %% ok so we've already marked this entry as closed... maybe we should
                     %% dispute it
-                    case maybe_dispute(SC, state_channel(SCEntry)) of
-                        closed ->
-                            SCEntry#ledger_state_channel_v2{closer=Closer, sc=SC, close_state=closed};
+                    case maybe_dispute(state_channel(SCEntry), SC) of
+                        {closed, NewSC} when ExplicitConflict == true; Overpaid == true ->
+                            SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=dispute};
+                        {closed, NewSC} ->
+                            SCEntry#ledger_state_channel_v2{closer=Closer, sc=NewSC, close_state=closed};
                         {dispute, NewSC} ->
                             %% store the "latest" (as judged by nonce)
                             SCEntry#ledger_state_channel_v2{sc=NewSC, close_state=dispute}
@@ -173,7 +180,7 @@ close_proposal(Closer, SC, SCEntry) ->
 closer(SC) ->
     SC#ledger_state_channel_v2.closer.
 
--spec state_channel( state_channel_v2() ) -> blockchain_state_channel_v1:state_channel().
+-spec state_channel( state_channel_v2() ) -> blockchain_state_channel_v1:state_channel() | undefined.
 state_channel(SC) ->
     SC#ledger_state_channel_v2.sc.
 
@@ -188,14 +195,20 @@ is_v2(_) -> false.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-maybe_dispute(SC, SC) -> closed;
-maybe_dispute(CurrentSC, PreviousSC) ->
-    CurrentNonce = blockchain_state_channel_v1:nonce(CurrentSC),
-    PreviousNonce = blockchain_state_channel_v1:nonce(PreviousSC),
-    if
-        CurrentNonce > PreviousNonce -> closed;
-        CurrentNonce < PreviousNonce -> {dispute, PreviousSC};
-        true -> closed %% nonces are equal but should've been matched above
+-spec maybe_dispute(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_v1:state_channel()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
+maybe_dispute(SC, SC) -> {closed, SC};
+maybe_dispute(PreviousSC, CurrentSC) ->
+    %% return the new close state and the newest state channel
+    case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
+        conflict ->
+            %% Current has a higher nonce than Previous
+            {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
+        equal ->
+            %% flip a coin
+            {closed, CurrentSC};
+        caused ->
+            %% Previous caused Current, keep that one
+            {closed, PreviousSC}
     end.
 
 is_sc_participant(Closer, SC) ->
@@ -261,8 +274,8 @@ maybe_dispute_test() ->
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
     ?assertEqual(closed, maybe_dispute(SC0, SC0)),
-    ?assertEqual(closed, maybe_dispute(Nonce8, Nonce4)),
-    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce4, Nonce8)).
+    ?assertEqual(closed, maybe_dispute(Nonce4, Nonce8)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],

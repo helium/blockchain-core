@@ -34,6 +34,7 @@
 -endif.
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
 
@@ -44,7 +45,8 @@
           chain = undefined :: undefined | blockchain:blockchain(),
           streams = #{} :: streams(),
           packets = #{} :: #{pid() => [blockchain_helium_packet_v1:packet()]},
-          waiting = #{} :: waiting()
+          waiting = #{} :: waiting(),
+          pending_closes = [] :: list() %% TODO GC these
          }).
 
 -type state() :: #state{}.
@@ -100,6 +102,7 @@ reject(Rejection, HandlerPid) ->
 %% ------------------------------------------------------------------
 init(Args) ->
     lager:info("~p init with ~p", [?SERVER, Args]),
+    ok = blockchain_event:add_handler(self()),
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
     CF = blockchain_state_channels_db_owner:sc_clients_cf(),
@@ -199,6 +202,66 @@ handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=St
     erlang:monitor(process, Stream),
     State1 = add_stream(Address, Stream, remove_packet_from_waiting(Address, State0)),
     {noreply, State1};
+handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
+    {noreply, State};
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain, pending_closes=PendingCloses}=State) ->
+    ContestedChannels = case blockchain:get_block(BlockHash, Chain) of
+                            {error, Reason} ->
+                                lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
+                                [];
+                            {ok, Block} ->
+                                lists:foldl(fun(T, Acc) ->
+                                                      case blockchain_txn:type(T) == blockchain_txn_state_channel_close_v1 of
+                                                          true ->
+                                                              SC = blockchain_txn_state_channel_close_v1:state_channel(T),
+                                                              SCID = blockchain_txn_state_channel_close_v1:state_channel_id(T),
+                                                              case lists:member(SCID, PendingCloses) orelse
+                                                                   is_causally_correct_sc(SC, State) of
+                                                                  true ->
+                                                                      Acc;
+                                                                  false ->
+                                                                      %% submit our own close with the conflicting view(s)
+                                                                      close_state_channel(SC, State),
+                                                                      [SCID|Acc]
+                                                              end;
+                                                          false ->
+                                                              Acc
+                                                      end
+                                              end, [], blockchain_block:transactions(Block))
+                        end,
+    %% check if any other channels are expiring
+    SCGrace = case blockchain:config(?sc_grace_blocks, Ledger) of
+                  {ok, G} -> G;
+                  _ -> 0
+              end,
+    SCs = state_channels(State),
+    {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),
+    ExpiringChannels = lists:foldl(fun([H|_]=SC, Acc) ->
+                                           ExpireAt = blockchain_state_channel_v1:expire_at_block(H),
+                                           SCID = blockchain_state_channel_v1:id(H),
+                                           case (not lists:member(SCID, PendingCloses ++ ContestedChannels)) andalso
+                                                %% divide by 3 here so we give the server a chance to file its close first
+                                                %% before the client tries to file a close
+                                                LedgerHeight >= ExpireAt + (SCGrace div 3) andalso
+                                                LedgerHeight =< ExpireAt + SCGrace of
+                                               true ->
+                                                   case length(SC) of
+                                                       1 ->
+                                                           %% close with no conflict
+                                                           {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(State#state.swarm),
+                                                           Txn = blockchain_txn_state_channel_close_v1:new(H, PubkeyBin),
+                                                           SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                                                           ok = blockchain_worker:submit_txn(SignedTxn);
+                                                       _ ->
+                                                           %% close with conflict
+                                                           close_state_channel(H, State)
+                                                   end,
+                                                   [SCID|Acc];
+                                               false ->
+                                                   Acc
+                                           end
+                                   end, [], SCs),
+    {noreply, State#state{pending_closes=PendingCloses ++ ContestedChannels ++ ExpiringChannels}};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams}=State) ->
     FilteredStreams = maps:filter(fun(_Name, Stream) ->
                                           Stream /= Pid
@@ -298,16 +361,19 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
             ok = libp2p_framed_stream:close(Stream),
             State;
         ok ->
+            Ledger = blockchain:ledger(Chain),
             DCBudget = blockchain_state_channel_v1:amount(PurchaseSC),
             TotalDCs = blockchain_state_channel_v1:total_dcs(PurchaseSC),
             RemainingDCs = max(0, DCBudget - TotalDCs),
-
-            case RemainingDCs > 0 of
-                false ->
-                    lager:error("insufficient dcs for purchase sc: ~p", [PurchaseSC]),
-                    ok = libp2p_framed_stream:close(Stream),
-                    State;
+            case blockchain_ledger_v1:is_state_channel_overpaid(PurchaseSC, Ledger) of
                 true ->
+                    lager:error("insufficient dcs for purchase sc: ~p: ~p - ~p = ~p", [PurchaseSC, DCBudget, TotalDCs, RemainingDCs]),
+                    ok = libp2p_framed_stream:close(Stream),
+                    %% we don't need to keep a sibling here as proof of misbehaviour is standalone
+                    %% this will conflict or dominate any later attempt to close within spec
+                    ok = overwrite_state_channel(PurchaseSC, State),
+                    State;
+                false ->
                     case dequeue_packet(Stream, State) of
                         {undefined, State0} ->
                             %% NOTE: We somehow don't have this packet in our queue,
@@ -316,7 +382,6 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                             ok = overwrite_state_channel(PurchaseSC, State0),
                             State0;
                         {Packet, NewState} ->
-                            Ledger = blockchain:ledger(Chain),
                             Payload = blockchain_helium_packet_v1:payload(Packet),
                             PacketDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                             case RemainingDCs >= PacketDCs of
@@ -345,7 +410,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                                         [Packet]),
                                             ok = libp2p_framed_stream:close(Stream),
                                             %% append this state channel, so we know about it later
-                                            ok = append_state_channel(PurchaseSC, NewState),
+                                            ok = overwrite_state_channel(PurchaseSC, NewState),
                                             NewState
                                     end
                             end
@@ -546,8 +611,13 @@ is_valid_sc(SC, State) ->
                 true ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
-                            ok;
-                        false ->
+                            case is_overspent_sc(SC, State) of
+                                true ->
+                                    {error, overspent};
+                                false ->
+                                    ok
+                            end;
+                       false ->
                             {error, causal_conflict}
                     end
             end
@@ -584,6 +654,21 @@ is_causally_correct_sc(SC, State) ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
             %% We have a conflict among incoming state channels
             false
+    end.
+
+is_overspent_sc(SC, State=#state{chain=Chain}) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    Ledger = blockchain:ledger(Chain),
+
+    case get_state_channels(SCID, State) of
+        {error, not_found} ->
+            false;
+        {error, _} ->
+            lager:error("rocks blew up"),
+            %% rocks blew up
+            false;
+        {ok, KnownSCs} ->
+            lists:any(fun(E) -> blockchain_ledger_v1:is_state_channel_overpaid(E, Ledger) end, [SC|KnownSCs])
     end.
 
 get_previous_total_dcs(SC, State) ->
@@ -636,12 +721,84 @@ append_state_channel(SC, #state{db=DB, cf=CF}=State) ->
             E
     end.
 
+state_channels(#state{db=DB, cf=CF}) ->
+    {ok, Itr} = rocksdb:iterator(DB, CF, []),
+    state_channels(Itr, rocksdb:iterator_move(Itr, first), []).
+
+state_channels(Itr, {error, invalid_iterator}, Acc) ->
+    catch rocksdb:iterator_close(Itr),
+    Acc;
+state_channels(Itr, {ok, _, SCBin}, Acc) ->
+    state_channels(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(SCBin)|Acc]).
+
 -spec overwrite_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
                               State :: state()) -> ok | {error, any()}.
 overwrite_state_channel(SC, #state{db=DB, cf=CF}) ->
     SCID = blockchain_state_channel_v1:id(SC),
     ToInsert = erlang:term_to_binary([SC]),
     rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).
+
+-spec close_state_channel(SC :: blockchain_state_channel_v1:state_channel(), State :: state()) -> ok.
+close_state_channel(SC, State=#state{swarm=Swarm}) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    case get_state_channels(SCID, State) of
+        {ok, [SC0]} ->
+            %% just a single conflict locally, we can just send it
+            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+            Txn = blockchain_txn_state_channel_close_v1:new(SC0, SC, PubkeyBin),
+            SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+            ok = blockchain_worker:submit_txn(SignedTxn),
+            lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+        {ok, SCs} ->
+            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+            lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
+            %% TODO check for 'overpaid' state channels as well, not just causal conflicts
+            %% see if we have any conflicts with the supplied close SC:
+            case lists:filter(fun(E) -> conflicts(E, SC) end, SCs) of
+                [] ->
+                    lager:info("no direct conflict"),
+                    %% find the latest state channel we have, and what it conflicts with
+                    %%
+                    %% first take the cartesian product of all the state channels, and select the conflicting ones
+                    Conflicts = [ {A, B} || A <- SCs, B <- SCs, conflicts(A, B) ],
+                    %% now try to find the ones with the highest balance (maximum refund guaranteed)
+                    SortedConflicts = lists:sort(fun({A1, B1}, {A2, B2}) ->
+                                                         {ok, V1} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, A1),
+                                                         {ok, V2} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B1),
+                                                         {ok, V3} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, A2),
+                                                         {ok, V4} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B2),
+                                                         max(V1, V2) =< max(V3, V4)
+                                                 end, Conflicts),
+                    {Conflict1, Conflict2} = lists:last(SortedConflicts),
+                    Txn = blockchain_txn_state_channel_close_v1:new(Conflict1, Conflict2, PubkeyBin),
+                    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                    ok = blockchain_worker:submit_txn(SignedTxn);
+                Conflicts ->
+                    %% sort the conflicts by the number of DCs they'd send to us
+                    SortedConflicts = lists:sort(fun(C1, C2) ->
+                                                         %% tuples can sort fine
+                                                         blockchain_state_channel_v1:num_dcs_for(PubkeyBin, C1) =<
+                                                         blockchain_state_channel_v1:num_dcs_for(PubkeyBin, C2)
+                                                 end, Conflicts),
+                    %% create a close using the SC with the most DC in our favor
+                    Txn = blockchain_txn_state_channel_close_v1:new(lists:last(SortedConflicts), SC, PubkeyBin),
+                    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                    ok = blockchain_worker:submit_txn(SignedTxn),
+                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
+            end;
+        _ ->
+            ok
+    end.
+
+conflicts(SCA, SCB) ->
+    case blockchain_state_channel_v1:compare_causality(SCA, SCB) of
+        caused ->
+            false;
+        equal ->
+            false;
+        _ ->
+            true
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
