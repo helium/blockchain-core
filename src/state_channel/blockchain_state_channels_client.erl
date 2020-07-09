@@ -298,20 +298,31 @@ handle_purchase(Purchase, Stream, #state{swarm=Swarm}=State) ->
             ok = libp2p_framed_stream:close(Stream),
             State;
         ok ->
-            case dequeue_packet(Stream, State) of
-                {undefined, State0} ->
-                    %% NOTE: We somehow don't have this packet in our queue,
-                    %% All we do is store the state channel by overwriting instead of appending
-                    %% since there was not a causal conflict
-                    ok = overwrite_state_channel(PurchaseSC, State0),
-                    State0;
-                {Packet, NewState} ->
-                    Region = blockchain_state_channel_purchase_v1:region(Purchase),
-                    lager:debug("successful purchase validation, sending packet: ~p",
-                                [blockchain_helium_packet_v1:packet_hash(Packet)]),
-                    ok = send_packet(Swarm, Stream, Packet, Region),
-                    ok = overwrite_state_channel(PurchaseSC, NewState),
-                    NewState
+            DCBudget = blockchain_state_channel_v1:amount(PurchaseSC),
+            TotalDCs = blockchain_state_channel_v1:total_dcs(PurchaseSC),
+
+            case DCBudget >= TotalDCs of
+                false ->
+                    lager:error("insufficient dcs for purchase sc: ~p", [PurchaseSC]),
+                    ok = append_state_channel(PurchaseSC, State),
+                    ok = libp2p_framed_stream:close(Stream),
+                    State;
+                true ->
+                    case dequeue_packet(Stream, State) of
+                        {undefined, State0} ->
+                            %% NOTE: We somehow don't have this packet in our queue,
+                            %% All we do is store the state channel by overwriting instead of appending
+                            %% since there was not a causal conflict
+                            ok = overwrite_state_channel(PurchaseSC, State0),
+                            State0;
+                        {Packet, NewState} ->
+                            Region = blockchain_state_channel_purchase_v1:region(Purchase),
+                            lager:debug("successful purchase validation, sending packet: ~p",
+                                        [blockchain_helium_packet_v1:packet_hash(Packet)]),
+                            ok = send_packet(Swarm, Stream, Packet, Region),
+                            ok = overwrite_state_channel(PurchaseSC, NewState),
+                            NewState
+                    end
             end
     end.
 

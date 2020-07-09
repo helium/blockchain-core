@@ -91,6 +91,7 @@
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
     close_state_channel/5,
+    get_sc_mod/2,
 
     allocate_subnet/2,
 

@@ -582,12 +582,9 @@ delete_closed_sc(DB, SCF, ID) ->
 convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerSCs} = blockchain_ledger_v1:find_scs_by_owner(Owner, Ledger),
-    SCMod = case blockchain_ledger_v1:config(?sc_version, Ledger) of
-                {ok, 2} -> blockchain_ledger_state_channel_v2;
-                _ -> blockchain_ledger_state_channel_v1
-            end,
     {ok, Head} = blockchain:head_block(Chain),
     maps:map(fun(ID, LedgerStateChannel) ->
+                     SCMod = blockchain_ledger_v1:get_sc_mod(LedgerStateChannel, Ledger),
                      Owner = SCMod:owner(LedgerStateChannel),
                      ExpireAt = SCMod:expire_at_block(LedgerStateChannel),
                      Amount = case SCMod of
