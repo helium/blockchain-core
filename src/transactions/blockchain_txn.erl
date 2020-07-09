@@ -691,6 +691,15 @@ nonce(Txn) ->
             blockchain_txn_payment_v2:nonce(Txn);
         blockchain_txn_state_channel_open_v1 ->
             blockchain_txn_state_channel_open_v1:nonce(Txn);
+        blockchain_txn_state_channel_close_v1 ->
+            SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+            case blockchain_state_channel_v1:amount(SC) > 0 of
+                true ->
+                    %% we want higher nonces to sort first in this case
+                    1 - blockchain_state_channel_v1:nonce(blockchain_txn_state_channel_close_v1:state_channel(Txn));
+                false ->
+                    -1
+            end;
         blockchain_txn_routing_v1 ->
             blockchain_txn_routing_v1:nonce(Txn);
         _ ->
@@ -737,7 +746,8 @@ actor(Txn) ->
         blockchain_txn_state_channel_open_v1 ->
             blockchain_txn_state_channel_open_v1:owner(Txn);
         blockchain_txn_state_channel_close_v1 ->
-            blockchain_txn_state_channel_close_v1:closer(Txn);
+            %% group by owner
+            blockchain_txn_state_channel_close_v1:state_channel_owner(Txn);
         _ ->
             <<>>
     end.

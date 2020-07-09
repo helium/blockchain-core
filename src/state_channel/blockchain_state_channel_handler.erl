@@ -33,6 +33,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -record(state, {}).
 
@@ -92,18 +93,23 @@ send_response(Pid, Resp) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, _) ->
     {ok, #state{}};
-init(server, _Conn, _) ->
-    case blockchain_state_channels_server:active_sc() of
-        undefined ->
-            %% Send empty banner
-            SCBanner = blockchain_state_channel_banner_v1:new(),
-            lager:info("sc_handler, empty banner: ~p", [SCBanner]),
-            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
-        ActiveSC ->
-            lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
-            SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-            lager:info("sc_handler, banner: ~p", [SCBanner]),
-            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+init(server, _Conn, [_Path, Blockchain]) ->
+    Ledger = blockchain:ledger(Blockchain),
+    case blockchain:config(?sc_version, Ledger) of
+        {ok, N} when N > 1 ->
+            case blockchain_state_channels_server:active_sc() of
+                undefined ->
+                    %% Send empty banner
+                    SCBanner = blockchain_state_channel_banner_v1:new(),
+                    lager:info("sc_handler, empty banner: ~p", [SCBanner]),
+                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
+                ActiveSC ->
+                    lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
+                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+                    lager:info("sc_handler, banner: ~p", [SCBanner]),
+                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+            end;
+        _ -> {ok, #state{}}
     end.
 
 handle_data(client, Data, State) ->

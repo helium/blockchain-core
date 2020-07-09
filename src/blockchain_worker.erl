@@ -739,6 +739,12 @@ add_handlers(SwarmTID, Blockchain) ->
         ?SNAPSHOT_PROTOCOL,
         {libp2p_framed_stream, server, [blockchain_snapshot_handler, ?SERVER, Blockchain]}
     ),
+    ok = libp2p_swarm:add_stream_handler(
+        SwarmTID,
+        ?STATE_CHANNEL_PROTOCOL_V1,
+        {libp2p_framed_stream, server, [blockchain_state_channel_handler, Blockchain]}
+    ),
+
     {ok, Ref}.
 
 -spec remove_handlers(ets:tab()) -> ok.
@@ -754,7 +760,8 @@ remove_handlers(SwarmTID) ->
     FFRemoveFun = fun(ProtocolVersion) ->
                         libp2p_swarm:remove_stream_handler(SwarmTID, ProtocolVersion) end,
     lists:foreach(FFRemoveFun, ?SUPPORTED_FASTFORWARD_PROTOCOLS),
-    libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL).
+    libp2p_swarm:remove_stream_handler(SwarmTID, ?SNAPSHOT_PROTOCOL),
+    libp2p_swarm:remove_stream_handler(SwarmTID, ?STATE_CHANNEL_PROTOCOL_V1).
 
 %%--------------------------------------------------------------------
 %% @doc
