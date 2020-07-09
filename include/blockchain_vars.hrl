@@ -267,6 +267,12 @@
 %% Set this var to false to disable zero amount txns (payment_v1, payment_v2, htlc_create)
 -define(allow_zero_amount, allow_zero_amount).
 
+%% General txn vars
+
+%% Enable more robust validation on some legacy transactions with incorrect on-chain txns
+%% this is behind a chain variable to allow the bad txns to be synced through
+-define(txn_field_validation_version, txn_field_validation_version).
+
 %% ------------------------------------------------------------------
 %% State channel related vars
 %%
