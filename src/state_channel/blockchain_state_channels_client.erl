@@ -317,12 +317,13 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                             State0;
                         {Packet, NewState} ->
                             Ledger = blockchain:ledger(Chain),
-                            Payload = blockchain_state_channel_packet_v1:payload(Packet),
+                            Payload = blockchain_helium_packet_v1:payload(Packet),
                             PacketDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                             case RemainingDCs >= PacketDCs of
                                 false ->
                                     lager:error("current packet (~p) (dc charge: ~p) will exceed remaining DCs (~p) in this SC, dropping",
                                                 [Packet, PacketDCs, RemainingDCs]),
+                                    ok = libp2p_framed_stream:close(Stream),
                                     NewState;
                                 true ->
                                     %% now we need to make sure that our DC count between the previous
@@ -338,15 +339,14 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                             ok = overwrite_state_channel(PurchaseSC, NewState),
                                             NewState;
                                         false ->
-                                            %% We are not getting paid, so re-enqueue this packet and
+                                            %% We are not getting paid, so drop this packet and
                                             %% do not send it. Close the stream.
-                                            lager:error("purchase not valid - did not pay for packet: ~p, reenqueuing.",
+                                            lager:error("purchase not valid - did not pay for packet: ~p, dropping.",
                                                         [Packet]),
-                                            NewState0 = enqueue_packet(Stream, Packet, NewState),
                                             ok = libp2p_framed_stream:close(Stream),
-                                            %% append this state channel, so we know about it
-                                            ok = append_state_channel(PurchaseSC, NewState0),
-                                            NewState0
+                                            %% append this state channel, so we know about it later
+                                            ok = append_state_channel(PurchaseSC, NewState),
+                                            NewState
                                     end
                             end
                     end
