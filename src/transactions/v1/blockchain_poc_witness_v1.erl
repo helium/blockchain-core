@@ -125,7 +125,9 @@ to_json(Witness, _Opts) ->
       gateway => ?BIN_TO_B58(gateway(Witness)),
       timestamp => timestamp(Witness),
       signal => signal(Witness),
-      packet_hash => ?BIN_TO_B64(packet_hash(Witness))
+      packet_hash => ?BIN_TO_B64(packet_hash(Witness)),
+      snr => ?MAYBE_UNDEFINED(snr(Witness)),
+      frequency => ?MAYBE_UNDEFINED(frequency(Witness))
      }.
 
 %% ------------------------------------------------------------------
