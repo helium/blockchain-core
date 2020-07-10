@@ -102,7 +102,7 @@
     maybe_recalc_price/2,
     add_oracle_price/2,
     current_oracle_price/1,
-    next_oracle_prices/1,
+    next_oracle_prices/2,
     current_oracle_price_list/1,
 
     apply_raw_changes/2,
@@ -2363,9 +2363,8 @@ current_oracle_price(Ledger) ->
             Other
     end.
 
--spec next_oracle_prices(blockchain:blockchain()) -> [{NextPrice :: non_neg_integer(), AtTime :: pos_integer()}].
-next_oracle_prices(Blockchain) ->
-    Ledger = blockchain:ledger(Blockchain),
+-spec next_oracle_prices(blockchain:blockchain(), ledger()) -> [{NextPrice :: non_neg_integer(), AtTime :: pos_integer()}].
+next_oracle_prices(Blockchain, Ledger) ->
     DefaultCF = default_cf(Ledger),
     {ok, CurrentHeight} = current_height(Ledger),
     {ok, Interval} = blockchain:config(?price_oracle_refresh_interval, Ledger),
