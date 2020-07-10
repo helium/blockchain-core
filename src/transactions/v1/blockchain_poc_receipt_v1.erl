@@ -11,13 +11,15 @@
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/5,
+    new/5, new/7,
     gateway/1,
     timestamp/1,
     signal/1,
     data/1,
     origin/1,
     signature/1,
+    snr/1,
+    frequency/1,
     sign/2,
     is_valid/1,
     print/1,
@@ -34,10 +36,6 @@
 
 -export_type([poc_receipt/0, poc_receipts/0]).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec new(Address :: libp2p_crypto:pubkey_bin(),
           Timestamp :: non_neg_integer(),
           Signal :: integer(),
@@ -52,69 +50,65 @@ new(Address, Timestamp, Signal, Data, Origin) ->
         origin=Origin,
         signature = <<>>
     }.
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
+-spec new(Address :: libp2p_crypto:pubkey_bin(),
+          Timestamp :: non_neg_integer(),
+          Signal :: integer(),
+          Data :: binary(),
+          Origin :: origin(),
+          SNR :: float(),
+          Frequency :: float()) -> poc_receipt().
+new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency) ->
+    #blockchain_poc_receipt_v1_pb{
+        gateway=Address,
+        timestamp=Timestamp,
+        signal=Signal,
+        data=Data,
+        origin=Origin,
+        snr=SNR,
+        frequency=Frequency,
+        signature = <<>>
+    }.
+
 -spec gateway(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
 gateway(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.gateway.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec timestamp(Receipt :: poc_receipt()) -> non_neg_integer().
 timestamp(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.timestamp.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec signal(Receipt :: poc_receipt()) -> integer().
 signal(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.signal.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec data(Receipt :: poc_receipt()) -> binary().
 data(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.data.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec origin(Receipt :: poc_receipt()) -> origin().
 origin(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.origin.
 
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec signature(Receipt :: poc_receipt()) -> binary().
 signature(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.signature.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+-spec snr(Receipt :: poc_receipt()) -> float().
+snr(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.snr.
+
+-spec frequency(Receipt :: poc_receipt()) -> float().
+frequency(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.frequency.
+
 -spec sign(Receipt :: poc_receipt(), SigFun :: libp2p_crypto:sig_fun()) -> poc_receipt().
 sign(Receipt, SigFun) ->
     BaseReceipt = Receipt#blockchain_poc_receipt_v1_pb{signature = <<>>},
     EncodedReceipt = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseReceipt),
     Receipt#blockchain_poc_receipt_v1_pb{signature=SigFun(EncodedReceipt)}.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec is_valid(Receipt :: poc_receipt()) -> boolean().
 is_valid(Receipt=#blockchain_poc_receipt_v1_pb{gateway=Gateway, signature=Signature}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Gateway),
@@ -147,7 +141,9 @@ to_json(Receipt, _Opts) ->
       timestamp => timestamp(Receipt),
       signal => signal(Receipt),
       data => ?BIN_TO_B64(data(Receipt)),
-      origin => origin(Receipt)
+      origin => origin(Receipt),
+      snr => ?MAYBE_UNDEFINED(snr(Receipt)),
+      frequency => ?MAYBE_UNDEFINED(frequency(Receipt))
      }.
 
 %% ------------------------------------------------------------------
@@ -212,5 +208,26 @@ to_json_test() ->
     Json = to_json(Receipt, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [gateway, timestamp, data, signal, origin])).
+
+new2_test() ->
+    Receipt = #blockchain_poc_receipt_v1_pb{
+        gateway= <<"gateway">>,
+        timestamp= 1,
+        signal=12,
+        data= <<"data">>,
+        origin=p2p,
+        signature = <<>>,
+        snr=9.8,
+        frequency=915.2
+    },
+    ?assertEqual(Receipt, new(<<"gateway">>, 1, 12, <<"data">>, p2p, 9.8, 915.2)).
+
+snr_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p, 9.8, 915.2),
+    ?assertEqual(9.8, snr(Receipt)).
+
+frequency_test() ->
+    Receipt = new(<<"gateway">>, 1, 12, <<"data">>, p2p, 9.8, 915.2),
+    ?assertEqual(915.2, frequency(Receipt)).
 
 -endif.

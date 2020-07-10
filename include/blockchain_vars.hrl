@@ -253,6 +253,7 @@
 -define(poc_good_bucket_high, poc_good_bucket_high).
 %% Maximum allowed h3 grid cells for a potential next hop
 -define(poc_max_hop_cells, poc_max_hop_cells).
+
 %% ------------------------------------------------------------------
 %%
 %%
@@ -341,3 +342,7 @@
 %% a mutliplier which will be applied to the txn fee of all txns, in order to make their DC costs meaningful
 -define(txn_fee_multiplier, txn_fee_multiplier).
 
+%% ------------------------------------------------------------------
+%% Radio data gathering
+%%
+-define(data_aggregation_version, data_aggregation_version).
