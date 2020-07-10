@@ -317,7 +317,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                             State0;
                         {Packet, NewState} ->
                             Ledger = blockchain:ledger(Chain),
-                            Payload = blockchain_state_channel_packet_v1:payload(Packet),
+                            Payload = blockchain_helium_packet_v1:payload(Packet),
                             PacketDCs = blockchain_utils:calculate_dc_amount(Ledger, byte_size(Payload)),
                             case RemainingDCs >= PacketDCs of
                                 false ->
