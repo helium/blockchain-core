@@ -125,7 +125,13 @@ is_valid(Txn, Chain) ->
         {ok, true} ->
             {error, payment_v1_deprecated};
         _ ->
-            case blockchain_txn:validate_fields([{{payee, Payee}, {binary, 20, 33}}]) of
+            FieldValidation = case blockchain:config(?txn_field_validation_version, Ledger) of
+                                  {ok, 1} ->
+                                      [{{payee, Payee}, {address, libp2p}}];
+                                  _ ->
+                                      [{{payee, Payee}, {binary, 20, 33}}]
+                              end,
+            case blockchain_txn:validate_fields(FieldValidation) of
                 ok ->
                     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
                         false ->
@@ -260,5 +266,45 @@ to_json_test() ->
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payer, payee, amount, fee, nonce])).
+
+is_valid_with_extended_validation_test() ->
+    BaseDir = test_utils:tmp_dir("is_valid_with_extended_validation_test"),
+    Block = blockchain_block:new_genesis_block([]),
+    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+    meck:new(blockchain_ledger_v1, [passthrough]),
+
+    %% These are all required
+    meck:expect(blockchain_ledger_v1, config,
+                fun(?deprecate_payment_v1, _) ->
+                        {ok, false};
+                   (?txn_field_validation_version, _) ->
+                        %% This is new
+                        {ok, 1};
+                   (?allow_zero_amount, _) ->
+                        {ok, false};
+                   (?dc_payload_size, _) ->
+                        {error, not_found};
+                   (?txn_fee_multiplier, _) ->
+                        {error, not_found}
+                end),
+    meck:expect(blockchain_ledger_v1, txn_fees_active, fun(_) -> true end),
+
+    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    Payer = libp2p_crypto:pubkey_to_bin(PubKey),
+    Tx = sign(new(Payer, <<"payee">>, 666, 1), SigFun),
+    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx, Chain)),
+
+    Tx1 = sign(new(Payer, libp2p_crypto:b58_to_bin("1BR9RgYoP5psbcw9aKh1cDskLaGMBmkb8"), 666, 1), SigFun),
+    ?assertEqual({error, {invalid_address, payee}}, is_valid(Tx1, Chain)),
+
+    #{public := PayeePubkey, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    ValidPayee = libp2p_crypto:pubkey_to_bin(PayeePubkey),
+    Tx2 = sign(new(Payer, ValidPayee, 666, 1), SigFun),
+    %% This check can be improved but whatever (it fails on fee)
+    ?assertNotEqual({error, {invalid_address, payee}}, is_valid(Tx2, Chain)),
+
+    meck:unload(blockchain_ledger_v1),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 -endif.

@@ -824,6 +824,11 @@ validate_var(?allow_zero_amount, Value) ->
         _ -> throw({error, {invalid_allow_zero_amount, Value}})
     end;
 
+%% general txn vars
+
+validate_var(?txn_field_validation_version, Value) ->
+    validate_int(Value, "txn_field_validation_version", 1, 50, false);
+
 %% state channel vars
 %% XXX: what are some reasonable limits here?
 validate_var(?min_expire_within, Value) ->
