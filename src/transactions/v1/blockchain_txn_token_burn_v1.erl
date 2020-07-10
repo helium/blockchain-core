@@ -22,6 +22,7 @@
     amount/1,
     nonce/1,
     fee/1, fee/2,
+    memo/1, memo/2,
     calculate_fee/2, calculate_fee/5,
     signature/1,
     sign/2,
@@ -89,6 +90,14 @@ fee(Txn) ->
 -spec fee(txn_token_burn(), non_neg_integer()) -> txn_token_burn().
 fee(Txn, Fee) ->
     Txn#blockchain_txn_token_burn_v1_pb{fee=Fee}.
+
+-spec memo(txn_token_burn()) -> non_neg_integer().
+memo(Txn) ->
+    Txn#blockchain_txn_token_burn_v1_pb.memo.
+
+-spec memo(txn_token_burn(), non_neg_integer()) -> txn_token_burn().
+memo(Txn, Memo) ->
+    Txn#blockchain_txn_token_burn_v1_pb{memo=Memo}.
 
 -spec signature(txn_token_burn()) -> binary().
 signature(Txn) ->
@@ -199,7 +208,8 @@ to_json(Txn, _Opts) ->
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
       amount => amount(Txn),
-      nonce => nonce(Txn)
+      nonce => nonce(Txn),
+      memo => memo(Txn)
      }.
 
  %% ------------------------------------------------------------------
@@ -214,6 +224,7 @@ to_json(Txn, _Opts) ->
         amount=666,
         nonce=1,
         fee=0,
+        memo=0,
         signature = <<>>
     },
     ?assertEqual(Tx0, new(<<"payer">>, 666, 1)),
@@ -223,6 +234,7 @@ to_json(Txn, _Opts) ->
         amount=666,
         nonce=1,
         fee=?LEGACY_TXN_FEE,
+        memo=0,
         signature = <<>>
     },
     ?assertEqual(Tx1, new(<<"payer">>, <<"payee">>, 666, 1)).
@@ -247,6 +259,11 @@ fee_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(?LEGACY_TXN_FEE, fee(Tx)).
 
+memo_test() ->
+    Tx = new(<<"payer">>, 666, 1),
+    ?assertEqual(0, memo(Tx)),
+    ?assertEqual(12, memo(memo(Tx, 12))).
+
 signature_test() ->
     Tx = new(<<"payer">>, 666, 1),
     ?assertEqual(<<>>, signature(Tx)).
@@ -264,6 +281,6 @@ to_json_test() ->
     Tx = new(<<"payer">>, 666, 1),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, payer, amount, nonce])).
+                      [type, hash, payer, amount, nonce, memo])).
 
 -endif.
