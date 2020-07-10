@@ -37,6 +37,7 @@
 
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
+-define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -224,19 +225,30 @@ handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
-    Ledger = blockchain:ledger(Chain),
-    Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
-    Region = blockchain_state_channel_offer_v1:region(SCOffer),
-    Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
-    PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
-    {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
-    lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
-    {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun),
-    NewState = maybe_add_stream(Hotspot, HandlerPid, State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
-    erlang:monitor(process, HandlerPid),
-    {noreply, NewState};
+    case PayloadSize =< ?MAX_PAYLOAD_SIZE of
+        false ->
+            lager:error("payload size (~p) exceeds maximum (~p). Sending rejection of offer ~p from ~p",
+                        [PayloadSize, ?MAX_PAYLOAD_SIZE, SCOffer, HandlerPid]),
+            ok = send_rejection(HandlerPid),
+            {noreply, State};
+        true ->
+            Ledger = blockchain:ledger(Chain),
+            Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
+            Region = blockchain_state_channel_offer_v1:region(SCOffer),
+            Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
+            PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
+            {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
+            lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
+
+            {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
+                                        PayloadSize, Region, Ledger, OwnerSigFun),
+            NewState = maybe_add_stream(Hotspot, HandlerPid,
+                                        State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
+            erlang:monitor(process, HandlerPid),
+            {noreply, NewState}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
