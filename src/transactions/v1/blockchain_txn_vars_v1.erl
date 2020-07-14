@@ -919,6 +919,9 @@ validate_var(?txn_fee_multiplier, Value) ->
     %% a multiplier applied to txn fee, in DC
     validate_int(Value, "txn_fee_multiplier", 1, 65536, false);
 
+%% Data aggregation vars
+validate_var(?data_aggregation_version, Value) ->
+    validate_int(Value, "data_aggregation_version", 1, 50, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
