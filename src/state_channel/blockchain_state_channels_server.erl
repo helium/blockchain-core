@@ -181,12 +181,9 @@ handle_cast({packet, SCPacket, HandlerPid},
             {noreply, State};
         {ok, _} ->
             %% This is a valid hotspot on chain
-            %% Get raw packet
             Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
             %% ActiveSCID should always be in our state_channels map
             {SC, Skewed} = maps:get(ActiveSCID, SCs),
-            %% Get payload from packet
-            %% Add this payload to state_channel's skewed merkle
             NewState = process_packet(ClientPubkeyBin, Packet, SC,
                                       Skewed, HandlerPid, State),
             {noreply, NewState}
