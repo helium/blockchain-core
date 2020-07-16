@@ -160,6 +160,8 @@ handle_info(post_init, #state{chain=undefined}=State) ->
         Chain ->
             {noreply, State#state{chain=Chain}}
     end;
+handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    {noreply, State#state{chain=NC}};
 handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     Packets = get_waiting_packet(AddressOrOUI, State0),
     lager:error("failed to dial ~p: ~p dropping ~p packets", [AddressOrOUI, _Reason, erlang:length(Packets)+1]),
