@@ -256,6 +256,8 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
     end;
+handle_info({blockchain_event, {new_chain, NC}}, State) ->
+    {noreply, State#state{chain=NC}};
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
     {noreply, State};

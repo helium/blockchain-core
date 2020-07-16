@@ -2354,9 +2354,15 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
             %% by the `close_proposal' function. So we just record
             %% it here and deal with overcommit during GC.
             {ok, PrevSCE} = find_state_channel(SCID, Owner, Ledger),
-            NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE),
-            Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
-            cache_put(Ledger, SCsCF, Key, Bin);
+            case blockchain_ledger_state_channel_v2:is_v2(PrevSCE) of
+                true ->
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE),
+                    Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
+                    cache_put(Ledger, SCsCF, Key, Bin);
+                false ->
+                    %% holdover v1 from before upgrade
+                    cache_delete(Ledger, SCsCF, Key)
+            end;
         _ ->
             cache_delete(Ledger, SCsCF, Key)
     end.
