@@ -211,6 +211,10 @@ maybe_dispute(PreviousSC, CurrentSC) ->
             {closed, PreviousSC}
     end.
 
+-spec is_sc_participant( Closer :: libp2p_crypto:pubkey_bin(),
+                         SC :: blockchain_state_channel_v1:state_channel() ) -> boolean().
+%% @doc Return true if the closer is part of nodes participating in a state channel.
+%% Otherwise, return false.
 is_sc_participant(Closer, SC) ->
     Summaries = blockchain_state_channel_v1:summaries(SC),
     Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
@@ -273,8 +277,8 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
-    ?assertEqual(closed, maybe_dispute(SC0, SC0)),
-    ?assertEqual(closed, maybe_dispute(Nonce4, Nonce8)),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8)),
     ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4)).
 
 is_sc_participant_test() ->

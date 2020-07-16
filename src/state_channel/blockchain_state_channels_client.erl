@@ -16,6 +16,7 @@
          banner/2,
          reject/2,
          state/0,
+         gc_state_channels/1,
          response/1]).
 
 %% ------------------------------------------------------------------
@@ -97,6 +98,10 @@ banner(Banner, HandlerPid) ->
 reject(Rejection, HandlerPid) ->
     gen_server:cast(?SERVER, {reject, Rejection, HandlerPid}).
 
+gc_state_channels([]) -> ok;
+gc_state_channels(SCIDs) ->
+    gen_server:cast(?SERVER, {gc_state_channels, SCIDs}).
+
 %% ------------------------------------------------------------------
 %% init, terminate and code_change
 %% ------------------------------------------------------------------
@@ -143,6 +148,8 @@ handle_cast({reject, Rejection, HandlerPid}, State) ->
                    {_, NS} -> NS
                end,
     {noreply, NewState};
+handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P}=State) ->
+    {noreply, State#state{pending_closes=P -- SCIDs}};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.

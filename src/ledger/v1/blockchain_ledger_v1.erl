@@ -1437,10 +1437,10 @@ maybe_gc_scs(Chain) ->
                 true ->
                     lager:info("gcing old state_channels..."),
                     SCsCF = state_channels_cf(Ledger),
-                    Alters = cache_fold(
+                    {Alters, SCIDs} = cache_fold(
                                Ledger,
                                SCsCF,
-                               fun({KeyHash, BinSC}, Acc) ->
+                               fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
                                        {Mod, SC} = deserialize_state_channel(BinSC),
                                        ExpireAtBlock = Mod:expire_at_block(SC),
                                        case (ExpireAtBlock + Grace) < Height of
@@ -1449,25 +1449,28 @@ maybe_gc_scs(Chain) ->
                                            true ->
                                                case Mod of
                                                    blockchain_ledger_state_channel_v1 ->
-                                                       [KeyHash | Acc];
+                                                       {[KeyHash | CacheAcc], []};
                                                    blockchain_ledger_state_channel_v2 ->
                                                        case (ExpireAtBlock + Grace) < EpochStart of
                                                            false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
                                                            true ->
+                                                               ID = Mod:id(SC),
                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                                   undefined -> [KeyHash | Acc]; %% due to tests must handle
-                                                                   dispute -> [KeyHash | Acc];
+                                                                   undefined -> ok; %% due to tests must handle
+                                                                   dispute -> ok;
                                                                    closed -> %% refund overcommit DCs
                                                                        SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
                                                                        Owner = blockchain_state_channel_v1:owner(SC0),
                                                                        Credit = calc_remaining_dcs(SC),
-                                                                       ok = credit_dc(Owner, Credit, Ledger),
-                                                                       [KeyHash | Acc]
-                                                               end
+                                                                       ok = credit_dc(Owner, Credit, Ledger)
+                                                               end,
+                                                               {[KeyHash | CacheAcc], [ID | IDAcc]}
+
                                                        end
                                                end
                                        end
-                               end, []),
+                               end, {[], []}),
+                    ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
                     ok = lists:foreach(fun(KeyHash) ->
                                                cache_delete(Ledger, SCsCF, KeyHash)
                                        end,
