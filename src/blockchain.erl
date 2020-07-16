@@ -756,16 +756,7 @@ can_add_block(Block, Blockchain) ->
                                 {ok, ConsensusAddrs} ->
                                     N = length(ConsensusAddrs),
                                     F = (N-1) div 3,
-                                    {ok, KeyOrKeys} =
-                                        case blockchain:config(?use_multi_keys, Ledger) of
-                                            {ok, true} ->
-                                                case blockchain_ledger_v1:multi_keys(Ledger) of
-                                                    {ok, _} = OK -> OK;
-                                                    _ -> blockchain_ledger_v1:master_key(Ledger)
-                                                end;
-                                            _ ->
-                                                blockchain_ledger_v1:master_key(Ledger)
-                                        end,
+                                    {ok, KeyOrKeys} = get_key_or_keys(Ledger),
                                     Txns = blockchain_block:transactions(Block),
                                     Sigs = blockchain_block:signatures(Block),
                                     case blockchain_block:verify_signatures(Block,
@@ -788,6 +779,17 @@ can_add_block(Block, Blockchain) ->
                             end
                     end
             end
+    end.
+
+get_key_or_keys(Ledger) ->
+    case blockchain:config(?use_multi_keys, Ledger) of
+        {ok, true} ->
+            case blockchain_ledger_v1:multi_keys(Ledger) of
+                {ok, _} = Result -> Result;
+                _ -> blockchain_ledger_v1:master_key(Ledger)
+            end;
+        _ ->
+            blockchain_ledger_v1:master_key(Ledger)
     end.
 
 add_block_(Block, Blockchain, Syncing) ->
@@ -2121,16 +2123,7 @@ is_block_plausible(Block, Chain) ->
                 {ok, ConsensusAddrs} ->
                     N = length(ConsensusAddrs),
                     F = (N-1) div 3,
-                    {ok, KeyOrKeys} =
-                        case blockchain:config(?use_multi_keys, Ledger) of
-                            {ok, true} ->
-                                case blockchain_ledger_v1:multi_keys(Ledger) of
-                                    {ok, _} = OK -> OK;
-                                    _ -> blockchain_ledger_v1:master_key(Ledger)
-                                end;
-                            _ ->
-                                blockchain_ledger_v1:master_key(Ledger)
-                        end,
+                    {ok, KeyOrKeys} = get_key_or_keys(Ledger),
                     Sigs = blockchain_block:signatures(Block),
                     case blockchain_block:verify_signatures(Block,
                                                             ConsensusAddrs,

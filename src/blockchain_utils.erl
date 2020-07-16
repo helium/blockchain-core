@@ -423,12 +423,15 @@ index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
 verify_multisig(Artifact, Sigs, Keys) ->
+    %% using the number of keys is safe for the total because keys
+    %% comes directly out of the ledger rather than from the submitter.
+    Total = length(Keys),
     lager:debug("sigs ~p keys ~p", [Sigs, Keys]),
     Votes = count_votes(Artifact, Keys, Sigs),
-    %% this is safe because keys comes out of the ledger
-    Majority = majority(length(Keys)),
-    lager:debug("votes ~p, majority: ~p", [Votes, Majority]),
-    Votes >= Majority.
+    %% this code is still good, uncomment to get majority voting
+    %% Majority = majority(Total),
+    %% lager:debug("votes ~p, majority: ~p", [Votes, Majority]),
+    Votes == Total.
 
 count_votes(Artifact, MultiKeys, Proofs) ->
     count_votes(Artifact, MultiKeys, Proofs, 0).
@@ -449,8 +452,8 @@ count_votes(Artifact, MultiKeys, [Proof | Proofs], Acc) ->
                         Proofs, Acc + 1)
     end.
 
-majority(N) ->
-    N div 2 + 1.
+%% majority(N) ->
+%%     N div 2 + 1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

@@ -412,10 +412,10 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
     case blockchain:config(?use_multi_keys, Ledger) of
         {ok, true} ->
             case multi_keys(Txn) of
+                [] when Gen == true ->
+                    throw({error, genesis_requires_multi_keys});
                 [] ->
                     ok;
-                MultiKeys when length(MultiKeys) < 3 ->
-                    throw({error, too_few_keys});
                 MultiKeys ->
                     KeyProofs =
                         case multi_key_proofs(Txn) of

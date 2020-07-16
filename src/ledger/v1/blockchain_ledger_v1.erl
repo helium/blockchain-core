@@ -888,7 +888,7 @@ multi_keys(Ledger) ->
         {ok, MultiKeysBin} ->
             {ok, blockchain_utils:bin_keys_to_list(MultiKeysBin)};
         not_found ->
-            {error, not_found};
+            {ok, []};
         Error ->
             Error
     end.
