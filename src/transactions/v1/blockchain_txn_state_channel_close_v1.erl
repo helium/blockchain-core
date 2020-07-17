@@ -141,7 +141,7 @@ is_valid(Txn, Chain) ->
               end,
     %% first check if it's time to expire
     case LedgerHeight >= ExpiresAt andalso
-         LedgerHeight =< ExpiresAt + LedgerHeight  of
+         LedgerHeight =< ExpiresAt + SCGrace of
         false ->
             {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
         true ->
