@@ -110,7 +110,7 @@ snr(#packet_pb{snr=SNR}) ->
 
 -spec packet_hash(packet()) -> binary().
 packet_hash(Packet) ->
-    crypto:hash(sha256, term_to_binary(Packet)).
+    crypto:hash(sha256, ?MODULE:payload(Packet)).
 
 -spec encode(packet()) -> binary().
 encode(#packet_pb{}=Packet) ->
