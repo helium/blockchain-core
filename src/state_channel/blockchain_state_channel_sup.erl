@@ -42,11 +42,6 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 init([BaseDir]) ->
     Swarm = blockchain_swarm:swarm(),
-    ok = libp2p_swarm:add_stream_handler(
-        Swarm,
-        ?STATE_CHANNEL_PROTOCOL_V1,
-        {libp2p_framed_stream, server, [blockchain_state_channel_handler]}
-    ),
     ServerOpts = #{swarm => Swarm},
     ClientOpts = #{swarm => Swarm},
     DbOwnerOpts = #{base_dir => BaseDir,

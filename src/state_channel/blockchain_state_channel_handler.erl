@@ -33,6 +33,7 @@
 ]).
 
 -include("blockchain.hrl").
+-include("blockchain_vars.hrl").
 
 -record(state, {}).
 
@@ -92,10 +93,10 @@ send_response(Pid, Resp) ->
 %% ------------------------------------------------------------------
 init(client, _Conn, _) ->
     {ok, #state{}};
-init(server, _Conn, _) ->
-    case blockchain_state_channels_server:sc_version() of
-        {ok, 1} -> {ok, #state{}};
-        _ ->
+init(server, _Conn, [_Path, Blockchain]) ->
+    Ledger = blockchain:ledger(Blockchain),
+    case blockchain:config(?sc_version, Ledger) of
+        {ok, N} when N > 1 ->
             case blockchain_state_channels_server:active_sc() of
                 undefined ->
                     %% Send empty banner
@@ -107,7 +108,8 @@ init(server, _Conn, _) ->
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     lager:info("sc_handler, banner: ~p", [SCBanner]),
                     {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
-            end
+            end;
+        _ -> {ok, #state{}}
     end.
 
 handle_data(client, Data, State) ->

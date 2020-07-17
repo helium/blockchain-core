@@ -148,7 +148,13 @@ handle_cast({reject, Rejection, HandlerPid}, State) ->
                    {_, NS} -> NS
                end,
     {noreply, NewState};
-handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P}=State) ->
+handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P, db=DB, cf=CF}=State) ->
+    {ok, Batch} = rocksdb:batch(),
+    lists:foreach(fun(SCID) ->
+                          rocksdb:batch_delete(Batch, CF, SCID)
+                  end, SCIDs),
+    ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
+    rocksdb:release_batch(Batch),
     {noreply, State#state{pending_closes=P -- SCIDs}};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
