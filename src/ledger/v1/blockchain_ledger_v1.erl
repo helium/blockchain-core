@@ -1471,6 +1471,7 @@ maybe_gc_scs(Chain) ->
                                        end
                                end, {[], []}),
                     ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
+                    ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
                     ok = lists:foreach(fun(KeyHash) ->
                                                cache_delete(Ledger, SCsCF, KeyHash)
                                        end,

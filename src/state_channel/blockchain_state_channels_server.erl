@@ -15,6 +15,7 @@
     nonce/1,
     packet/2,
     offer/2,
+    gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
     active_sc/0
@@ -114,6 +115,10 @@ offer(Offer, HandlerPid) ->
           end),
     ok.
 
+-spec gc_state_channels([ binary() ]) -> ok.
+gc_state_channels([]) -> ok;
+gc_state_channels(SCIDs) ->
+    gen_server:cast(?SERVER, {gc_state_channels, SCIDs}).
 
 -spec state_channels() -> state_channels().
 state_channels() ->
@@ -238,6 +243,9 @@ handle_cast({offer, SCOffer, HandlerPid},
                     {noreply, NewState}
             end
     end;
+handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
+    NewSCs = lists:foldl(fun(ID, M) -> maps:remove(ID, M) end, SCs, SCIDs),
+    {noreply, State#state{state_channels=NewSCs}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
