@@ -93,17 +93,21 @@ send_response(Pid, Resp) ->
 init(client, _Conn, _) ->
     {ok, #state{}};
 init(server, _Conn, _) ->
-    case blockchain_state_channels_server:active_sc() of
-        undefined ->
-            %% Send empty banner
-            SCBanner = blockchain_state_channel_banner_v1:new(),
-            lager:info("sc_handler, empty banner: ~p", [SCBanner]),
-            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
-        ActiveSC ->
-            lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
-            SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-            lager:info("sc_handler, banner: ~p", [SCBanner]),
-            {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+    case blockchain_state_channels_server:sc_version() of
+        {ok, 1} -> {ok, #state{}};
+        _ ->
+            case blockchain_state_channels_server:active_sc() of
+                undefined ->
+                    %% Send empty banner
+                    SCBanner = blockchain_state_channel_banner_v1:new(),
+                    lager:info("sc_handler, empty banner: ~p", [SCBanner]),
+                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
+                ActiveSC ->
+                    lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
+                    SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
+                    lager:info("sc_handler, banner: ~p", [SCBanner]),
+                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+            end
     end.
 
 handle_data(client, Data, State) ->

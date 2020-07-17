@@ -18,7 +18,8 @@
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
-    active_sc/0
+    active_sc/0,
+    sc_version/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -132,6 +133,10 @@ active_sc_id() ->
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
 
+-spec sc_version() -> {ok, Version :: pos_integer}.
+sc_version() ->
+    gen_server:call(?SERVER, sc_version, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -166,6 +171,13 @@ handle_call(active_sc, _From, State) ->
     {reply, active_sc(State), State};
 handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
     {reply, ActiveSCID, State};
+handle_call(sc_version, _From, #state{chain=C}=State) ->
+    Ledger = blockchain:ledger(C),
+    Reply = case blockchain:config(?sc_version, Ledger) of
+        {ok, 2} -> {ok, 2};
+        _ -> {ok, 1}
+    end,
+    {reply, Reply, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
