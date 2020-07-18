@@ -84,12 +84,15 @@
     get_oui_counter/1, set_oui_counter/2, increment_oui_counter/1,
     add_oui/5,
 
-    find_routing/2, find_routing_for_packet/2, find_router_ouis/2,
+    find_routing/2, find_routing_for_packet/2,
+    find_router_ouis/2,
     update_routing/4,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
-    add_state_channel/5,
-    delete_state_channel/3,
+    add_state_channel/7,
+    close_state_channel/6,
+    is_state_channel_overpaid/2,
+    get_sc_mod/2,
 
     allocate_subnet/2,
 
@@ -223,7 +226,9 @@
 -type securities() :: #{libp2p_crypto:pubkey_bin() => blockchain_ledger_security_entry_v1:entry()}.
 -type hexmap() :: #{h3:h3_index() => non_neg_integer()}.
 -type gateway_offsets() :: [{pos_integer(), libp2p_crypto:pubkey_bin()}].
--type state_channel_map() ::  #{blockchain_state_channel_v1:id() => blockchain_ledger_state_channel_v1:state_channel()}.
+-type state_channel_map() ::  #{blockchain_state_channel_v1:id() =>
+                                    blockchain_ledger_state_channel_v1:state_channel()
+                                    | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 
 -export_type([ledger/0]).
 
@@ -540,6 +545,9 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             [cache_fold(Ledger, CF,
                         fun({K, V}, Acc) when Mod == t2b ->
                                 [{K, erlang:binary_to_term(V)} | Acc];
+                           ({K, V}, Acc) when Mod == state_channel ->
+                                {_Mod, SC} = deserialize_state_channel(V),
+                                [{K, SC} | Acc];
                            ({K, V}, Acc) when Mod /= undefined ->
                                 [{K, Mod:deserialize(V)} | Acc];
                            (X, Acc) -> [X | Acc]
@@ -553,7 +561,7 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                      {PoCsCF, t2b},
                      {SecuritiesCF, blockchain_ledger_security_entry_v1},
                      {RoutingCF, blockchain_ledger_routing_v1},
-                     {SCsCF, blockchain_ledger_state_channel_v1},
+                     {SCsCF, state_channel},
                      {SubnetsCF, undefined}
                     ]],
         L = lists:append(L0, DefaultVals),
@@ -1416,8 +1424,12 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
                  end,
                  GatewayOffsets).
 
-maybe_gc_scs(Ledger) ->
+-spec maybe_gc_scs(blockchain:blockchain()) -> ok.
+maybe_gc_scs(Chain) ->
+    Ledger = blockchain:ledger(Chain),
     {ok, Height} = current_height(Ledger),
+    {ok, Block} = blockchain:get_block(Height, Chain),
+    {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
 
     case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
@@ -1425,19 +1437,41 @@ maybe_gc_scs(Ledger) ->
                 true ->
                     lager:info("gcing old state_channels..."),
                     SCsCF = state_channels_cf(Ledger),
-                    Alters = cache_fold(
+                    {Alters, SCIDs} = cache_fold(
                                Ledger,
                                SCsCF,
-                               fun({KeyHash, BinSC}, Acc) ->
-                                       SC = blockchain_ledger_state_channel_v1:deserialize(BinSC),
-                                       ExpireAtBlock = blockchain_ledger_state_channel_v1:expire_at_block(SC),
+                               fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
+                                       {Mod, SC} = deserialize_state_channel(BinSC),
+                                       ExpireAtBlock = Mod:expire_at_block(SC),
                                        case (ExpireAtBlock + Grace) < Height of
                                            false ->
                                                Acc;
                                            true ->
-                                               [KeyHash | Acc]
+                                               case Mod of
+                                                   blockchain_ledger_state_channel_v1 ->
+                                                       {[KeyHash | CacheAcc], []};
+                                                   blockchain_ledger_state_channel_v2 ->
+                                                       case (ExpireAtBlock + Grace) < EpochStart of
+                                                           false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
+                                                           true ->
+                                                               ID = Mod:id(SC),
+                                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                                   undefined -> ok; %% due to tests must handle
+                                                                   dispute -> ok;
+                                                                   closed -> %% refund overcommit DCs
+                                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                                       Owner = blockchain_state_channel_v1:owner(SC0),
+                                                                       Credit = calc_remaining_dcs(SC),
+                                                                       ok = credit_dc(Owner, Credit, Ledger)
+                                                               end,
+                                                               {[KeyHash | CacheAcc], [ID | IDAcc]}
+
+                                                       end
+                                               end
                                        end
-                               end, []),
+                               end, {[], []}),
+                    ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
+                    ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
                     ok = lists:foreach(fun(KeyHash) ->
                                                cache_delete(Ledger, SCsCF, KeyHash)
                                        end,
@@ -1449,6 +1483,14 @@ maybe_gc_scs(Ledger) ->
         _ ->
             ok
     end.
+
+-spec calc_remaining_dcs( blockchain_ledger_state_channel_v2:state_channel() ) -> non_neg_integer().
+calc_remaining_dcs(SC) ->
+    SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+    UsedDC = blockchain_state_channel_v1:total_dcs(SC0),
+    ReservedDC = blockchain_ledger_state_channel_v2:amount(SC),
+    max(0, ReservedDC - UsedDC).
+
 
 %%--------------------------------------------------------------------
 %% @doc  get staking server keys from chain var
@@ -2117,55 +2159,66 @@ find_routing(OUI, Ledger) ->
 
 -spec find_routing_for_packet(blockchain_helium_packet_v1:packet(), ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]}
                                                                                  | {error, any()}.
-find_routing_for_packet(Packet, Ledger=#ledger_v1{db=DB}) ->
+find_routing_for_packet(Packet, Ledger) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, DevEUI, AppEUI} ->
-            %% ok, search the xor filters
-            Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
-            RoutingCF = routing_cf(Ledger),
-            Res = cache_fold(Ledger, RoutingCF,
-                             fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
-                                     Route = blockchain_ledger_routing_v1:deserialize(V),
-                                     case lists:any(fun(Filter) ->
-                                                            xor16:contain({Filter, fun xxhash:hash64/1}, Key)
-                                                    end, blockchain_ledger_routing_v1:filters(Route)) of
-                                         true ->
-                                             [Route | Acc];
-                                         false ->
-                                             Acc
-                                     end;
-                                ({_K, _V}, Acc) ->
-                                     Acc
-                             end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
-            case Res of
-                [] ->
-                    {error, eui_not_matched};
-                _ ->
-                    {ok, Res}
-            end;
+            find_routing_via_eui(DevEUI, AppEUI, Ledger);
         {devaddr, DevAddr0} ->
-            DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
-            case <<DevAddr0:32/integer-unsigned-little>> of
-                <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
-                    %% use the subnets
-                    SubnetCF = subnets_cf(Ledger),
-                    {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
-                    Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
-                    catch rocksdb:iterator_close(Itr),
-                    case Dest of
-                        error ->
-                            {error, subnet_not_found};
-                        _ ->
-                            case find_routing(Dest, Ledger) of
-                                {ok, Route} ->
-                                    {ok, [Route]};
-                                Error ->
-                                    Error
-                            end
-                    end;
-                <<_:25/integer, Prefix:7/integer>> ->
-                    {error, {unknown_devaddr_prefix, Prefix}}
-            end
+            find_routing_via_devaddr(DevAddr0, Ledger)
+    end.
+
+-spec find_routing_via_eui(DevEUI :: non_neg_integer(),
+                           AppEUI :: non_neg_integer(),
+                           Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_eui(DevEUI, AppEUI, Ledger) ->
+    %% ok, search the xor filters
+    Key = <<DevEUI:64/integer-unsigned-little, AppEUI:64/integer-unsigned-little>>,
+    RoutingCF = routing_cf(Ledger),
+    Res = cache_fold(Ledger, RoutingCF,
+                     fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
+                             Route = blockchain_ledger_routing_v1:deserialize(V),
+                             case lists:any(fun(Filter) ->
+                                                    xor16:contain({Filter, fun xxhash:hash64/1}, Key)
+                                            end, blockchain_ledger_routing_v1:filters(Route)) of
+                                 true ->
+                                     [Route | Acc];
+                                 false ->
+                                     Acc
+                             end;
+                        ({_K, _V}, Acc) ->
+                             Acc
+                     end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}]),
+    case Res of
+        [] ->
+            {error, eui_not_matched};
+        _ ->
+            {ok, Res}
+    end.
+
+-spec find_routing_via_devaddr(DevAddr0 :: non_neg_integer(),
+                               Ledger :: ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]} | {error, any()}.
+find_routing_via_devaddr(DevAddr0, Ledger=#ledger_v1{db=DB}) ->
+    DevAddrPrefix = application:get_env(blockchain, devaddr_prefix, $H),
+    case <<DevAddr0:32/integer-unsigned-little>> of
+        <<DevAddr:25/integer-unsigned-little, DevAddrPrefix:7/integer>> ->
+            %% use the subnets
+            SubnetCF = subnets_cf(Ledger),
+            {ok, Itr} = rocksdb:iterator(DB, SubnetCF, []),
+            Dest = subnet_lookup(Itr, DevAddr, rocksdb:iterator_move(Itr, {seek_for_prev, <<DevAddr:25/integer-unsigned-big, ?BITS_23:23/integer>>})),
+            catch rocksdb:iterator_close(Itr),
+            case Dest of
+                error ->
+                    {error, subnet_not_found};
+                _ ->
+                    case find_routing(Dest, Ledger) of
+                        {ok, Route} ->
+                            {ok, [Route]};
+                        Error ->
+                            Error
+                    end
+            end;
+        <<_:25/integer, Prefix:7/integer>> ->
+            {error, {unknown_devaddr_prefix, Prefix}}
     end.
 
 -spec find_router_ouis(RouterPubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -2201,13 +2254,17 @@ update_routing(OUI, Action, Nonce, Ledger) ->
 
 -spec find_state_channel(ID :: binary(),
                          Owner :: libp2p_crypto:pubkey_bin(),
-                         Ledger :: ledger()) -> {ok, blockchain_ledger_state_channel_v1:state_channel()} | {error, any()}.
+                         Ledger :: ledger()) ->
+    {ok, blockchain_ledger_state_channel_v1:state_channel()}
+    | {ok, blockchain_ledger_state_channel_v2:state_channel()}
+    | {error, any()}.
 find_state_channel(ID, Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     Key = state_channel_key(ID, Owner),
     case cache_get(Ledger, SCsCF, Key, []) of
         {ok, BinEntry} ->
-            {ok, blockchain_ledger_state_channel_v1:deserialize(BinEntry)};
+            {_Mod, SC} = deserialize_state_channel(BinEntry),
+            {ok, SC};
         not_found ->
             {error, not_found};
         Error ->
@@ -2215,7 +2272,7 @@ find_state_channel(ID, Owner, Ledger) ->
     end.
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
-                           Leger :: ledger()) -> {ok, [binary()]}.
+                           Ledger :: ledger()) -> {ok, [binary()]}.
 find_sc_ids_by_owner(Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     OwnerLength = byte_size(Owner),
@@ -2238,30 +2295,78 @@ find_scs_by_owner(Owner, Ledger) ->
     {ok, cache_fold(Ledger, SCsCF,
                fun({K, V}, Acc) when erlang:binary_part(K, {0, OwnerLength}) == Owner ->
                        ID = binary:part(K, OwnerLength, byte_size(K) - OwnerLength),
-                       maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc);
+                       {_Mod, SC} = deserialize_state_channel(V),
+                       maps:put(ID, SC, Acc);
                   (_, Acc) ->
                        Acc
                end, #{}, [{start, Owner}, {iterate_upper_bound, increment_bin(Owner)}])}.
-
 
 -spec add_state_channel(ID :: binary(),
                         Owner :: libp2p_crypto:pubkey_bin(),
                         ExpireWithin :: pos_integer(),
                         Nonce :: non_neg_integer(),
+                        Original :: non_neg_integer(),
+                        Amount :: non_neg_integer(),
                         Ledger :: ledger()) -> ok | {error, any()}.
-add_state_channel(ID, Owner, ExpireWithin, Nonce, Ledger) ->
+add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
-    Routing = blockchain_ledger_state_channel_v1:new(ID, Owner, CurrHeight+ExpireWithin, Nonce),
-    Bin = blockchain_ledger_state_channel_v1:serialize(Routing),
     Key = state_channel_key(ID, Owner),
+    Bin = case ?MODULE:config(?sc_version, Ledger) of
+        {ok, 2} ->
+            Routing = blockchain_ledger_state_channel_v2:new(ID, Owner,
+                                                             CurrHeight+ExpireWithin,
+                                                             Original, Amount, Nonce),
+            blockchain_ledger_state_channel_v2:serialize(Routing);
+        _ ->
+            Routing = blockchain_ledger_state_channel_v1:new(ID, Owner,
+                                                             CurrHeight+ExpireWithin, Nonce),
+            blockchain_ledger_state_channel_v1:serialize(Routing)
+          end,
     cache_put(Ledger, SCsCF, Key, Bin).
 
--spec delete_state_channel(binary(), libp2p_crypto:pubkey_bin(), ledger()) -> ok.
-delete_state_channel(ID, Owner, Ledger) ->
+-spec is_state_channel_overpaid(blockchain_state_channel_v1:state_channel(), ledger()) -> boolean().
+is_state_channel_overpaid(SC, Ledger) ->
+    %% assume we've checked this channel is active, etc
+    {ok, LedgerSC} = find_state_channel(blockchain_state_channel_v1:id(SC), blockchain_state_channel_v1:owner(SC), Ledger),
+    case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
+        true ->
+            blockchain_ledger_state_channel_v2:original(LedgerSC) < blockchain_state_channel_v1:total_dcs(SC);
+        false ->
+            false
+    end.
+
+-spec close_state_channel(Owner :: libp2p_crypto:pubkey_bin(),
+                          Closer :: libp2p_crypto:pubkey_bin(),
+                          SC :: blockchain_state_channel_v1:state_channel(),
+                          SCID :: blockchain_state_channel_v1:id(),
+                          HadConflict :: boolean(),
+                          Ledger :: ledger()) -> ok.
+close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
-    Key = state_channel_key(ID, Owner),
-    cache_delete(Ledger, SCsCF, Key).
+    Key = state_channel_key(SCID, Owner),
+    case ?MODULE:config(?sc_version, Ledger) of
+        {ok, 2} ->
+            %% DC overcommits are returned during SC garbage collection
+            %% because it's possible another actor might submit a
+            %% SC close txn with an updated nonce/state
+            %%
+            %% The internal close state of a SC would then be updated
+            %% by the `close_proposal' function. So we just record
+            %% it here and deal with overcommit during GC.
+            {ok, PrevSCE} = find_state_channel(SCID, Owner, Ledger),
+            case blockchain_ledger_state_channel_v2:is_v2(PrevSCE) of
+                true ->
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE),
+                    Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
+                    cache_put(Ledger, SCsCF, Key, Bin);
+                false ->
+                    %% holdover v1 from before upgrade
+                    cache_delete(Ledger, SCsCF, Key)
+            end;
+        _ ->
+            cache_delete(Ledger, SCsCF, Key)
+    end.
 
 -spec allocate_subnet(pos_integer(), ledger()) -> {ok, <<_:48>>} | {error, any()}.
 allocate_subnet(Size, Ledger=#ledger_v1{db=DB}) ->
@@ -3090,15 +3195,19 @@ snapshot_state_channels(Ledger) ->
           Ledger, SCsCF,
           fun({ID, V}, Acc) ->
                   %% do we need to decompose the ID here into Key and Owner?
-                  maps:put(ID, blockchain_ledger_state_channel_v1:deserialize(V), Acc)
+                  {_Mod, SC} = deserialize_state_channel(V),
+                  maps:put(ID, SC, Acc)
           end, #{},
           []))).
 
+-spec load_state_channels([tuple()], ledger()) -> ok.
+%% @doc Loads the cache with state channels from a snapshot
 load_state_channels(SCs, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     maps:map(
       fun(ID, Channel) ->
-              BChannel = blockchain_ledger_state_channel_v1:serialize(Channel),
+              SCMod = get_sc_mod(Channel, Ledger),
+              BChannel = SCMod:serialize(Channel),
               cache_put(Ledger, SCsCF, ID, BChannel)
       end,
       maps:from_list(SCs)),
@@ -3133,6 +3242,28 @@ load_hexes(Hexes0, Ledger) ->
         error ->
             ok
     end.
+
+-spec get_sc_mod( Entry :: blockchain_ledger_state_channel_v1:state_channel() |
+                           blockchain_ledger_state_channel_v2:state_channel_v2(),
+                  Ledger :: ledger() ) -> blockchain_ledger_state_channel_v1
+                                          | blockchain_ledger_state_channel_v2.
+get_sc_mod(Channel, Ledger) ->
+    case ?MODULE:config(?sc_version, Ledger) of
+        {ok, 2} ->
+            case blockchain_ledger_state_channel_v2:is_v2(Channel) of
+                true -> blockchain_ledger_state_channel_v2;
+                false -> blockchain_ledger_state_channel_v1
+            end;
+        _ -> blockchain_ledger_state_channel_v1
+    end.
+
+-spec deserialize_state_channel( <<_:8, _:_*8>> ) ->
+    { blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:state_channel() } |
+    { blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:state_channel_v2() }.
+deserialize_state_channel(<<1, _/binary>> = SC) ->
+    {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:deserialize(SC)};
+deserialize_state_channel(<<2, _/binary>> = SC) ->
+    {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:deserialize(SC)}.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -3538,7 +3669,7 @@ state_channels_test() ->
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
     Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
     ok = commit_context(Ledger2),
     {ok, SC} = find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v1:id(SC)),
@@ -3547,10 +3678,45 @@ state_channels_test() ->
     ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
     Ledger3 = new_context(Ledger),
-    ok = delete_state_channel(ID, Owner, Ledger3),
+    ok = close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),
+
+    ok.
+
+state_channels_v2_test() ->
+    meck:new(?MODULE, [passthrough]),
+    meck:expect(?MODULE, config, fun(?sc_version, _Ledger) -> {ok, 2} end),
+
+    BaseDir = test_utils:tmp_dir("state_channels_test_v2"),
+    Ledger = new(BaseDir),
+    Ledger1 = new_context(Ledger),
+    ID = crypto:strong_rand_bytes(32),
+    Owner = <<"owner">>,
+    Nonce = 1,
+    Amount = 100,
+
+    ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
+    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
+
+    Ledger2 = new_context(Ledger),
+    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
+    ok = commit_context(Ledger2),
+    {ok, SC} = find_state_channel(ID, Owner, Ledger),
+    ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
+    ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
+    ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
+    ?assertEqual(Amount, blockchain_ledger_state_channel_v2:amount(SC)),
+    ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
+
+    Ledger3 = new_context(Ledger),
+    ok = close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
+    ok = commit_context(Ledger3),
+    {ok, SC0} = find_state_channel(ID, Owner, Ledger),
+    ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
+
+    meck:unload(?MODULE),
 
     ok.
 
@@ -3575,8 +3741,8 @@ find_scs_by_owner_test() ->
 
     Ledger2 = new_context(Ledger),
     %% Add two state channels for this owner
-    ok = add_state_channel(ID1, Owner, 10, Nonce, Ledger2),
-    ok = add_state_channel(ID2, Owner, 10, Nonce, Ledger2),
+    ok = add_state_channel(ID1, Owner, 10, Nonce, 0, 0, Ledger2),
+    ok = add_state_channel(ID2, Owner, 10, Nonce, 0, 0, Ledger2),
     ok = commit_context(Ledger2),
 
     {ok, FoundIDs} = find_sc_ids_by_owner(Owner, Ledger),

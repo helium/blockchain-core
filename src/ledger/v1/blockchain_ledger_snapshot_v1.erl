@@ -392,9 +392,9 @@ import(Chain, SHA,
                                       Rescue = blockchain_block:is_rescue_block(Block),
                                       {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
                                       Hash = blockchain_block:hash_block(Block),
-                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain, Ledger2),
+                                      ok = blockchain_ledger_v1:maybe_gc_pocs(Chain1, Ledger2),
 
-                                      ok = blockchain_ledger_v1:maybe_gc_scs(Ledger2),
+                                      ok = blockchain_ledger_v1:maybe_gc_scs(Chain1),
 
                                       ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
                                   _ ->

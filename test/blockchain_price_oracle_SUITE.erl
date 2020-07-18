@@ -1034,7 +1034,7 @@ txn_fees_pay_with_dc(Config) ->
     ID = crypto:strong_rand_bytes(24),
     ExpireWithin = 11,
     %% base txn
-    SCTx0 = blockchain_txn_state_channel_open_v1:new(ID, RouterPubKeyBin, ExpireWithin, OUI1, 1),
+    SCTx0 = blockchain_txn_state_channel_open_v1:new(ID, RouterPubKeyBin, ExpireWithin, OUI1, 1, 0),
 
     %% get the fees for this txn
     SCTxFee = blockchain_txn_state_channel_open_v1:calculate_fee(SCTx0, Chain),

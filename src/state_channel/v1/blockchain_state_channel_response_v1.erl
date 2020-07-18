@@ -23,7 +23,7 @@
 -type response() :: #blockchain_state_channel_response_v1_pb{}.
 -export_type([response/0]).
 
-new(Accepted) ->
+new(Accepted) when is_boolean(Accepted) ->
     #blockchain_state_channel_response_v1_pb{accepted=Accepted}.
 
 new(true=Accepted, Downlink) ->

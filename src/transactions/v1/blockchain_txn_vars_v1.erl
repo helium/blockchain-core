@@ -849,6 +849,10 @@ validate_var(?sc_grace_blocks, Value) ->
     validate_int(Value, "sc_grace_blocks", 1, 100, false);
 validate_var(?dc_payload_size, Value) ->
     validate_int(Value, "dc_payload_size", 1, 32, false);
+validate_var(?sc_version, Value) ->
+    validate_int(Value, "sc_version", 1, 10, false);
+validate_var(?sc_overcommit, Value) ->
+    validate_int(Value, "sc_overcommit", 1, 10, false); %% integer multiplier of amount
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
