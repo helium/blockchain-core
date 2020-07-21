@@ -6,7 +6,7 @@
 -module(blockchain_txn_gen_gateway_v1).
 
 -behavior(blockchain_txn).
--behaviot(blockchain_json).
+-behavior(blockchain_json).
 -include("blockchain_json.hrl").
 
 -include("blockchain_utils.hrl").

@@ -34,7 +34,8 @@
              | blockchain_txn_payment_v2:txn_payment_v2()
              | blockchain_txn_state_channel_open_v1:txn_state_channel_open()
              | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui()
-             | blockchain_txn_price_oracle_submission_v1:txn_price_oracle_submission()
+             | blockchain_txn_price_oracle_v1:txn_price_oracle()
+             | blockchain_txn_gen_price_oracle_v1:txn_genesis_price_oracle()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
