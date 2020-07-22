@@ -12,6 +12,7 @@
     region/1,
     packet_hash/1,
     payload_size/1,
+    mic/1,
     signature/1, sign/2,
     validate/1,
     encode/1, decode/1
@@ -33,22 +34,32 @@
 from_packet(Packet, Hotspot, Region) ->
     case blockchain_helium_packet_v1:routing_info(Packet) of
         {eui, _, _}=Routing ->
+            Payload = blockchain_helium_packet_v1:payload(Packet),
+            <<_MType:3, _MHDRRFU:3, _Major:2, _AppEUI0:8/binary, _DevEUI0:8/binary, _DevNonce:2/binary, MIC:4/binary>> = Payload,
             #blockchain_state_channel_offer_v1_pb{
                routing=blockchain_helium_packet_v1:make_routing_info(Routing),
                packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
-               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
+               payload_size=byte_size(Payload),
                hotspot=Hotspot,
                signature = <<>>,
-               region=Region
+               region=Region,
+               mic=MIC
               };
         {devaddr, _}=Routing ->
+            Payload = blockchain_helium_packet_v1:payload(Packet),
+            <<_MType:3, _MHDRRFU:3, _Major:2,
+              _DevAddr:4/binary, _ADR:1, _ADRACKReq:1,
+              _ACK:1, _RFU:1, _FOptsLen:4,
+              _FCnt:16/little-unsigned-integer, _FOpts:_FOptsLen/binary, PayloadAndMIC/binary>> = Payload,
+            MIC = binary:part(PayloadAndMIC, {erlang:byte_size(PayloadAndMIC), -4}),
             #blockchain_state_channel_offer_v1_pb{
                routing=blockchain_helium_packet_v1:make_routing_info(Routing),
                packet_hash=blockchain_helium_packet_v1:packet_hash(Packet),
-               payload_size=byte_size(blockchain_helium_packet_v1:payload(Packet)),
+               payload_size=byte_size(Payload),
                hotspot=Hotspot,
                signature = <<>>,
-               region=Region
+               region=Region,
+               mic=MIC
               }
     end.
 
@@ -71,6 +82,10 @@ packet_hash(#blockchain_state_channel_offer_v1_pb{packet_hash=PacketHash}) ->
 -spec payload_size(offer()) -> pos_integer().
 payload_size(#blockchain_state_channel_offer_v1_pb{payload_size=PayloadSize}) ->
     PayloadSize.
+
+-spec mic(offer()) -> binary().
+mic(#blockchain_state_channel_offer_v1_pb{mic=MIC}) ->
+    MIC.
 
 -spec signature(offer()) -> binary().
 signature(#blockchain_state_channel_offer_v1_pb{signature=Signature}) ->
