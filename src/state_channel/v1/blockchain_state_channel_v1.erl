@@ -43,7 +43,7 @@
 
 -type state_channel() :: #blockchain_state_channel_v1_pb{}.
 -type id() :: binary().
--type state() :: open | closed.
+-type state() :: open | pending_close | closed.
 -type summaries() :: [blockchain_state_channel_summary_v1:summary()].
 -type temporal_relation() :: equal | effect_of | caused | conflict.
 
@@ -193,6 +193,8 @@ state(#blockchain_state_channel_v1_pb{state=State}) ->
     State.
 
 -spec state(state(), state_channel()) -> state_channel().
+state(pending_close, SC) ->
+    SC#blockchain_state_channel_v1_pb{state=pending_closed};
 state(closed, SC) ->
     SC#blockchain_state_channel_v1_pb{state=closed};
 state(open, SC) ->

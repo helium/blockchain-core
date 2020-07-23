@@ -203,7 +203,8 @@ handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
     ok = send_rejection(HandlerPid),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
-            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
+            #state{active_sc_id=ActiveSCID, state_channels=SCs,
+                   owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
@@ -228,12 +229,47 @@ handle_cast({offer, SCOffer, HandlerPid},
             case (TotalDCs + NumDCs) > DCAmount andalso
                  application:get_env(blockchain, prevent_sc_overspend, true) of
                 true ->
-                    %% will overspend so drop
-                    %% TODO we should switch to the next state channel here
-                    lager:error("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
-                                [DCAmount, NumDCs, SCOffer]),
-                    ok = send_rejection(HandlerPid),
-                    {noreply, State};
+                    %% will overspend
+                    %% let's check if we *have* another state channel we can use
+                    %% remove the active state channel from candidates
+                    Candidates = maps:without([ActiveSCID], SCs),
+                    %% list of state channel entries
+                    Filter = fun({_ID, {SC, _Skewed}}) ->
+                                     TtlDCs = blockchain_state_channel_v1:total_dcs(SC),
+                                     DCAmt = blockchain_state_channel_v1:amount(SC),
+                                     blockchain_state_channel_v1:state(SC) == open andalso
+                                        DCAmt >= TtlDCs + NumDCs
+                             end,
+                    case sort_and_filter_scs(Candidates, Filter) of
+                        [] ->
+                            %% there are no other state channels which will work
+                            %% so send rejection
+                            lager:error("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
+                                        [DCAmount, NumDCs, SCOffer]),
+                            ok = send_rejection(HandlerPid),
+                            lager:debug("Setting state channel ~p to pending close.",
+                                       [ActiveSCID]),
+                            NewSCs = set_sc_to_pending_close(ActiveSCID, ActiveSC, Skewed, SCs),
+                            {noreply, State#state{active_sc_id=undefined,
+                                                  state_channels=NewSCs}};
+
+                        SortedAndFilteredSCs when length(SortedAndFilteredSCs) >= 1 ->
+                            {CandID, {CandSC, CandSkewed}} = hd(SortedAndFilteredSCs),
+                            lager:info("Current SC exhausted. Now using ~p, routing: ~p, hotspot: ~p",
+                                       [CandID, Routing, Hotspot]),
+                            {ok, NewSC} = send_purchase(CandSC, Hotspot, HandlerPid, PacketHash,
+                                       PayloadSize, Region, Ledger, OwnerSigFun),
+                            NewState = maybe_add_stream(Hotspot, HandlerPid,
+                                       State#state{active_sc_id=CandID,
+                                            state_channels=maps:put(CandID, {NewSC, CandSkewed}, SCs)}),
+                            erlang:monitor(process, HandlerPid),
+                            ok = maybe_broadcast_new_banner(NewState),
+                            lager:debug("Setting state channel ~p to pending close.",
+                                       [ActiveSCID]),
+                            UpdatedSCs = set_sc_to_pending_close(ActiveSCID, ActiveSC, Skewed, SCs),
+                            {noreply, NewState#state{state_channels = UpdatedSCs}}
+                    end;
+
                 false ->
                     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
@@ -309,6 +345,14 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec set_sc_to_pending_close(SCID :: blockchain_state_channel_v1:id(),
+                              SC :: blockchain_state_channel_v1:state_channel(),
+                              Skewed :: skewed:skewed(),
+                              ChannelMap :: state_channels()) -> UpdatedMap :: state_channels().
+set_sc_to_pending_close(SCID, SC, Skewed, ChannelMap) ->
+    NewSC = blockchain_state_channel_v1:state(pending_close, SC),
+    maps:put(SCID, {NewSC, Skewed}, ChannelMap).
+
 -spec process_packet(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                      Packet :: blockchain_helium_packet_v1:packet(),
                      SC :: blockchain_state_channel_v1:state_channel(),
@@ -429,7 +473,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chain, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -451,14 +495,7 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chai
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
-            %% Switching active sc, broadcast banner
-            lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
-            ok = broadcast_banner(active_sc(NewState), NewState);
-        _ ->
-            ok
-    end,
+    ok = maybe_broadcast_new_banner(NewState),
 
     NewState.
 
@@ -471,12 +508,12 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chai
                                      State :: state()) -> state().
 check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                                    active_sc_id=ActiveSCID,
-                                                   chain=Chain,
                                                    state_channels=SCs}=State) ->
     NewStateChannels = maps:map(
                         fun(_ID, {SC, Skewed}) ->
                                 ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
-                                case ExpireAt =< BlockHeight andalso blockchain_state_channel_v1:state(SC) == open of
+                                case ExpireAt =< BlockHeight andalso
+                                            blockchain_state_channel_v1:state(SC) /= closed of
                                     false ->
                                         {SC, Skewed};
                                     true ->
@@ -495,22 +532,17 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                         _ ->
                             {ActiveSC, _ActiveSCSkewed} = maps:get(ActiveSCID, NewStateChannels),
                             case blockchain_state_channel_v1:state(ActiveSC) of
-                                closed ->
-                                    maybe_get_new_active(maps:without([ActiveSCID], NewStateChannels));
+                                open ->
+                                    ActiveSCID;
                                 _ ->
-                                    ActiveSCID
+                                    %% closed or pending_close
+                                    maybe_get_new_active(maps:without([ActiveSCID], NewStateChannels))
                             end
                     end,
 
     NewState = State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels},
 
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
-            %% Switching active sc, broadcast banner
-            ok = broadcast_banner(active_sc(NewState), NewState);
-        _ ->
-            ok
-    end,
+    ok = maybe_broadcast_new_banner(NewState),
 
     NewState.
 
@@ -692,21 +724,35 @@ convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
 %%-------------------------------------------------------------------
 -spec maybe_get_new_active(state_channels()) -> undefined | blockchain_state_channel_v1:id().
 maybe_get_new_active(SCs) ->
-    case maps:to_list(SCs) of
-        [] ->
+    case maps:size(SCs) of
+        0 ->
             %% Don't have any state channel in state
             undefined;
-        L ->
-            SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
-                        end,
-            SCSortFun2 = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
-                        end,
-
-            {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
-            ID
+        _ ->
+            case sort_and_filter_scs(SCs, fun(_) -> true end) of
+                [] ->
+                    %% Don't have any usable channels
+                    undefined;
+                L when length(L) >= 1 ->
+                    {ID, _} = hd(L),
+                    ID
+            end
     end.
+
+-spec sort_and_filter_scs(SCs :: state_channels(), Filter :: fun()) ->
+    [{blockchain_state_channel_v1:id(), {blockchain_state_channel_v1:state_channel(), skewed:skewed()}}].
+sort_and_filter_scs(SCs, Filter) ->
+    SCList = maps:to_list(SCs),
+    SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
+                        blockchain_state_channel_v1:expire_at_block(SC1)
+                               =< blockchain_state_channel_v1:expire_at_block(SC2)
+                end,
+    SCSortFun2 = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
+                         blockchain_state_channel_v1:nonce(SC1)
+                               >= blockchain_state_channel_v1:nonce(SC2)
+                 end,
+
+    lists:filter(Filter, lists:sort(SCSortFun2, lists:sort(SCSortFun, SCList))).
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
                     Hotspot :: libp2p_crypto:pubkey_bin(),
@@ -770,4 +816,15 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
                                                                     ExistingSummary),
             %% Update summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
+    end.
+
+-spec maybe_broadcast_new_banner(State :: state()) -> ok.
+maybe_broadcast_new_banner(#state{chain=Chain}=State) ->
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            %% Switching active sc, broadcast banner
+            lager:info("broadcasting banner: ~p", [active_sc(State)]),
+            ok = broadcast_banner(active_sc(State), State);
+        _ ->
+            ok
     end.

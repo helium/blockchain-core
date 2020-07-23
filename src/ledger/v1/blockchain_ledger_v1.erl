@@ -2272,7 +2272,7 @@ find_state_channel(ID, Owner, Ledger) ->
     end.
 
 -spec find_sc_ids_by_owner(Owner :: libp2p_crypto:pubkey_bin(),
-                           Ledger :: ledger()) -> {ok, [binary()]}.
+                           Ledger :: ledger()) -> {ok, [blockchain_state_channel_v1:id()]}.
 find_sc_ids_by_owner(Owner, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     OwnerLength = byte_size(Owner),
