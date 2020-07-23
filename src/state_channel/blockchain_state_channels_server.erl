@@ -323,7 +323,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
     SC3 = case blockchain:config(sc_version, Ledger) of
               {ok, 2} ->
                   %% we don't update the state channel summary here
-                  %% it happens in `send_purchase' for v2 SCs
+                  %% it happens in `send_purchase` for v2 SCs
                   SC1;
               _ ->
                   SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
@@ -369,7 +369,10 @@ find_stream(ClientPubkeyBin, #state{streams=Streams}) ->
 update_state_sc_open(Txn,
                      BlockHash,
                      BlockHeight,
-                     #state{owner={Owner, OwnerSigFun}, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+                     #state{owner={Owner, OwnerSigFun},
+                            state_channels=SCs,
+                            chain=Chain,
+                            active_sc_id=ActiveSCID}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
         Owner ->
@@ -388,7 +391,13 @@ update_state_sc_open(Txn,
                 undefined ->
                     %% Switching active sc, broadcast banner
                     lager:info("broadcasting banner: ~p", [SignedSC]),
-                    ok = broadcast_banner(SignedSC, State),
+
+                    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+                        {ok, 2} ->
+                            ok = broadcast_banner(SignedSC, State);
+                        _ ->
+                            ok
+                    end,
 
                     %% Don't have any active state channel
                     %% Set this one to active
@@ -418,7 +427,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chain, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -440,9 +449,14 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    %% Switching active sc, broadcast banner
-    lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
-    ok = broadcast_banner(active_sc(NewState), NewState),
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            %% Switching active sc, broadcast banner
+            lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
+            ok = broadcast_banner(active_sc(NewState), NewState);
+        _ ->
+            ok
+    end,
 
     NewState.
 
@@ -455,6 +469,7 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
                                      State :: state()) -> state().
 check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                                    active_sc_id=ActiveSCID,
+                                                   chain=Chain,
                                                    state_channels=SCs}=State) ->
     NewStateChannels = maps:map(
                         fun(_ID, {SC, Skewed}) ->
@@ -487,8 +502,13 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
 
     NewState = State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels},
 
-    %% Switching active sc, broadcast banner
-    ok = broadcast_banner(active_sc(NewState), NewState),
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            %% Switching active sc, broadcast banner
+            ok = broadcast_banner(active_sc(NewState), NewState);
+        _ ->
+            ok
+    end,
 
     NewState.
 
