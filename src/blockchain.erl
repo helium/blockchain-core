@@ -1711,7 +1711,7 @@ add_gateway_txn(OwnerB58, PayerB58) ->
 %% will have the chain vars )
 -spec assert_loc_txn(H3String::string(),
                      OwnerB58::string(),
-                     PayerB58::string() | undefined | [],
+                     PayerB58::string() | undefined,
                      Nonce::non_neg_integer(),
                      StakingFee::pos_integer(),
                      Fee::pos_integer()) -> {ok, binary()}.
@@ -1720,7 +1720,6 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, StakingFee, Fee) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
-                <<>> -> <<>>;
                 [] -> <<>>;
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
