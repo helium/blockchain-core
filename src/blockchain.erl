@@ -1720,7 +1720,7 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce, StakingFee, Fee) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
-                <<>> -> <<>>;
+                [] -> <<>>;
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
