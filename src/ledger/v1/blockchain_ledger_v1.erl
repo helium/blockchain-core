@@ -1452,13 +1452,25 @@ maybe_gc_scs(Chain) ->
                                                        {[KeyHash | CacheAcc], []};
                                                    blockchain_ledger_state_channel_v2 ->
                                                        case (ExpireAtBlock + Grace) < EpochStart of
-                                                           false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
+                                                           false ->
+                                                               lager:info("false, expire_at_block: ~p, grace: ~p, epoch_start:
+                                                                          ~p", [ExpireAtBlock, Grace, EpochStart]),
+                                                               lager:info("state_channel: ~p", [SC]),
+                                                               Acc; %% we do not want to gc until rewards have been calculated and distributed
                                                            true ->
+                                                               lager:info("true, expire_at_block: ~p, grace: ~p, epoch_start:
+                                                                          ~p", [ExpireAtBlock, Grace, EpochStart]),
                                                                ID = Mod:id(SC),
+
                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                                   undefined -> ok; %% due to tests must handle
-                                                                   dispute -> ok;
+                                                                   undefined ->
+                                                                       lager:info("state_channel: ~p, close_state: ~p", [SC]),
+                                                                       ok; %% due to tests must handle
+                                                                   dispute ->
+                                                                       lager:info("state_channel: ~p, close_state: ~p", [SC]),
+                                                                       ok;
                                                                    closed -> %% refund overcommit DCs
+                                                                       lager:info("state_channel: ~p, close_state: ~p", [SC]),
                                                                        SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
                                                                        Owner = blockchain_state_channel_v1:owner(SC0),
                                                                        Credit = calc_remaining_dcs(SC),
