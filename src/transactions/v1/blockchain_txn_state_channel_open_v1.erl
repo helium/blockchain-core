@@ -147,23 +147,28 @@ absorb(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     ExpireWithin = ?MODULE:expire_within(Txn),
     Nonce = ?MODULE:nonce(Txn),
-    Original = ?MODULE:amount(Txn),
+    OriginalAmount = ?MODULE:amount(Txn),
     TxnFee = ?MODULE:fee(Txn),
     case blockchain_ledger_v1:debit_fee(Owner, TxnFee, Ledger, AreFeesEnabled) of
         {error, _Reason}=Error ->
             Error;
         ok ->
-            Amount = case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
-                        {ok, Overcommit} -> Original * Overcommit;
-                        _ -> 0
-                     end,
+            Amount = actual_amount(OriginalAmount, Ledger),
             case blockchain_ledger_v1:debit_dc(Owner, Nonce, Amount, Ledger) of
                 {error, _}=Error2 ->
                     Error2;
                 ok ->
                     blockchain_ledger_v1:add_state_channel(ID, Owner, ExpireWithin,
-                                                           Nonce, Original, Amount, Ledger)
+                                                           Nonce, OriginalAmount, Amount, Ledger)
             end
+    end.
+
+-spec actual_amount(OriginalAmount :: pos_integer(),
+                    Ledger :: blockchain_ledger_v1:ledger()) -> non_neg_integer().
+actual_amount(OriginalAmount, Ledger) ->
+    case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
+        {ok, Overcommit} -> OriginalAmount * Overcommit;
+        _ -> 0
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
@@ -222,12 +227,17 @@ do_is_valid_checks(Txn, Chain) ->
                                                             %% No state channel with this ID for this Owner exists
                                                             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                                                             TxnFee = ?MODULE:fee(Txn),
+                                                            OriginalAmount = ?MODULE:amount(Txn),
+                                                            ActualAmount = ?MODULE:actual_amount(OriginalAmount, Ledger),
                                                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                                                 false ->
                                                                     {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                                                 true ->
-                                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                                                                    %% Check whether the actual amount (overcommit *
+                                                                    %% original amount) + txn_fee is payable by this
+                                                                    %% owner
+                                                                    blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger)
                                                             end;
                                                         {ok, _} ->
                                                             {error, state_channel_already_exists};
