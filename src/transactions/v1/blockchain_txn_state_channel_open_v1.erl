@@ -228,7 +228,7 @@ do_is_valid_checks(Txn, Chain) ->
                                                             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
                                                             TxnFee = ?MODULE:fee(Txn),
                                                             OriginalAmount = ?MODULE:amount(Txn),
-                                                            ActualAmount = ?MODULE:actual_amount(OriginalAmount, Ledger),
+                                                            ActualAmount = actual_amount(OriginalAmount, Ledger),
                                                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                                                 false ->
