@@ -299,6 +299,8 @@
 -define(sc_version, sc_version).
 %% state channel overcommit multiplier
 -define(sc_overcommit, sc_overcommit).
+%% state channel validation bugfix, correctly check dc_balance
+-define(sc_open_validation_bugfix, sc_open_validation_bugfix).
 
 %% ------------------------------------------------------------------
 %% snapshot vars

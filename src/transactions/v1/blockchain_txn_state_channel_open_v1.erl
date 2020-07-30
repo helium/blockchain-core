@@ -234,10 +234,15 @@ do_is_valid_checks(Txn, Chain) ->
                                                                 false ->
                                                                     {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                                                 true ->
-                                                                    %% Check whether the actual amount (overcommit *
-                                                                    %% original amount) + txn_fee is payable by this
-                                                                    %% owner
-                                                                    blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger)
+                                                                    case blockchain:config(?sc_open_validation_bugfix, Ledger) of
+                                                                        {ok, true} ->
+                                                                            %% Check whether the actual amount (overcommit *
+                                                                            %% original amount) + txn_fee is payable by this
+                                                                            %% owner
+                                                                            blockchain_ledger_v1:check_dc_balance(Owner, ActualAmount + TxnFee, Ledger);
+                                                                        _ ->
+                                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
+                                                                    end
                                                             end;
                                                         {ok, _} ->
                                                             {error, state_channel_already_exists};
