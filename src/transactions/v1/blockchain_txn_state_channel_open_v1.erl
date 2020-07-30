@@ -235,7 +235,7 @@ do_is_valid_checks(Txn, Chain) ->
                                                                     {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
                                                                 true ->
                                                                     case blockchain:config(?sc_open_validation_bugfix, Ledger) of
-                                                                        {ok, true} ->
+                                                                        {ok, 1} ->
                                                                             %% Check whether the actual amount (overcommit *
                                                                             %% original amount) + txn_fee is payable by this
                                                                             %% owner

@@ -854,11 +854,7 @@ validate_var(?sc_version, Value) ->
 validate_var(?sc_overcommit, Value) ->
     validate_int(Value, "sc_overcommit", 1, 10, false); %% integer multiplier of amount
 validate_var(?sc_open_validation_bugfix, Value) ->
-    case Value of
-        true -> ok;
-        false -> ok;
-        _ -> throw({error, {invalid_sc_open_validation_bugfix, Value}})
-    end;
+    validate_int(Value, "sc_open_validation_bugfix", 1, 50, false);
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
