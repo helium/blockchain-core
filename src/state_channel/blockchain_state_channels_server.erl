@@ -193,8 +193,10 @@ handle_cast({packet, SCPacket, HandlerPid},
                                       Skewed, HandlerPid, State),
             {noreply, NewState}
     end;
-handle_cast({offer, SCOffer, _Pid}, #state{active_sc_id=undefined}=State) ->
+handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
+    %% Reject any offer if we don't have an active_sc as well, as a courtesy for the router
+    ok = send_rejection(HandlerPid),
     {noreply, State};
 handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
     lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),

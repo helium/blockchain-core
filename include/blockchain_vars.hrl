@@ -299,6 +299,8 @@
 -define(sc_version, sc_version).
 %% state channel overcommit multiplier
 -define(sc_overcommit, sc_overcommit).
+%% Number of attempts we get to fix state_channel bugs, we'll set it to 1, max = 50
+-define(sc_open_validation_bugfix, sc_open_validation_bugfix).
 
 %% ------------------------------------------------------------------
 %% snapshot vars

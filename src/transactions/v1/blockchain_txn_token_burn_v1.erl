@@ -14,7 +14,7 @@
 -include("blockchain_vars.hrl").
 -include("blockchain_utils.hrl").
 
-  -export([
+-export([
     new/3, new/4,
     hash/1,
     payer/1,
