@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_ledger_state_channel_v2).
 
+-include("blockchain_vars.hrl").
+
 -export([
     new/6,
     id/1, id/2,
@@ -14,7 +16,7 @@
     original/1, original/2,
     expire_at_block/1, expire_at_block/2,
     serialize/1, deserialize/1,
-    close_proposal/4,
+    close_proposal/5,
     closer/1,
     state_channel/1,
     close_state/1,
@@ -127,8 +129,9 @@ deserialize(<<2, Bin/binary>>) ->
 -spec close_proposal( Closer :: libp2p_crypto:pubkey_bin(),
                       StateChannel :: blockchain_state_channel_v1:state_channel(),
                       ExplicitConflict :: boolean(),
-                      SCEntry :: state_channel_v2() ) -> state_channel_v2().
-close_proposal(Closer, SC, ExplicitConflict, SCEntry) ->
+                      SCEntry :: state_channel_v2(),
+                      ConsiderEffectOf :: boolean()) -> state_channel_v2().
+close_proposal(Closer, SC, ExplicitConflict, SCEntry, ConsiderEffectOf) ->
     Overpaid = original(SCEntry) < blockchain_state_channel_v1:total_dcs(SC),
     case close_state(SCEntry) of
         undefined ->
@@ -154,7 +157,7 @@ close_proposal(Closer, SC, ExplicitConflict, SCEntry) ->
                 true ->
                     %% ok so we've already marked this entry as closed... maybe we should
                     %% dispute it
-                    case maybe_dispute(state_channel(SCEntry), SC) of
+                    case maybe_dispute(state_channel(SCEntry), SC, ConsiderEffectOf) of
                         {closed, NewSC} when ExplicitConflict == true; Overpaid == true ->
                             lager:info("dispute filed for closed sc id: ~p, closer: ~p",
                                        [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(NewSC)),
@@ -204,9 +207,11 @@ is_v2(_) -> false.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec maybe_dispute(blockchain_state_channel_v1:state_channel(), blockchain_state_channel_v1:state_channel()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
-maybe_dispute(SC, SC) -> {closed, SC};
-maybe_dispute(PreviousSC, CurrentSC) ->
+-spec maybe_dispute(PreviousSC :: blockchain_state_channel_v1:state_channel(),
+                    CurrentSC :: blockchain_state_channel_v1:state_channel(),
+                    ConsiderEffectOf :: boolean()) -> {closed | dispute, blockchain_state_channel_v1:state_channel()}.
+maybe_dispute(SC, SC, _) -> {closed, SC};
+maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf) ->
     %% return the new close state and the newest state channel
     case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
         conflict ->
@@ -217,7 +222,15 @@ maybe_dispute(PreviousSC, CurrentSC) ->
             {closed, CurrentSC};
         caused ->
             %% Previous caused Current, keep that one
-            {closed, PreviousSC}
+            {closed, PreviousSC};
+        effect_of ->
+            case ConsiderEffectOf of
+                false ->
+                    %% Maintain backwards compatibility
+                    {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
+                true ->
+                    {closed, CurrentSC}
+            end
     end.
 
 -spec is_sc_participant( Closer :: libp2p_crypto:pubkey_bin(),
@@ -286,9 +299,10 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
-    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0)),
-    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8)),
-    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4)).
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, true)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce8, Nonce4, true)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],
