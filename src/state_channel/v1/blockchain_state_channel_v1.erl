@@ -297,10 +297,11 @@ to_json(SC, _Opts) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Get causal relation between older SC and the current SC.
+%% Get causal relation between older SC and current SC.
 %%
-%% If current dominates older, return caused
-%% If current == older, return equal
+%% If SC1 -> SC2, return caused
+%% If SC2 -> SC1, return effect_of
+%% If SC1 == SC2, return equal
 %% In all other scenarios, return conflict
 %%
 %% Important: The expected older state channel should be passed <b>first</b>.
@@ -329,11 +330,11 @@ compare_causality(OlderSC, CurrentSC) ->
                        %% Every hotspot in older summary must have either
                        %% the same/lower packet and dc count when compared
                        %% to current summary
-                       check_causality(?MODULE:summaries(OlderSC), CurrentSC);
+                       check_causality(?MODULE:summaries(OlderSC), CurrentSC, caused);
                    {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
                        %% The current nonce is smaller than the older nonce;
                        %% that's a conflict
-                       {done, conflict}
+                       check_causality(?MODULE:summaries(CurrentSC), OlderSC, effect_of)
                end,
     Res.
 
@@ -380,8 +381,9 @@ can_fit(ClientPubkeyBin, Summaries) ->
     end.
 
 -spec check_causality(SCSummaries :: summaries(),
-                      OtherSC :: state_channel()) -> {done, temporal_relation()}.
-check_causality(SCSummaries, OtherSC) ->
+                      OtherSC :: state_channel(),
+                      Init :: caused | effect_of) -> {done, temporal_relation()}.
+check_causality(SCSummaries, OtherSC, Init) ->
     lists:foldl(fun(_SCSummary, {done, Acc}) ->
                         {done, Acc};
                    (SCSummary, {not_done, Acc}) ->
@@ -405,7 +407,7 @@ check_causality(SCSummaries, OtherSC) ->
                                         {not_done, Acc}
                                 end
                         end
-                end, {not_done, caused}, SCSummaries).
+                end, {not_done, Init}, SCSummaries).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -550,7 +552,7 @@ causality_test() ->
     SC1 = new(<<"1">>, <<"owner">>, 1),
     SC2 = nonce(1, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(caused, compare_causality(SC1, SC2)),
-    ?assertEqual(conflict, compare_causality(SC2, SC1)),
+    ?assertEqual(effect_of, compare_causality(SC2, SC1)),
 
     %% 0 (same) nonce, with differing summary, conflict
     SC3 = summaries([Summary2], new(<<"1">>, <<"owner">>, 1)),
@@ -562,13 +564,13 @@ causality_test() ->
     SC5 = new(<<"1">>, <<"owner">>, 1),
     SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC6)),
-    ?assertEqual(conflict, compare_causality(SC6, SC5)),
+    ?assertEqual(effect_of, compare_causality(SC6, SC5)),
 
     %% SC7 is allowed after SC5
     %% NOTE: skipped a nonce here (should this actually be allowed?)
     SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC7)),
-    ?assertEqual(conflict, compare_causality(SC7, SC5)),
+    ?assertEqual(effect_of, compare_causality(SC7, SC5)),
 
     %% SC9 has higher nonce than SC8, however,
     %% SC9 does not have summary which SC8 has, conflict
@@ -587,7 +589,7 @@ causality_test() ->
     SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC12, SC13)),
-    ?assertEqual(conflict, compare_causality(SC13, SC12)),
+    ?assertEqual(effect_of, compare_causality(SC13, SC12)),
 
     %% definite conflict, since summary for a client is missing in higher nonce sc
     SC14 = summaries([Summary1], nonce(11, new(<<"1">>, <<"owner">>, 1))),
@@ -599,7 +601,7 @@ causality_test() ->
     SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC16, SC17)),
-    ?assertEqual(conflict, compare_causality(SC17, SC16)),
+    ?assertEqual(effect_of, compare_causality(SC17, SC16)),
 
     %% another definite conflict, since higher nonce sc does not have previous summary
     SC18 = summaries([Summary1, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
@@ -617,7 +619,7 @@ causality_test() ->
     SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC22, SC23)),
-    ?assertEqual(conflict, compare_causality(SC23, SC22)),
+    ?assertEqual(effect_of, compare_causality(SC23, SC22)),
 
     ok.
 

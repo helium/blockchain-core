@@ -816,14 +816,17 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
             ok
     end.
 
+-spec conflicts(SCA :: blockchain_state_channel_v1:state_channel(),
+                SCB :: blockchain_state_channel_v1:state_channel()) -> boolean().
 conflicts(SCA, SCB) ->
     case blockchain_state_channel_v1:compare_causality(SCA, SCB) of
-        caused ->
-            false;
-        equal ->
-            false;
+        conflict ->
+            lager:info("sc_client reports state_channel conflict, SCA_ID: ~p, SCB_ID: ~p",
+                       [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SCA)),
+                        libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SCB))]),
+            true;
         _ ->
-            true
+            false
     end.
 
 %% ------------------------------------------------------------------

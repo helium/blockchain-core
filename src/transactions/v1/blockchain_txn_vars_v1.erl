@@ -854,7 +854,11 @@ validate_var(?sc_version, Value) ->
 validate_var(?sc_overcommit, Value) ->
     validate_int(Value, "sc_overcommit", 1, 10, false); %% integer multiplier of amount
 validate_var(?sc_open_validation_bugfix, Value) ->
+    %% NOTE: Can't just increment this directly and expect version to update.
+    %% It would need to be set to 51, and the limits would have to be increased.
     validate_int(Value, "sc_open_validation_bugfix", 1, 50, false);
+validate_var(?sc_causality_fix, Value) ->
+    validate_int(Value, "sc_causality_fix", 1, 1, false);
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->
