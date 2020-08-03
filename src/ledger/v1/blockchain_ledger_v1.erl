@@ -2357,7 +2357,13 @@ close_state_channel(Owner, Closer, SC, SCID, HadConflict, Ledger) ->
             {ok, PrevSCE} = find_state_channel(SCID, Owner, Ledger),
             case blockchain_ledger_state_channel_v2:is_v2(PrevSCE) of
                 true ->
-                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE),
+                    ConsiderEffectOf = case blockchain:config(?sc_causality_fix, Ledger) of
+                                           {ok, N} when N > 0 ->
+                                               true;
+                                           _ ->
+                                               false
+                                       end,
+                    NewSCE = blockchain_ledger_state_channel_v2:close_proposal(Closer, SC, HadConflict, PrevSCE, ConsiderEffectOf),
                     Bin = blockchain_ledger_state_channel_v2:serialize(NewSCE),
                     cache_put(Ledger, SCsCF, Key, Bin);
                 false ->

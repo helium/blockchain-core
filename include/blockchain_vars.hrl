@@ -301,7 +301,7 @@
 -define(sc_overcommit, sc_overcommit).
 %% Number of attempts we get to fix state_channel bugs, we'll set it to 1, max = 50
 -define(sc_open_validation_bugfix, sc_open_validation_bugfix).
-%% Number of attempts we get to fix state_channel causality bugs, we'll set it to 1, max = 50
+%% Number of attempts we get to fix state_channel causality bugs, we'll set it to 1, max = 1
 -define(sc_causality_fix, sc_causality_fix).
 
 %% ------------------------------------------------------------------
