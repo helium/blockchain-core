@@ -3685,40 +3685,51 @@ state_channels_test() ->
 
     ok.
 
-state_channels_v2_test() ->
-    meck:new(?MODULE, [passthrough]),
-    meck:expect(?MODULE, config, fun(?sc_version, _Ledger) -> {ok, 2} end),
+state_channels_v2_test_() ->
+    {timeout,
+     120000,
+     fun() ->
+             BaseDir = test_utils:tmp_dir("state_channels_test_v2"),
+             io:format("BaseDir: ~p~n", [BaseDir]),
+             Ledger = new(BaseDir),
+             io:format("Ledger: ~p~n", [Ledger]),
+             Ledger1 = new_context(Ledger),
+             io:format("Ledger1: ~p~n", [Ledger1]),
+             ID = crypto:strong_rand_bytes(32),
+             io:format("ID: ~p~n", [ID]),
+             Owner = <<"owner">>,
+             io:format("Owner: ~p~n", [Owner]),
+             Nonce = 1,
+             io:format("Nonce: ~p~n", [Nonce]),
+             Amount = 100,
+             io:format("Amount: ~p~n", [Amount]),
 
-    BaseDir = test_utils:tmp_dir("state_channels_test_v2"),
-    Ledger = new(BaseDir),
-    Ledger1 = new_context(Ledger),
-    ID = crypto:strong_rand_bytes(32),
-    Owner = <<"owner">>,
-    Nonce = 1,
-    Amount = 100,
+             meck:new(?MODULE, [passthrough]),
+             meck:expect(?MODULE, config, fun(?sc_version, _Ledger) -> {ok, 2} end),
 
-    ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
-    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
+             ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
+             ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
 
-    Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
-    ok = commit_context(Ledger2),
-    {ok, SC} = find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
-    ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
-    ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
-    ?assertEqual(Amount, blockchain_ledger_state_channel_v2:amount(SC)),
-    ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
+             Ledger2 = new_context(Ledger),
+             ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
+             ok = commit_context(Ledger2),
+             {ok, SC} = find_state_channel(ID, Owner, Ledger),
+             ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
+             ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
+             ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
+             ?assertEqual(Amount, blockchain_ledger_state_channel_v2:amount(SC)),
+             ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
 
-    Ledger3 = new_context(Ledger),
-    ok = close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
-    ok = commit_context(Ledger3),
-    {ok, SC0} = find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
+             Ledger3 = new_context(Ledger),
+             ok = close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
+             ok = commit_context(Ledger3),
+             {ok, SC0} = find_state_channel(ID, Owner, Ledger),
+             io:format("SC0: ~p~n", [SC0]),
+             ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
 
-    meck:unload(?MODULE),
-
-    ok.
+             meck:unload(?MODULE),
+             ok
+     end}.
 
 increment_bin_test() ->
     ?assertEqual(<<2>>, increment_bin(<<1>>)),
