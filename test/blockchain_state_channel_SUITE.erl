@@ -248,9 +248,9 @@ full_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 20 fake blocks to get the state channel to expire
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -264,7 +264,7 @@ full_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -437,9 +437,9 @@ expired_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Add some fake blocks
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -452,7 +452,7 @@ expired_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -527,9 +527,9 @@ replay_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Add some fake blocks
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -543,7 +543,7 @@ replay_test(Config) ->
     end,
 
     %% Waiting for close txn to be mine
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     %% Recreating the state channel open txn with the same nonce
     RouterChain2 = ct_rpc:call(RouterNode, blockchain_worker, blockchain, []),
@@ -945,9 +945,9 @@ multi_active_sc_test(Config) ->
     ok = ct_rpc:call(GatewayNode1, blockchain_state_channels_client, packet, [Packet3, [], 'US915']),
 
     %% Add more fake blocks to get the second sc to expire
-    EvenMoreFakeBlocks = 100,
+    EvenMoreFakeBlocks = 65,
     ok = add_and_gossip_fake_blocks(EvenMoreFakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 149),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 114),
 
     %% Adding close txn to blockchain
     receive
@@ -1195,9 +1195,9 @@ crash_single_sc_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 30 fake blocks to get the state channel to expire
-    FakeBlocks = 30,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 32),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -1211,7 +1211,7 @@ crash_single_sc_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 33),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1325,9 +1325,9 @@ crash_multi_sc_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 30 fake blocks to get the first state channel to expire
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% At this point we know that the first sc open must have expired, however, we do not know whether it's
     %% responsible for both packets or just one, so, we look at it's nonce and go from there
@@ -1358,12 +1358,12 @@ crash_multi_sc_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     %% Adding 20 more fake blocks to get the second state channels to expire
-    MoreFakeBlocks = 20,
+    MoreFakeBlocks = 8,
     ok = add_and_gossip_fake_blocks(MoreFakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 43),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 26),
 
     %% Adding close txn to blockchain
     receive
@@ -1387,7 +1387,7 @@ crash_multi_sc_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 44),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 27),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1662,9 +1662,9 @@ crash_sc_sup_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 20 fake blocks to get the state channel to expire
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -1678,7 +1678,7 @@ crash_sc_sup_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1781,9 +1781,9 @@ hotspot_in_router_oui_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 20 fake blocks to get the state channel to expire
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     %% Adding close txn to blockchain
     receive
@@ -1797,7 +1797,7 @@ hotspot_in_router_oui_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 24),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 19),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
@@ -1882,9 +1882,9 @@ default_routers_test(Config) ->
     end, 30, timer:seconds(1)),
 
     %% Adding 20 fake blocks to get the state channel to expire
-    FakeBlocks = 20,
+    FakeBlocks = 15,
     ok = add_and_gossip_fake_blocks(FakeBlocks, ConsensusMembers, RouterNode, RouterSwarm, RouterChain, Self),
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 22),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 17),
 
     %% Adding close txn to blockchain
     receive
@@ -1898,7 +1898,7 @@ default_routers_test(Config) ->
     end,
 
     %% Wait for close txn to appear
-    ok = blockchain_ct_utils:wait_until_height(RouterNode, 23),
+    ok = blockchain_ct_utils:wait_until_height(RouterNode, 18),
 
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
