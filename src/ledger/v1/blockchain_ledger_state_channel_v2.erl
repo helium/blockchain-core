@@ -222,14 +222,20 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf) ->
             {closed, CurrentSC};
         caused ->
             %% Previous caused Current, keep that one
-            {closed, PreviousSC};
+            case ConsiderEffectOf of
+                false ->
+                    %% Maintain backwards compatibility
+                    {closed, PreviousSC};
+                true ->
+                    {closed, CurrentSC}
+            end;
         effect_of ->
             case ConsiderEffectOf of
                 false ->
                     %% Maintain backwards compatibility
                     {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
                 true ->
-                    {closed, CurrentSC}
+                    {closed, PreviousSC}
             end
     end.
 

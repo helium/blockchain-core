@@ -334,7 +334,7 @@ compare_causality(OlderSC, CurrentSC) ->
                    {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
                        %% The current nonce is smaller than the older nonce;
                        %% that's a conflict
-                       check_causality(?MODULE:summaries(OlderSC), CurrentSC, effect_of)
+                       check_causality(?MODULE:summaries(CurrentSC), OlderSC, effect_of)
                end,
     Res.
 
