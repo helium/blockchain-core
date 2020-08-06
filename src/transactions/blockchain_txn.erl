@@ -1205,8 +1205,9 @@ txn_fees_security_exchange_v1_test() ->
 txn_fees_state_channel_open_v1_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
 
-    %% create a new payment txn, and confirm expected fee size
-    Txn00 = blockchain_txn_state_channel_open_v1:new(<<"state_channel_test_id">>, Owner, 10, 1, 1),
+    %% create a sc open txn, and confirm expected fee size
+    SCAmount = 10,
+    Txn00 = blockchain_txn_state_channel_open_v1:new(<<"state_channel_test_id">>, Owner, 10, 1, 1, SCAmount),
     Txn00Fee = blockchain_txn_state_channel_open_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
     ?assertEqual(30000, Txn00Fee),
     %% set the fee value of the txn, sign it and confirm the fee remains the same and unaffected by signature of fee values
@@ -1219,9 +1220,10 @@ txn_fees_state_channel_open_v1_test() ->
 txn_fees_state_channel_close_v1_test() ->
     [{Owner, OwnerSigFun}] = gen_payers(1),
     [RandomPubKey1] = gen_pubkeys(1),
-    SC = blockchain_state_channel_v1:new(<<"state_channel_test_id">>, Owner),
+    SCAmount = 10,
+    SC = blockchain_state_channel_v1:new(<<"state_channel_test_id">>, Owner, SCAmount),
 
-    %% create a new payment txn, and confirm expected fee size
+    %% create a new sc close txn, and confirm expected fee size
     Txn00 = blockchain_txn_state_channel_close_v1:new(SC, RandomPubKey1),
     Txn00Fee = blockchain_txn_state_channel_close_v1:calculate_fee(Txn00, ignore_ledger, ?DC_PAYLOAD_SIZE, ?TXN_MULTIPLIER, true),
     ?assertEqual(0, Txn00Fee),
