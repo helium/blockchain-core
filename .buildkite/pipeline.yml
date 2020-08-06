@@ -1,17 +1,19 @@
 steps:
+  - command: "./rebar3 as test compile"
+    key: "build"
   - command: "./rebar3 eunit"
-    depends_on: ~
+    depends_on: "build"
     agents:
       queue: "erlang"
   - command: "./rebar3 ct"
-    depends_on: ~
+    depends_on: "build"
     agents:
       queue: "erlang"
   - command: "./rebar3 xref"
-    depends_on: ~
+    depends_on: "build"
     agents:
       queue: "erlang"
   - command: "./rebar3 dialyzer"
-    depends_on: ~
+    depends_on: "build"
     agents:
       queue: "erlang"
