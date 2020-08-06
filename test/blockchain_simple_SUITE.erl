@@ -1324,7 +1324,7 @@ missing_last_block_test(Config) ->
     ?assertEqual({ok, blockchain_block:hash_block(GenesisBlock)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, GenesisBlock}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
-    ?assertEqual({ok, 2}, blockchain_ledger_v1:current_height(Ledger)),
+    ?assertEqual({ok, 1}, blockchain_ledger_v1:current_height(Ledger)),
     ?assertEqual({error, not_found}, blockchain:get_block(2, Chain)),
 
     ct:pal("Try to re-add block 1 will cause the mismatch"),
