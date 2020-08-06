@@ -305,10 +305,21 @@ maybe_dispute_test() ->
     SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
+    ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, false)),
+    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, false)),
+    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false)).
+
+maybe_dispute_with_effect_of_test() ->
+    SC0 = blockchain_state_channel_v1:new(<<"id1">>, <<"key1">>, 100),
+    SC1 = blockchain_state_channel_v1:new(<<"id2">>, <<"key2">>, 200),
+    Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
+    Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
+
+    io:format("compare_causality: ~p~n", [blockchain_state_channel_v1:compare_causality(Nonce4, Nonce8)]),
+
     ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true)),
-    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce4, Nonce8, true)),
-    ?assertEqual({dispute, Nonce8}, maybe_dispute(Nonce8, Nonce4, false)),
-    ?assertEqual({closed, Nonce4}, maybe_dispute(Nonce8, Nonce4, true)).
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true)),
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],
