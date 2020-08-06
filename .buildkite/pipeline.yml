@@ -1,6 +1,21 @@
 steps:
-  - commands:
-      - "make ci"
-    name: ":hammer: build"
+  - command: "./rebar3 eunit"
+    depends_on: ~
+    allow_failure: true
+    agents:
+      queue: "erlang"
+  - command: "./rebar3 ct"
+    depends_on: ~
+    allow_failure: true
+    agents:
+      queue: "erlang"
+  - command: "./rebar3 xref"
+    depends_on: ~
+    allow_failure: true
+    agents:
+      queue: "erlang"
+  - command: "./rebar3 dialyzer"
+    depends_on: ~
+    allow_failure: true
     agents:
       queue: "erlang"
