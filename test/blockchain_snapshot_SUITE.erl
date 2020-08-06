@@ -114,7 +114,7 @@ extract_ledger_tar(PrivDir, LedgerTar) ->
         false ->
             %% ledger tar file not found, download & extract
             ok = ssl:start(),
-            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
+            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-387747.tar.gz"),
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end.
