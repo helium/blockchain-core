@@ -180,6 +180,17 @@ handle_info({dial_fail, AddressOrOUI, _Reason}, State0) ->
     lager:error("failed to dial ~p: ~p dropping ~p packets", [AddressOrOUI, _Reason, erlang:length(Packets)+1]),
     State1 = remove_packet_from_waiting(AddressOrOUI, delete_stream(AddressOrOUI, State0)),
     {noreply, State1};
+handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State) ->
+    %% We somehow lost the chain here, likely we were restarting and haven't gotten it yet
+    %% There really isn't anything we can do about it, but we should probably keep this stream
+    %% (if we don't already have it)
+    NewState = case find_stream(AddressOrOUI, State) of
+                   undefined ->
+                       add_stream(AddressOrOUI, Stream, State);
+                   _ ->
+                       State
+               end,
+    {noreply, NewState};
 handle_info({dial_success, OUI, Stream}, State0) when is_integer(OUI) ->
     Packets = get_waiting_packet(OUI, State0),
     lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
@@ -347,12 +358,12 @@ handle_banner(Banner, Stream, State) ->
             case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
                     lager:error("causal_conflict for banner sc: ~p", [BannerSC]),
-                    ok = libp2p_framed_stream:close(Stream),
+                    _ = libp2p_framed_stream:close(Stream),
                     ok = append_state_channel(BannerSC, State),
                     ok;
                 {error, Reason} ->
                     lager:error("reason: ~p", [Reason]),
-                    ok = libp2p_framed_stream:close(Stream),
+                    _ = libp2p_framed_stream:close(Stream),
                     ok;
                 ok ->
                     lager:info("valid banner"),
@@ -370,10 +381,10 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
         {error, causal_conflict} ->
             lager:error("causal_conflict for purchase sc: ~p", [PurchaseSC]),
             ok = append_state_channel(PurchaseSC, State),
-            ok = libp2p_framed_stream:close(Stream),
+            _ = libp2p_framed_stream:close(Stream),
             State;
         {error, _} ->
-            ok = libp2p_framed_stream:close(Stream),
+            _ = libp2p_framed_stream:close(Stream),
             State;
         ok ->
             Ledger = blockchain:ledger(Chain),
@@ -383,7 +394,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
             case blockchain_ledger_v1:is_state_channel_overpaid(PurchaseSC, Ledger) of
                 true ->
                     lager:error("insufficient dcs for purchase sc: ~p: ~p - ~p = ~p", [PurchaseSC, DCBudget, TotalDCs, RemainingDCs]),
-                    ok = libp2p_framed_stream:close(Stream),
+                    _ = libp2p_framed_stream:close(Stream),
                     %% we don't need to keep a sibling here as proof of misbehaviour is standalone
                     %% this will conflict or dominate any later attempt to close within spec
                     ok = overwrite_state_channel(PurchaseSC, State),
@@ -403,7 +414,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                 false ->
                                     lager:error("current packet (~p) (dc charge: ~p) will exceed remaining DCs (~p) in this SC, dropping",
                                                 [Packet, PacketDCs, RemainingDCs]),
-                                    ok = libp2p_framed_stream:close(Stream),
+                                    _ = libp2p_framed_stream:close(Stream),
                                     NewState;
                                 true ->
                                     %% now we need to make sure that our DC count between the previous
@@ -423,7 +434,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                             %% do not send it. Close the stream.
                                             lager:error("purchase not valid - did not pay for packet: ~p, dropping.",
                                                         [Packet]),
-                                            ok = libp2p_framed_stream:close(Stream),
+                                            _ = libp2p_framed_stream:close(Stream),
                                             %% append this state channel, so we know about it later
                                             ok = overwrite_state_channel(PurchaseSC, NewState),
                                             NewState
