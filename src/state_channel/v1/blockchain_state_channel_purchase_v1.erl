@@ -67,7 +67,7 @@ decode(BinaryPurchase) ->
 -ifdef(TEST).
 
 new_test() ->
-    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>, 10),
     Hotspot = <<"hotspot">>,
     Region = 'US915',
     PacketHash = <<"packet_hash">>,
@@ -78,7 +78,7 @@ new_test() ->
     ?assertEqual(Purchase, new(SC, Hotspot, PacketHash, Region)).
 
 encode_decode_test() ->
-    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>, 10),
     Purchase = new(SC, <<"hotspot">>, <<"packet_hash">>, 'US915'),
     ?assertEqual(Purchase, decode(encode(Purchase))).
 

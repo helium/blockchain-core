@@ -187,7 +187,8 @@ to_json(Txn, _Opts) ->
       oui => oui(Txn),
       fee => fee(Txn),
       nonce => nonce(Txn),
-      expire_within => expire_within(Txn)
+      expire_within => expire_within(Txn),
+      amount => amount(Txn)
      }.
 
 -spec do_is_valid_checks(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.

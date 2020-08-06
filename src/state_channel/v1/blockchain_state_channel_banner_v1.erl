@@ -55,12 +55,12 @@ decode(BinaryBanner) ->
 -ifdef(TEST).
 
 encode_decode_test() ->
-    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>, 10),
     Banner = new(SC),
     ?assertEqual(Banner, decode(encode(Banner))).
 
 sc_test() ->
-    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>),
+    SC = blockchain_state_channel_v1:new(<<"scid">>, <<"owner">>, 10),
     Banner = new(SC),
     ?assertEqual(SC, sc(Banner)).
 

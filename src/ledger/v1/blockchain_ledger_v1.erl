@@ -2312,7 +2312,7 @@ add_state_channel(ID, Owner, ExpireWithin, Nonce, Original, Amount, Ledger) ->
     SCsCF = state_channels_cf(Ledger),
     {ok, CurrHeight} = ?MODULE:current_height(Ledger),
     Key = state_channel_key(ID, Owner),
-    Bin = case ?MODULE:config(?sc_version, Ledger) of
+    Bin = case blockchain:config(?sc_version, Ledger) of
         {ok, 2} ->
             Routing = blockchain_ledger_state_channel_v2:new(ID, Owner,
                                                              CurrHeight+ExpireWithin,
@@ -3314,7 +3314,8 @@ consensus_members_2_test() ->
 active_gateways_test() ->
     BaseDir = test_utils:tmp_dir("active_gateways_test"),
     Ledger = new(BaseDir),
-    ?assertEqual(#{}, active_gateways(Ledger)).
+    ?assertEqual(#{}, active_gateways(Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir).
 
 add_gateway_test() ->
     BaseDir = test_utils:tmp_dir("add_gateway_test"),
@@ -3432,7 +3433,7 @@ debit_security_test() ->
     test_utils:cleanup_tmp_dir(BaseDir).
 
 fold_test() ->
-    BaseDir = test_utils:tmp_dir("poc_test"),
+    BaseDir = test_utils:tmp_dir("fold_test"),
     Ledger = new(BaseDir),
     commit(fun(L) ->
                    CF = default_cf(L),
@@ -3682,42 +3683,41 @@ state_channels_test() ->
     ok = commit_context(Ledger3),
     ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger)),
     ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir),
 
     ok.
 
 state_channels_v2_test() ->
-    meck:new(?MODULE, [passthrough]),
-    meck:expect(?MODULE, config, fun(?sc_version, _Ledger) -> {ok, 2} end),
-
-    BaseDir = test_utils:tmp_dir("state_channels_test_v2"),
-    Ledger = new(BaseDir),
-    Ledger1 = new_context(Ledger),
+    BaseDir = test_utils:tmp_dir("state_channels_v2_test"),
+    Ledger = ?MODULE:new(BaseDir),
+    Ledger1 = ?MODULE:new_context(Ledger),
     ID = crypto:strong_rand_bytes(32),
     Owner = <<"owner">>,
     Nonce = 1,
-    Amount = 100,
 
-    ?assertEqual({error, not_found}, find_state_channel(ID, Owner, Ledger1)),
-    ?assertEqual({ok, []}, find_sc_ids_by_owner(Owner, Ledger1)),
+    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger1)),
+    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger1)),
 
-    Ledger2 = new_context(Ledger),
-    ok = add_state_channel(ID, Owner, 10, Nonce, Amount, Amount, Ledger2),
-    ok = commit_context(Ledger2),
-    {ok, SC} = find_state_channel(ID, Owner, Ledger),
+    meck:new(blockchain, [passthrough]),
+    meck:expect(blockchain, config, fun(?sc_version, _) -> {ok, 2} end),
+
+    Ledger2 = ?MODULE:new_context(Ledger),
+    ok = ?MODULE:add_state_channel(ID, Owner, 10, Nonce, 0, 0, Ledger2),
+    ok = ?MODULE:commit_context(Ledger2),
+    {ok, SC} = ?MODULE:find_state_channel(ID, Owner, Ledger),
     ?assertEqual(ID, blockchain_ledger_state_channel_v2:id(SC)),
     ?assertEqual(Owner, blockchain_ledger_state_channel_v2:owner(SC)),
     ?assertEqual(Nonce, blockchain_ledger_state_channel_v2:nonce(SC)),
-    ?assertEqual(Amount, blockchain_ledger_state_channel_v2:amount(SC)),
-    ?assertEqual({ok, [ID]}, find_sc_ids_by_owner(Owner, Ledger)),
+    ?assertEqual({ok, [ID]}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
 
-    Ledger3 = new_context(Ledger),
-    ok = close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
-    ok = commit_context(Ledger3),
-    {ok, SC0} = find_state_channel(ID, Owner, Ledger),
-    ?assertEqual(closed, blockchain_ledger_state_channel_v2:close_state(SC0)),
-
-    meck:unload(?MODULE),
-
+    Ledger3 = ?MODULE:new_context(Ledger),
+    ok = ?MODULE:close_state_channel(Owner, Owner, SC, ID, false, Ledger3),
+    ok = ?MODULE:commit_context(Ledger3),
+    ?assertEqual({error, not_found}, ?MODULE:find_state_channel(ID, Owner, Ledger)),
+    ?assertEqual({ok, []}, ?MODULE:find_sc_ids_by_owner(Owner, Ledger)),
+    test_utils:cleanup_tmp_dir(BaseDir),
+    ?assert(meck:validate(blockchain)),
+    meck:unload(blockchain),
     ok.
 
 increment_bin_test() ->
@@ -3750,6 +3750,7 @@ find_scs_by_owner_test() ->
 
     {ok, SCs} = find_scs_by_owner(Owner, Ledger),
     ?assertEqual(lists:sort(maps:keys(SCs)), lists:sort(IDs)),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 subnet_allocation_test() ->
@@ -3795,6 +3796,7 @@ subnet_allocation_test() ->
     {ok, Subnet9} = allocate_subnet(32, Ledger),
     ?assertEqual(<<96:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet9),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet9, <<9:32/little-unsigned-integer>>, []),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 subnet_allocation2_test() ->
@@ -3809,6 +3811,7 @@ subnet_allocation2_test() ->
     {ok, Subnet2} = allocate_subnet(32, Ledger),
     ?assertEqual(<<32:25/integer-unsigned-big, Mask32:23/integer-unsigned-big>>, Subnet2),
     ok = rocksdb:put(Ledger#ledger_v1.db, SubnetCF, Subnet2, <<3:32/little-unsigned-integer>>, []),
+    test_utils:cleanup_tmp_dir(BaseDir),
     ok.
 
 debit_dc_test() ->
