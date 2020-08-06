@@ -215,7 +215,7 @@ maybe_dispute(PreviousSC, CurrentSC, ConsiderEffectOf) ->
     %% return the new close state and the newest state channel
     case blockchain_state_channel_v1:compare_causality(PreviousSC, CurrentSC) of
         conflict ->
-            %% Current has a higher nonce than Previous
+            %% Current has a higher nonce than Previous, or conflicting summaries
             {dispute, blockchain_state_channel_v1:merge(CurrentSC, PreviousSC)};
         equal ->
             %% flip a coin
@@ -315,11 +315,17 @@ maybe_dispute_with_effect_of_test() ->
     Nonce4 = blockchain_state_channel_v1:nonce(4, SC0),
     Nonce8 = blockchain_state_channel_v1:nonce(8, SC1),
 
-    io:format("compare_causality: ~p~n", [blockchain_state_channel_v1:compare_causality(Nonce4, Nonce8)]),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(2, blockchain_state_channel_summary_v1:num_dcs(2, blockchain_state_channel_summary_v1:new(<<"key1">>))),
+    Nonce4WithSummary = blockchain_state_channel_v1:summaries([Summary1], Nonce4),
 
     ?assertEqual({closed, SC0}, maybe_dispute(SC0, SC0, true)),
     ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce4, Nonce8, true)),
-    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true)).
+    ?assertEqual({closed, Nonce8}, maybe_dispute(Nonce8, Nonce4, true)),
+
+    %% Same nonce but no summary, conflict, return merged
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4, Nonce4WithSummary)}, maybe_dispute(Nonce4, Nonce4WithSummary, true)),
+    %% Older nonce with summary, but higher nonce with no summary, conflict, return merged
+    ?assertEqual({dispute, blockchain_state_channel_v1:merge(Nonce4WithSummary, Nonce8)}, maybe_dispute(Nonce4WithSummary, Nonce8, true)).
 
 is_sc_participant_test() ->
     Ids = [<<"key1">>, <<"key2">>, <<"key3">>],
