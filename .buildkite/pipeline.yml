@@ -1,6 +1,8 @@
 steps:
   - command: "./rebar3 as test compile"
     key: "build"
+    agents:
+      queue: "erlang"
   - command: "./rebar3 eunit"
     depends_on: "build"
     agents:
