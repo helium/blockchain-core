@@ -183,7 +183,7 @@ is_valid(Txn, Chain) ->
                                         {error, _Reason}=E ->
                                             E;
                                         {ok, _Summary} ->
-                                            case check_close_updates(LedgerSC, Txn) of
+                                            case check_close_updates(LedgerSC, Txn, Ledger) of
                                                 ok ->
                                                     %% This closer was part of the state channel
                                                     %% Is therefore allowed to close said state channel
@@ -209,7 +209,7 @@ is_valid(Txn, Chain) ->
             end
     end.
 
-check_close_updates(LedgerSC, Txn) ->
+check_close_updates(LedgerSC, Txn, Ledger) ->
     %% a close from a participant in the SC, not from the owner
     case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
         false ->
@@ -235,7 +235,7 @@ check_close_updates(LedgerSC, Txn) ->
                                                                  ConflictingSC ->
                                                                      %% check these SCs are the same ID and they expose a conflict
                                                                      case blockchain_state_channel_v1:id(SC) == blockchain_state_channel_v1:id(ConflictingSC) andalso
-                                                                          blockchain_state_channel_v1:compare_causality(SC, ConflictingSC) == conflict
+                                                                          (not is_causally_correct(SC, ConflictingSC, Ledger))
                                                                      of
                                                                          false ->
                                                                              {false, {error, sc_mismatch}, SC};
@@ -251,7 +251,7 @@ check_close_updates(LedgerSC, Txn) ->
                                     %% no state channel in the ledger yet, so this is the first close
                                     ok;
                                 _ ->
-                                    ExternalConflict = blockchain_state_channel_v1:compare_causality(LSC, SC) == conflict,
+                                    ExternalConflict = not is_causally_correct(LSC, SC, Ledger),
                                     %% so there's an existing state channel in the ledger, the new close must be one of the following:
                                     %% * evidence of a conflict
                                     %% * a causally newer version of the previous state channel
@@ -270,7 +270,10 @@ check_close_updates(LedgerSC, Txn) ->
                                                     {error, redundant};
                                                 caused ->
                                                     {error, redundant};
-                                                _ ->
+                                                effect_of ->
+                                                    %% We should never get here
+                                                    {error, unexpected_causal_violation};
+                                                conflict ->
                                                     ok
                                             end
                                     end
@@ -281,6 +284,25 @@ check_close_updates(LedgerSC, Txn) ->
             end
     end.
 
+-spec is_causally_correct(OlderSC :: blockchain_state_channel_v1:state_channel(),
+                          CurrentSC :: blockchain_state_channel_v1:state_channel(),
+                          Ledger :: blockchain_ledger_v1:ledger()) -> boolean().
+is_causally_correct(OlderSC, CurrentSC, Ledger) ->
+    case blockchain_state_channel_v1:compare_causality(OlderSC, CurrentSC) of
+        effect_of ->
+            case blockchain:config(?sc_causality_fix, Ledger) of
+                {ok, N} when N > 0 ->
+                    %% ok
+                    true;
+                _ ->
+                    %% old behavior
+                    false
+            end;
+        conflict ->
+            false;
+        _ ->
+            true
+    end.
 
 -spec absorb(txn_state_channel_close(), blockchain:blockchain()) -> ok | {error, any()}.
 absorb(Txn, Chain) ->
