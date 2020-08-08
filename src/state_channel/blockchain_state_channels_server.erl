@@ -18,7 +18,8 @@
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
-    active_sc/0
+    active_sc/0,
+    get_active_sc_count/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -132,6 +133,10 @@ active_sc_id() ->
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
 
+-spec get_active_sc_count() -> non_neg_integer().
+get_active_sc_count() ->
+    gen_server:call(?SERVER, get_active_sc_count, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -166,6 +171,15 @@ handle_call(active_sc, _From, State) ->
     {reply, active_sc(State), State};
 handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
     {reply, ActiveSCID, State};
+handle_call(get_active_sc_count, _From, #state{state_channels=SCs}=State) ->
+    Count = maps:fold(fun(_ID, {SC, _Skewed}, Acc) ->
+                              SCState = blockchain_state_channel_v1:state(SC),
+                              case SCState == open of
+                                  false -> Acc;
+                                  true -> Acc + 1
+                              end
+                      end, 0, SCs),
+    {reply, Count, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
