@@ -194,7 +194,7 @@ state(#blockchain_state_channel_v1_pb{state=State}) ->
 
 -spec state(state(), state_channel()) -> state_channel().
 state(pending_close, SC) ->
-    SC#blockchain_state_channel_v1_pb{state=pending_closed};
+    SC#blockchain_state_channel_v1_pb{state=pending_close};
 state(closed, SC) ->
     SC#blockchain_state_channel_v1_pb{state=closed};
 state(open, SC) ->
