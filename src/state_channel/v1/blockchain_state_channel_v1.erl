@@ -292,6 +292,7 @@ to_json(SC, _Opts) ->
       root_hash => ?BIN_TO_B64(root_hash(SC)),
       state => case(state(SC)) of
                    open -> <<"open">>;
+                   pending_close -> <<"pending_close">>;
                    closed -> <<"closed">>
                end,
       expire_at_block => expire_at_block(SC)
