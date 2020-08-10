@@ -244,10 +244,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                     {noreply, NewState}
             end
     end;
-handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
-    lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),
-    ok = send_rejection(HandlerPid),
-    {noreply, State};
 handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
     NewSCs = lists:foldl(fun(ID, M) -> maps:remove(ID, M) end, SCs, SCIDs),
     {noreply, State#state{state_channels=NewSCs}};
