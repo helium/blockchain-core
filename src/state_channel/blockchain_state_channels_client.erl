@@ -671,9 +671,20 @@ is_causally_correct_sc(SC, State) ->
             %% rocks blew up
             false;
         {ok, [KnownSC]} ->
-            %% Check if SC is causally correct
-            Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
-                     equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            Check = case blockchain_state_channel_v1:compare_causality(KnownSC, SC) of
+                        caused ->
+                            %% KnownSC caused SC
+                            false;
+                        effect_of ->
+                            %% SC caused KnownSC
+                            true;
+                        equal ->
+                            %% same
+                            true;
+                        conflict ->
+                            %% definite conflict
+                            false
+                    end,
             lager:info("causality check: ~p, this sc: ~p, known_sc: ~p", [Check, SC, KnownSC]),
             Check;
         {ok, KnownSCs} ->
