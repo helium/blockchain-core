@@ -425,7 +425,7 @@ get_blocks(Chain) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
     [begin
-         {ok, B} = blockchain:get_block(N, Chain),
+         {ok, B} = blockchain:get_raw_block(N, Chain),
          B
      end
      || N <- lists:seq(max(?min_height, DHeight - 181), Height)].

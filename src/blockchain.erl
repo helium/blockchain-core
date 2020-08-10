@@ -15,7 +15,7 @@
     ledger/0, ledger/1, ledger/2, ledger_at/2,
     dir/1,
 
-    blocks/1, get_block/2, save_block/2,
+    blocks/1, get_block/2, get_raw_block/2, save_block/2,
     has_block/2,
 
     add_blocks/2, add_block/2, add_block/3,
@@ -559,6 +559,18 @@ get_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
             {error, not_found};
         Error ->
             Error
+    end.
+
+%% @doc read blocks from the db without deserializing them
+-spec get_raw_block(blockchain_block:hash() | integer(), blockchain()) -> {ok, binary()} | not_found | {error, any()}.
+get_raw_block(Hash, #blockchain{db=DB, blocks=BlocksCF}) when is_binary(Hash) ->
+    rocksdb:get(DB, BlocksCF, Hash, []);
+get_raw_block(Height, #blockchain{db=DB, heights=HeightsCF}=Blockchain) ->
+    case rocksdb:get(DB, HeightsCF, <<Height:64/integer-unsigned-big>>, []) of
+       {ok, Hash} ->
+           ?MODULE:get_raw_block(Hash, Blockchain);
+        Other ->
+            Other
     end.
 
 %% checks if we have this block in any of the places we store blocks
