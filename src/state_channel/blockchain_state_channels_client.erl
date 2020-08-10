@@ -787,7 +787,7 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                     Txn = blockchain_txn_state_channel_close_v1:new(SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+                    lager:info("closing state channel (effect_of) ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
                 caused ->
                     %% SC caused SC0
                     %% Just issue close for SC0
@@ -795,14 +795,14 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                     Txn = blockchain_txn_state_channel_close_v1:new(SC0, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+                    lager:info("closing state channel (caused) ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
                 equal ->
                     %% either is fine
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Txn = blockchain_txn_state_channel_close_v1:new(SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
+                    lager:info("closing state channel (equal) ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
             end;
         {ok, SCs} ->
             {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
