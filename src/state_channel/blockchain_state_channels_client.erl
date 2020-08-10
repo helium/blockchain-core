@@ -783,7 +783,6 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                 effect_of ->
                     %% SC0 caused SC
                     %% Just issue close for SC
-                    %% just a single conflict locally, we can just send it
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Txn = blockchain_txn_state_channel_close_v1:new(SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
@@ -792,7 +791,6 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                 caused ->
                     %% SC caused SC0
                     %% Just issue close for SC0
-                    %% just a single conflict locally, we can just send it
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Txn = blockchain_txn_state_channel_close_v1:new(SC0, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
@@ -800,7 +798,6 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                     lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
                 equal ->
                     %% either is fine
-                    %% just a single conflict locally, we can just send it
                     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
                     Txn = blockchain_txn_state_channel_close_v1:new(SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
