@@ -231,7 +231,7 @@ handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=St
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain, pending_closes=PendingCloses}=State) ->
-    ContestedChannels = case blockchain:get_block(BlockHash, Chain) of
+    ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
                             {error, Reason} ->
                                 lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
                                 [];
@@ -244,12 +244,14 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                                               case lists:member(SCID, PendingCloses) orelse
                                                                    is_causally_correct_sc(SC, State) of
                                                                   true ->
-                                                                      Acc;
+                                                                      ok;
                                                                   false ->
                                                                       %% submit our own close with the conflicting view(s)
-                                                                      close_state_channel(SC, State),
-                                                                      [SCID|Acc]
-                                                              end;
+                                                                      close_state_channel(SC, State)
+                                                              end,
+                                                              %% add it to the list of closing channels so we don't try to double
+                                                              %% close it below, irregardless of if we're disputing it
+                                                              [SCID|Acc];
                                                           false ->
                                                               Acc
                                                       end
@@ -265,7 +267,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
     ExpiringChannels = lists:foldl(fun([H|_]=SC, Acc) ->
                                            ExpireAt = blockchain_state_channel_v1:expire_at_block(H),
                                            SCID = blockchain_state_channel_v1:id(H),
-                                           case (not lists:member(SCID, PendingCloses ++ ContestedChannels)) andalso
+                                           case (not lists:member(SCID, PendingCloses ++ ClosingChannels)) andalso
                                                 %% divide by 3 here so we give the server a chance to file its close first
                                                 %% before the client tries to file a close
                                                 LedgerHeight >= ExpireAt + (SCGrace div 3) andalso
@@ -287,7 +289,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                                    Acc
                                            end
                                    end, [], SCs),
-    {noreply, State#state{pending_closes=PendingCloses ++ ContestedChannels ++ ExpiringChannels}};
+    {noreply, State#state{pending_closes=PendingCloses ++ ClosingChannels ++ ExpiringChannels}};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams}=State) ->
     FilteredStreams = maps:filter(fun(_Name, Stream) ->
                                           Stream /= Pid
