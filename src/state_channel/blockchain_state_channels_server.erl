@@ -109,7 +109,7 @@ offer(Offer, HandlerPid) ->
                                   gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
                               {error, Why} ->
                                   lager:error("handle_offer failed: ~p, initiating offer rejection...", [Why]),
-                                  gen_server:cast(?SERVER, {reject_offer, Offer, HandlerPid})
+                                   ok = send_rejection(HandlerPid)
                           end
                   end
           end),
@@ -198,10 +198,6 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) 
     %% Reject any offer if we don't have an active_sc as well, as a courtesy for the router
     ok = send_rejection(HandlerPid),
     {noreply, State};
-handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
-    lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),
-    ok = send_rejection(HandlerPid),
-    {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
@@ -245,6 +241,10 @@ handle_cast({offer, SCOffer, HandlerPid},
                     {noreply, NewState}
             end
     end;
+handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
+    lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),
+    ok = send_rejection(HandlerPid),
+    {noreply, State};
 handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
     NewSCs = lists:foldl(fun(ID, M) -> maps:remove(ID, M) end, SCs, SCIDs),
     {noreply, State#state{state_channels=NewSCs}};
