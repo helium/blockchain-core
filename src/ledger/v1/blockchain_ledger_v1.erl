@@ -770,8 +770,20 @@ active_gateways(Ledger) ->
       #{}
      ).
 
+%% note that instead of calling lists:sort(maps:to_list(active_gateways())) here
+%% we construct the list in the same order without an intermediate map to make less
+%% garbage
 snapshot_gateways(Ledger) ->
-    lists:sort(maps:to_list(active_gateways(Ledger))).
+    AGwsCF = active_gateways_cf(Ledger),
+    lists:reverse(cache_fold(
+                    Ledger,
+                    AGwsCF,
+                    fun({Address, Binary}, Acc) ->
+                            Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
+                            [{Address, Gw}| Acc]
+                    end,
+                    []
+                   )).
 
 -spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
                     ledger()) -> ok | {error, _}.

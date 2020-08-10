@@ -119,6 +119,56 @@
         }).
 
 snapshot(Ledger0, Blocks) ->
+    Parent = self(),
+    Ref = make_ref(),
+    {_Pid, MonitorRef} = spawn_opt(fun ThisFun() ->
+                      Ledger = blockchain_ledger_v1:mode(delayed, Ledger0),
+                      {ok, CurrHeight} = blockchain_ledger_v1:current_height(Ledger),
+                      %% this should not leak a huge amount of atoms
+                      Regname = list_to_atom("snapshot_"++integer_to_list(CurrHeight)),
+                      try register(Regname, self()) of
+                          true ->
+                              Res = generate_snapshot(Ledger0, Blocks),
+                              timer:sleep(15000),
+                              %% deliver to the caller
+                              Parent ! {Ref, Res},
+                              %% deliver to anyone else blocking
+                              deliver(Res)
+                      catch error:badarg ->
+                                %% already a snapshot generation running, just attach to that
+                                IntMonitorRef = erlang:monitor(process, Regname),
+                                whereis(Regname) ! {deliver, self(), Ref},
+                                %% wait for the result from the already-running process
+                                receive
+                                    {Ref, Res} ->
+                                        Parent ! {Ref, Res};
+                                    {'DOWN', IntMonitorRef, process, _, noproc} ->
+                                        %% we were unable to attach to an existing process before it terminated
+                                        ThisFun();
+                                    {'DOWN', IntMonitorRef, process, _, killed} ->
+                                        %% the already running process OOMed
+                                        Parent ! {Ref, {error, killed}}
+                                end
+                      end
+              end,
+              [{max_heap_size, application:get_env(blockchain, snapshot_memory_limit, 200) * 1024 * 1024 div erlang:system_info(wordsize)}, {fullsweep_after, 0}, monitor]),
+    receive
+        {Ref, Res} ->
+            Res;
+        {'DOWN', MonitorRef, process, _, killed} ->
+            {error, killed}
+    end.
+
+deliver(Res) ->
+    receive
+        {deliver, Pid, Ref} ->
+            Pid ! {Ref, Res},
+            deliver(Res)
+    after 0 ->
+              ok
+    end.
+
+generate_snapshot(Ledger0, Blocks) ->
     try
         %% TODO: actually verify we're delayed here instead of
         %% changing modes?
@@ -425,7 +475,7 @@ get_blocks(Chain) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
     [begin
-         {ok, B} = blockchain:get_block(N, Chain),
+         {ok, B} = blockchain:get_raw_block(N, Chain),
          B
      end
      || N <- lists:seq(max(?min_height, DHeight - 181), Height)].
