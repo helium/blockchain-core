@@ -109,7 +109,7 @@ offer(Offer, HandlerPid) ->
                                   gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
                               {error, Why} ->
                                   lager:error("handle_offer failed: ~p, initiating offer rejection...", [Why]),
-                                  gen_server:cast(?SERVER, {reject_offer, Offer, HandlerPid})
+                                   ok = send_rejection(HandlerPid)
                           end
                   end
           end),
@@ -194,13 +194,12 @@ handle_cast({packet, SCPacket, HandlerPid},
             {noreply, NewState}
     end;
 handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) ->
-    lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
-    %% Reject any offer if we don't have an active_sc as well, as a courtesy for the router
-    ok = send_rejection(HandlerPid),
-    {noreply, State};
-handle_cast({reject_offer, SCOffer, HandlerPid}, State) ->
-    lager:warning("Rejecting offer: ~p, from: ~p", [SCOffer, HandlerPid]),
-    ok = send_rejection(HandlerPid),
+    erlang:spawn(
+        fun() ->
+            lager:warning("Got offer: ~p when no sc is active", [SCOffer]),
+            %% Reject any offer if we don't have an active_sc as well, as a courtesy for the router
+            ok = send_rejection(HandlerPid)
+        end),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
