@@ -157,6 +157,28 @@ absorb(Txn, Chain) ->
 calculate_rewards(Start, End, Chain) ->
     {ok, Ledger} = blockchain:ledger_at(End, Chain),
     Vars = get_reward_vars(Start, End, Ledger),
+    lager:info("Rewards for actual vars: ~p", [Vars]),
+    Res = do_get_rewards_for_epoch(Start, End, Chain, Vars, Ledger),
+    _ = log_rewards_with_custom_vars(Start, End, Chain, Vars, Ledger),
+    Res.
+
+log_rewards_with_custom_vars(Start, End, Chain, ActualVars, Ledger) ->
+    ProposedVars = #{consensus_percent => 0.06,
+                     dc_percent => 0.325,
+                     poc_challengees_percent => 0.18,
+                     poc_challengers_percent => 0.0095,
+                     poc_witnesses_percent => 0.0855,
+                     securities_percent => 0.34},
+    FakeVars = maps:merge(ActualVars, ProposedVars),
+    lager:info("Rewards for proposed vars: ~p", [FakeVars]),
+    do_get_rewards_for_epoch(Start, End, Chain, FakeVars, Ledger).
+
+-spec do_get_rewards_for_epoch(Start :: non_neg_integer(),
+                               End :: non_neg_integer(),
+                               Chain :: blockchain:blockchain(),
+                               Vars :: map(),
+                               Ledger :: blockchain_ledger_v1:ledger()) -> {error, any()} | {ok, blockchain_txn_reward_v1:rewards()}.
+do_get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) ->
     case get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) of
         {error, _Reason}=Error ->
             Error;
@@ -190,6 +212,7 @@ calculate_rewards(Start, End, Chain) ->
                       ),
             {ok, Result}
     end.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -243,11 +266,17 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                 true ->
                     {error, already_existing_rewards};
                 false ->
+                    DCRewards1 = dc_rewards(Transactions, End, Vars, Ledger, DCRewards),
+                    ChallengersRewards = poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
+                    ChallengeesRewards = poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
+                    WitnessesRewards = poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards),
+                    lager:info("dc_rewards: ~p, challengers_rewards: ~p, challengees_rewards: ~p, witnesses_rewards: ~p",
+                               [DCRewards1, ChallengersRewards, ChallengeesRewards, WitnessesRewards]),
                     get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
-                                          poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
-                                          poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
-                                          poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards),
-                                          dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
+                                          ChallengersRewards,
+                                          ChallengeesRewards,
+                                          WitnessesRewards,
+                                          DCRewards1)
             end
     end.
 
