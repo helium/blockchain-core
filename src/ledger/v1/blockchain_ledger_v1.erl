@@ -780,8 +780,6 @@ snapshot_gateways(Ledger) ->
                     AGwsCF,
                     fun({Address, Binary}, Acc) ->
                             Gw = blockchain_ledger_gateway_v2:deserialize(Binary),
-                            %% XXX this might be too expensive
-                            erlang:garbage_collect(),
                             [{Address, Gw}| Acc]
                     end,
                     []
