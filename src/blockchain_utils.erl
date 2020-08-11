@@ -27,6 +27,7 @@
     approx_blocks_in_week/1,
     vars_keys_to_list/1,
     calculate_dc_amount/2, calculate_dc_amount/3,
+    do_calculate_dc_amount/2,
     deterministic_subset/3
 ]).
 
@@ -65,6 +66,17 @@ calculate_dc_amount(Ledger, PayloadSize) ->
                           DCPayloadSize :: pos_integer()) -> pos_integer().
 calculate_dc_amount(_Ledger, PayloadSize, DCPayloadSize) ->
     do_calculate_dc_amount(PayloadSize, DCPayloadSize).
+
+-spec do_calculate_dc_amount(PayloadSize :: non_neg_integer(), DCPayloadSize :: pos_integer()) -> pos_integer().
+do_calculate_dc_amount(_PayloadSize, undefined) ->
+    0;
+do_calculate_dc_amount(PayloadSize, DCPayloadSize)->
+    case PayloadSize =< DCPayloadSize of
+        true ->
+            1;
+        false ->
+            erlang:ceil(PayloadSize/DCPayloadSize)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Shuffle a list deterministically using a random binary as the seed.
@@ -257,14 +269,6 @@ find_txn(Block, PredFun) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec do_calculate_dc_amount(PayloadSize :: non_neg_integer(), DCPayloadSize :: pos_integer()) -> pos_integer().
-do_calculate_dc_amount(PayloadSize, DCPayloadSize)->
-    case PayloadSize =< DCPayloadSize of
-        true ->
-            1;
-        false ->
-            erlang:ceil(PayloadSize/DCPayloadSize)
-    end.
 icdf_select([{_Node, 0.0}], _Rnd, _OrigRnd) ->
     {error, zero_weight};
 icdf_select([{Node, _Weight}], _Rnd, _OrigRnd) ->

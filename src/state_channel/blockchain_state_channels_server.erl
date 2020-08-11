@@ -50,7 +50,8 @@
     state_channels = #{} :: state_channels(),
     active_sc_id = undefined :: undefined | blockchain_state_channel_v1:id(),
     sc_packet_handler = undefined :: undefined | atom(),
-    streams = #{} :: streams()
+    streams = #{} :: streams(),
+    dc_payload_size :: undefined | pos_integer()
 }).
 
 -type state() :: #state{}.
@@ -223,7 +224,7 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) 
         end),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
-            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
+            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}}=State) ->
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
@@ -235,14 +236,13 @@ handle_cast({offer, SCOffer, HandlerPid},
             ok = send_rejection(HandlerPid),
             {noreply, State};
         true ->
-            Ledger = blockchain:ledger(Chain),
             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
             Region = blockchain_state_channel_offer_v1:region(SCOffer),
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
             {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
 
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(State#state.dc_payload_size, PayloadSize),
             TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
             DCAmount = blockchain_state_channel_v1:amount(ActiveSC),
             case (TotalDCs + NumDCs) > DCAmount andalso
@@ -263,7 +263,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
                     {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
-                                                PayloadSize, Region, Ledger, OwnerSigFun),
+                                                PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     erlang:monitor(process, HandlerPid),
@@ -283,7 +283,13 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            TempState = State#state{chain=Chain},
+            DCPayloadSize = case blockchain_ledger_v1:config(?dc_payload_size, blockchain:ledger(Chain)) of
+                                {ok, DCP} ->
+                                    DCP;
+                                _ ->
+                                    0
+                            end,
+            TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize},
             LoadState = update_state_with_ledger_channels(TempState),
             lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
@@ -293,7 +299,7 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
     {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State0) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain}=State0) ->
     NewState = case blockchain:get_block(BlockHash, Chain) of
                    {error, Reason} ->
                        lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -315,7 +321,13 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                        check_state_channel_expiration(BlockHeight, State1)
                end,
 
-    {noreply, NewState};
+    DCPayloadSize = case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+                        {ok, DCP} ->
+                            DCP;
+                        _ ->
+                            0
+                    end,
+    {noreply, NewState#state{dc_payload_size=DCPayloadSize}};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
     FilteredStreams = maps:filter(fun(_Name, Stream) ->
                                           Stream /= Pid
@@ -353,7 +365,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   %% it happens in `send_purchase` for v2 SCs
                   SC1;
               _ ->
-                  SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
+                  SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1),
                   ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
                   blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
           end,
@@ -737,12 +749,12 @@ maybe_get_new_active(SCs) ->
                     PacketHash :: binary(),
                     PayloadSize :: pos_integer(),
                     Region :: atom(),
-                    Ledger :: blockchain:ledger(),
+                    DCPayloadSize :: undefined | pos_integer(),
                     OwnerSigFun :: libp2p_crypto:sig_fun()) -> {ok, blockchain_state_channel_v1:state_channel()}.
-send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
+send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSize, OwnerSigFun) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0),
+    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0),
     SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
@@ -771,13 +783,13 @@ send_rejection(Stream) ->
 
 -spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                         PayloadSize :: pos_integer(),
-                        Ledger :: blockchain:ledger(),
+                        DCPayloadSize :: undefined | pos_integer(),
                         SC :: blockchain_state_channel_v1:state_channel()) ->
     blockchain_state_channel_v1:state_channel().
-update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
+update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC) ->
     case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
             %% Add this to summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
@@ -785,7 +797,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             %% Update DC count for this client
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
             ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
             NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                     ExistingNumPackets + 1,
