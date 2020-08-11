@@ -363,8 +363,8 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
     ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
-    lager:info("packet: ~p successfully validated, updating state",
-                       [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
+    %lager:info("packet: ~p successfully validated, updating state",
+    %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
