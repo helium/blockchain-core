@@ -90,7 +90,7 @@ packet(Packet, HandlerPid) ->
                               ok ->
                                   gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
                               {error, Why} ->
-                                  lager:error("handle_packet failed: ~p", [Why])
+                                  lager:warning("handle_packet failed: ~p", [Why])
                           end
                   end
           end),
@@ -107,8 +107,7 @@ offer(Offer, HandlerPid) ->
                           case SCPacketHandler:handle_offer(Offer, HandlerPid) of
                               ok ->
                                   gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
-                              {error, Why} ->
-                                  lager:error("handle_offer failed: ~p, initiating offer rejection...", [Why]),
+                              {error, _Why} ->
                                    ok = send_rejection(HandlerPid)
                           end
                   end
@@ -229,7 +228,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                 true ->
                     %% will overspend so drop
                     %% TODO we should switch to the next state channel here
-                    lager:error("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
+                    lager:warning("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
                                 [DCAmount, NumDCs, SCOffer]),
                     ok = send_rejection(HandlerPid),
                     {noreply, State};
@@ -722,7 +721,6 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, Owne
     SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-    lager:info("PurchaseMsg1: ~p, Stream: ~p", [PurchaseMsg, Stream]),
     ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
     {ok, SignedPurchaseSC}.
 
