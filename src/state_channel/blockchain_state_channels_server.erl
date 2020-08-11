@@ -173,7 +173,7 @@ handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
 handle_call(get_active_sc_count, _From, #state{active_sc_id=undefined}=State) ->
     {reply, 0, State};
 handle_call(get_active_sc_count, _From, #state{state_channels=SCs}=State) ->
-    HeadroomFactor = case application:get_env(blockchain, sc_headroom_factor, 10) of
+    HeadroomFactor = case application:get_env(blockchain, sc_headroom_factor, 11) of
                          {ok, X} -> X;
                          X -> X
                      end,
@@ -257,7 +257,9 @@ handle_cast({offer, SCOffer, HandlerPid},
                     %% NOTE: this function may return `undefined` if no SC is available
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
-                    {noreply, State#state{active_sc_id=NewActiveID}};
+                    NewState = State#state{active_sc_id=NewActiveID},
+                    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+                    {noreply, NewState};
                 false ->
                     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
@@ -397,7 +399,6 @@ update_state_sc_open(Txn,
                      BlockHeight,
                      #state{owner={Owner, OwnerSigFun},
                             state_channels=SCs,
-                            chain=Chain,
                             active_sc_id=ActiveSCID}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
@@ -417,13 +418,7 @@ update_state_sc_open(Txn,
                 undefined ->
                     %% Switching active sc, broadcast banner
                     lager:info("broadcasting banner: ~p", [SignedSC]),
-
-                    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-                        {ok, 2} ->
-                            ok = broadcast_banner(SignedSC, State);
-                        _ ->
-                            ok
-                    end,
+                    ok = maybe_broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
                     %% Set this one to active
@@ -453,7 +448,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chain, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -475,14 +470,7 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chai
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
-            %% Switching active sc, broadcast banner
-            lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
-            ok = broadcast_banner(active_sc(NewState), NewState);
-        _ ->
-            ok
-    end,
+    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
 
     NewState.
 
@@ -793,4 +781,15 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
                                                                     ExistingSummary),
             %% Update summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
+    end.
+
+-spec maybe_broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
+                             State :: state()) -> ok.
+maybe_broadcast_banner(undefined, _State) -> ok;
+maybe_broadcast_banner(SC, #state{chain=Chain}=State) ->
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            ok = broadcast_banner(SC, State);
+        _ ->
+            ok
     end.
