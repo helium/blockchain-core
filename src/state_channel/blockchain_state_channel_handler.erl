@@ -67,7 +67,7 @@ send_offer(Pid, Offer) ->
 
 -spec send_purchase(pid(), blockchain_state_channel_purchase_v1:purchase()) -> ok.
 send_purchase(Pid, Purchase) ->
-    lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
+    %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
     Pid ! {send_purchase, Purchase},
     ok.
 
@@ -104,9 +104,9 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     lager:info("sc_handler, empty banner: ~p", [SCBanner]),
                     {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSC ->
-                    lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
+                    %lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
-                    lager:info("sc_handler, banner: ~p", [SCBanner]),
+                    %lager:info("sc_handler, banner: ~p", [SCBanner]),
                     {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
             end;
         _ -> {ok, #state{}}
