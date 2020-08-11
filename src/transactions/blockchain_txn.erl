@@ -754,72 +754,71 @@ actor(Txn) ->
     end.
 
 
--spec depends_on(txn(), [txn()]) -> [txn()].
-depends_on(Txn, Txns) ->
-    case type(Txn) of
+-spec depends_on(txn(), [blockchain_txn_mgr:cached_txn_type()]) -> [blockchain_txn_mgr:cached_txn_type()].
+depends_on(ThisTxn, CachedTxns) ->
+    case type(ThisTxn) of
         Type when Type == blockchain_txn_payment_v1;
                   Type == blockchain_txn_create_htlc_v1;
                   Type == blockchain_txn_token_burn_v1;
                   Type == blockchain_txn_payment_v2 ->
-            Actor = actor(Txn),
-            Nonce = nonce(Txn),
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
             Types = [blockchain_txn_payment_v1, blockchain_txn_create_htlc_v1, blockchain_txn_token_burn_v1, blockchain_txn_payment_v2],
-            lists:filter(fun(E) ->
-                                 ThisNonce = nonce(E),
-                                 lists:member(type(E), Types) andalso actor(E) == Actor andalso ThisNonce < Nonce
-                         end, Txns);
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 ThisNonce = nonce(Txn),
+                                 lists:member(type(Txn), Types) andalso actor(Txn) == Actor andalso ThisNonce < Nonce
+                         end, CachedTxns);
         blockchain_txn_assert_location_v1 ->
-            Actor = actor(Txn),
-            Nonce = nonce(Txn),
-            lists:filter(fun(E) ->
-                                 (type(E) == blockchain_txn_assert_location_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
-                                 (type(E) == blockchain_txn_add_gateway_v1 andalso blockchain_txn_add_gateway_v1:gateway(E) == Actor)
-                         end, Txns);
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 (type(Txn) == blockchain_txn_assert_location_v1 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce) orelse
+                                 (type(Txn) == blockchain_txn_add_gateway_v1 andalso blockchain_txn_add_gateway_v1:gateway(Txn) == Actor)
+                         end, CachedTxns);
         blockchain_txn_security_exchange_v1 ->
-            Actor = actor(Txn),
-            Nonce = nonce(Txn),
-            lists:filter(fun(E) ->
-                                 ThisNonce = nonce(E),
-                                 type(E) == blockchain_txn_security_exchange_v1 andalso actor(E) == Actor andalso ThisNonce < Nonce
-                         end, Txns);
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 ThisNonce = nonce(Txn),
+                                 type(Txn) == blockchain_txn_security_exchange_v1 andalso actor(Txn) == Actor andalso ThisNonce < Nonce
+                         end, CachedTxns);
         blockchain_txn_vars_v1 ->
-            Nonce = nonce(Txn),
-            lists:filter(fun(E) ->
-                                 type(E) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(E) < Nonce
-                         end, Txns);
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 type(Txn) == blockchain_txn_vars_v1 andalso blockchain_txn_vars_v1:nonce(Txn) < Nonce
+                         end, CachedTxns);
         blockchain_txn_state_channel_open_v1 ->
-            Actor = actor(Txn),
-            Nonce = nonce(Txn),
-            OUI = blockchain_txn_state_channel_open_v1:oui(Txn),
-            lists:filter(fun(E) ->
-                                 (type(E) == blockchain_txn_oui_v1 andalso lists:member(Actor, blockchain_txn_oui_v1:addresses(E))) orelse
-                                 (type(E) == blockchain_txn_state_channel_open_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce) orelse
-                                 (type(E) == blockchain_txn_routing_v1 andalso blockchain_txn_routing_v1:oui(E) == OUI) orelse
-                                 (type(E) == blockchain_txn_token_burn_v1 andalso blockchain_txn_token_burn_v1:payee(E) == Actor)
-                         end, Txns);
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            OUI = blockchain_txn_state_channel_open_v1:oui(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 (type(Txn) == blockchain_txn_oui_v1 andalso lists:member(Actor, blockchain_txn_oui_v1:addresses(Txn))) orelse
+                                 (type(Txn) == blockchain_txn_state_channel_open_v1 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce) orelse
+                                 (type(Txn) == blockchain_txn_routing_v1 andalso blockchain_txn_routing_v1:oui(Txn) == OUI) orelse
+                                 (type(Txn) == blockchain_txn_token_burn_v1 andalso blockchain_txn_token_burn_v1:payee(Txn) == Actor)
+                         end, CachedTxns);
         blockchain_txn_state_channel_close_v1 ->
-            Actor = actor(Txn),
-            SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
+            Actor = actor(ThisTxn),
+            SC = blockchain_txn_state_channel_close_v1:state_channel(ThisTxn),
             SCCloseID = blockchain_state_channel_v1:id(SC),
-            lists:filter(fun(E) ->
-                                 type(E) == blockchain_txn_state_channel_open_v1 andalso
-                                 blockchain_txn_state_channel_open_v1:owner(E) == Actor andalso
-                                 blockchain_txn_state_channel_open_v1:id(E) == SCCloseID
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 type(Txn) == blockchain_txn_state_channel_open_v1 andalso
+                                 blockchain_txn_state_channel_open_v1:owner(Txn) == Actor andalso
+                                 blockchain_txn_state_channel_open_v1:id(Txn) == SCCloseID
                          end,
-                         Txns);
+                         CachedTxns);
         blockchain_txn_routing_v1 ->
-            Actor = actor(Txn),
-            Nonce = nonce(Txn),
-            lists:filter(fun(E) ->
-                                 (type(E) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(E) == Actor) orelse
-                                 (type(E) == blockchain_txn_routing_v1 andalso actor(E) == Actor andalso nonce(E) < Nonce)
+            Actor = actor(ThisTxn),
+            Nonce = nonce(ThisTxn),
+            lists:filter(fun({_TxnKey, Txn, _TxnData}) ->
+                                 (type(Txn) == blockchain_txn_oui_v1 andalso blockchain_txn_oui_v1:owner(Txn) == Actor) orelse
+                                 (type(Txn) == blockchain_txn_routing_v1 andalso actor(Txn) == Actor andalso nonce(Txn) < Nonce)
                          end,
-                         Txns);
+                         CachedTxns);
         %% TODO: token exchange rate txn when it's time
         _ ->
             []
     end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -866,9 +865,11 @@ depends_on_test() ->
     Txns = lists:map(fun(Nonce) ->
                       case rand:uniform(2) of
                           1 ->
-                              blockchain_txn_payment_v1:sign(blockchain_txn_payment_v1:new(Payer, Recipient, 1, Nonce), SigFun);
+                              %% need to create a payload same as blockchain_txn_mgr:cached_txn() to pass to depends_on
+                              {Nonce, blockchain_txn_payment_v1:sign(blockchain_txn_payment_v1:new(Payer, Recipient, 1, Nonce), SigFun), []};
                           2 ->
-                              blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce), SigFun)
+                              %% need to create a payload same as blockchain_txn_mgr:cached_txn() to pass to depends_on
+                              {Nonce, blockchain_txn_payment_v2:sign(blockchain_txn_payment_v2:new(Payer, [blockchain_payment_v2:new(Recipient, 1)], Nonce), SigFun), []}
                       end
               end, lists:seq(1, 50)),
 
@@ -885,36 +886,43 @@ sc_depends_on_test() ->
 
     %% oui for payer
     O0 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(1, Payer, [Payer], Filter, 8), SigFun),
+    O0TxnData = {1, O0, []}, %% emulate blockchain_txn_mgr:cached_txn()
     %% oui for payer1
     O1 = blockchain_txn_oui_v1:sign(blockchain_txn_oui_v1:new(2, Payer1, [Payer1], Filter1, 8), SigFun1),
+    O1TxnData = {2, O1, []}, %% emulate blockchain_txn_mgr:cached_txn()
 
     %% routing for payer
     RT1 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(1, Payer, gen_pubkeys(3), 1), SigFun),
+    RT1TxnData = {3, RT1, []}, %% emulate blockchain_txn_mgr:cached_txn()
     %% routing for payer1
     RT2 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:update_router_addresses(2, Payer1, gen_pubkeys(3), 1), SigFun),
+    RT2TxnData = {4, RT2, []}, %% emulate blockchain_txn_mgr:cached_txn()
 
     %% sc opens for payer
     SC1 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 10, 1, 1, 0), SigFun),
+    SC1TxnData = {5, SC1, []}, %% emulate blockchain_txn_mgr:cached_txn()
     SC2 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 20, 1, 2, 0), SigFun),
+    SC2TxnData = {6, SC2, []}, %% emulate blockchain_txn_mgr:cached_txn()
     SC3 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer, 30, 1, 3, 0), SigFun),
+    SC3TxnData = {7, SC3, []}, %% emulate blockchain_txn_mgr:cached_txn()
 
     %% sc open for payer1
     SC4 = blockchain_txn_state_channel_open_v1:sign(blockchain_txn_state_channel_open_v1:new(crypto:strong_rand_bytes(24), Payer1, 30, 2, 1, 0), SigFun),
 
-    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, RT1, SC1, SC2])))),
-    ?assertEqual(lists:sort([O0, RT1, SC1, SC2]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2])))),
-    ?assertEqual(lists:sort([O0, RT1, SC1]), lists:sort(depends_on(SC2, blockchain_utils:shuffle([O0, O1, RT1, SC1, SC2, SC3])))),
-    ?assertEqual(lists:sort([O1, RT2]), lists:sort(depends_on(SC4, blockchain_utils:shuffle([O0, O1, RT1, RT2, SC1, SC2, SC3])))),
+    ?assertEqual(lists:sort([O0TxnData, RT1TxnData, SC1TxnData, SC2TxnData]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0TxnData, RT1TxnData, SC1TxnData, SC2TxnData])))),
+    ?assertEqual(lists:sort([O0TxnData, RT1TxnData, SC1TxnData, SC2TxnData]), lists:sort(depends_on(SC3, blockchain_utils:shuffle([O0TxnData, O1TxnData, RT1TxnData, SC1TxnData, SC2TxnData])))),
+    ?assertEqual(lists:sort([O0TxnData, RT1TxnData, SC1TxnData]), lists:sort(depends_on(SC2, blockchain_utils:shuffle([O0TxnData, O1TxnData, RT1TxnData, SC1TxnData, SC2TxnData, SC3TxnData])))),
+    ?assertEqual(lists:sort([O1TxnData, RT2TxnData]), lists:sort(depends_on(SC4, blockchain_utils:shuffle([O0TxnData, O1TxnData, RT1TxnData, RT2TxnData, SC1TxnData, SC2TxnData, SC3TxnData])))),
 
     ok.
 
 nonce_check(Txns) ->
     lists:foreach(fun(_) ->
                       Shuffled = blockchain_utils:shuffle(Txns),
-                      Txn = lists:last(Shuffled),
+                      {_TxnKey, Txn, _TxnData} = lists:last(Shuffled),
                       Dependencies = depends_on(Txn, Shuffled),
                       io:format("~nTxn: ~p~nDependencies: ~p~n", [Txn, Dependencies]),
-                      ?assert(lists:all(fun(T) -> nonce(T) < nonce(Txn) end, Dependencies))
+                      ?assert(lists:all(fun({_TKey, T, _TData}) -> nonce(T) < nonce(Txn) end, Dependencies))
               end, lists:seq(1, 10)).
 
 gen_pubkeys(Count) ->
