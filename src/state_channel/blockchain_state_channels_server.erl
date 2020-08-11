@@ -719,14 +719,14 @@ maybe_get_new_active(SCs) ->
                            {ok, X} -> X;
                            X -> X
                        end,
-            FilterFun = fun({_, SC}) ->
+            FilterFun = fun({_, {SC, _}}) ->
                                 blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom)
                         end,
 
             case lists:filter(FilterFun, lists:sort(SCSortFun2, lists:sort(SCSortFun, L))) of
                 [] -> undefined;
                 Y ->
-                    {ID, _} = Y,
+                    [{ID, _}|_] = Y,
                     ID
             end
     end.
