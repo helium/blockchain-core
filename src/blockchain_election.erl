@@ -27,7 +27,7 @@ new_group(Ledger, Hash, Size, Delay) ->
     end.
 
 new_group_v1(Ledger, Hash, Size, Delay) ->
-    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
+    Gateways0 = gateways_filter(none, Ledger),
 
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
@@ -36,7 +36,7 @@ new_group_v1(Ledger, Hash, Size, Delay) ->
     OldLen = length(OldGroup0),
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
 
-    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, none, Ledger),
+    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, Ledger),
 
     lager:debug("scored old group: ~p scored gateways: ~p",
                 [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
@@ -53,25 +53,24 @@ new_group_v1(Ledger, Hash, Size, Delay) ->
     Rem ++ New.
 
 new_group_v2(Ledger, Hash, Size, Delay) ->
-    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
     {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
     {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
     {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    Gateways0 = gateways_filter(ClusterRes, Ledger),
 
     OldLen = length(OldGroup0),
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
 
     %% annotate with score while removing dupes
-    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger),
+    {OldGroupScored, GatewaysScored} = score_dedup(OldGroup0, Gateways0, Ledger),
 
     lager:debug("scored old group: ~p scored gateways: ~p",
                 [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
 
     %% get the locations of the current consensus group at a particular h3 resolution
-    Locations = locations(ClusterRes, OldGroup0, Gateways0),
+    Locations = locations(OldGroup0, Gateways0),
 
     %% sort high to low to prioritize high-scoring gateways for selection
     Gateways = lists:reverse(lists:sort(GatewaysScored)),
@@ -85,19 +84,20 @@ new_group_v2(Ledger, Hash, Size, Delay) ->
     Rem ++ New.
 
 new_group_v3(Ledger, Hash, Size, Delay) ->
-    Gateways0 = blockchain_ledger_v1:active_gateways(Ledger),
-
     {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
 
     {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
     {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
     {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    Gateways0 = gateways_filter(ClusterRes, Ledger),
+    Sz = erts_debug:flat_size(Gateways0),
+    ct:pal("debug flat size ~p", [Sz]),
 
     OldLen = length(OldGroup0),
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
 
     %% annotate with score while removing dupes
-    {OldGroupScored0, GatewaysScored} = score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger),
+    {OldGroupScored0, GatewaysScored} = score_dedup(OldGroup0, Gateways0, Ledger),
 
     OldGroupScored = adjust_old_group(OldGroupScored0, Ledger),
 
@@ -105,7 +105,7 @@ new_group_v3(Ledger, Hash, Size, Delay) ->
                 [tup_to_animal(OldGroupScored), tup_to_animal(GatewaysScored)]),
 
     %% get the locations of the current consensus group at a particular h3 resolution
-    Locations = locations(ClusterRes, OldGroup0, Gateways0),
+    Locations = locations(OldGroup0, Gateways0),
 
     %% sort high to low to prioritize high-scoring gateways for selection
     Gateways = lists:reverse(lists:sort(GatewaysScored)),
@@ -274,16 +274,26 @@ determine_sizes(Size, OldLen, Delay, Ledger) ->
     end,
     {Remove, Replace}.
 
-score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger) ->
+gateways_filter(ClusterRes, Ledger) ->
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, Acc) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Last = Height - Last0,
+              Loc = location(ClusterRes, Gw),
+              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
+              maps:put(Addr, {Last, Loc, Score}, Acc)
+      end,
+      #{},
+      Ledger).
+
+score_dedup(OldGroup0, Gateways0, Ledger) ->
     PoCInterval = blockchain_utils:challenge_interval(Ledger),
 
     maps:fold(
-      fun(Addr, Gw, {Old, Candidates} = Acc) ->
-              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
-              Loc = location(ClusterRes, Gw),
-              {_, _, Score} = blockchain_ledger_gateway_v2:score(Addr, Gw, Height, Ledger),
-              Last = Height - Last0,
+      fun(Addr, {Last, Loc, Score}, {Old, Candidates} = Acc) ->
               Missing = Last > 3 * PoCInterval,
               case lists:member(Addr, OldGroup0) of
                   true ->
@@ -310,11 +320,10 @@ score_dedup(OldGroup0, Gateways0, ClusterRes, Ledger) ->
       {[], []},
       Gateways0).
 
-locations(Res, Group, Gws) ->
+locations(Group, Gws) ->
     GroupGws = maps:with(Group, Gws),
     maps:fold(
-      fun(_Addr, Gw, Acc) ->
-              P = location(Res, Gw),
+      fun(_Addr, {_, P, _}, Acc) ->
               Acc#{P => true}
       end,
       #{},
