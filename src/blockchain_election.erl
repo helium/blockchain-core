@@ -90,8 +90,6 @@ new_group_v3(Ledger, Hash, Size, Delay) ->
     {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
     {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
     Gateways0 = gateways_filter(ClusterRes, Ledger),
-    Sz = erts_debug:flat_size(Gateways0),
-    ct:pal("debug flat size ~p", [Sz]),
 
     OldLen = length(OldGroup0),
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
