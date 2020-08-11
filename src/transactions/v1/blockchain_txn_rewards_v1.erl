@@ -671,7 +671,7 @@ dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version
             case blockchain_txn:type(Txn) == blockchain_txn_state_channel_close_v1 of
                 true ->
                     lager:info("dc_rewards, expire_at, grace: ~p, end_height: ~p",
-                               [blockchain_txn_state_channel_close_v1:expire_at(Txn), GraceBlocks, EndHeight]);
+                               [blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn), GraceBlocks, EndHeight]);
                 false ->
                     ok
             end,
