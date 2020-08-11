@@ -786,6 +786,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
 -spec maybe_broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
                              State :: state()) -> ok.
 maybe_broadcast_banner(undefined, _State) -> ok;
+maybe_broadcast_banner(_, #state{chain=undefined}) -> ok;
 maybe_broadcast_banner(SC, #state{chain=Chain}=State) ->
     case blockchain:config(sc_version, blockchain:ledger(Chain)) of
         {ok, 2} ->
