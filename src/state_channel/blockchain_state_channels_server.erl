@@ -173,15 +173,14 @@ handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
 handle_call(get_active_sc_count, _From, #state{active_sc_id=undefined}=State) ->
     {reply, 0, State};
 handle_call(get_active_sc_count, _From, #state{state_channels=SCs}=State) ->
-    HeadroomFactor = case application:get_env(blockchain, sc_headroom_factor, 11) of
-                         {ok, X} -> X;
-                         X -> X
-                     end,
+    Headroom = case application:get_env(blockchain, sc_headroom, 11) of
+                   {ok, X} -> X;
+                   X -> X
+               end,
     Count = maps:fold(fun(_ID, {SC, _Skewed}, Acc) ->
                              SCState = blockchain_state_channel_v1:state(SC),
                              DCAmt = blockchain_state_channel_v1:amount(SC),
                              TtlDCs = blockchain_state_channel_v1:total_dcs(SC),
-                             Headroom = DCAmt div HeadroomFactor,
                              case SCState == open andalso DCAmt > TtlDCs + Headroom of
                                false -> Acc;
                                true -> Acc + 1
@@ -710,14 +709,26 @@ maybe_get_new_active(SCs) ->
             undefined;
         L ->
             SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
+                                blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                         end,
             SCSortFun2 = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                                 blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                         end,
+
+            Headroom = case application:get_env(blockchain, sc_headroom, 11) of
+                           {ok, X} -> X;
+                           X -> X
+                       end,
+            FilterFun = fun({_, SC}) ->
+                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom)
                         end,
 
-            {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
-            ID
+            case lists:filter(FilterFun, lists:sort(SCSortFun2, lists:sort(SCSortFun, L))) of
+                [] -> undefined;
+                Y ->
+                    {ID, _} = Y,
+                    ID
+            end
     end.
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
