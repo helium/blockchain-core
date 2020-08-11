@@ -270,8 +270,8 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                     ChallengersRewards = poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
                     ChallengeesRewards = poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
                     WitnessesRewards = poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards),
-                    lager:info("dc_rewards: ~p, challengers_rewards: ~p, challengees_rewards: ~p, witnesses_rewards: ~p",
-                               [DCRewards1, ChallengersRewards, ChallengeesRewards, WitnessesRewards]),
+                    lager:info("ledger_height: ~p, dc_rewards: ~p, challengers_rewards: ~p, challengees_rewards: ~p, witnesses_rewards: ~p",
+                               [element(2, blockchain_ledger_v1:current_height(Ledger)), DCRewards1, ChallengersRewards, ChallengeesRewards, WitnessesRewards]),
                     get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
                                           ChallengersRewards,
                                           ChallengeesRewards,
@@ -668,13 +668,6 @@ normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
 dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version := 2}, Ledger, DCRewards) ->
     lists:foldl(
       fun(Txn, Acc) ->
-            case blockchain_txn:type(Txn) == blockchain_txn_state_channel_close_v1 of
-                true ->
-                    lager:info("dc_rewards, expire_at, grace: ~p, end_height: ~p",
-                               [blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn), GraceBlocks, EndHeight]);
-                false ->
-                    ok
-            end,
               %% check the state channel's grace period ended in this epoch
             case blockchain_txn:type(Txn) == blockchain_txn_state_channel_close_v1 andalso
                  blockchain_txn_state_channel_close_v1:state_channel_expire_at(Txn) + GraceBlocks < EndHeight
