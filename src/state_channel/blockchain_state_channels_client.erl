@@ -267,6 +267,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
     ExpiringChannels = lists:foldl(fun([H|_]=SC, Acc) ->
                                            ExpireAt = blockchain_state_channel_v1:expire_at_block(H),
                                            SCID = blockchain_state_channel_v1:id(H),
+                                           SCOwner = blockchain_state_channel_v1:owner(H),
                                            case (not lists:member(SCID, PendingCloses ++ ClosingChannels)) andalso
                                                 %% divide by 3 here so we give the server a chance to file its close first
                                                 %% before the client tries to file a close
@@ -275,11 +276,30 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                                true ->
                                                    case length(SC) of
                                                        1 ->
-                                                           %% close with no conflict
-                                                           {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(State#state.swarm),
-                                                           Txn = blockchain_txn_state_channel_close_v1:new(H, PubkeyBin),
-                                                           SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
-                                                           ok = blockchain_worker:submit_txn(SignedTxn);
+                                                           %% check in the ledger that this sc is not already closing
+                                                           case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
+                                                               {error, _} ->
+                                                                   %% don't do anything
+                                                                   ok;
+                                                               {ok, LSC} ->
+                                                                   case blockchain_ledger_state_channel_v2:is_v2(LSC) of
+                                                                       false ->
+                                                                           %% ignore v1 state channels
+                                                                           ok;
+                                                                       true ->
+                                                                           case blockchain_ledger_state_channel_v2:close_state(LSC) of
+                                                                               undefined ->
+                                                                                   %% issue close txn with no conflict
+                                                                                   {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(State#state.swarm),
+                                                                                   Txn = blockchain_txn_state_channel_close_v1:new(H, PubkeyBin),
+                                                                                   SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                                                                                   ok = blockchain_worker:submit_txn(SignedTxn);
+                                                                               _ ->
+                                                                                   %% already in closed/dispute state in ledger, do nothing
+                                                                                   ok
+                                                                           end
+                                                                   end
+                                                           end;
                                                        _ ->
                                                            %% close with conflict
                                                            close_state_channel(H, State)
@@ -289,7 +309,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                                    Acc
                                            end
                                    end, [], SCs),
-    {noreply, State#state{pending_closes=PendingCloses ++ ClosingChannels ++ ExpiringChannels}};
+    {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams}=State) ->
     FilteredStreams = maps:filter(fun(_Name, Stream) ->
                                           Stream /= Pid
