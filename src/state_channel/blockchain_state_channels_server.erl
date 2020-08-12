@@ -272,8 +272,12 @@ handle_cast({offer, SCOffer, HandlerPid},
             end
     end;
 handle_cast({gc_state_channels, SCIDs}, #state{state_channels=SCs}=State) ->
-    NewSCs = lists:foldl(fun(ID, M) -> maps:remove(ID, M) end, SCs, SCIDs),
-    {noreply, State#state{state_channels=NewSCs}};
+    %% let's make sure whatever IDs we are getting rid of here we also dump
+    %% from pending writes... we don't want some ID that's been
+    %% deleted from the DB to ressurrect like a zombie because it was
+    %% a pending write.
+    ok = blockchain_state_channels_db_owner:gc(SCIDs),
+    {noreply, State#state{state_channels=maps:without(SCIDs, SCs)}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
