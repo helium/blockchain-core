@@ -303,6 +303,9 @@
 -define(sc_open_validation_bugfix, sc_open_validation_bugfix).
 %% Number of attempts we get to fix state_channel causality bugs, we'll set it to 1, max = 1
 -define(sc_causality_fix, sc_causality_fix).
+%% Block interval to try to GC state channels
+-define(sc_gc_interval, sc_gc_interval).
+
 
 %% ------------------------------------------------------------------
 %% snapshot vars
