@@ -207,6 +207,7 @@ to_json(Txn, _Opts) ->
       type => <<"token_burn_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
       payer => ?BIN_TO_B58(payer(Txn)),
+      payee => ?BIN_TO_B58(payee(Txn)),
       amount => amount(Txn),
       nonce => nonce(Txn),
       memo => memo(Txn)
@@ -281,6 +282,6 @@ to_json_test() ->
     Tx = new(<<"payer">>, 666, 1),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, payer, amount, nonce, memo])).
+                      [type, hash, payer, payee, amount, nonce, memo])).
 
 -endif.
