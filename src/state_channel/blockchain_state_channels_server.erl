@@ -91,8 +91,9 @@ packet(Packet, HandlerPid) ->
                           case SCPacketHandler:handle_packet(Packet, HandlerPid) of
                               ok ->
                                   gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
-                              {error, Why} ->
-                                  lager:warning("handle_packet failed: ~p", [Why])
+                              {error, _Why} ->
+                                  %% lager:warning("handle_packet failed: ~p", [Why])
+                                  ok
                           end
                   end
           end),
