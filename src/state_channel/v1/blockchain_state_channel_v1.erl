@@ -251,7 +251,7 @@ decode(Binary) ->
            Skewed :: skewed:skewed()) -> ok.
 save(DB, SC, Skewed) ->
     ID = ?MODULE:id(SC),
-    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, true}]).
+    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, false}]).
 
 -spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->

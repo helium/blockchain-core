@@ -18,7 +18,8 @@
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
-    active_sc/0
+    active_sc/0,
+    get_active_sc_count/0
 ]).
 
 %% ------------------------------------------------------------------
@@ -49,7 +50,8 @@
     state_channels = #{} :: state_channels(),
     active_sc_id = undefined :: undefined | blockchain_state_channel_v1:id(),
     sc_packet_handler = undefined :: undefined | atom(),
-    streams = #{} :: streams()
+    streams = #{} :: streams(),
+    dc_payload_size :: undefined | pos_integer()
 }).
 
 -type state() :: #state{}.
@@ -131,6 +133,10 @@ active_sc_id() ->
 active_sc() ->
     gen_server:call(?SERVER, active_sc, infinity).
 
+-spec get_active_sc_count() -> non_neg_integer().
+get_active_sc_count() ->
+    gen_server:call(?SERVER, get_active_sc_count, infinity).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -165,6 +171,23 @@ handle_call(active_sc, _From, State) ->
     {reply, active_sc(State), State};
 handle_call(active_sc_id, _From, #state{active_sc_id=ActiveSCID}=State) ->
     {reply, ActiveSCID, State};
+handle_call(get_active_sc_count, _From, #state{active_sc_id=undefined}=State) ->
+    {reply, 0, State};
+handle_call(get_active_sc_count, _From, #state{state_channels=SCs}=State) ->
+    Headroom = case application:get_env(blockchain, sc_headroom, 11) of
+                   {ok, X} -> X;
+                   X -> X
+               end,
+    Count = maps:fold(fun(_ID, {SC, _Skewed}, Acc) ->
+                             SCState = blockchain_state_channel_v1:state(SC),
+                             DCAmt = blockchain_state_channel_v1:amount(SC),
+                             TtlDCs = blockchain_state_channel_v1:total_dcs(SC),
+                             case SCState == open andalso DCAmt > TtlDCs + Headroom of
+                               false -> Acc;
+                               true -> Acc + 1
+                             end
+                      end, 0, SCs),
+    {reply, Count, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -201,7 +224,7 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) 
         end),
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
-            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}, chain=Chain}=State) ->
+            #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}}=State) ->
     lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
@@ -213,14 +236,13 @@ handle_cast({offer, SCOffer, HandlerPid},
             ok = send_rejection(HandlerPid),
             {noreply, State};
         true ->
-            Ledger = blockchain:ledger(Chain),
             Routing = blockchain_state_channel_offer_v1:routing(SCOffer),
             Region = blockchain_state_channel_offer_v1:region(SCOffer),
             Hotspot = blockchain_state_channel_offer_v1:hotspot(SCOffer),
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
             {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
 
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(State#state.dc_payload_size, PayloadSize),
             TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
             DCAmount = blockchain_state_channel_v1:amount(ActiveSC),
             case (TotalDCs + NumDCs) > DCAmount andalso
@@ -231,12 +253,17 @@ handle_cast({offer, SCOffer, HandlerPid},
                     lager:warning("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
                                 [DCAmount, NumDCs, SCOffer]),
                     ok = send_rejection(HandlerPid),
-                    {noreply, State};
+                    %% NOTE: this function may return `undefined` if no SC is available
+                    NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
+                    lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
+                    NewState = State#state{active_sc_id=NewActiveID},
+                    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+                    {noreply, NewState};
                 false ->
                     lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
                     {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
-                                                PayloadSize, Region, Ledger, OwnerSigFun),
+                                                PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     erlang:monitor(process, HandlerPid),
@@ -256,7 +283,13 @@ handle_info(post_init, #state{chain=undefined}=State) ->
             erlang:send_after(500, self(), post_init),
             {noreply, State};
         Chain ->
-            TempState = State#state{chain=Chain},
+            DCPayloadSize = case blockchain_ledger_v1:config(?dc_payload_size, blockchain:ledger(Chain)) of
+                                {ok, DCP} ->
+                                    DCP;
+                                _ ->
+                                    0
+                            end,
+            TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize},
             LoadState = update_state_with_ledger_channels(TempState),
             lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
@@ -266,7 +299,7 @@ handle_info({blockchain_event, {new_chain, NC}}, State) ->
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     erlang:send_after(500, self(), post_init),
     {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #state{chain=Chain}=State0) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain}=State0) ->
     NewState = case blockchain:get_block(BlockHash, Chain) of
                    {error, Reason} ->
                        lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -288,7 +321,13 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, _Ledger}}, #stat
                        check_state_channel_expiration(BlockHeight, State1)
                end,
 
-    {noreply, NewState};
+    DCPayloadSize = case blockchain_ledger_v1:config(?dc_payload_size, Ledger) of
+                        {ok, DCP} ->
+                            DCP;
+                        _ ->
+                            0
+                    end,
+    {noreply, NewState#state{dc_payload_size=DCPayloadSize}};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
     FilteredStreams = maps:filter(fun(_Name, Stream) ->
                                           Stream /= Pid
@@ -326,7 +365,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   %% it happens in `send_purchase` for v2 SCs
                   SC1;
               _ ->
-                  SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), Ledger, SC1),
+                  SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1),
                   ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
                   blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
           end,
@@ -336,8 +375,8 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
     ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
-    lager:info("packet: ~p successfully validated, updating state",
-                       [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
+    %lager:info("packet: ~p successfully validated, updating state",
+    %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
@@ -371,7 +410,6 @@ update_state_sc_open(Txn,
                      BlockHeight,
                      #state{owner={Owner, OwnerSigFun},
                             state_channels=SCs,
-                            chain=Chain,
                             active_sc_id=ActiveSCID}=State) ->
     case blockchain_txn_state_channel_open_v1:owner(Txn) of
         %% Do the map put when we are the owner of the state_channel
@@ -391,13 +429,7 @@ update_state_sc_open(Txn,
                 undefined ->
                     %% Switching active sc, broadcast banner
                     lager:info("broadcasting banner: ~p", [SignedSC]),
-
-                    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-                        {ok, 2} ->
-                            ok = broadcast_banner(SignedSC, State);
-                        _ ->
-                            ok
-                    end,
+                    ok = maybe_broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
                     %% Set this one to active
@@ -427,7 +459,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chain, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -449,14 +481,7 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, chain=Chai
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
-            %% Switching active sc, broadcast banner
-            lager:info("broadcasting banner: ~p", [active_sc(NewState)]),
-            ok = broadcast_banner(active_sc(NewState), NewState);
-        _ ->
-            ok
-    end,
+    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
 
     NewState.
 
@@ -696,14 +721,26 @@ maybe_get_new_active(SCs) ->
             undefined;
         L ->
             SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
+                                blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                         end,
             SCSortFun2 = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
-                               blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                                 blockchain_state_channel_v1:nonce(SC1) >= blockchain_state_channel_v1:nonce(SC2)
+                         end,
+
+            Headroom = case application:get_env(blockchain, sc_headroom, 11) of
+                           {ok, X} -> X;
+                           X -> X
+                       end,
+            FilterFun = fun({_, {SC, _}}) ->
+                                blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom)
                         end,
 
-            {ID, _} = hd(lists:sort(SCSortFun2, lists:sort(SCSortFun, L))),
-            ID
+            case lists:filter(FilterFun, lists:sort(SCSortFun2, lists:sort(SCSortFun, L))) of
+                [] -> undefined;
+                Y ->
+                    [{ID, _}|_] = Y,
+                    ID
+            end
     end.
 
 -spec send_purchase(SC :: blockchain_state_channel_v1:state_channel(),
@@ -712,12 +749,12 @@ maybe_get_new_active(SCs) ->
                     PacketHash :: binary(),
                     PayloadSize :: pos_integer(),
                     Region :: atom(),
-                    Ledger :: blockchain:ledger(),
+                    DCPayloadSize :: undefined | pos_integer(),
                     OwnerSigFun :: libp2p_crypto:sig_fun()) -> {ok, blockchain_state_channel_v1:state_channel()}.
-send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, Ledger, OwnerSigFun) ->
+send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSize, OwnerSigFun) ->
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
-    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, Ledger, NewPurchaseSC0),
+    NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0),
     SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
@@ -746,13 +783,13 @@ send_rejection(Stream) ->
 
 -spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                         PayloadSize :: pos_integer(),
-                        Ledger :: blockchain:ledger(),
+                        DCPayloadSize :: undefined | pos_integer(),
                         SC :: blockchain_state_channel_v1:state_channel()) ->
     blockchain_state_channel_v1:state_channel().
-update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
+update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC) ->
     case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
             %% Add this to summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
@@ -760,11 +797,23 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, Ledger, SC) ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             %% Update DC count for this client
-            NumDCs = blockchain_utils:calculate_dc_amount(Ledger, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
             ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
             NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                     ExistingNumPackets + 1,
                                                                     ExistingSummary),
             %% Update summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC)
+    end.
+
+-spec maybe_broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
+                             State :: state()) -> ok.
+maybe_broadcast_banner(undefined, _State) -> ok;
+maybe_broadcast_banner(_, #state{chain=undefined}) -> ok;
+maybe_broadcast_banner(SC, #state{chain=Chain}=State) ->
+    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+        {ok, 2} ->
+            ok = broadcast_banner(SC, State);
+        _ ->
+            ok
     end.
