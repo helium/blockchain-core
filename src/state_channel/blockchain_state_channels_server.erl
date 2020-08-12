@@ -376,10 +376,6 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   update_sc_summary(ClientPubkeyBin, byte_size(Payload),
                                     State#state.dc_payload_size, SC2)
           end,
-    SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
-
-    %% Save state channel to db
-    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
 
     %lager:info("packet: ~p successfully validated, updating state",
     %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
