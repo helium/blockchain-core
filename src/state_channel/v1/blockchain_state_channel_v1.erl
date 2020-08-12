@@ -249,9 +249,8 @@ decode(Binary) ->
 -spec save(DB :: rocksdb:db_handle(),
            SC :: state_channel(),
            Skewed :: skewed:skewed()) -> ok.
-save(DB, SC, Skewed) ->
-    ID = ?MODULE:id(SC),
-    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, false}]).
+save(_DB, SC, Skewed) ->
+    blockchain_state_channels_db_owner:write(SC, Skewed).
 
 -spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->
