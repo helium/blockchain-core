@@ -273,9 +273,8 @@ decode(Binary) ->
 -spec save(DB :: rocksdb:db_handle(),
            SC :: state_channel(),
            Skewed :: skewed:skewed()) -> ok.
-save(DB, SC, Skewed) ->
-    ID = ?MODULE:id(SC),
-    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, false}]).
+save(_DB, SC, Skewed) ->
+    blockchain_state_channels_db_owner:write(SC, Skewed).
 
 -spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->
@@ -676,24 +675,7 @@ encode_decode_test() ->
     ?assertEqual(SC1, decode(encode(SC1))),
     ?assertEqual(SC2, decode(encode(SC2))).
 
-save_fetch_test() ->
-    BaseDir = test_utils:tmp_dir("save_fetch_test"),
-    {ok, DB} = open_db(BaseDir),
-    SC = new(<<"1">>, <<"owner">>, 0),
-    Skewed = skewed:new(<<"yolo">>),
-    ?assertEqual(ok, save(DB, SC, Skewed)),
-    ?assertEqual({ok, {SC, Skewed}}, fetch(DB, <<"1">>)).
-
-open_db(Dir) ->
-    DBDir = filename:join(Dir, "state_channels.db"),
-    ok = filelib:ensure_dir(DBDir),
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
-    {ok, _DB} = rocksdb:open(DBDir, DBOptions).
-
 causality_test() ->
-    BaseDir = test_utils:tmp_dir("causality_test"),
-    {ok, _DB} = open_db(BaseDir),
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
