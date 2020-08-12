@@ -34,7 +34,6 @@
 ]).
 
 -define(DB_FILE, "state_channels.db").
--define(WRITE_INTERVAL, 1000). % milliseconds
 -define(TICK, '__sc_write_tick').
 
 -record(state, {
@@ -110,14 +109,14 @@ handle_info({'EXIT', _From, _Reason} , #state{db=DB}=State) ->
     lager:info("EXIT because: ~p, closing rocks: ~p", [_Reason, DB]),
     ok = rocksdb:close(DB),
     {stop, db_owner_exit, State};
-handle_info(?TICK, #state{pending=P}=State) when map_size(P) == 0 ->
+handle_info(?TICK, #state{pending=P, write_interval=W}=State) when map_size(P) == 0 ->
     lager:debug("No pending writes this tick"),
-    Tref = schedule_next_tick(),
+    Tref = schedule_next_tick(W),
     {noreply, State#state{tref=Tref}};
-handle_info(?TICK, #state{pending=P, db=DB}=State) ->
+handle_info(?TICK, #state{pending=P, db=DB, write_interval=W}=State) ->
     lager:info("~p pending writes this tick", [map_size(P)]),
     ok = handle_batch_write(DB, P),
-    Tref = schedule_next_tick(),
+    Tref = schedule_next_tick(W),
     {noreply, State#state{tref=Tref, pending=#{}}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
@@ -167,8 +166,8 @@ open_db(Dir, CFNames) ->
             {ok, DB, [proplists:get_value(X, L3) || X <- CFNames]}
     end.
 
-schedule_next_tick() ->
-    erlang:send_after(?WRITE_INTERVAL, self(), ?TICK).
+schedule_next_tick(Interval) ->
+    erlang:send_after(Interval, self(), ?TICK).
 
 handle_batch_write(DB, P) ->
     {ok, Batch} = rocksdb:batch(),
