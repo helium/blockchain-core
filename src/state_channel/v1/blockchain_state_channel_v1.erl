@@ -626,21 +626,6 @@ encode_decode_test() ->
     ?assertEqual(SC1, decode(encode(SC1))),
     ?assertEqual(SC2, decode(encode(SC2))).
 
-save_fetch_test() ->
-    BaseDir = test_utils:tmp_dir("save_fetch_test"),
-    {ok, DB} = open_db(BaseDir),
-    SC = new(<<"1">>, <<"owner">>, 0),
-    Skewed = skewed:new(<<"yolo">>),
-    ?assertEqual(ok, save(DB, SC, Skewed)),
-    ?assertEqual({ok, {SC, Skewed}}, fetch(DB, <<"1">>)).
-
-open_db(Dir) ->
-    DBDir = filename:join(Dir, "state_channels.db"),
-    ok = filelib:ensure_dir(DBDir),
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
-    {ok, _DB} = rocksdb:open(DBDir, DBOptions).
-
 causality_test() ->
     BaseDir = test_utils:tmp_dir("causality_test"),
     {ok, _DB} = open_db(BaseDir),
