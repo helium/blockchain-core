@@ -354,7 +354,7 @@ terminate(_Reason, _State) ->
                      HandlerPid :: pid(),
                      State :: state()) -> NewState :: state().
 process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
-               #state{db=DB, scf=SCF, active_sc_id=ActiveSCID, state_channels=SCs,
+               #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs,
                       owner={_, OwnerSigFun}, chain=Chain}=State) ->
     Ledger = blockchain:ledger(Chain),
     Payload = blockchain_helium_packet_v1:payload(Packet),
@@ -374,7 +374,6 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
 
     %% Save state channel to db
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-    ok = store_active_sc_id(DB, SCF, ActiveSCID),
 
     %lager:info("packet: ~p successfully validated, updating state",
     %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
@@ -631,23 +630,6 @@ get_state_channels(DB, SCF) ->
         Error ->
             lager:error("error: ~p", [Error]),
             Error
-    end.
-
--spec store_active_sc_id(DB :: rocksdb:db_handle(),
-                         SCF :: rocksdb:cf_handle(),
-                         ID :: blockchain_state_channel_v1:id()) -> ok | {error, any()}.
-store_active_sc_id(DB, SCF, ID) ->
-    case get_state_channels(DB, SCF) of
-        {error, _}=Error ->
-            Error;
-        {ok, SCIDs} ->
-            case lists:member(ID, SCIDs) of
-                true ->
-                    ok;
-                false ->
-                    ToInsert = erlang:term_to_binary([ID|SCIDs]),
-                    rocksdb:put(DB, SCF, ?STATE_CHANNELS, ToInsert, [{sync, true}])
-            end
     end.
 
 -spec delete_closed_sc(DB :: rocksdb:db_handle(),
