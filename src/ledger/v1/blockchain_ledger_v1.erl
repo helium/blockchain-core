@@ -1445,7 +1445,14 @@ maybe_gc_scs(Chain) ->
 
     case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
-            case Height rem 100 == 0 of
+            GCInterval = case ?MODULE:config(?sc_gc_interval, Ledger) of
+                             {ok, I} ->
+                                 I;
+                             _ ->
+                                 %% 100 was the previously hardcoded value
+                                 100
+                         end,
+            case Height rem GCInterval == 0 of
                 true ->
                     lager:info("gcing old state_channels..."),
                     SCsCF = state_channels_cf(Ledger),
