@@ -91,8 +91,9 @@ packet(Packet, HandlerPid) ->
                           case SCPacketHandler:handle_packet(Packet, HandlerPid) of
                               ok ->
                                   gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
-                              {error, Why} ->
-                                  lager:warning("handle_packet failed: ~p", [Why])
+                              {error, _Why} ->
+                                  %% lager:warning("handle_packet failed: ~p", [Why])
+                                  ok
                           end
                   end
           end),
@@ -225,7 +226,7 @@ handle_cast({offer, SCOffer, HandlerPid}, #state{active_sc_id=undefined}=State) 
     {noreply, State};
 handle_cast({offer, SCOffer, HandlerPid},
             #state{active_sc_id=ActiveSCID, state_channels=SCs, owner={_Owner, OwnerSigFun}}=State) ->
-    lager:info("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
+    lager:debug("Got offer: ~p, active_sc_id: ~p", [SCOffer, ActiveSCID]),
 
     PayloadSize = blockchain_state_channel_offer_v1:payload_size(SCOffer),
 
@@ -260,7 +261,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
                 false ->
-                    lager:info("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
+                    lager:debug("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
 
                     {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
