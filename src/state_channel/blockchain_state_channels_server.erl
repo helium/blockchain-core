@@ -360,7 +360,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
     Payload = blockchain_helium_packet_v1:payload(Packet),
     {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
 
-    SC3 = case blockchain:config(sc_version, Ledger) of
+    SignedSC = case blockchain:config(sc_version, Ledger) of
               {ok, 2} ->
                   %% we don't update the state channel summary here
                   %% it happens in `send_purchase` for v2 SCs
@@ -368,12 +368,12 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
               _ ->
                   SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1),
                   ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-                  blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
+                  SC3 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
+                  SC4 = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
+                  %% Save state channel to db
+                  ok = blockchain_state_channel_v1:save(DB, SC4, Skewed1),
+                  SC4
           end,
-    SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
-
-    %% Save state channel to db
-    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
 
     %lager:info("packet: ~p successfully validated, updating state",
     %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
