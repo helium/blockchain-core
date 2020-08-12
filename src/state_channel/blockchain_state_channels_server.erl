@@ -743,11 +743,9 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSiz
     SCNonce = blockchain_state_channel_v1:nonce(SC),
     NewPurchaseSC0 = blockchain_state_channel_v1:nonce(SCNonce + 1, SC),
     NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0),
-    SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
-    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
-    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-    ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
-    {ok, SignedPurchaseSC}.
+    %% make the handler do the signing to free the server up for more real work
+    ok = blockchain_state_channel_handler:send_purchase(Stream, NewPurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region),
+    {ok, NewPurchaseSC}.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
 active_sc(#state{active_sc_id=undefined}) ->
