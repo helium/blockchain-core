@@ -636,7 +636,7 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
-    lager:info("NewActiveSCID: ~p", [libp2p_crypto:bin_to_b58(NewActiveSCID)]),
+    lager:info("NewActiveSCID: ~p", [NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
