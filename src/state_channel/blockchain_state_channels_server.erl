@@ -263,7 +263,9 @@ handle_cast({offer, SCOffer, HandlerPid},
                     %% switch over the active ID and save the closed one
                     blockchain_state_channels_db_owner:store_active_sc_id(NewActiveID),
                     NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
-                    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+                    NewActiveSC = active_sc(NewState),
+                    lager:info("sc_signature: ~p", [blockchain_state_channel_v1:signature(NewActiveSC)]),
+                    ok = maybe_broadcast_banner(NewActiveSC, NewState),
                     {noreply, NewState};
                 false ->
                     lager:debug("Routing: ~p, Hotspot: ~p", [Routing, Hotspot]),
@@ -446,8 +448,9 @@ update_state_sc_open(Txn,
             case ActiveSCID of
                 undefined ->
                     %% Switching active sc, broadcast banner
-                    lager:info("broadcasting banner scid: ~p",
-                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SignedSC))]),
+                    lager:info("broadcasting banner scid: ~p, signature: ~p",
+                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SignedSC)),
+                                blockchain_state_channel_v1:signature(SignedSC)]),
                     ok = maybe_broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
@@ -500,7 +503,10 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+    ActiveSC = active_sc(NewState),
+    lager:info("sc_signature: ~p", [blockchain_state_channel_v1:signature(ActiveSC)]),
+
+    ok = maybe_broadcast_banner(ActiveSC, NewState),
 
     NewState.
 
