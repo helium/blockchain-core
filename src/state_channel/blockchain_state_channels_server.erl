@@ -265,6 +265,8 @@ handle_cast({offer, SCOffer, HandlerPid},
 
                     {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
+
+                    ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     erlang:monitor(process, HandlerPid),
@@ -375,9 +377,11 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   SC3 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
                   SC4 = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
                   %% Save state channel to db
-                  ok = blockchain_state_channel_v1:save(DB, SC4, Skewed1),
                   SC4
           end,
+
+
+    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
 
     %lager:info("packet: ~p successfully validated, updating state",
     %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
