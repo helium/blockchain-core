@@ -172,9 +172,9 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
             #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
     %% NOTE: This function is for testing, we should do something else probably
-    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
     FakeSCID = blockchain_state_channel_v1:id(FakeSC),
     SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    ok = blockchain_state_channel_v1:save(DB, SignedFakeSC, FakeSkewed),
     SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
     {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
@@ -380,7 +380,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
     Payload = blockchain_helium_packet_v1:payload(Packet),
     {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
 
-    SignedSC = case State#state.sc_version of
+    NewSC = case State#state.sc_version of
               2 ->
                   %% we don't update the state channel summary here
                   %% it happens in `send_purchase` for v2 SCs
@@ -388,12 +388,12 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
               _ ->
                   SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1),
                   ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-                  SC3 = blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2),
-                  SC4 = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
-                  %% Save state channel to db
-                  SC4
+                  blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
           end,
 
+    SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+
+    %% save it
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
 
     %% Put new state_channel in our map
