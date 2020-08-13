@@ -243,7 +243,7 @@ handle_cast({offer, SCOffer, HandlerPid},
             PacketHash = blockchain_state_channel_offer_v1:packet_hash(SCOffer),
             {ActiveSC, Skewed} = maps:get(ActiveSCID, SCs, undefined),
 
-            NumDCs = blockchain_utils:do_calculate_dc_amount(State#state.dc_payload_size, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, State#state.dc_payload_size),
             TotalDCs = blockchain_state_channel_v1:total_dcs(ActiveSC),
             DCAmount = blockchain_state_channel_v1:amount(ActiveSC),
             case (TotalDCs + NumDCs) > DCAmount andalso
@@ -551,7 +551,8 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                           Owner :: libp2p_crypto:pubkey_bin(),
                           OwnerSigFun :: function()) -> ok.
 close_state_channel(SC, Owner, OwnerSigFun) ->
-    Txn = blockchain_txn_state_channel_close_v1:new(SC, Owner),
+    SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+    Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
     ok = blockchain_worker:submit_txn(SignedTxn),
     lager:info("closing state channel ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]),
@@ -774,7 +775,7 @@ send_rejection(Stream) ->
 update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC) ->
     case blockchain_state_channel_v1:get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
-            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             NewSummary = blockchain_state_channel_summary_v1:new(ClientPubkeyBin, 1, NumDCs),
             %% Add this to summaries
             blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin, NewSummary, SC);
@@ -782,7 +783,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC) ->
             %% Update packet count for this client
             ExistingNumPackets = blockchain_state_channel_summary_v1:num_packets(ExistingSummary),
             %% Update DC count for this client
-            NumDCs = blockchain_utils:do_calculate_dc_amount(DCPayloadSize, PayloadSize),
+            NumDCs = blockchain_utils:do_calculate_dc_amount(PayloadSize, DCPayloadSize),
             ExistingNumDCs = blockchain_state_channel_summary_v1:num_dcs(ExistingSummary),
             NewSummary = blockchain_state_channel_summary_v1:update(ExistingNumDCs + NumDCs,
                                                                     ExistingNumPackets + 1,
