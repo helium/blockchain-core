@@ -68,7 +68,7 @@ sc_clients_cf() ->
 -spec write( SC :: blockchain_state_channel_v1:state_channel(),
              Skewed :: skewed:skewed()) -> ok.
 write(SC, Skewed) ->
-    gen_server:call(?MODULE, {write, SC, Skewed}, infinity).
+    gen_server:cast(?MODULE, {write, SC, Skewed}).
 
 -spec gc( [ blockchain_state_channel_v1:id() ] ) -> ok.
 gc(IDs) ->
@@ -99,11 +99,6 @@ handle_call(sc_servers_cf, _From, #state{sc_servers_cf=CF}=State) ->
     {reply, CF, State};
 handle_call({gc, IDs}, _From, #state{pending=P}=State)->
     {reply, ok, State#state{pending=maps:without(IDs, P)}};
-handle_call({write, SC, Skewed}, _From, #state{pending=P}=State) ->
-    SCID = blockchain_state_channel_v1:id(SC),
-    %% defer encoding until write time
-    NewP = maps:put(SCID, {SC, Skewed}, P),
-    {reply, ok, State#state{pending=NewP}};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -114,6 +109,11 @@ handle_cast({store_active_sc_id, ID}, #state{active_sc_ids=ActiveIDs}=State) ->
                       false -> [ ID | ActiveIDs ]
                   end,
    {noreply, State#state{active_sc_ids=NewActiveIDs}};
+handle_cast({write, SC, Skewed}, #state{pending=P}=State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    %% defer encoding until write time
+    NewP = maps:put(SCID, {SC, Skewed}, P),
+    {reply, ok, State#state{pending=NewP}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
