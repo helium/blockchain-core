@@ -261,7 +261,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
                     %% switch over the active ID and save the closed one
-                    blockchain_state_channels_db_owner:store_active_sc_id(NewActiveID),
                     NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
@@ -272,7 +271,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
 
                     ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
-                    blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     {noreply, NewState}
@@ -397,7 +395,6 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
           end,
 
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-    ok = blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
@@ -604,32 +601,26 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
     end.
 
 -spec update_state_with_ledger_channels(State :: state()) -> state().
-update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
+update_state_with_ledger_channels(#state{db=DB}=State) ->
     ConvertedSCs = convert_to_state_channels(State),
     lager:info("state channels rehydrated from ledger: ~p", [ConvertedSCs]),
-    DBSCs = case get_state_channels(DB, SCF) of
-                {error, _} ->
-                    #{};
-                {ok, SCIDs} ->
-                    lists:foldl(
-                      fun(ID, Acc) ->
-                              case blockchain_state_channel_v1:fetch(DB, ID) of
-                                  {error, _Reason} ->
-                                      % TODO: Maybe cleanup not_found state channels from list
-                                      lager:warning("could not get state channel ~p: ~p",
-                                                    [libp2p_crypto:bin_to_b58(ID), _Reason]),
-                                      Acc;
-                                  {ok, {SC, Skewed}} ->
-                                      lager:info("updating state from scdb ID: ~p",
-                                                 [libp2p_crypto:bin_to_b58(ID), SC]),
-                                      maps:put(ID, {SC, Skewed}, Acc)
-                              end
-                      end,
-                      #{}, SCIDs)
-            end,
-
-    lager:info("fetched state channels from database writes: ~p", [DBSCs]),
     ConvertedSCKeys = maps:keys(ConvertedSCs),
+    DBSCs = lists:foldl(
+              fun(ID, Acc) ->
+                      case blockchain_state_channel_v1:fetch(DB, ID) of
+                          {error, _Reason} ->
+                              % TODO: Maybe cleanup not_found state channels from list
+                              lager:warning("could not get state channel ~p: ~p",
+                                            [libp2p_crypto:bin_to_b58(ID), _Reason]),
+                              Acc;
+                          {ok, {SC, Skewed}} ->
+                              lager:info("updating state from scdb ID: ~p",
+                                         [libp2p_crypto:bin_to_b58(ID), SC]),
+                              maps:put(ID, {SC, Skewed}, Acc)
+                      end
+              end,
+              #{}, ConvertedSCKeys),
+    lager:info("fetched state channels from database writes: ~p", [DBSCs]),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
     SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
     lager:info("scs after merge: ~p", [SCs]),
