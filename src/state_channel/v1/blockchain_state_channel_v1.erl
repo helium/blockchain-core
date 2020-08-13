@@ -223,6 +223,9 @@ validate(SC) ->
     Signature = ?MODULE:signature(SC),
     Owner = ?MODULE:owner(SC),
     PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+
+    lager:info("SC: ~p, Signature: ~p", [SC, Signature]),
+
     case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
         false -> {error, bad_signature};
         true -> validate_summaries(summaries(SC))
