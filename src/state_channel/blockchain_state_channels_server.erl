@@ -58,7 +58,7 @@
 -type state() :: #state{}.
 -type state_channels() :: #{blockchain_state_channel_v1:id() => {blockchain_state_channel_v1:state_channel(),
                                                                  skewed:skewed()}}.
--type streams() :: #{libp2p_crypto:pubkey_bin() => pid()}.
+-type streams() :: #{libp2p_crypto:pubkey_bin() => {pid(), reference()}}.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -350,7 +350,7 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
             end,
     {noreply, NewState#state{dc_payload_size=DCPayloadSize, sc_version=SCVer}};
 handle_info({'DOWN', _Ref, process, Pid, _}, State=#state{streams=Streams}) ->
-    FilteredStreams = maps:filter(fun(_Name, Stream) ->
+    FilteredStreams = maps:filter(fun(_Name, {Stream, _}) ->
                                           Stream /= Pid
                                   end, Streams),
     {noreply, State#state{streams=FilteredStreams}};
@@ -403,17 +403,17 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                        Stream :: pid(),
                        State :: state()) -> state().
 maybe_add_stream(ClientPubkeyBin, Stream, #state{streams=Streams}=State) ->
-    case maps:get(ClientPubkeyBin, Streams, undefined) of
-        undefined ->
-            Ref = erlang:monitor(process, Stream),
-            State#state{streams=maps:put(ClientPubkeyBin, {Stream, Ref}, Streams)};
-        {_FoundStream, OldRef} ->
-            %% demonitor the old stream for this client and monitor the new one
-            erlang:demonitor(OldRef),
-            Ref = erlang:monitor(process, Stream),
-            State#state{streams=maps:put(ClientPubkeyBin, {Stream, Ref}, Streams)}
-    end.
-
+   State#state{streams =
+               maps:update_with(ClientPubkeyBin, fun({_OldStream, OldRef}) ->
+                                                         %% we have an existing stream, demonitor it
+                                                         %% and monitor new one
+                                                         erlang:demonitor(OldRef),
+                                                         Ref = erlang:monitor(process, Stream),
+                                                         {Stream, Ref}
+                                                 end,
+                                %% value if not present
+                                {Stream, erlang:monitor(process, Stream)},
+                                Streams)}.
 -spec update_state_sc_open(
         Txn :: blockchain_txn_state_channel_open_v1:txn_state_channel_open(),
         BlockHash :: blockchain_block:hash(),
@@ -464,7 +464,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
         0 -> ok;
         _ ->
             _Res = blockchain_utils:pmap(
-                     fun(Stream) ->
+                     fun({Stream, _Ref}) ->
                              catch send_banner(SC, Stream)
                      end, maps:values(Streams)),
             ok
@@ -633,7 +633,7 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
-    lager:info("NewActiveSCID: ~p", [libp2p_crypto:bin_to_b58(NewActiveSCID)]),
+    lager:info("NewActiveSCID: ~p", [NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
