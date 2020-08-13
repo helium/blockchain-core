@@ -214,4 +214,4 @@ get_env(Key, Default) ->
 
 store_active_sc_ids(DB, CF, Active) ->
     Bin = term_to_binary(Active),
-    rocksdb:put(DB, CF, ?STATE_CHANNELS, Bin).
+    rocksdb:put(DB, CF, ?STATE_CHANNELS, Bin, [{sync, false}]).
