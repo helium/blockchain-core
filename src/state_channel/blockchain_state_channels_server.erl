@@ -172,9 +172,9 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
             #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
     %% NOTE: This function is for testing, we should do something else probably
-    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
     FakeSCID = blockchain_state_channel_v1:id(FakeSC),
     SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    ok = blockchain_state_channel_v1:save(DB, SignedFakeSC, FakeSkewed),
     SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
     {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
@@ -393,8 +393,10 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   update_sc_summary(ClientPubkeyBin, byte_size(Payload),
                                     State#state.dc_payload_size, SC2)
           end,
+
     SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
 
+    %% save it
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
 
     %% Put new state_channel in our map
