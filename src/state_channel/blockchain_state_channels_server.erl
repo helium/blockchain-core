@@ -204,7 +204,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({packet, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=State) ->
+handle_cast({packet, _ClientPubkeyBin, SCPacket, _HandlerPid}, #state{active_sc_id=undefined}=State) ->
     lager:warning("Got packet: ~p when no sc is active", [SCPacket]),
     {noreply, State};
 handle_cast({packet, ClientPubkeyBin, Packet, HandlerPid},
