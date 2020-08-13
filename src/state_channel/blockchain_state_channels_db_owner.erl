@@ -113,7 +113,7 @@ handle_cast({write, SC, Skewed}, #state{pending=P}=State) ->
     SCID = blockchain_state_channel_v1:id(SC),
     %% defer encoding until write time
     NewP = maps:put(SCID, {SC, Skewed}, P),
-    {reply, ok, State#state{pending=NewP}};
+    {noreply, State#state{pending=NewP}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
