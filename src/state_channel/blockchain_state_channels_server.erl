@@ -266,7 +266,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                     {ok, NewSC} = send_purchase(ActiveSC, Hotspot, HandlerPid, PacketHash,
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
 
-                    ok = blockchain_state_channel_v1:save(DB, NewSC, Skewed),
+                    ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     erlang:monitor(process, HandlerPid),
