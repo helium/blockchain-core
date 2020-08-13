@@ -91,7 +91,13 @@ handle_call(sc_clients_cf, _From, #state{sc_clients_cf=CF}=State) ->
     {reply, CF, State};
 handle_call(sc_servers_cf, _From, #state{sc_servers_cf=CF}=State) ->
     {reply, CF, State};
-handle_call({gc, IDs}, _From, #state{pending=P}=State)->
+handle_call({gc, IDs}, _From, #state{pending=P, db=DB}=State)->
+    {ok, Batch} = rocksdb:batch(),
+    ok = lists:foreach(fun(SCID) ->
+                      ok = rocksdb:batch_delete(Batch, SCID)
+              end, IDs),
+    ok = rocksdb:write_batch(DB, Batch, []),
+    ok = rocksdb:release_batch(Batch),
     {reply, ok, State#state{pending=maps:without(IDs, P)}};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
