@@ -545,7 +545,8 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                           Owner :: libp2p_crypto:pubkey_bin(),
                           OwnerSigFun :: function()) -> ok.
 close_state_channel(SC, Owner, OwnerSigFun) ->
-    Txn = blockchain_txn_state_channel_close_v1:new(SC, Owner),
+    SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
+    Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
     ok = blockchain_worker:submit_txn(SignedTxn),
     lager:info("closing state channel ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]),
