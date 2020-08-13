@@ -172,9 +172,9 @@ handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
 handle_call({insert_fake_sc_skewed, FakeSC, FakeSkewed}, _From,
             #state{db=DB, state_channels=SCs, owner={_, OwnerSigFun}}=State) ->
     %% NOTE: This function is for testing, we should do something else probably
-    ok = blockchain_state_channel_v1:save(DB, FakeSC, FakeSkewed),
     FakeSCID = blockchain_state_channel_v1:id(FakeSC),
     SignedFakeSC = blockchain_state_channel_v1:sign(FakeSC, OwnerSigFun),
+    ok = blockchain_state_channel_v1:save(DB, SignedFakeSC, FakeSkewed),
     SCMap = maps:update(FakeSCID, {SignedFakeSC, FakeSkewed}, SCs),
     {reply, ok, State#state{state_channels=SCMap}};
 handle_call(state_channels, _From, #state{state_channels=SCs}=State) ->
@@ -261,7 +261,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
                     %% switch over the active ID and save the closed one
-                    blockchain_state_channels_db_owner:store_active_sc_id(NewActiveID),
                     NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
@@ -272,7 +271,6 @@ handle_cast({offer, SCOffer, HandlerPid},
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
 
                     ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
-                    blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     {noreply, NewState}
@@ -309,6 +307,7 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                             end,
             TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer},
             LoadState = update_state_with_ledger_channels(TempState),
+            lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
             {noreply, LoadState}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
@@ -394,10 +393,11 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   update_sc_summary(ClientPubkeyBin, byte_size(Payload),
                                     State#state.dc_payload_size, SC2)
           end,
+
     SignedSC = blockchain_state_channel_v1:sign(SC3, OwnerSigFun),
 
+    %% save it
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-    ok = blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
@@ -604,48 +604,50 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
     end.
 
 -spec update_state_with_ledger_channels(State :: state()) -> state().
-update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
+update_state_with_ledger_channels(#state{db=DB}=State) ->
     ConvertedSCs = convert_to_state_channels(State),
-    DBSCs = case get_state_channels(DB, SCF) of
-                {error, _} ->
-                    #{};
-                {ok, SCIDs} ->
-                    lists:foldl(
-                      fun(ID, Acc) ->
-                              case blockchain_state_channel_v1:fetch(DB, ID) of
-                                  {error, _Reason} ->
-                                      % TODO: Maybe cleanup not_found state channels from list
-                                      lager:warning("could not get state channel ~p: ~p",
-                                                    [libp2p_crypto:bin_to_b58(ID), _Reason]),
-                                      Acc;
-                                  {ok, {SC, Skewed}} ->
-                                      lager:info("updating state from scdb ID: ~p",
-                                                 [libp2p_crypto:bin_to_b58(ID), SC]),
-                                      maps:put(ID, {SC, Skewed}, Acc)
-                              end
-                      end,
-                      #{}, SCIDs)
-            end,
-
+    lager:info("state channels rehydrated from ledger: ~p", [ConvertedSCs]),
     ConvertedSCKeys = maps:keys(ConvertedSCs),
+    DBSCs = lists:foldl(
+              fun(ID, Acc) ->
+                      case blockchain_state_channel_v1:fetch(DB, ID) of
+                          {error, _Reason} ->
+                              % TODO: Maybe cleanup not_found state channels from list
+                              lager:warning("could not get state channel ~p: ~p",
+                                            [libp2p_crypto:bin_to_b58(ID), _Reason]),
+                              Acc;
+                          {ok, {SC, Skewed}} ->
+                              lager:info("updating state from scdb ID: ~p",
+                                         [libp2p_crypto:bin_to_b58(ID), SC]),
+                              maps:put(ID, {SC, Skewed}, Acc)
+                      end
+              end,
+              #{}, ConvertedSCKeys),
+    lager:info("fetched state channels from database writes: ~p", [DBSCs]),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
     SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
+    lager:info("scs after merge: ~p", [SCs]),
+
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
+    lager:info("presumably closed sc ids: ~p", [ClosedSCIDs]),
     %% Delete these from sc db
-    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
+    %ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("NewActiveSCID: ~p", [NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
--spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
+-spec get_state_channels(DB :: rocksdb:db_handle(),
+                         SCF :: rocksdb:cf_handle()) ->
+   {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
 get_state_channels(DB, SCF) ->
-    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, [{sync, true}]) of
+    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, []) of
         {ok, Bin} ->
-            lager:info("found sc: ~p, from db", [Bin]),
-            {ok, erlang:binary_to_term(Bin)};
+            L = binary_to_term(Bin),
+            lager:info("found sc ids from db: ~p", [L]),
+            {ok, L};
         not_found ->
             lager:warning("no state_channel found in db"),
             {ok, []};

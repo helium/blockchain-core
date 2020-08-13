@@ -20,8 +20,7 @@
          sc_servers_cf/0,
          sc_clients_cf/0,
          write/2,
-         gc/1,
-         store_active_sc_id/1
+         gc/1
         ]).
 
 %% gen_server exports
@@ -45,8 +44,7 @@
           sc_clients_cf :: rocksdb:cf_handle(),
           write_interval = 1000 :: pos_integer(),
           tref :: reference(),
-          pending = #{} :: maps:map(),
-          active_sc_ids = [] :: [ blockchain_state_channel_v1:id() ]
+          pending = #{} :: maps:map()
          }).
 
 %% api functions
@@ -68,15 +66,11 @@ sc_clients_cf() ->
 -spec write( SC :: blockchain_state_channel_v1:state_channel(),
              Skewed :: skewed:skewed()) -> ok.
 write(SC, Skewed) ->
-    gen_server:call(?MODULE, {write, SC, Skewed}, infinity).
+    gen_server:cast(?MODULE, {write, SC, Skewed}).
 
 -spec gc( [ blockchain_state_channel_v1:id() ] ) -> ok.
 gc(IDs) ->
     gen_server:call(?MODULE, {gc, IDs}, infinity).
-
--spec store_active_sc_id( ID :: blockchain_state_channel_v1:id() ) -> ok.
-store_active_sc_id(ID) ->
-    gen_server:cast(?MODULE, {store_active_sc_id, ID}).
 
 %% gen_server callbacks
 init(Args) ->
@@ -97,23 +91,23 @@ handle_call(sc_clients_cf, _From, #state{sc_clients_cf=CF}=State) ->
     {reply, CF, State};
 handle_call(sc_servers_cf, _From, #state{sc_servers_cf=CF}=State) ->
     {reply, CF, State};
-handle_call({gc, IDs}, _From, #state{pending=P}=State)->
+handle_call({gc, IDs}, _From, #state{pending=P, db=DB}=State)->
+    {ok, Batch} = rocksdb:batch(),
+    ok = lists:foreach(fun(SCID) ->
+                      ok = rocksdb:batch_delete(Batch, SCID)
+              end, IDs),
+    ok = rocksdb:write_batch(DB, Batch, []),
+    ok = rocksdb:release_batch(Batch),
     {reply, ok, State#state{pending=maps:without(IDs, P)}};
-handle_call({write, SC, Skewed}, _From, #state{pending=P}=State) ->
-    SCID = blockchain_state_channel_v1:id(SC),
-    %% defer encoding until write time
-    NewP = maps:put(SCID, {SC, Skewed}, P),
-    {reply, ok, State#state{pending=NewP}};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({store_active_sc_id, ID}, #state{active_sc_ids=ActiveIDs}=State) ->
-   NewActiveIDs = case lists:member(ID, ActiveIDs) of
-                      true -> ActiveIDs;
-                      false -> [ ID | ActiveIDs ]
-                  end,
-   {noreply, State#state{active_sc_ids=NewActiveIDs}};
+handle_cast({write, SC, Skewed}, #state{pending=P}=State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    %% defer encoding until write time
+    NewP = maps:put(SCID, {SC, Skewed}, P),
+    {noreply, State#state{pending=NewP}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -122,20 +116,12 @@ handle_info({'EXIT', _From, _Reason} , #state{db=DB}=State) ->
     lager:info("EXIT because: ~p, closing rocks: ~p", [_Reason, DB]),
     ok = rocksdb:close(DB),
     {stop, db_owner_exit, State};
-handle_info(?TICK, #state{pending=P, write_interval=W,
-                          db=DB,
-                          sc_servers_cf=CF,
-                          active_sc_ids=Active}=State) when map_size(P) == 0 ->
-    lager:debug("No pending writes this tick"),
-    ok = store_active_sc_ids(DB, CF, Active),
+handle_info(?TICK, #state{pending=P, write_interval=W}=State) when map_size(P) == 0 ->
     Tref = schedule_next_tick(W),
     {noreply, State#state{tref=Tref}};
 handle_info(?TICK, #state{pending=P, db=DB,
-                          sc_servers_cf=CF,
-                          active_sc_ids=Active,
                           write_interval=W}=State) ->
     lager:info("~p pending writes this tick", [map_size(P)]),
-    ok = store_active_sc_ids(DB, CF, Active),
     ok = handle_batch_write(DB, P),
     Tref = schedule_next_tick(W),
     {noreply, State#state{tref=Tref, pending=#{}}};
@@ -146,14 +132,12 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{db=DB, sc_servers_cf=CF,
-                          active_sc_ids=Active, pending=P}) when map_size(P) == 0 ->
-    ok = store_active_sc_ids(DB, CF, Active),
+terminate(_Reason, #state{db=DB,
+                          pending=P}) when map_size(P) == 0 ->
     ok = rocksdb:close(DB),
     ok;
-terminate(_Reason, #state{db=DB, sc_servers_cf=CF,
-                          active_sc_ids=Active, pending=P}) ->
-    ok = store_active_sc_ids(DB, CF, Active),
+terminate(_Reason, #state{db=DB,
+                          pending=P}) ->
     ok = handle_batch_write(DB, P),
     ok = rocksdb:close(DB),
     ok.
@@ -164,10 +148,11 @@ terminate(_Reason, #state{db=DB, sc_servers_cf=CF,
                                       {error, any()}.
 open_db(Dir, CFNames) ->
     ok = filelib:ensure_dir(Dir),
+    DBDir = filename:join(Dir, ?DB_FILE),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     ExistingCFs =
-        case rocksdb:list_column_families(Dir, DBOptions) of
+        case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
                 CFs0;
             {error, _} ->
@@ -175,7 +160,7 @@ open_db(Dir, CFNames) ->
         end,
 
     CFOpts = GlobalOpts,
-    case rocksdb:open_with_cf(Dir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
+    case rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
         {error, _Reason}=Error ->
             Error;
         {ok, DB, OpenedCFs} ->
@@ -211,7 +196,3 @@ get_env(Key, Default) ->
         {ok, X} -> X;
         Default -> Default
     end.
-
-store_active_sc_ids(DB, CF, Active) ->
-    Bin = term_to_binary(Active),
-    rocksdb:put(DB, CF, ?STATE_CHANNELS, Bin, [{sync, false}]).
