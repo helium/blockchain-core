@@ -682,7 +682,7 @@ convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
                      Owner = SCMod:owner(LedgerStateChannel),
                      ExpireAt = SCMod:expire_at_block(LedgerStateChannel),
                      Amount = case SCMod of
-                                  blockchain_ledger_state_channel_v2 -> SCMod:amount(LedgerStateChannel);
+                                  blockchain_ledger_state_channel_v2 -> SCMod:original(LedgerStateChannel);
                                   _ -> 0
                               end,
 
