@@ -619,9 +619,6 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
             end,
 
     ConvertedSCKeys = maps:keys(ConvertedSCs),
-    lager:info("ConvertedSC IDs: ~p, DBSC IDs: ~p",
-               [[?BIN_TO_B58(blockchain_state_channel_v1:id(I)) || I <- ConvertedSCKeys],
-                [?BIN_TO_B58(blockchain_state_channel_v1:id(J)) || J <- maps:keys(DBSCs)]]),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
     SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
     %% These don't exist in the ledger but we have them in the sc db,
