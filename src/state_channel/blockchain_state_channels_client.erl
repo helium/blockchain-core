@@ -869,7 +869,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
             Txn = blockchain_txn_state_channel_close_v1:new(SC0, SC, PubkeyBin),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
-            lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+            lager:info("closing state channel on conflict ~p: ~p",
+                       [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]);
         {ok, SCs} ->
             lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
             %% TODO check for 'overpaid' state channels as well, not just causal conflicts
@@ -911,7 +912,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                     Txn = blockchain_txn_state_channel_close_v1:new(lists:last(SortedConflicts), SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
+                    lager:info("closing state channel on conflict ~p: ~p",
+                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn])
             end;
         _ ->
             ok

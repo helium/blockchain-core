@@ -298,7 +298,6 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                             end,
             TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize},
             LoadState = update_state_with_ledger_channels(TempState),
-            lager:info("load state: ~p", [LoadState]),
             {noreply, LoadState}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
@@ -380,11 +379,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                   SC4
           end,
 
-
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
-
-    %lager:info("packet: ~p successfully validated, updating state",
-    %                   [blockchain_utils:bin_to_hex(blockchain_helium_packet_v1:encode(Packet))]),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
@@ -436,7 +431,8 @@ update_state_sc_open(Txn,
             case ActiveSCID of
                 undefined ->
                     %% Switching active sc, broadcast banner
-                    lager:info("broadcasting banner: ~p", [SignedSC]),
+                    lager:info("broadcasting banner scid: ~p",
+                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SignedSC))]),
                     ok = maybe_broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
@@ -555,7 +551,8 @@ close_state_channel(SC, Owner, OwnerSigFun) ->
     Txn = blockchain_txn_state_channel_close_v1:new(SignedSC, Owner),
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
     ok = blockchain_worker:submit_txn(SignedTxn),
-    lager:info("closing state channel ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]),
+    lager:info("closing state channel ~p: ~p",
+               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]),
     ok.
 
 %%--------------------------------------------------------------------
@@ -603,17 +600,18 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
                               case blockchain_state_channel_v1:fetch(DB, ID) of
                                   {error, _Reason} ->
                                       % TODO: Maybe cleanup not_found state channels from list
-                                      lager:warning("could not get state channel ~p: ~p", [ID, _Reason]),
+                                      lager:warning("could not get state channel ~p: ~p",
+                                                    [libp2p_crypto:bin_to_b58(ID), _Reason]),
                                       Acc;
                                   {ok, {SC, Skewed}} ->
-                                      lager:info("from scdb ID: ~p, SC: ~p", [ID, SC]),
+                                      lager:info("updating state from scdb ID: ~p",
+                                                 [libp2p_crypto:bin_to_b58(ID), SC]),
                                       maps:put(ID, {SC, Skewed}, Acc)
                               end
                       end,
                       #{}, SCIDs)
             end,
 
-    lager:info("ConvertedSCs: ~p, DBSCs: ~p", [ConvertedSCs, DBSCs]),
     ConvertedSCKeys = maps:keys(ConvertedSCs),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
     SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
@@ -624,7 +622,7 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
-    lager:info("SCs: ~p, NewActiveSCID: ~p", [SCs, NewActiveSCID]),
+    lager:info("NewActiveSCID: ~p", [libp2p_crypto:bin_to_b58(NewActiveSCID)]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
