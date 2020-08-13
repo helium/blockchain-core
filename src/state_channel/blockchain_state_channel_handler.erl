@@ -35,7 +35,7 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--record(state, {}).
+-record(state, {ledger :: undefined | blockchain_ledger_v1:ledger()}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -102,12 +102,12 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     %% Send empty banner
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sc_handler, empty banner: ~p", [SCBanner]),
-                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
+                    {ok, #state{ledger=Ledger}, blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSC ->
                     %lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     %lager:info("sc_handler, banner: ~p", [SCBanner]),
-                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+                    {ok, #state{ledger=Ledger}, blockchain_state_channel_message_v1:encode(SCBanner)}
             end;
         _ -> {ok, #state{}}
     end.
@@ -135,7 +135,7 @@ handle_data(server, Data, State) ->
             blockchain_state_channels_server:offer(Offer, self());
         {packet, Packet} ->
             lager:debug("sc_handler server got packet: ~p", [Packet]),
-            blockchain_state_channels_server:packet(Packet, self())
+            blockchain_state_channels_server:packet(Packet, State#state.ledger, self())
     end,
     {noreply, State}.
 
