@@ -309,6 +309,7 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                             end,
             TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer},
             LoadState = update_state_with_ledger_channels(TempState),
+            lager:info("loaded state channels: ~p", [LoadState#state.state_channels]),
             {noreply, LoadState}
     end;
 handle_info({blockchain_event, {new_chain, NC}}, State) ->
@@ -605,6 +606,7 @@ get_state_channels_txns_from_block(Chain, BlockHash, #state{state_channels=SCs, 
 -spec update_state_with_ledger_channels(State :: state()) -> state().
 update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ConvertedSCs = convert_to_state_channels(State),
+    lager:info("state channels rehydrated from ledger: ~p", [ConvertedSCs]),
     DBSCs = case get_state_channels(DB, SCF) of
                 {error, _} ->
                     #{};
@@ -626,25 +628,32 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
                       #{}, SCIDs)
             end,
 
+    lager:info("fetched state channels from database writes: ~p", [DBSCs]),
     ConvertedSCKeys = maps:keys(ConvertedSCs),
     %% Merge DBSCs with ConvertedSCs with only matching IDs
     SCs = maps:merge(ConvertedSCs, maps:with(ConvertedSCKeys, DBSCs)),
+    lager:info("scs after merge: ~p", [SCs]),
+
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
+    lager:info("presumably closed sc ids: ~p", [ClosedSCIDs]),
     %% Delete these from sc db
-    ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
+    %ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("NewActiveSCID: ~p", [NewActiveSCID]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
--spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
+-spec get_state_channels(DB :: rocksdb:db_handle(),
+                         SCF :: rocksdb:cf_handle()) ->
+   {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
 get_state_channels(DB, SCF) ->
     case rocksdb:get(DB, SCF, ?STATE_CHANNELS, []) of
         {ok, Bin} ->
-            lager:info("found sc: ~p, from db", [Bin]),
-            {ok, erlang:binary_to_term(Bin)};
+            L = binary_to_term(Bin),
+            lager:info("found sc ids from db: ~p", [L]),
+            {ok, L};
         not_found ->
             lager:warning("no state_channel found in db"),
             {ok, []};
