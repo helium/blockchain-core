@@ -38,7 +38,7 @@
 -include("blockchain_vars.hrl").
 
 -define(SERVER, ?MODULE).
--define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
+-define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
 
 -record(state, {
@@ -261,6 +261,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
                     %% switch over the active ID and save the closed one
+                    blockchain_state_channels_db_owner:store_active_sc_id(NewActiveID),
                     NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
@@ -271,6 +272,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                                                 PayloadSize, Region, State#state.dc_payload_size, OwnerSigFun),
 
                     ok = blockchain_state_channel_v1:save(State#state.db, NewSC, Skewed),
+                    blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
                     NewState = maybe_add_stream(Hotspot, HandlerPid,
                                                 State#state{state_channels=maps:put(ActiveSCID, {NewSC, Skewed}, SCs)}),
                     {noreply, NewState}
@@ -394,6 +396,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
           end,
 
     ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+    ok = blockchain_state_channels_db_owner:store_active_sc_id(ActiveSCID),
 
     %% Put new state_channel in our map
     TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
