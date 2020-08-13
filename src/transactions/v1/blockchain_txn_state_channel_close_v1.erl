@@ -139,8 +139,15 @@ is_valid(Txn, Chain) ->
                   _ ->
                       0
               end,
+    SCVersion = case blockchain:config(?sc_version, Ledger) of
+                    {ok, V} ->
+                        V;
+                    _ ->
+                        0
+                end,
     %% first check if it's time to expire
-    case LedgerHeight >= ExpiresAt andalso
+    case SCVersion /= 0 andalso
+         LedgerHeight >= ExpiresAt andalso
          LedgerHeight =< ExpiresAt + SCGrace of
         false ->
             {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
