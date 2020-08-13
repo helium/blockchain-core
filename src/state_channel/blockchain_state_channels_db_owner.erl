@@ -164,10 +164,11 @@ terminate(_Reason, #state{db=DB, sc_servers_cf=CF,
                                       {error, any()}.
 open_db(Dir, CFNames) ->
     ok = filelib:ensure_dir(Dir),
+    DBDir = filename:join(Dir, ?DB_FILE),
     GlobalOpts = application:get_env(rocksdb, global_opts, []),
     DBOptions = [{create_if_missing, true}, {atomic_flush, true}] ++ GlobalOpts,
     ExistingCFs =
-        case rocksdb:list_column_families(Dir, DBOptions) of
+        case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
                 CFs0;
             {error, _} ->
@@ -175,7 +176,7 @@ open_db(Dir, CFNames) ->
         end,
 
     CFOpts = GlobalOpts,
-    case rocksdb:open_with_cf(Dir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
+    case rocksdb:open_with_cf(DBDir, DBOptions,  [{CF, CFOpts} || CF <- ExistingCFs]) of
         {error, _Reason}=Error ->
             Error;
         {ok, DB, OpenedCFs} ->
