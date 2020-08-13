@@ -7,8 +7,6 @@
 
 -behavior(gen_server).
 
--include("blockchain_json.hrl").
-
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -434,7 +432,7 @@ update_state_sc_open(Txn,
                 undefined ->
                     %% Switching active sc, broadcast banner
                     lager:info("broadcasting banner scid: ~p",
-                               [?BIN_TO_B58(blockchain_state_channel_v1:id(SignedSC))]),
+                               [libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SignedSC))]),
                     ok = maybe_broadcast_banner(SignedSC, State),
 
                     %% Don't have any active state channel
@@ -558,7 +556,7 @@ close_state_channel(SC, Owner, OwnerSigFun) ->
     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, OwnerSigFun),
     ok = blockchain_worker:submit_txn(SignedTxn),
     lager:info("closing state channel ~p: ~p",
-               [?BIN_TO_B58(blockchain_state_channel_v1:id(SC)), SignedTxn]),
+               [libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]),
     ok.
 
 %%--------------------------------------------------------------------
@@ -607,11 +605,11 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
                                   {error, _Reason} ->
                                       % TODO: Maybe cleanup not_found state channels from list
                                       lager:warning("could not get state channel ~p: ~p",
-                                                    [?BIN_TO_B58(ID), _Reason]),
+                                                    [libp2p_crpyto:bin_to_b58(ID), _Reason]),
                                       Acc;
                                   {ok, {SC, Skewed}} ->
                                       lager:info("updating state from scdb ID: ~p",
-                                                 [?BIN_TO_B58(ID), SC]),
+                                                 [libp2p_crpyto:bin_to_b58(ID), SC]),
                                       maps:put(ID, {SC, Skewed}, Acc)
                               end
                       end,
@@ -628,7 +626,7 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
     ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
 
     NewActiveSCID = maybe_get_new_active(SCs),
-    lager:info("NewActiveSCID: ~p", [?BIN_TO_B58(NewActiveSCID)]),
+    lager:info("NewActiveSCID: ~p", [libp2p_crpyto:bin_to_b58(NewActiveSCID)]),
     State#state{state_channels=SCs, active_sc_id=NewActiveSCID}.
 
 -spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.

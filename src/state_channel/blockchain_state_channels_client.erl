@@ -7,8 +7,6 @@
 
 -behavior(gen_server).
 
--include("blockchain_json.hrl").
-
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -699,7 +697,7 @@ is_causally_correct_sc(SC, State) ->
             Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
                      equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
             lager:info("causality check: ~p, this scid: ~p, known_scid: ~p",
-                       [Check, ?BIN_TO_B58(blockchain_state_channel_v1:id(SC)), ?BIN_TO_B58(blockchain_state_channel_v1:id(KnownSC))]),
+                       [Check, libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SC)), libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(KnownSC))]),
             Check;
         {ok, KnownSCs} ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
@@ -800,7 +798,7 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
             lager:info("closing state channel on conflict ~p: ~p",
-                       [?BIN_TO_B58(blockchain_state_channel_v1:id(SC)), SignedTxn]);
+                       [libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]);
         {ok, SCs} ->
             {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
             lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
@@ -837,7 +835,7 @@ close_state_channel(SC, State=#state{swarm=Swarm}) ->
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
                     lager:info("closing state channel on conflict ~p: ~p",
-                               [?BIN_TO_B58(blockchain_state_channel_v1:id(SC)), SignedTxn])
+                               [libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn])
             end;
         _ ->
             ok
@@ -849,8 +847,8 @@ conflicts(SCA, SCB) ->
     case blockchain_state_channel_v1:compare_causality(SCA, SCB) of
         conflict ->
             lager:info("sc_client reports state_channel conflict, SCA_ID: ~p, SCB_ID: ~p",
-                       [?BIN_TO_B58(blockchain_state_channel_v1:id(SCA)),
-                        ?BIN_TO_B58(blockchain_state_channel_v1:id(SCB))]),
+                       [libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SCA)),
+                        libp2p_crpyto:bin_to_b58(blockchain_state_channel_v1:id(SCB))]),
             true;
         _ ->
             false
