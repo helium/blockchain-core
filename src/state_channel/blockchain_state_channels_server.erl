@@ -710,6 +710,7 @@ convert_to_state_channels(#state{chain=Chain, owner={Owner, OwnerSigFun}}) ->
 %%-------------------------------------------------------------------
 -spec maybe_get_new_active(state_channels()) -> undefined | blockchain_state_channel_v1:id().
 maybe_get_new_active(SCs) ->
+    {ok, BlockHeight} = blockchain:height(blockchain_worker:blockchain()),
     case maps:to_list(SCs) of
         [] ->
             %% Don't have any state channel in state
@@ -727,6 +728,9 @@ maybe_get_new_active(SCs) ->
                            X -> X
                        end,
             FilterFun = fun({_, {SC, _}}) ->
+                                ExpireAt = blockchain_state_channel_v1:expire_at_block(SC),
+                                ExpireAt =< BlockHeight andalso
+                                blockchain_state_channel_v1:state(SC) == open andalso
                                 blockchain_state_channel_v1:amount(SC) > (blockchain_state_channel_v1:total_dcs(SC) + Headroom)
                         end,
 
