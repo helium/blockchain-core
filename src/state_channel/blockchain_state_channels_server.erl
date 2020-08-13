@@ -249,6 +249,11 @@ handle_cast({offer, SCOffer, HandlerPid},
             case (TotalDCs + NumDCs) > DCAmount andalso
                  application:get_env(blockchain, prevent_sc_overspend, true) of
                 true ->
+                    %% close out this channel
+                    SC0 = blockchain_state_channel_v1:state(closed, ActiveSC),
+                    SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                    ok = blockchain_state_channel_v1:save(State#state.db, SC1, Skewed),
+
                     %% will overspend so drop
                     %% TODO we should switch to the next state channel here
                     lager:warning("Dropping this packet because it will overspend DC ~p, (cost: ~p, packet: ~p)",
@@ -257,7 +262,8 @@ handle_cast({offer, SCOffer, HandlerPid},
                     %% NOTE: this function may return `undefined` if no SC is available
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
-                    NewState = State#state{active_sc_id=NewActiveID},
+                    %% switch over the active ID and save the closed one
+                    NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
                 false ->
