@@ -676,8 +676,6 @@ encode_decode_test() ->
     ?assertEqual(SC2, decode(encode(SC2))).
 
 causality_test() ->
-    BaseDir = test_utils:tmp_dir("causality_test"),
-    {ok, _DB} = open_db(BaseDir),
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
