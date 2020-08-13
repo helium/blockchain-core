@@ -17,7 +17,7 @@
     dial/3,
     send_packet/2,
     send_offer/2,
-    send_purchase/6,
+    send_purchase/5,
     send_response/2,
     send_banner/2,
     send_rejection/2
@@ -66,9 +66,9 @@ send_offer(Pid, Offer) ->
     ok.
 
 %-spec send_purchase(pid(), blockchain_state_channel_purchase_v1:purchase()) -> ok.
-send_purchase(Pid, NewPurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region) ->
+send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
     %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
-    Pid ! {send_purchase, NewPurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region},
+    Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
     ok.
 
 -spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
@@ -152,8 +152,7 @@ handle_info(server, {send_banner, Banner}, State) ->
 handle_info(server, {send_rejection, Rejection}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Rejection),
     {noreply, State, Data};
-handle_info(server, {send_purchase, PurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region}, State) ->
-    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
+handle_info(server, {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region}, State) ->
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
