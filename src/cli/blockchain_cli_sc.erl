@@ -110,6 +110,7 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
+    {ok, Height} = blockchain:height(blockchain_worker:blockchain()),
     maps:fold(fun(SCID, {SC, _}, Acc) ->
                       ID = binary_to_list(base64:encode(SCID)),
                       {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
@@ -128,6 +129,7 @@ format_sc_list(SCs) ->
                         {is_active, io_lib:format("~p", [IsActive])},
                         {root_hash, io_lib:format("~p", [RootHash])},
                         {expire_at, io_lib:format("~p", [ExpireAtBlock])},
+                        {expired, ExpireAtBlock =< Height},
                         {amount, Amount},
                         {num_dcs, NumDCs},
                         {num_packets, NumPackets},
