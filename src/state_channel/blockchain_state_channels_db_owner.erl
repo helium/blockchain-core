@@ -76,7 +76,7 @@ gc(IDs) ->
 
 -spec store_active_sc_id( ID :: blockchain_state_channel_v1:id() ) -> ok.
 store_active_sc_id(ID) ->
-    gen_server:call(?MODULE, {store_active_sc_id, ID}, infinity).
+    gen_server:cast(?MODULE, {store_active_sc_id, ID}).
 
 %% gen_server callbacks
 init(Args) ->
@@ -104,16 +104,16 @@ handle_call({write, SC, Skewed}, _From, #state{pending=P}=State) ->
     %% defer encoding until write time
     NewP = maps:put(SCID, {SC, Skewed}, P),
     {reply, ok, State#state{pending=NewP}};
-handle_call({store_active_sc_id, ID}, _From, #state{active_sc_ids=ActiveIDs}=State) ->
-   NewActiveIDs = case lists:member(ID, ActiveIDs) of
-                      true -> ActiveIDs;
-                      false -> [ ID | ActiveIDs ]
-                  end,
-   {reply, ok, State#state{active_sc_ids=NewActiveIDs}};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast({store_active_sc_id, ID}, #state{active_sc_ids=ActiveIDs}=State) ->
+   NewActiveIDs = case lists:member(ID, ActiveIDs) of
+                      true -> ActiveIDs;
+                      false -> [ ID | ActiveIDs ]
+                  end,
+   {noreply, State#state{active_sc_ids=NewActiveIDs}};
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
