@@ -642,7 +642,7 @@ update_state_with_ledger_channels(#state{db=DB, scf=SCF}=State) ->
 
 -spec get_state_channels(DB :: rocksdb:db_handle(), SCF :: rocksdb:cf_handle()) -> {ok, [blockchain_state_channel_v1:id()]} | {error, any()}.
 get_state_channels(DB, SCF) ->
-    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, [{sync, true}]) of
+    case rocksdb:get(DB, SCF, ?STATE_CHANNELS, []) of
         {ok, Bin} ->
             lager:info("found sc: ~p, from db", [Bin]),
             {ok, erlang:binary_to_term(Bin)};
