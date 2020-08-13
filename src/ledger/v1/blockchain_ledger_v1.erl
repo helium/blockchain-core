@@ -566,7 +566,6 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                      {SubnetsCF, undefined}
                     ]],
         L = [DefaultHash | lists:map(fun crypto:hash_final/1, L0)],
-        lager:info("HASH ~p", [L]),
         LedgerHash = crypto:hash_final(
                        lists:foldl(
                          fun(Hs, Ctx) -> crypto:hash_update(Ctx, Hs) end,
@@ -1046,16 +1045,21 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             %% this is only needed if the gateway previously had a location
             case Nonce > 1 of
                 true ->
-                    %% we need to also remove any old witness links for this device's previous location on other gateways
-                    lists:foreach(fun({Addr, GW}) ->
-                                          case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                              true ->
-                                                  GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                                  update_gateway(GW1, Addr, Ledger);
-                                              false ->
-                                                  ok
-                                          end
-                                  end, maps:to_list(active_gateways(Ledger)));
+                    cf_fold(
+                      active_gateways,
+                      fun({Addr, BinGW}, _) ->
+                              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
+                              case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
+                                  true ->
+                                      GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
+                                      update_gateway(GW1, Addr, Ledger);
+                                  false ->
+                                      ok
+                              end,
+                              ok
+                      end,
+                      ignored,
+                      Ledger);
                 false ->
                     ok
             end
