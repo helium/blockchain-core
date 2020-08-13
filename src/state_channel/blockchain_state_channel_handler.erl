@@ -17,7 +17,7 @@
     dial/3,
     send_packet/2,
     send_offer/2,
-    send_purchase/6,
+    send_purchase/5,
     send_response/2,
     send_banner/2,
     send_rejection/2
@@ -35,7 +35,7 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--record(state, {}).
+-record(state, {ledger :: undefined | blockchain_ledger_v1:ledger()}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -66,9 +66,9 @@ send_offer(Pid, Offer) ->
     ok.
 
 %-spec send_purchase(pid(), blockchain_state_channel_purchase_v1:purchase()) -> ok.
-send_purchase(Pid, NewPurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region) ->
+send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
     %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
-    Pid ! {send_purchase, NewPurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region},
+    Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
     ok.
 
 -spec send_banner(pid(), blockchain_state_channel_banner_v1:banner()) -> ok.
@@ -102,12 +102,12 @@ init(server, _Conn, [_Path, Blockchain]) ->
                     %% Send empty banner
                     SCBanner = blockchain_state_channel_banner_v1:new(),
                     lager:info("sc_handler, empty banner: ~p", [SCBanner]),
-                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)};
+                    {ok, #state{ledger=Ledger}, blockchain_state_channel_message_v1:encode(SCBanner)};
                 ActiveSC ->
                     %lager:info("sc_handler, active_sc: ~p", [ActiveSC]),
                     SCBanner = blockchain_state_channel_banner_v1:new(ActiveSC),
                     %lager:info("sc_handler, banner: ~p", [SCBanner]),
-                    {ok, #state{}, blockchain_state_channel_message_v1:encode(SCBanner)}
+                    {ok, #state{ledger=Ledger}, blockchain_state_channel_message_v1:encode(SCBanner)}
             end;
         _ -> {ok, #state{}}
     end.
@@ -135,7 +135,7 @@ handle_data(server, Data, State) ->
             blockchain_state_channels_server:offer(Offer, self());
         {packet, Packet} ->
             lager:debug("sc_handler server got packet: ~p", [Packet]),
-            blockchain_state_channels_server:packet(Packet, self())
+            blockchain_state_channels_server:packet(Packet, State#state.ledger, self())
     end,
     {noreply, State}.
 
@@ -152,8 +152,7 @@ handle_info(server, {send_banner, Banner}, State) ->
 handle_info(server, {send_rejection, Rejection}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Rejection),
     {noreply, State, Data};
-handle_info(server, {send_purchase, PurchaseSC, OwnerSigFun, Hotspot, PacketHash, Region}, State) ->
-    SignedPurchaseSC = blockchain_state_channel_v1:sign(PurchaseSC, OwnerSigFun),
+handle_info(server, {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region}, State) ->
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
     Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
