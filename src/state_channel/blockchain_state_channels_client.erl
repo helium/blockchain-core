@@ -747,7 +747,8 @@ is_causally_correct_sc(SC, State) ->
             %% Check if SC is causally correct
             Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
                      equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
-            lager:info("causality check: ~p, this sc: ~p, known_sc: ~p", [Check, SC, KnownSC]),
+            lager:info("causality check: ~p, this scid: ~p, known_scid: ~p",
+                       [Check, libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(KnownSC))]),
             Check;
         {ok, KnownSCs} ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
@@ -846,7 +847,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
             Txn = blockchain_txn_state_channel_close_v1:new(SC0, SC, PubkeyBin),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
-            lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+            lager:info("closing state channel on conflict ~p: ~p",
+                       [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]);
         {ok, SCs} ->
             lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
             %% TODO check for 'overpaid' state channels as well, not just causal conflicts
@@ -888,7 +890,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                     Txn = blockchain_txn_state_channel_close_v1:new(lists:last(SortedConflicts), SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
+                    lager:info("closing state channel on conflict ~p: ~p",
+                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn])
             end;
         _ ->
             ok
