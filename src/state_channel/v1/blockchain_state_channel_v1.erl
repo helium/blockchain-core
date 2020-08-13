@@ -254,7 +254,7 @@ save(_DB, SC, Skewed) ->
 
 -spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->
-    case rocksdb:get(DB, ID, [{sync, true}]) of
+    case rocksdb:get(DB, ID, []) of
         {ok, Bin} ->
             {BinarySC, Skewed} = binary_to_term(Bin),
             SC = ?MODULE:decode(BinarySC),
