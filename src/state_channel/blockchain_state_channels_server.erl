@@ -845,7 +845,7 @@ update_sc_summary(ClientPubkeyBin, PayloadSize, DCPayloadSize, SC, ClientBloom) 
             {NewSC, DidFit} = blockchain_state_channel_v1:update_summary_for(ClientPubkeyBin,
                                                                              NewSummary,
                                                                              SC,
-                                                                             bloom:check_and_set(ClientBloom, ClientPubkeyBin)),
+                                                                             bloom:check(ClientBloom, ClientPubkeyBin)),
             ok = maybe_set_client_bloom(ClientPubkeyBin, ClientBloom, DidFit),
             NewSC
     end.
