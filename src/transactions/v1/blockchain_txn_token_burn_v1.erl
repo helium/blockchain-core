@@ -210,7 +210,8 @@ to_json(Txn, _Opts) ->
       payee => ?BIN_TO_B58(payee(Txn)),
       amount => amount(Txn),
       nonce => nonce(Txn),
-      memo => memo(Txn)
+      memo => memo(Txn),
+      fee => fee(Txn)
      }.
 
  %% ------------------------------------------------------------------
@@ -282,6 +283,6 @@ to_json_test() ->
     Tx = new(<<"payer">>, 666, 1),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, payer, payee, amount, nonce, memo])).
+                      [type, hash, payer, payee, amount, nonce, memo, fee])).
 
 -endif.
