@@ -458,8 +458,8 @@ update_state_sc_open(Txn,
 
             SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
 
-            ClientBloom = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
-            PacketBloom = bloom:new_optimal(Amt, ?FALSE_POS_RATE),
+            {ok, ClientBloom} = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
+            {ok, PacketBloom} = bloom:new_optimal(Amt, ?FALSE_POS_RATE),
 
             case ActiveSCID of
                 undefined ->
@@ -877,9 +877,9 @@ update_state_with_blooms(#state{state_channels=SCs}=State) when map_size(SCs) ==
     State;
 update_state_with_blooms(#state{state_channels=SCs}=State) ->
     Blooms = maps:map(fun(_, {SC, _}) ->
-                              ClientBloom = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
+                              {ok, ClientBloom} = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
                               Amount = blockchain_state_channel_v1:amount(SC),
-                              PacketBloom = bloom:new_optimal(Amount, ?FALSE_POS_RATE),
+                              {ok, PacketBloom} = bloom:new_optimal(Amount, ?FALSE_POS_RATE),
                               {ClientBloom, PacketBloom}
                       end, SCs),
     State#state{blooms=Blooms}.
