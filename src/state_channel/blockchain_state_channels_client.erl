@@ -676,7 +676,7 @@ is_valid_sc(SC, State) ->
     end.
 
 -spec is_active_sc(SC :: blockchain_state_channel_v1:state_channel(),
-                   State :: state()) -> boolean().
+                   State :: state()) -> ok | {error, no_chain} | {error, inactive_sc}.
 is_active_sc(_, #state{chain=undefined}) ->
     {error, no_chain};
 is_active_sc(SC, #state{chain=Chain}) ->
@@ -824,10 +824,17 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                                                          {ok, V4} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B2),
                                                          max(V1, V2) =< max(V3, V4)
                                                  end, Conflicts),
-                    {Conflict1, Conflict2} = lists:last(SortedConflicts),
-                    Txn = blockchain_txn_state_channel_close_v1:new(Conflict1, Conflict2, PubkeyBin),
-                    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
-                    ok = blockchain_worker:submit_txn(SignedTxn);
+
+                    case SortedConflicts of
+                        [] ->
+                            %% Only ever happens if a conflict has already been resolved during a core upgrade
+                            ok;
+                        L ->
+                            {Conflict1, Conflict2} = lists:last(L),
+                            Txn = blockchain_txn_state_channel_close_v1:new(Conflict1, Conflict2, PubkeyBin),
+                            SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                            ok = blockchain_worker:submit_txn(SignedTxn)
+                    end;
                 Conflicts ->
                     %% sort the conflicts by the number of DCs they'd send to us
                     SortedConflicts = lists:sort(fun(C1, C2) ->
