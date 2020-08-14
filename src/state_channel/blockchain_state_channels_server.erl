@@ -269,7 +269,8 @@ handle_cast({offer, SCOffer, HandlerPid},
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
                     lager:debug("Rolling to SC ID: ~p", [NewActiveID]),
                     %% switch over the active ID and save the closed one
-                    NewState = State#state{active_sc_id=NewActiveID, state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
+                    NewState = State#state{active_sc_id=NewActiveID,
+                                           state_channels=maps:put(ActiveSCID, {SC1, Skewed}, SCs)},
                     ok = maybe_broadcast_banner(active_sc(NewState), NewState),
                     {noreply, NewState};
                 false ->
@@ -499,7 +500,7 @@ broadcast_banner(SC, #state{streams=Streams}) ->
 -spec update_state_sc_close(
         Txn :: blockchain_txn_state_channel_close_v1:txn_state_channel_close(),
         State :: state()) -> state().
-update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
+update_state_sc_close(Txn, #state{db=DB, scf=SCF, blooms=Blooms, state_channels=SCs, active_sc_id=ActiveSCID}=State) ->
     SC = blockchain_txn_state_channel_close_v1:state_channel(Txn),
     ID = blockchain_state_channel_v1:id(SC),
 
@@ -519,7 +520,9 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
     %% Delete closed state channel from sc database
     ok = delete_closed_sc(DB, SCF, ID),
 
-    NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
+    NewState = State#state{state_channels=maps:remove(ID, SCs),
+                           blooms=maps:remove(ID, Blooms),
+                           active_sc_id=NewActiveSCID},
 
     case NewActiveSCID /= ActiveSCID of
         true ->
