@@ -171,7 +171,6 @@ snapshot(Ledger0, Blocks) ->
                       try register(Regname, self()) of
                           true ->
                               Res = generate_snapshot(Ledger0, Blocks),
-                              timer:sleep(15000),
                               %% deliver to the caller
                               Parent ! {Ref, Res},
                               %% deliver to anyone else blocking
@@ -193,7 +192,7 @@ snapshot(Ledger0, Blocks) ->
                                 end
                       end
               end,
-              [{max_heap_size, application:get_env(blockchain, snapshot_memory_limit, 200) * 1024 * 1024 div erlang:system_info(wordsize)}, {fullsweep_after, 0}, monitor]),
+              [{max_heap_size, application:get_env(blockchain, snapshot_memory_limit, 75) * 1024 * 1024 div erlang:system_info(wordsize)}, {fullsweep_after, 0}, monitor]),
     receive
         {Ref, Res} ->
             Res;
