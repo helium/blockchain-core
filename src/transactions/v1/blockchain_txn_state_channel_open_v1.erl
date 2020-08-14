@@ -168,7 +168,7 @@ absorb(Txn, Chain) ->
 actual_amount(OriginalAmount, Ledger) ->
     case blockchain_ledger_v1:config(?sc_overcommit, Ledger) of
         {ok, Overcommit} -> OriginalAmount * Overcommit;
-        _ -> 0
+        _ -> OriginalAmount
     end.
 
 -spec print(txn_state_channel_open()) -> iodata().
