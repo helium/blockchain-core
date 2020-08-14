@@ -527,32 +527,33 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
           } = SubLedger,
         %% NB: keep in sync with upgrades macro in blockchain.erl
         Filter = ?BC_UPGRADE_NAMES,
-        DefaultVals = cache_fold(
-                        Ledger, DefaultCF,
-                        %% if any of these are in the CF, it's a
-                        %% result of an old, fixed bug, they're safe
-                        %% to ignore.
-                        fun({<<"$block_", _/binary>>, _}, Acc) ->
-                                Acc;
-                           ({K, _} = X, Acc) ->
-                                case lists:member(K, Filter) of
-                                    true -> Acc;
-                                    _ -> [X | Acc]
-                                end
-                        end, []),
-        L0 = [GWsVals, EntriesVals, DCEntriesVals, HTLCs,
-              PoCs, Securities, Routings, StateChannels, Subnets] =
+        DefaultHash0 =
+            cache_fold(
+              Ledger, DefaultCF,
+              %% if any of these are in the CF, it's a result of an
+              %% old, fixed bug, they're safe to ignore.
+              fun({<<"$block_", _/binary>>, _}, Acc) ->
+                      Acc;
+                 ({K, _} = X, Acc) ->
+                      case lists:member(K, Filter) of
+                          true -> Acc;
+                          _ -> crypto:hash_update(Acc, term_to_binary(X))
+                      end
+              end, crypto:hash_init(md5)),
+        DefaultHash = crypto:hash_final(DefaultHash0),
+        L0 =
             [cache_fold(Ledger, CF,
                         fun({K, V}, Acc) when Mod == t2b ->
-                                [{K, erlang:binary_to_term(V)} | Acc];
+                                crypto:hash_update(Acc, term_to_binary({K, erlang:binary_to_term(V)}));
                            ({K, V}, Acc) when Mod == state_channel ->
                                 {_Mod, SC} = deserialize_state_channel(V),
-                                [{K, SC} | Acc];
+                                crypto:hash_update(Acc, term_to_binary({K, SC}));
                            ({K, V}, Acc) when Mod /= undefined ->
-                                [{K, Mod:deserialize(V)} | Acc];
-                           (X, Acc) -> [X | Acc]
+                                crypto:hash_update(Acc, term_to_binary({K, Mod:deserialize(V)}));
+                           (X, Acc) ->
+                                crypto:hash_update(Acc, term_to_binary(X))
                         end,
-                        [])
+                        crypto:hash_init(md5))
              || {CF, Mod} <-
                     [{AGwsCF, blockchain_ledger_gateway_v2},
                      {EntriesCF, blockchain_ledger_entry_v1},
@@ -564,31 +565,35 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
                      {SCsCF, state_channel},
                      {SubnetsCF, undefined}
                     ]],
-        L = lists:append(L0, DefaultVals),
+        L = [DefaultHash | lists:map(fun crypto:hash_final/1, L0)],
+        LedgerHash = crypto:hash_final(
+                       lists:foldl(
+                         fun(Hs, Ctx) -> crypto:hash_update(Ctx, Hs) end,
+                         crypto:hash_init(md5),
+                         L)),
         case Extended of
             false ->
-                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L))}};
+                {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
-                {ok, #{<<"ledger_fingerprint">> => fp(lists:flatten(L)),
-                       <<"gateways_fingerprint">> => fp(GWsVals),
-                       <<"core_fingerprint">> => fp(DefaultVals),
-                       <<"entries_fingerprint">> => fp(EntriesVals),
-                       <<"dc_entries_fingerprint">> => fp(DCEntriesVals),
-                       <<"htlc_fingerprint">> => fp(HTLCs),
-                       <<"securities_fingerprint">> => fp(Securities),
-                       <<"routings_fingerprint">> => fp(Routings),
-                       <<"poc_fingerprint">> => fp(PoCs),
-                       <<"state_channels_fingerprint">> => fp(StateChannels),
-                       <<"subnets_fingerprint">> => fp(Subnets)
+                [GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
+                 PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash, _] = L,
+                {ok, #{<<"ledger_fingerprint">> => LedgerHash,
+                       <<"gateways_fingerprint">> => GWsHash,
+                       <<"core_fingerprint">> => DefaultHash,
+                       <<"entries_fingerprint">> => EntriesHash,
+                       <<"dc_entries_fingerprint">> => DCEntriesHash,
+                       <<"htlc_fingerprint">> => HTLCsHash,
+                       <<"securities_fingerprint">> => SecuritiesHash,
+                       <<"routings_fingerprint">> => RoutingsHash,
+                       <<"poc_fingerprint">> => PoCsHash,
+                       <<"state_channels_fingerprint">> => StateChannelsHash,
+                       <<"subnets_fingerprint">> => SubnetsHash
                       }}
         end
     catch C:E:S ->
             lager:warning("fp error ~p:~p ~p", [C, E, S]),
             {error, could_not_fingerprint}
     end.
-
-fp(L) ->
-    erlang:phash2(lists:sort(L)).
 
 -spec current_height(ledger()) -> {ok, non_neg_integer()} | {error, any()}.
 current_height(Ledger) ->
@@ -1040,16 +1045,21 @@ add_gateway_location(GatewayAddress, Location, Nonce, Ledger) ->
             %% this is only needed if the gateway previously had a location
             case Nonce > 1 of
                 true ->
-                    %% we need to also remove any old witness links for this device's previous location on other gateways
-                    lists:foreach(fun({Addr, GW}) ->
-                                          case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
-                                              true ->
-                                                  GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
-                                                  update_gateway(GW1, Addr, Ledger);
-                                              false ->
-                                                  ok
-                                          end
-                                  end, maps:to_list(active_gateways(Ledger)));
+                    cf_fold(
+                      active_gateways,
+                      fun({Addr, BinGW}, _) ->
+                              GW = blockchain_ledger_gateway_v2:deserialize(BinGW),
+                              case blockchain_ledger_gateway_v2:has_witness(GW, GatewayAddress) of
+                                  true ->
+                                      GW1 = blockchain_ledger_gateway_v2:remove_witness(GW, GatewayAddress),
+                                      update_gateway(GW1, Addr, Ledger);
+                                  false ->
+                                      ok
+                              end,
+                              ok
+                      end,
+                      ignored,
+                      Ledger);
                 false ->
                     ok
             end
