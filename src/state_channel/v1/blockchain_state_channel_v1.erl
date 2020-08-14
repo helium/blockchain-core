@@ -491,7 +491,7 @@ merge(SCA, SCB) ->
               Summaries :: summaries()) -> boolean().
 can_fit(ClientPubkeyBin, Summaries) ->
     Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(lists:usort(Clients)) =< ?MAX_UNIQ_CLIENTS,
+    CanFit = length(Clients) =< ?MAX_UNIQ_CLIENTS,
     IsKnownClient = lists:member(ClientPubkeyBin, Clients),
 
     case {CanFit, IsKnownClient} of
