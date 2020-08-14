@@ -291,8 +291,9 @@ fetch(DB, ID) ->
         Error -> Error
     end.
 
--spec add_payload(Payload :: binary(), SC :: state_channel(), Skewed :: skewed:skewed()) -> {state_channel(),
-                                                                                             skewed:skewed()}.
+-spec add_payload(Payload :: binary(),
+                  SC :: state_channel(),
+                  Skewed :: skewed:skewed()) -> {state_channel(), skewed:skewed()}.
 add_payload(Payload, SC, Skewed) ->
     %% Check if we have already seen this payload in skewed
     %% If yes, don't do anything, otherwise, add to skewed and return new state_channel
