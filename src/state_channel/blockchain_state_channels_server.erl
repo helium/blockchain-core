@@ -383,32 +383,40 @@ terminate(_Reason, _State) ->
                      HandlerPid :: pid(),
                      State :: state()) -> NewState :: state().
 process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
-               #state{db=DB, active_sc_id=ActiveSCID, state_channels=SCs,
+               #state{db=DB, sc_version=SCVer, active_sc_id=ActiveSCID, state_channels=SCs,
                       blooms=Blooms, owner={_, OwnerSigFun}}=State) ->
 
     Payload = blockchain_helium_packet_v1:payload(Packet),
-    {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
 
-    NewSC = case State#state.sc_version of
-                2 ->
-                    %% we don't update the state channel summary here
-                    %% it happens in `send_purchase` for v2 SCs
-                    SC1;
-                _ ->
-                    {ClientBloom, _} = maps:get(ActiveSCID, Blooms),
-                    SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1, ClientBloom),
-                    ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
-                    blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
-            end,
+    {ClientBloom, PacketBloom} = maps:get(ActiveSCID, Blooms),
 
-    SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+    case SCVer > 1 andalso bloom:check_and_set(PacketBloom, Payload) of
+        true ->
+            %% Don't add payload
+            maybe_add_stream(ClientPubkeyBin, HandlerPid, State);
+        false ->
+            {SC1, Skewed1} = blockchain_state_channel_v1:add_payload(Payload, SC, Skewed),
 
-    %% save it
-    ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+            NewSC = case SCVer of
+                        2 ->
+                            %% we don't update the state channel summary here
+                            %% it happens in `send_purchase` for v2 SCs
+                            SC1;
+                        _ ->
+                            SC2 = update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1, ClientBloom),
+                            ExistingSCNonce = blockchain_state_channel_v1:nonce(SC2),
+                            blockchain_state_channel_v1:nonce(ExistingSCNonce + 1, SC2)
+                    end,
 
-    %% Put new state_channel in our map
-    TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
-    maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState).
+            SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
+
+            %% save it
+            ok = blockchain_state_channel_v1:save(DB, SignedSC, Skewed1),
+
+            %% Put new state_channel in our map
+            TempState = State#state{state_channels=maps:update(ActiveSCID, {SignedSC, Skewed1}, SCs)},
+            maybe_add_stream(ClientPubkeyBin, HandlerPid, TempState)
+    end.
 
 -spec maybe_add_stream(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                        Stream :: pid(),
