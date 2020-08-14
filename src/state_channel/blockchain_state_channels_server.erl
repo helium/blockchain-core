@@ -263,6 +263,7 @@ handle_cast({offer, SCOffer, HandlerPid},
                     %% TODO we should switch to the next state channel here
                     lager:warning("Dropping this packet because it will overspend DC ~p, (cost: ~p, total_dcs: ~p)",
                                 [DCAmount, NumDCs, TotalDCs]),
+                    lager:warning("overspend, SC1: ~p", [SC1]),
                     ok = send_rejection(HandlerPid),
                     %% NOTE: this function may return `undefined` if no SC is available
                     NewActiveID = maybe_get_new_active(maps:without([ActiveSCID], SCs)),
