@@ -210,7 +210,9 @@ to_json(Txn, _Opts) ->
       payee => ?BIN_TO_B58(payee(Txn)),
       amount => amount(Txn),
       nonce => nonce(Txn),
-      memo => memo(Txn),
+      %% Encode the memo as a base64 (NOT URL encoded) 64 bit le integer. This
+      %% is what console returns and cli consumes.
+      memo => base64:encode(<<(memo(Txn)):64/unsigned-little-integer>>),
       fee => fee(Txn)
      }.
 
