@@ -43,6 +43,8 @@
           db :: rocksdb:db_handle(),
           cf :: rocksdb:cf_handle(),
           swarm :: pid(),
+          pubkey_bin :: libp2p_crypto:pubkey_bin(),
+          sig_fun :: libp2p_crypto:sig_fun(),
           chain = undefined :: undefined | blockchain:blockchain(),
           streams = #{} :: streams(),
           packets = #{} :: #{pid() => [blockchain_helium_packet_v1:packet()]},
@@ -111,8 +113,9 @@ init(Args) ->
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
     CF = blockchain_state_channels_db_owner:sc_clients_cf(),
+    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    State = #state{db=DB, cf=CF, swarm=Swarm},
+    State = #state{db=DB, cf=CF, swarm=Swarm, pubkey_bin=PubkeyBin, sig_fun=SigFun},
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -204,7 +207,8 @@ handle_info({dial_success, OUI, Stream}, State0) when is_integer(OUI) ->
     erlang:monitor(process, Stream),
     State2 = add_stream(OUI, Stream, remove_packet_from_waiting(OUI, State1)),
     {noreply, State2};
-handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=State0) ->
+handle_info({dial_success, Address, Stream},
+            #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State0) ->
     Packets = get_waiting_packet(Address, State0),
     lager:debug("dial_success sending ~p packet offers", [erlang:length(Packets)]),
 
@@ -212,14 +216,14 @@ handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=St
         {ok, 2} ->
             lists:foreach(
               fun({Packet, Region}) ->
-                      ok = send_offer(Swarm, Stream, Packet, Region)
+                      ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region)
               end,
               Packets
              );
         _ ->
             lists:foreach(
               fun({Packet, Region}) ->
-                      ok = send_packet(Swarm, Stream, Packet, Region)
+                      ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region)
               end,
               Packets
              )
@@ -230,7 +234,8 @@ handle_info({dial_success, Address, Stream}, #state{swarm=Swarm, chain=Chain}=St
     {noreply, State1};
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state{chain=Chain, pending_closes=PendingCloses}=State) ->
+handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) ->
     ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
                             {error, Reason} ->
                                 lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -289,8 +294,6 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}}, #state
                                                                        true ->
                                                                            case blockchain_ledger_state_channel_v2:close_state(LSC) of
                                                                                undefined ->
-                                                                                   %% issue close txn with no conflict
-                                                                                   {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(State#state.swarm),
                                                                                    Txn = blockchain_txn_state_channel_close_v1:new(H, PubkeyBin),
                                                                                    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                                                                                    ok = blockchain_worker:submit_txn(SignedTxn);
@@ -396,7 +399,8 @@ handle_banner(Banner, Stream, State) ->
 -spec handle_purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                       Stream :: pid(),
                       State :: state()) -> state().
-handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
+handle_purchase(Purchase, Stream,
+                #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun}=State) ->
     PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
 
     case is_valid_sc(PurchaseSC, State) of
@@ -448,7 +452,7 @@ handle_purchase(Purchase, Stream, #state{chain=Chain, swarm=Swarm}=State) ->
                                             Region = blockchain_state_channel_purchase_v1:region(Purchase),
                                             lager:debug("successful purchase validation, sending packet: ~p",
                                                         [blockchain_helium_packet_v1:packet_hash(Packet)]),
-                                            ok = send_packet(Swarm, Stream, Packet, Region),
+                                            ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region),
                                             ok = overwrite_state_channel(PurchaseSC, NewState),
                                             NewState;
                                         false ->
@@ -568,32 +572,31 @@ dial(Swarm, Route) ->
     end),
     ok.
 
--spec send_packet(Swarm :: pid(),
+-spec send_packet(PubkeyBin :: libp2p_crypto:pubkey_bin(),
+                  SigFun :: libp2p_crypto:sig_fun(),
                   Stream :: pid(),
                   Packet :: blockchain_helium_packet_v1:packet(),
                   Region :: atom()  ) -> ok.
-send_packet(Swarm, Stream, Packet, Region) ->
-    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+send_packet(PubkeyBin, SigFun, Stream, Packet, Region) ->
     PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
     blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
 
--spec send_offer(Swarm :: pid(),
+-spec send_offer(PubkeyBin :: libp2p_crypto:pubkey_bin(),
+                 SigFun :: libp2p_crypto:sig_fun(),
                  Stream :: pid(),
                  Packet :: blockchain_helium_packet_v1:packet(),
                  Region :: atom()  ) -> ok.
-send_offer(Swarm, Stream, Packet, Region) ->
-    {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+send_offer(PubkeyBin, SigFun, Stream, Packet, Region) ->
     OfferMsg0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubkeyBin, Region),
     OfferMsg1 = blockchain_state_channel_offer_v1:sign(OfferMsg0, SigFun),
     lager:info("OfferMsg1: ~p", [OfferMsg1]),
     blockchain_state_channel_handler:send_offer(Stream, OfferMsg1).
 
--spec is_hotspot_in_router_oui(Swarm :: pid(),
+-spec is_hotspot_in_router_oui(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                                OUI :: pos_integer(),
                                Chain :: blockchain:blockchain()) -> boolean().
-is_hotspot_in_router_oui(Swarm, OUI, Chain) ->
-    {PubkeyBin, _SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
+is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain_ledger_v1:find_gateway_info(PubkeyBin, Ledger) of
         {error, _} ->
@@ -612,17 +615,18 @@ is_hotspot_in_router_oui(Swarm, OUI, Chain) ->
                            Packet :: blockchain_helium_packet_v1:packet(),
                            Region :: atom(),
                            State :: #state{}) -> #state{}.
-send_packet_or_offer(Stream, OUI, Packet, Region, #state{swarm=Swarm, chain=Chain}=State) ->
+send_packet_or_offer(Stream, OUI, Packet, Region,
+                     #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
     SCVer = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
                 {ok, N} -> N;
                 _ -> 1
             end,
-    case (is_hotspot_in_router_oui(Swarm, OUI, Chain) andalso SCVer >= 2) orelse SCVer == 1 of
+    case (is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) andalso SCVer >= 2) orelse SCVer == 1 of
         false ->
-            ok = send_offer(Swarm, Stream, Packet, Region),
+            ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region),
             enqueue_packet(Stream, Packet, State);
         true ->
-            ok = send_packet(Swarm, Stream, Packet, Region),
+            ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region),
             State
     end.
 
@@ -630,15 +634,16 @@ send_packet_or_offer(Stream, OUI, Packet, Region, #state{swarm=Swarm, chain=Chai
                           Packet :: blockchain_helium_packet_v1:packet(),
                           Region :: atom(),
                           State :: #state{}) -> #state{}.
-send_packet_when_v1(Stream, Packet, Region, #state{swarm=Swarm, chain=Chain}=State) ->
+send_packet_when_v1(Stream, Packet, Region,
+                    #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
     case blockchain:config(sc_version, blockchain:ledger(Chain)) of
         {ok, N} when N > 1 ->
             lager:debug("got stream sending offer"),
-            ok = send_offer(Swarm, Stream, Packet, Region),
+            ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region),
             enqueue_packet(Stream, Packet, State);
         _ ->
             lager:debug("got stream sending packet"),
-            ok = send_packet(Swarm, Stream, Packet, Region),
+            ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region),
             State
     end.
 
@@ -787,18 +792,16 @@ overwrite_state_channel(SC, #state{db=DB, cf=CF}) ->
     rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).
 
 -spec close_state_channel(SC :: blockchain_state_channel_v1:state_channel(), State :: state()) -> ok.
-close_state_channel(SC, State=#state{swarm=Swarm}) ->
+close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
     SCID = blockchain_state_channel_v1:id(SC),
     case get_state_channels(SCID, State) of
         {ok, [SC0]} ->
             %% just a single conflict locally, we can just send it
-            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
             Txn = blockchain_txn_state_channel_close_v1:new(SC0, SC, PubkeyBin),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
             lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
         {ok, SCs} ->
-            {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
             lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
             %% TODO check for 'overpaid' state channels as well, not just causal conflicts
             %% see if we have any conflicts with the supplied close SC:
