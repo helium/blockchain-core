@@ -659,9 +659,8 @@ is_valid_sc(SC, State) ->
             E;
         ok ->
             case is_active_sc(SC, State) of
-                false ->
-                    {error, inactive_sc};
-                true ->
+                {error, _}=E -> E;
+                ok ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
                             case is_overspent_sc(SC, State) of
@@ -678,12 +677,17 @@ is_valid_sc(SC, State) ->
 
 -spec is_active_sc(SC :: blockchain_state_channel_v1:state_channel(),
                    State :: state()) -> boolean().
+is_active_sc(_, #state{chain=undefined}) ->
+    {error, no_chain};
 is_active_sc(SC, #state{chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     SCOwner = blockchain_state_channel_v1:owner(SC),
     SCID = blockchain_state_channel_v1:id(SC),
     {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
-    lists:member(SCID, LedgerSCIDs).
+    case lists:member(SCID, LedgerSCIDs) of
+        true -> ok;
+        false -> {error, inactive_sc}
+    end.
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
                              State :: state()) -> boolean().
