@@ -35,7 +35,6 @@
 
 -define(DB_FILE, "state_channels.db").
 -define(TICK, '__sc_write_tick').
--define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>).
 
 -record(state, {
           db :: rocksdb:db_handle(),
