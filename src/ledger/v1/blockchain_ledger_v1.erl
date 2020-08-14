@@ -145,6 +145,17 @@
     snapshot_threshold_txns/1,
     load_threshold_txns/2,
 
+    snapshot_raw_gateways/1,
+    load_raw_gateways/2,
+    snapshot_raw_pocs/1,
+    load_raw_pocs/2,
+    snapshot_raw_accounts/1,
+    load_raw_accounts/2,
+    snapshot_raw_dc_accounts/1,
+    load_raw_dc_accounts/2,
+    snapshot_raw_security_accounts/1,
+    load_raw_security_accounts/2,
+
     load_oracle_price/2,
     load_oracle_price_list/2,
 
@@ -789,6 +800,14 @@ snapshot_gateways(Ledger) ->
                     end,
                     []
                    )).
+
+snapshot_raw_gateways(Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    snapshot_raw(AGwsCF, Ledger).
+
+load_raw_gateways(Gateways, Ledger) ->
+    AGwsCF = active_gateways_cf(Ledger),
+    load_raw(Gateways, AGwsCF, Ledger).
 
 -spec load_gateways([{libp2p_crypto:pubkey_bin(), blockchain_ledger_gateway_v2:gateway()}],
                     ledger()) -> ok | {error, _}.
@@ -3126,6 +3145,34 @@ load_pocs(PoCs, Ledger) ->
       maps:from_list(PoCs)),
     ok.
 
+snapshot_raw(CF, Ledger) ->
+    %% we can just reverse this since rocks folds are lexicographic
+    lists:reverse(
+      cache_fold(
+        Ledger,
+        CF,
+        fun(KV, Acc) ->
+                [KV | Acc]
+        end,
+        []
+       )).
+
+load_raw(List, CF, Ledger) ->
+    lists:foreach(
+      fun({Key, Val}) ->
+              cache_put(Ledger, CF, Key, Val)
+      end,
+      List),
+    ok.
+
+snapshot_raw_pocs(Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    snapshot_raw(PoCsCF, Ledger).
+
+load_raw_pocs(PoCs, Ledger) ->
+    PoCsCF = pocs_cf(Ledger),
+    load_raw(PoCs, PoCsCF, Ledger).
+
 snapshot_accounts(Ledger) ->
     lists:sort(maps:to_list(entries(Ledger))).
 
@@ -3138,6 +3185,14 @@ load_accounts(Accounts, Ledger) ->
       end,
       maps:from_list(Accounts)),
     ok.
+
+snapshot_raw_accounts(Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    snapshot_raw(EntriesCF, Ledger).
+
+load_raw_accounts(Accounts, Ledger) ->
+    EntriesCF = entries_cf(Ledger),
+    load_raw(Accounts, EntriesCF, Ledger).
 
 snapshot_dc_accounts(Ledger) ->
     lists:sort(maps:to_list(dc_entries(Ledger))).
@@ -3152,6 +3207,14 @@ load_dc_accounts(DCAccounts, Ledger) ->
       maps:from_list(DCAccounts)),
     ok.
 
+snapshot_raw_dc_accounts(Ledger) ->
+    EntriesCF = dc_entries_cf(Ledger),
+    snapshot_raw(EntriesCF, Ledger).
+
+load_raw_dc_accounts(Accounts, Ledger) ->
+    EntriesCF = dc_entries_cf(Ledger),
+    load_raw(Accounts, EntriesCF, Ledger).
+
 snapshot_security_accounts(Ledger) ->
     lists:sort(maps:to_list(securities(Ledger))).
 
@@ -3164,6 +3227,14 @@ load_security_accounts(SecAccounts, Ledger) ->
       end,
       maps:from_list(SecAccounts)),
     ok.
+
+snapshot_raw_security_accounts(Ledger) ->
+    EntriesCF = securities_cf(Ledger),
+    snapshot_raw(EntriesCF, Ledger).
+
+load_raw_security_accounts(Accounts, Ledger) ->
+    EntriesCF = securities_cf(Ledger),
+    load_raw(Accounts, EntriesCF, Ledger).
 
 snapshot_htlcs(Ledger) ->
     lists:sort(maps:to_list(htlcs(Ledger))).
