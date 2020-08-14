@@ -54,7 +54,7 @@
     sc_packet_handler = undefined :: undefined | atom(),
     streams = #{} :: streams(),
     dc_payload_size :: undefined | pos_integer(),
-    sc_version :: undefined | pos_integer(),
+    sc_version = 0 :: non_neg_integer(), %% defaulting to 0 instead of undefined
     blooms = #{} :: blooms()
 }).
 
@@ -312,7 +312,7 @@ handle_info(post_init, #state{chain=undefined}=State) ->
                                 {ok, SCV} ->
                                     SCV;
                                 _ ->
-                                    undefined
+                                    0
                             end,
             TempState = State#state{chain=Chain, dc_payload_size=DCPayloadSize, sc_version=SCVer},
             LoadState = update_state_with_ledger_channels(TempState),
@@ -656,9 +656,7 @@ update_state_with_ledger_channels(#state{db=DB}=State) ->
     %% These don't exist in the ledger but we have them in the sc db,
     %% presumably these have been closed
     ClosedSCIDs = maps:keys(maps:without(ConvertedSCKeys, DBSCs)),
-    lager:info("presumably closed sc ids: ~p", [ClosedSCIDs]),
-    %% Delete these from sc db
-    %ok = lists:foreach(fun(CID) -> ok = delete_closed_sc(DB, SCF, CID) end, ClosedSCIDs),
+    lager:debug("presumably closed sc ids: ~p", [ClosedSCIDs]),
 
     NewActiveSCID = maybe_get_new_active(SCs),
     lager:info("NewActiveSCID: ~p", [NewActiveSCID]),
@@ -671,7 +669,7 @@ get_state_channels(DB, SCF) ->
     case rocksdb:get(DB, SCF, ?STATE_CHANNELS, []) of
         {ok, Bin} ->
             L = binary_to_term(Bin),
-            lager:info("found sc ids from db: ~p", [L]),
+            lager:debug("found sc ids from db: ~p", [L]),
             {ok, L};
         not_found ->
             lager:warning("no state_channel found in db"),
@@ -858,8 +856,8 @@ maybe_set_client_bloom(ClientPubkeyBin, ClientBloom, true) ->
 
 -spec maybe_broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
                              State :: state()) -> ok.
-maybe_broadcast_banner(undefined, _State) -> ok;
 maybe_broadcast_banner(_, #state{chain=undefined}) -> ok;
+maybe_broadcast_banner(undefined, _State) -> ok;
 maybe_broadcast_banner(SC, State) ->
     case State#state.sc_version of
         2 ->
