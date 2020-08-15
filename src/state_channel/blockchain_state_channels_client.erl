@@ -532,44 +532,66 @@ find_routing(Packet, Chain) ->
            Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
 dial(Swarm, Address) when is_list(Address) ->
     Self = self(),
-    erlang:spawn(fun() ->
-        case blockchain_state_channel_handler:dial(Swarm, Address, []) of
-            {error, _Reason} ->
-                Self ! {dial_fail, Address, _Reason};
-            {ok, Stream} ->
-                unlink(Stream),
-                Self ! {dial_success, Address, Stream}
-        end
-    end),
+    erlang:spawn(
+      fun() ->
+              {P, R} =
+                  erlang:spawn_monitor(
+                    fun() ->
+                            case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                {error, _Reason} ->
+                                    Self ! {dial_fail, Address, _Reason};
+                                {ok, Stream} ->
+                                    unlink(Stream),
+                                    Self ! {dial_success, Address, Stream}
+                            end
+                    end),
+              receive
+                  {'DOWN', R, process, P, normal} ->
+                      ok;
+                  {'DOWN', R, process, P, _Reason} ->
+                      Self ! {dial_fail, Address, _Reason}
+              end
+      end),
     ok;
 dial(Swarm, Route) ->
     Self = self(),
-    erlang:spawn(fun() ->
-        Dialed = lists:foldl(
-            fun(_PubkeyBin, {dialed, _}=Acc) ->
-                Acc;
-            (PubkeyBin, not_dialed) ->
-                Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                case blockchain_state_channel_handler:dial(Swarm, Address, []) of
-                    {error, _Reason} ->
-                        lager:error("failed to dial ~p:~p", [Address, _Reason]),
-                        not_dialed;
-                    {ok, Stream} ->
-                        unlink(Stream),
-                        {dialed, Stream}
-                end
-            end,
-            not_dialed,
-            blockchain_ledger_routing_v1:addresses(Route)
-        ),
-        OUI = blockchain_ledger_routing_v1:oui(Route),
-        case Dialed of
-            not_dialed ->
-                Self ! {dial_fail, OUI, failed};
-            {dialed, Stream} ->
-                Self ! {dial_success, OUI, Stream}
-        end
-    end),
+    erlang:spawn(
+      fun() ->
+              OUI = blockchain_ledger_routing_v1:oui(Route),
+              {P, R} =
+                  erlang:spawn_monitor(
+                    fun() ->
+                            Dialed = lists:foldl(
+                                       fun(_PubkeyBin, {dialed, _}=Acc) ->
+                                               Acc;
+                                          (PubkeyBin, not_dialed) ->
+                                               Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                               case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                                   {error, _Reason} ->
+                                                       lager:error("failed to dial ~p:~p", [Address, _Reason]),
+                                                       not_dialed;
+                                                   {ok, Stream} ->
+                                                       unlink(Stream),
+                                                       {dialed, Stream}
+                                               end
+                                       end,
+                                       not_dialed,
+                                       blockchain_ledger_routing_v1:addresses(Route)
+                                      ),
+                            case Dialed of
+                                not_dialed ->
+                                    Self ! {dial_fail, OUI, failed};
+                                {dialed, Stream} ->
+                                    Self ! {dial_success, OUI, Stream}
+                            end
+                    end),
+              receive
+                  {'DOWN', R, process, P, normal} ->
+                      ok;
+                  {'DOWN', R, process, P, _Reason} ->
+                      Self ! {dial_fail, OUI, failed}
+              end
+      end),
     ok.
 
 -spec send_packet(PubkeyBin :: libp2p_crypto:pubkey_bin(),
