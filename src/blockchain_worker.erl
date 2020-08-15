@@ -750,7 +750,7 @@ add_handlers(SwarmTID, Blockchain) ->
 -spec remove_handlers(ets:tab()) -> ok.
 remove_handlers(SwarmTID) ->
     %% remove the gossip handler
-    ok = libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(SwarmTID), ?GOSSIP_PROTOCOL_V1),
+    catch libp2p_group_gossip:remove_handler(libp2p_swarm:gossip_group(SwarmTID), ?GOSSIP_PROTOCOL_V1),
 
     %% remove the sync handlers
     SyncRemoveFun = fun(ProtocolVersion) ->
