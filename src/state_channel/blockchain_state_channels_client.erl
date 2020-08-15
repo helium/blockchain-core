@@ -532,44 +532,66 @@ find_routing(Packet, Chain) ->
            Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
 dial(Swarm, Address) when is_list(Address) ->
     Self = self(),
-    erlang:spawn(fun() ->
-        case blockchain_state_channel_handler:dial(Swarm, Address, []) of
-            {error, _Reason} ->
-                Self ! {dial_fail, Address, _Reason};
-            {ok, Stream} ->
-                unlink(Stream),
-                Self ! {dial_success, Address, Stream}
-        end
-    end),
+    erlang:spawn(
+      fun() ->
+              {P, R} =
+                  erlang:spawn_monitor(
+                    fun() ->
+                            case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                {error, _Reason} ->
+                                    Self ! {dial_fail, Address, _Reason};
+                                {ok, Stream} ->
+                                    unlink(Stream),
+                                    Self ! {dial_success, Address, Stream}
+                            end
+                    end),
+              receive
+                  {'DOWN', R, process, P, normal} ->
+                      ok;
+                  {'DOWN', R, process, P, _Reason} ->
+                      Self ! {dial_fail, Address, _Reason}
+              end
+      end),
     ok;
 dial(Swarm, Route) ->
     Self = self(),
-    erlang:spawn(fun() ->
-        Dialed = lists:foldl(
-            fun(_PubkeyBin, {dialed, _}=Acc) ->
-                Acc;
-            (PubkeyBin, not_dialed) ->
-                Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                case blockchain_state_channel_handler:dial(Swarm, Address, []) of
-                    {error, _Reason} ->
-                        lager:error("failed to dial ~p:~p", [Address, _Reason]),
-                        not_dialed;
-                    {ok, Stream} ->
-                        unlink(Stream),
-                        {dialed, Stream}
-                end
-            end,
-            not_dialed,
-            blockchain_ledger_routing_v1:addresses(Route)
-        ),
-        OUI = blockchain_ledger_routing_v1:oui(Route),
-        case Dialed of
-            not_dialed ->
-                Self ! {dial_fail, OUI, failed};
-            {dialed, Stream} ->
-                Self ! {dial_success, OUI, Stream}
-        end
-    end),
+    erlang:spawn(
+      fun() ->
+              OUI = blockchain_ledger_routing_v1:oui(Route),
+              {P, R} =
+                  erlang:spawn_monitor(
+                    fun() ->
+                            Dialed = lists:foldl(
+                                       fun(_PubkeyBin, {dialed, _}=Acc) ->
+                                               Acc;
+                                          (PubkeyBin, not_dialed) ->
+                                               Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
+                                               case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                                   {error, _Reason} ->
+                                                       lager:error("failed to dial ~p:~p", [Address, _Reason]),
+                                                       not_dialed;
+                                                   {ok, Stream} ->
+                                                       unlink(Stream),
+                                                       {dialed, Stream}
+                                               end
+                                       end,
+                                       not_dialed,
+                                       blockchain_ledger_routing_v1:addresses(Route)
+                                      ),
+                            case Dialed of
+                                not_dialed ->
+                                    Self ! {dial_fail, OUI, failed};
+                                {dialed, Stream} ->
+                                    Self ! {dial_success, OUI, Stream}
+                            end
+                    end),
+              receive
+                  {'DOWN', R, process, P, normal} ->
+                      ok;
+                  {'DOWN', R, process, P, _Reason} ->
+                      Self ! {dial_fail, OUI, failed}
+              end
+      end),
     ok.
 
 -spec send_packet(PubkeyBin :: libp2p_crypto:pubkey_bin(),
@@ -659,9 +681,8 @@ is_valid_sc(SC, State) ->
             E;
         ok ->
             case is_active_sc(SC, State) of
-                false ->
-                    {error, inactive_sc};
-                true ->
+                {error, _}=E -> E;
+                ok ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
                             case is_overspent_sc(SC, State) of
@@ -677,13 +698,18 @@ is_valid_sc(SC, State) ->
     end.
 
 -spec is_active_sc(SC :: blockchain_state_channel_v1:state_channel(),
-                   State :: state()) -> boolean().
+                   State :: state()) -> ok | {error, no_chain} | {error, inactive_sc}.
+is_active_sc(_, #state{chain=undefined}) ->
+    {error, no_chain};
 is_active_sc(SC, #state{chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     SCOwner = blockchain_state_channel_v1:owner(SC),
     SCID = blockchain_state_channel_v1:id(SC),
     {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
-    lists:member(SCID, LedgerSCIDs).
+    case lists:member(SCID, LedgerSCIDs) of
+        true -> ok;
+        false -> {error, inactive_sc}
+    end.
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
                              State :: state()) -> boolean().
@@ -820,10 +846,17 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                                                          {ok, V4} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B2),
                                                          max(V1, V2) =< max(V3, V4)
                                                  end, Conflicts),
-                    {Conflict1, Conflict2} = lists:last(SortedConflicts),
-                    Txn = blockchain_txn_state_channel_close_v1:new(Conflict1, Conflict2, PubkeyBin),
-                    SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
-                    ok = blockchain_worker:submit_txn(SignedTxn);
+
+                    case SortedConflicts of
+                        [] ->
+                            %% Only ever happens if a conflict has already been resolved during a core upgrade
+                            ok;
+                        L ->
+                            {Conflict1, Conflict2} = lists:last(L),
+                            Txn = blockchain_txn_state_channel_close_v1:new(Conflict1, Conflict2, PubkeyBin),
+                            SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
+                            ok = blockchain_worker:submit_txn(SignedTxn)
+                    end;
                 Conflicts ->
                     %% sort the conflicts by the number of DCs they'd send to us
                     SortedConflicts = lists:sort(fun(C1, C2) ->
