@@ -8,7 +8,7 @@
 -export([
     new/3,
     packet/1, hotspot/1, region/1, signature/1,
-    sign/2, validate/1,
+    sign/2, validate/2,
     encode/1, decode/1
 ]).
 
@@ -52,8 +52,8 @@ sign(Packet, SigFun) ->
     Signature = SigFun(EncodedReq),
     Packet#blockchain_state_channel_packet_v1_pb{signature=Signature}.
 
--spec validate(packet()) -> true | {error, any()}.
-validate(Packet) ->
+-spec validate(packet(), blockchain_state_channel_offer_v1:offer()) -> true | {error, any()}.
+validate(Packet, Offer) ->
     BasePacket = Packet#blockchain_state_channel_packet_v1_pb{signature = <<>>},
     EncodedPacket = ?MODULE:encode(BasePacket),
     Signature = ?MODULE:signature(Packet),
@@ -61,7 +61,18 @@ validate(Packet) ->
     PubKey = libp2p_crypto:bin_to_pubkey(PubKeyBin),
     case libp2p_crypto:verify(EncodedPacket, Signature, PubKey) of
         false -> {error, bad_signature};
-        true -> true
+        true ->
+            %% compute the offer from the packet and check it compares to the original offer
+            ExpectedOffer = blockchain_state_channel_offer_v1:from_packet(packet(Packet), hotspot(Packet), region(Packet)),
+            %% signatures won't be the same, but we can compare everything else
+            case blockchain_state_channel_offer_v1:packet_hash(Offer) == blockchain_state_channel_offer_v1:packet_hash(ExpectedOffer) andalso
+                 blockchain_state_channel_offer_v1:payload_size(Offer) == blockchain_state_channel_offer_v1:payload_size(ExpectedOffer) andalso
+                 blockchain_state_channel_offer_v1:routing(Offer) == blockchain_state_channel_offer_v1:routing(ExpectedOffer) andalso
+                 blockchain_state_channel_offer_v1:region(Offer) == blockchain_state_channel_offer_v1:region(ExpectedOffer) andalso
+                 blockchain_state_channel_offer_v1:hotspot(Offer) == blockchain_state_channel_offer_v1:hotspot(ExpectedOffer) of
+                false -> {error, packet_offer_mismatch};
+                true -> true
+            end
     end.
 
 -spec encode(packet()) -> binary().
@@ -110,9 +121,11 @@ validate_test() ->
     #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Packet0 = new(blockchain_helium_packet_v1:new(), PubKeyBin, 'US915'),
+    P = blockchain_helium_packet_v1:new({devaddr, 1234}, <<"hello">>),
+    Packet0 = new(P, PubKeyBin, 'US915'),
     Packet1 = sign(Packet0, SigFun),
-    ?assertEqual(true, validate(Packet1)).
+    Offer = blockchain_state_channel_offer_v1:from_packet(P, PubKeyBin, 'US915'),
+    ?assertEqual(true, validate(Packet1, Offer)).
 
 encode_decode_test() ->
     Packet = new(blockchain_helium_packet_v1:new(), <<"hotspot">>, 'US915'),
