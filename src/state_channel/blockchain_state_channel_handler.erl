@@ -35,7 +35,11 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 
--record(state, {ledger :: undefined | blockchain_ledger_v1:ledger()}).
+-record(state, {
+          ledger :: undefined | blockchain_ledger_v1:ledger(),
+          pending_packet_offer :: undefined | blockchain_state_channel_packet_offer_v1:offer(),
+          offer_queue = [] :: [blockchain_state_channel_packet_offer_v1:offer()]
+         }).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -136,16 +140,36 @@ handle_data(client, Data, State) ->
             blockchain_state_channels_client:response(Resp)
     end,
     {noreply, State};
-handle_data(server, Data, State) ->
+handle_data(server, Data, State=#state{pending_packet_offer=PendingOffer}) ->
     case blockchain_state_channel_message_v1:decode(Data) of
+        {offer, Offer} when PendingOffer == undefined ->
+            handle_offer(Offer, State);
         {offer, Offer} ->
-            lager:info("sc_handler server got offer: ~p", [Offer]),
-            blockchain_state_channels_server:offer(Offer, self());
+            %% queue the offer
+            {noreply, State#state{offer_queue=State#state.offer_queue ++ [Offer]}};
         {packet, Packet} ->
-            lager:debug("sc_handler server got packet: ~p", [Packet]),
-            blockchain_state_channels_server:packet(Packet, State#state.ledger, self())
-    end,
-    {noreply, State}.
+            case PendingOffer of
+                undefined ->
+                    lager:debug("sc_handler server got packet: ~p", [Packet]),
+                    blockchain_state_channels_server:packet(Packet, self()),
+                    {noreply, State};
+                _ ->
+                    case blockchain_state_channel_packet_v1:validate(Packet, PendingOffer) of
+                        {error, packet_offer_mismatch} ->
+                            %% might as well try it, it's free
+                            blockchain_state_channels_server:packet(Packet, self()),
+                            lager:warning("packet failed to validate ~p against offer ~p", [Packet, PendingOffer]),
+                            {stop, normal};
+                        {error, Reason} ->
+                            lager:warning("packet failed to validate ~p reason ~p", [Packet, Reason]),
+                            {stop, normal};
+                        true ->
+                            lager:debug("sc_handler server got packet: ~p", [Packet]),
+                            blockchain_state_channels_server:packet(Packet, self()),
+                            handle_next_offer(State#state{pending_packet_offer=undefined})
+                    end
+            end
+    end.
 
 handle_info(client, {send_offer, Offer}, State) ->
     Data = blockchain_state_channel_message_v1:encode(Offer),
@@ -172,3 +196,30 @@ handle_info(server, {send_response, Resp}, State) ->
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unhandled msg: ~p", [_Type, _Msg]),
     {noreply, State}.
+
+handle_next_offer(State=#state{offer_queue=[]}) ->
+    {noreply, State};
+handle_next_offer(State=#state{offer_queue=[NextOffer|Offers]}) ->
+    handle_offer(NextOffer, State#state{offer_queue=Offers}).
+
+handle_offer(Offer, State) ->
+    lager:info("sc_handler server got offer: ~p", [Offer]),
+    case blockchain_state_channels_server:offer(Offer, State#state.ledger, self()) of
+        ok ->
+            %% offer is pending, just block the stream waiting for the purchase or rejection
+            receive
+                {send_purchase, SignedPurchaseSC, Hotspot, PacketHash, Region} ->
+                    %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
+                    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
+                    Data = blockchain_state_channel_message_v1:encode(PurchaseMsg),
+                    {noreply, State#state{pending_packet_offer=Offer}, Data};
+                {send_rejection, Rejection} ->
+                    Data = blockchain_state_channel_message_v1:encode(Rejection),
+                    {noreply, State, Data}
+            end;
+        reject ->
+            %% we were able to reject out of hand
+            Rejection = blockchain_state_channel_rejection_v1:new(),
+            Data = blockchain_state_channel_message_v1:encode(Rejection),
+            {noreply, State, Data}
+    end.
