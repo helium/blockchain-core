@@ -1919,7 +1919,12 @@ init_assumed_valid(Blockchain, HashAndHeight={Hash, Height}) when is_binary(Hash
 init_assumed_valid(Blockchain, _) ->
     maybe_continue_resync(Blockchain).
 
-init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height}) when is_binary(Hash), is_integer(Height) ->
+init_blessed_snapshot(Blockchain, _HashAndHeight={Hash, Height0}) when is_binary(Hash), is_integer(Height0) ->
+    %% the height of the snapshot is the height it hit the chain,
+    %% rather than the height it leaves the ledger when it's fully
+    %% loaded.  before this fix, if we crashed after loading, even if
+    %% we succeeded loading, we'd redo that work.
+    Height = Height0 - 1,
     case blockchain:height(Blockchain) of
         %% already loaded the snapshot
         {ok, CurrHeight} when CurrHeight >= Height ->
