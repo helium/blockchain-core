@@ -49,12 +49,15 @@
           streams = #{} :: streams(),
           packets = #{} :: #{pid() => [blockchain_helium_packet_v1:packet()]},
           waiting = #{} :: waiting(),
+          dialers = #{} :: dialers(),
           pending_closes = [] :: list() %% TODO GC these
          }).
 
 -type state() :: #state{}.
 -type streams() :: #{non_neg_integer() | string() => pid()}.
 -type waiting_packet() :: {Packet :: blockchain_helium_packet_v1:packet(), Region :: atom()}.
+-type dialer_key() :: string() | blockchain_ledger_routing_v1:routing().
+-type dialers() :: #{dialer_key() => {pid(), reference()}}.
 -type waiting_key() :: non_neg_integer() | string().
 -type waiting() :: #{waiting_key() => [waiting_packet()]}.
 
@@ -345,7 +348,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                         case find_stream(Address, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first"),
-                                ok = dial(Swarm, RouteOrAddress),
+                                ok = dial(Swarm, RouteOrAddress, StateAcc),
                                 add_packet_to_waiting(Address, {Packet, Region}, add_stream(Address, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet"),
@@ -357,7 +360,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                         case find_stream(OUI, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first"),
-                                ok = dial(Swarm, RouteOrAddress),
+                                ok = dial(Swarm, RouteOrAddress, StateAcc),
                                 add_packet_to_waiting(OUI, {Packet, Region}, add_stream(OUI, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet"),
@@ -529,22 +532,23 @@ find_routing(Packet, Chain) ->
     end.
 
 -spec dial(Swarm :: pid(),
-           Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
-dial(Swarm, Address) when is_list(Address) ->
+           Address :: string() | blockchain_ledger_routing_v1:routing(),
+           State :: state()) -> state().
+dial(Swarm, Address, #state{dialers=Dialers}=State) when is_list(Address) ->
     Self = self(),
-    erlang:spawn(fun() ->
-        case blockchain_state_channel_handler:dial(Swarm, Address, []) of
-            {error, _Reason} ->
-                Self ! {dial_fail, Address, _Reason};
-            {ok, Stream} ->
-                unlink(Stream),
-                Self ! {dial_success, Address, Stream}
-        end
-    end),
-    ok;
-dial(Swarm, Route) ->
+    DialerInfo = erlang:spawn_monitor(fun() ->
+                                              case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                                  {error, _Reason} ->
+                                                      Self ! {dial_fail, Address, _Reason};
+                                                  {ok, Stream} ->
+                                                      unlink(Stream),
+                                                      Self ! {dial_success, Address, Stream}
+                                              end
+                                      end),
+    State#state{dialers=maps:put(Address, DialerInfo, Dialers)};
+dial(Swarm, Route, #state{dialers=Dialers}=State) ->
     Self = self(),
-    erlang:spawn(fun() ->
+    DialerInfo = erlang:spawn_monitor(fun() ->
         Dialed = lists:foldl(
             fun(_PubkeyBin, {dialed, _}=Acc) ->
                 Acc;
@@ -570,7 +574,7 @@ dial(Swarm, Route) ->
                 Self ! {dial_success, OUI, Stream}
         end
     end),
-    ok.
+    State#state{dialers=maps:put(Route, DialerInfo, Dialers)}.
 
 -spec send_packet(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                   SigFun :: libp2p_crypto:sig_fun(),
