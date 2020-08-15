@@ -13,8 +13,8 @@
 -export([
     start_link/1,
     nonce/1,
-    packet/3,
-    offer/2,
+    packet/2,
+    offer/3,
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
@@ -87,52 +87,43 @@ start_link(Args) ->
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec packet(blockchain_state_channel_packet_v1:packet(), blockchain_ledger_v1:ledger(), pid()) -> ok.
-packet(SCPacket, Ledger, HandlerPid) ->
-    spawn(fun() ->
-                  case blockchain_state_channel_packet_v1:validate(SCPacket) of
-                      {error, _Reason} ->
-                          lager:warning("packet failed to validate ~p ~p", [_Reason, SCPacket]);
-                      true ->
-                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
-                          case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
-                              ok ->
-                                  %% Get the client (i.e. the hotspot who received this packet)
-                                  ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
-                                  case blockchain_gateway_cache:get(ClientPubkeyBin, Ledger) of
-                                      {error, _} ->
-                                          %% This client does not exist on chain, ignore
-                                          ok;
-                                      {ok, _} ->
-                                          %% This is a valid hotspot on chain
-                                          Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
-                                          gen_server:cast(?SERVER, {packet, ClientPubkeyBin, Packet, HandlerPid})
-                                  end;
-                              {error, _Why} ->
-                                  %% lager:warning("handle_packet failed: ~p", [Why])
-                                  ok
-                          end
-                  end
-          end),
-    ok.
+-spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
+packet(SCPacket, HandlerPid) ->
+    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+    case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
+        ok ->
+            %% This is a valid hotspot on chain
+            Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
+            ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
+            gen_server:cast(?SERVER, {packet, ClientPubkeyBin, Packet, HandlerPid});
+        {error, _Why} ->
+            %% lager:warning("handle_packet failed: ~p", [Why])
+            ok
+    end.
 
--spec offer(blockchain_state_channel_offer_v1:offer(), pid()) -> ok.
-offer(Offer, HandlerPid) ->
-    spawn(fun() ->
-                  case blockchain_state_channel_offer_v1:validate(Offer) of
-                      {error, _Reason} ->
-                          lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]);
-                      true ->
-                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
-                          case SCPacketHandler:handle_offer(Offer, HandlerPid) of
-                              ok ->
-                                  gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
-                              {error, _Why} ->
-                                   ok = send_rejection(HandlerPid)
-                          end
-                  end
-          end),
-    ok.
+-spec offer(blockchain_state_channel_offer_v1:offer(), blockchain_ledger_v1:ledger(), pid()) -> ok | reject.
+offer(Offer, Ledger, HandlerPid) ->
+    %% Get the client (i.e. the hotspot who received this packet)
+    ClientPubkeyBin = blockchain_state_channel_offer_v1:hotspot(Offer),
+    case blockchain_gateway_cache:get(ClientPubkeyBin, Ledger) of
+        {error, _} ->
+            %% This client does not exist on chain, ignore
+            reject;
+        {ok, _} ->
+            case blockchain_state_channel_offer_v1:validate(Offer) of
+                {error, _Reason} ->
+                    lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]),
+                    reject;
+                true ->
+                    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+                    case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+                        ok ->
+                            gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
+                        {error, _Why} ->
+                            reject
+                    end
+            end
+    end.
 
 -spec gc_state_channels([ binary() ]) -> ok.
 gc_state_channels([]) -> ok;
