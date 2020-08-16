@@ -37,8 +37,8 @@ init(_Args) ->
                     shutdown => brutal_kill}],
     {ok, {SupFlags, ChildSpecs}}.
 
-start_dialer([Parent, Txn, ConsensusMember]) ->
-    supervisor:start_child(?MODULE, [[Parent, Txn, ConsensusMember]]).
+start_dialer([Parent, TxnKey, Txn, ConsensusMember]) ->
+    supervisor:start_child(?MODULE, [[Parent, TxnKey, Txn, ConsensusMember]]).
 
 stop_dialer(Pid) ->
     catch supervisor:terminate_child(?MODULE, Pid),
