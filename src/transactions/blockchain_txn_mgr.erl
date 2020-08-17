@@ -343,7 +343,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     %% validate the cached txns
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
-        fun({TxnKey, Txn, TxnData}) ->
+        fun({TxnKey, Txn, _TxnData} = CachedTxn) ->
             case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
                 {false, false} ->
                     %% the txn is not in the valid nor the invalid list
@@ -370,24 +370,24 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     case hd(L2) of
                         {TxnKey, _, _} ->
                             %% accept this copy of the txn as valid
-                            process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+                            process_valid_txn(Chain, CachedTxns, CachedTxn, SubmitF, NewGroupMembers,
                                                 CurBlockHeight, IsNewElection);
                         _ ->
                             %% declare this copy as invalid
-                            process_invalid_txn(Txn, TxnKey, TxnData, {error, invalid})
+                            process_invalid_txn(CachedTxn, {error, invalid})
                     end;
                 {true, _} ->
                     %% the txn is invalid
-                    process_invalid_txn(Txn, TxnKey, TxnData, {error, invalid});
+                    process_invalid_txn(CachedTxn, {error, invalid});
                 {_, true} ->
                     %% the txn is valid and a new election may or may not have occurred
-                    process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+                    process_valid_txn(Chain, CachedTxns, CachedTxn, SubmitF, NewGroupMembers,
                                         CurBlockHeight, IsNewElection)
             end
         end, CachedTxns).
 
-
-process_invalid_txn(Txn, TxnKey, TxnData, CallbackResponse) ->
+-spec process_invalid_txn(cached_txn_type(), {error, atom()})-> ok.
+process_invalid_txn({TxnKey, Txn, TxnData}, CallbackResponse) ->
     %% the txn is invalid, remove from cache and invoke callback
     %% any txn in the invalid list is considered unrecoverable, it will never become valid
     %% stop all existing dialers for the txn
@@ -397,7 +397,9 @@ process_invalid_txn(Txn, TxnKey, TxnData, CallbackResponse) ->
     ok = invoke_callback(Callback, CallbackResponse),
     delete_cached_txn(TxnKey).
 
-process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+-spec process_valid_txn(blockchain:blockchain(), [cached_txn_type()], cached_txn_type(),
+                            undefined | integer(), [libp2p_crypto:pubkey_bin()], integer(), boolean())-> ok.
+process_valid_txn(Chain, CachedTxns, {TxnKey, Txn, TxnData}, SubmitF, NewGroupMembers,
                     CurBlockHeight, IsNewElection) when IsNewElection == true ->
     %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
     %% keep any existing acceptions/rejections from the previous round
@@ -419,7 +421,7 @@ process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMemb
                                                  acceptions = NewAcceptions,
                                                  rejections = NewRejections,
                                                  dialers = RemainingDialers});
-process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, _NewGroupMembers,
+process_valid_txn(Chain, CachedTxns, {TxnKey, Txn, TxnData}, SubmitF, _NewGroupMembers,
                     CurBlockHeight, _IsNewElection) ->
     %% the txn is valid and there has not been a new election
     %% if we dont have sufficient acceptions at this point, resubmit to additional members
