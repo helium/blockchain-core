@@ -343,11 +343,9 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     %% validate the cached txns
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
-        fun({TxnKey, Txn, #txn_data{acceptions = Acceptions, rejections = Rejections,
-                            recv_block_height = RecvBlockHeight, dialers = Dialers,
-                            callback = Callback} = TxnData}) ->
-            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions), IsNewElection} of
-                {false, false, _} ->
+        fun({TxnKey, Txn, TxnData}) ->
+            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
+                {false, false} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
                     %% bad or out of sequence nonce
@@ -356,52 +354,92 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     %% who may not yet have responded to any previous submit
                     lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                     ok;
-                {true, _, _} ->
-                    %% the txn is invalid, remove from cache and invoke callback
-                    %% any txn in the invalid list is considered unrecoverable, it will never become valid
-                    %% stop all existing dialers for the txn
-                    lager:debug("txn declared invalid, removing from cache and invoking callback: ~p",[blockchain_txn:hash(Txn)]),
-                    lager:info("Invalidated txn: ~p", [blockchain_txn:hash(Txn)]),
-                    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
-                    ok = invoke_callback(Callback, {error, invalid}),
-                    delete_cached_txn(TxnKey);
-                {_, true, true} ->
-                    %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
-                    %% keep any existing acceptions/rejections from the previous round
-                    lager:debug("txn is valid and there is a new election: ~p.  Checking if it needs to be resubmitted", [blockchain_txn:hash(Txn)]),
-                    RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
-                    %% figure out which dialers still point to members of the new consensus group
-                    {RemainingDialers, StaleDialers} = lists:partition(fun({_DialerPid, DialerMember}) ->
-                                                            lists:member(DialerMember, NewGroupMembers)
-                                                    end, Dialers),
-                    %% stop all the dialers to members no longer in the consensus group
-                    ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
-                    %% remove any acceptions and rejections from members no longer in the consensus group
-                    {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
-                    %% check if the txn has any dependencies and resubmit as required
-                    check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF,
-                                                TxnData#txn_data{recv_block_height = RecvBlockHeight0,
-                                                                 acceptions = NewAcceptions,
-                                                                 rejections = NewRejections,
-                                                                 dialers = RemainingDialers});
-                {_, true, _} ->
-                    %% the txn is valid and there has not been a new election
-                    %% if we dont have sufficient acceptions at this point, resubmit to additional members
-                    lager:debug("txn is valid and there is NO new election: ~p.  Checking if it needs to be resubmitted", [blockchain_txn:hash(Txn)]),
-                    case length(Dialers) < (SubmitF - length(Acceptions)) of
-                        true ->
-                            RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
-                            %% check if the txn has any dependencies and resubmit as required
-                            check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF,
-                                                        TxnData#txn_data{recv_block_height = RecvBlockHeight0});
-                        false ->
-                            %% the txn remains valid and the txn has sufficient acceptions, so do nothing
-                            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",
-                                [blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
-                            ok
-                    end
+                {true, true} ->
+                    %% hmm we have a txn which is a member of the valid and the invalid list
+                    %% this can only mean we have dup txns, like 2 payment txns submitted with same nonce and payload
+                    %% During validate, the first will be rendered valid, the second will be declared invalid
+                    %% in this scenario we want to accept one of these txns, we dont really care which one
+                    %% but the decision of which will be based on the txn with the earlier key ( keys are timestamps atm )
+                    %% as we will hit this path at least twice ( once per duplicated txn ), the decision logic needs to be deterministic
+
+                    %% find all elements in the sorted list of txns which match this txn payload
+                    L1 = lists:filter(fun({_, LTxn, _})-> LTxn =:= Txn end, CachedTxns),
+                    %% now sort those by key in ascending order
+                    L2 = lists:sort(fun({KeyA, _, _}, {KeyB, _, _}) -> KeyA < KeyB end, L1),
+                    %% if the head matches the current TxnKey then we will accept  this as the valid item otherwise invalid
+                    case hd(L2) of
+                        {TxnKey, _, _} ->
+                            %% accept this copy of the txn as valid
+                            process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+                                                CurBlockHeight, IsNewElection);
+                        _ ->
+                            %% declare this copy as invalid
+                            process_invalid_txn(Txn, TxnKey, TxnData, {error, invalid})
+                    end;
+                {true, _} ->
+                    %% the txn is invalid
+                    process_invalid_txn(Txn, TxnKey, TxnData, {error, invalid});
+                {_, true} ->
+                    %% the txn is valid and a new election may or may not have occurred
+                    process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+                                        CurBlockHeight, IsNewElection)
             end
         end, CachedTxns).
+
+
+process_invalid_txn(Txn, TxnKey, TxnData, CallbackResponse) ->
+    %% the txn is invalid, remove from cache and invoke callback
+    %% any txn in the invalid list is considered unrecoverable, it will never become valid
+    %% stop all existing dialers for the txn
+    lager:info("txn with key ~p declared invalid, removing from cache and invoking callback: ~p",[TxnKey, blockchain_txn:hash(Txn)]),
+    #txn_data{callback = Callback, dialers = Dialers} = TxnData,
+    ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
+    ok = invoke_callback(Callback, CallbackResponse),
+    delete_cached_txn(TxnKey).
+
+process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, NewGroupMembers,
+                    CurBlockHeight, IsNewElection) when IsNewElection == true ->
+    %% the txn is valid and a new election has occurred, so keep txn in cache and resubmit
+    %% keep any existing acceptions/rejections from the previous round
+    lager:debug("txn with key ~p is valid and there is a new election: ~p.  Checking if it needs to be resubmitted", [TxnKey, blockchain_txn:hash(Txn)]),
+    #txn_data{acceptions = Acceptions, rejections = Rejections,
+              recv_block_height = RecvBlockHeight, dialers = Dialers} = TxnData,
+    RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
+    %% figure out which dialers still point to members of the new consensus group
+    {RemainingDialers, StaleDialers} = lists:partition(fun({_DialerPid, DialerMember}) ->
+                                            lists:member(DialerMember, NewGroupMembers)
+                                    end, Dialers),
+    %% stop all the dialers to members no longer in the consensus group
+    ok = blockchain_txn_mgr_sup:stop_dialers(StaleDialers),
+    %% remove any acceptions and rejections from members no longer in the consensus group
+    {NewAcceptions, NewRejections} = purge_old_cg_members(Acceptions, Rejections, NewGroupMembers),
+    %% check if the txn has any dependencies and resubmit as required
+    check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF,
+                                TxnData#txn_data{recv_block_height = RecvBlockHeight0,
+                                                 acceptions = NewAcceptions,
+                                                 rejections = NewRejections,
+                                                 dialers = RemainingDialers});
+process_valid_txn(Chain, CachedTxns, Txn, TxnKey, TxnData, SubmitF, _NewGroupMembers,
+                    CurBlockHeight, _IsNewElection) ->
+    %% the txn is valid and there has not been a new election
+    %% if we dont have sufficient acceptions at this point, resubmit to additional members
+    lager:debug("txn with key ~p is valid and there is NO new election: ~p.  Checking if it needs to be resubmitted", [TxnKey, blockchain_txn:hash(Txn)]),
+    #txn_data{acceptions = Acceptions, rejections = Rejections,
+              recv_block_height = RecvBlockHeight, dialers = Dialers} = TxnData,
+    case length(Dialers) < (SubmitF - length(Acceptions)) of
+        true ->
+            RecvBlockHeight0 = normalise_block_height(CurBlockHeight, RecvBlockHeight),
+            %% check if the txn has any dependencies and resubmit as required
+            check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF,
+                                        TxnData#txn_data{recv_block_height = RecvBlockHeight0});
+        false ->
+            %% the txn remains valid and the txn has sufficient acceptions, so do nothing
+            lager:debug("txn is valid but no need to resubmit to new or additional members: ~p Accepted: ~p Rejected ~p Dialers ~p F ~p",
+                [blockchain_txn:hash(Txn), length(Acceptions), length(Rejections), Dialers, SubmitF]),
+            ok
+    end.
+
+
 
 -spec check_for_deps_and_resubmit(txn_key(), blockchain_txn:txn(), [blockchain_txn:txn()], blockchain:blockchain(), integer(), #txn_data{}) -> ok.
 check_for_deps_and_resubmit(TxnKey, Txn, CachedTxns, Chain, SubmitF, #txn_data{ acceptions = Acceptions,
