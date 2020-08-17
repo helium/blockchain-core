@@ -511,7 +511,7 @@ dequeue_packet(Stream, #state{packets=Packets}=State) ->
         PacketList ->
             %% Remove from tail
             [ToPop | Rest] = lists:reverse(PacketList),
-            {ToPop, State#state{packets=maps:update(Stream, Rest, Packets)}}
+            {ToPop, State#state{packets=maps:update(Stream, lists:reverse(Rest), Packets)}}
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
