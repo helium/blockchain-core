@@ -65,6 +65,7 @@ validate(Packet, Offer) ->
             %% compute the offer from the packet and check it compares to the original offer
             ExpectedOffer = blockchain_state_channel_offer_v1:from_packet(packet(Packet), hotspot(Packet), region(Packet)),
             %% signatures won't be the same, but we can compare everything else
+            lager:info("Original offer ~p, calculated offer ~p", [Offer, ExpectedOffer]),
             case blockchain_state_channel_offer_v1:packet_hash(Offer) == blockchain_state_channel_offer_v1:packet_hash(ExpectedOffer) andalso
                  blockchain_state_channel_offer_v1:payload_size(Offer) == blockchain_state_channel_offer_v1:payload_size(ExpectedOffer) andalso
                  blockchain_state_channel_offer_v1:routing(Offer) == blockchain_state_channel_offer_v1:routing(ExpectedOffer) andalso
