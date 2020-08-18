@@ -47,7 +47,7 @@
           sig_fun :: libp2p_crypto:sig_fun(),
           chain = undefined :: undefined | blockchain:blockchain(),
           streams = #{} :: streams(),
-          packets = #{} :: #{pid() => [blockchain_helium_packet_v1:packet()]},
+          packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
           waiting = #{} :: waiting(),
           pending_closes = [] :: list() %% TODO GC these
          }).
@@ -522,16 +522,16 @@ remove_packet_from_waiting(AddressOrOUI, #state{waiting=Waiting}=State) ->
                      Packet :: blockchain_helium_packet_v1:packet(),
                      State :: state()) -> state().
 enqueue_packet(Stream, Packet, #state{packets=Packets}=State) ->
-    State#state{packets=maps:update_with(Stream, fun(PacketList) -> [Packet|PacketList] end, [Packet], Packets)}.
+    State#state{packets=maps:update_with(Stream, fun(PacketList) -> queue:in(Packet, PacketList) end, queue:in(Packet, queue:new()), Packets)}.
 
 -spec dequeue_packet(Stream :: pid(), State :: state()) -> {undefined | blockchain_helium_packet_v1:packet(), state()}.
 dequeue_packet(Stream, #state{packets=Packets}=State) ->
-    case maps:get(Stream, Packets, []) of
-        [] -> {undefined, State};
-        PacketList ->
-            %% Remove from tail
-            [ToPop | Rest] = lists:reverse(PacketList),
-            {ToPop, State#state{packets=maps:update(Stream, lists:reverse(Rest), Packets)}}
+    Queue = maps:get(Stream, Packets, queue:new()),
+    case queue:out(Queue) of
+        {empty, _} ->
+            {undefined, State};
+        {{value, ToPop}, NewQueue} ->
+            {ToPop, State#state{packets=maps:update(Stream, NewQueue, Packets)}}
     end.
 
 -spec find_routing(Packet :: blockchain_helium_packet_v1:packet(),
