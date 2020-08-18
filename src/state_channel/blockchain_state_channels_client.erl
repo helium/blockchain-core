@@ -860,10 +860,10 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                     Conflicts = [ {A, B} || A <- SCs, B <- SCs, conflicts(A, B) ],
                     %% now try to find the ones with the highest balance (maximum refund guaranteed)
                     SortedConflicts = lists:sort(fun({A1, B1}, {A2, B2}) ->
-                                                         {ok, V1} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, A1),
-                                                         {ok, V2} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B1),
-                                                         {ok, V3} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, A2),
-                                                         {ok, V4} = blockchain_state_channel_v1:num_dcs_for(PubkeyBin, B2),
+                                                         V1 = num_dcs_for(PubkeyBin, A1),
+                                                         V2 = num_dcs_for(PubkeyBin, B1),
+                                                         V3 = num_dcs_for(PubkeyBin, A2),
+                                                         V4 = num_dcs_for(PubkeyBin, B2),
                                                          max(V1, V2) =< max(V3, V4)
                                                  end, Conflicts),
 
@@ -907,6 +907,12 @@ conflicts(SCA, SCB) ->
             false
     end.
 
+
+num_dcs_for(PubkeyBin, SC) ->
+    case blockchain_state_channel_v1:num_dcs_for(PubkeyBin, SC) of
+        {ok, V} -> V;
+        {error, not_found} -> 0
+    end.
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
