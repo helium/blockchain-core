@@ -482,7 +482,12 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
 
     NewState = State#state{state_channels=maps:remove(ID, SCs), active_sc_id=NewActiveSCID},
 
-    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
+    case NewActiveSCID /= ActiveSCID of
+        true ->
+            ok = maybe_broadcast_banner(active_sc(NewState), NewState);
+        false ->
+            ok
+    end,
 
     NewState.
 
