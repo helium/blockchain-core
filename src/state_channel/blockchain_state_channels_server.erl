@@ -13,8 +13,8 @@
 -export([
     start_link/1,
     nonce/1,
-    packet/2,
-    offer/3,
+    packet/3,
+    offer/4,
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
@@ -51,7 +51,6 @@
     owner = undefined :: {libp2p_crypto:pubkey_bin(), libp2p_crypto:sig_fun()} | undefined,
     state_channels = #{} :: state_channels(),
     active_sc_id = undefined :: undefined | blockchain_state_channel_v1:id(),
-    sc_packet_handler = undefined :: undefined | atom(),
     streams = #{} :: streams(),
     dc_payload_size :: undefined | pos_integer(),
     sc_version = 0 :: non_neg_integer(), %% defaulting to 0 instead of undefined
@@ -87,9 +86,8 @@ start_link(Args) ->
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
-packet(SCPacket, HandlerPid) ->
-    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
+-spec packet(blockchain_state_channel_packet_v1:packet(), atom(), pid()) -> ok.
+packet(SCPacket, SCPacketHandler, HandlerPid) ->
     case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
         ok ->
             %% This is a valid hotspot on chain
@@ -101,8 +99,8 @@ packet(SCPacket, HandlerPid) ->
             ok
     end.
 
--spec offer(blockchain_state_channel_offer_v1:offer(), blockchain_ledger_v1:ledger(), pid()) -> ok | reject.
-offer(Offer, Ledger, HandlerPid) ->
+-spec offer(blockchain_state_channel_offer_v1:offer(), blockchain_ledger_v1:ledger(), atom(), pid()) -> ok | reject.
+offer(Offer, Ledger, SCPacketHandler, HandlerPid) ->
     %% Get the client (i.e. the hotspot who received this packet)
     ClientPubkeyBin = blockchain_state_channel_offer_v1:hotspot(Offer),
     case blockchain_gateway_cache:get(ClientPubkeyBin, Ledger) of
@@ -115,7 +113,6 @@ offer(Offer, Ledger, HandlerPid) ->
                     lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]),
                     reject;
                 true ->
-                    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
                     case SCPacketHandler:handle_offer(Offer, HandlerPid) of
                         ok ->
                             gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
@@ -154,11 +151,10 @@ init(Args) ->
     Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
     SCF = blockchain_state_channels_db_owner:sc_servers_cf(),
-    SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
     ok = blockchain_event:add_handler(self()),
     {Owner, OwnerSigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    {ok, #state{db=DB, scf=SCF, swarm=Swarm, owner={Owner, OwnerSigFun}, sc_packet_handler=SCPacketHandler}}.
+    {ok, #state{db=DB, scf=SCF, swarm=Swarm, owner={Owner, OwnerSigFun}}}.
 
 handle_call({nonce, ID}, _From, #state{state_channels=SCs}=State) ->
     Reply = case maps:get(ID, SCs, undefined) of
