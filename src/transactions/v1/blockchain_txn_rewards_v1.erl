@@ -437,12 +437,9 @@ poc_challengers_rewards(Transactions, #{poc_version := Version},
     ).
 
 normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
-                                                  poc_witnesses_percent := PocWitnessesPercent,
-                                                  poc_challengees_percent := PocChallengeesPercent,
-                                                  dc_remainder := DCRemainder,
-                                        poc_challengers_percent := PocChallengersPercent}) ->
+                                        poc_challengers_percent := PocChallengersPercent}=Vars) ->
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
-    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocChallengersPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    ShareOfDCRemainder = share_of_dc_rewards(poc_challengers_percent, Vars),
     ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Challenger, Challenged, Acc) ->
@@ -479,12 +476,9 @@ poc_challengees_rewards(Transactions,
     ).
 
 normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
-                                                  poc_witnesses_percent := PocWitnessesPercent,
-                                                  poc_challengers_percent := PocChallengersPercent,
-                                                  dc_remainder := DCRemainder,
-                                                  poc_challengees_percent := PocChallengeesPercent}) ->
+                                                  poc_challengees_percent := PocChallengeesPercent}=Vars) ->
     TotalChallenged = lists:sum(maps:values(ChallengeeRewards)),
-    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocChallengeesPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    ShareOfDCRemainder = share_of_dc_rewards(poc_challengees_percent, Vars),
     ChallengeesReward = (EpochReward * PocChallengeesPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Challengee, Challenged, Acc) ->
@@ -642,12 +636,9 @@ poc_witnesses_rewards(Transactions,
     ).
 
 normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
-                                            dc_remainder := DCRemainder,
-                                            poc_challengees_percent := PocChallengeesPercent,
-                                            poc_challengers_percent := PocChallengersPercent,
-                                            poc_witnesses_percent := PocWitnessesPercent}) ->
+                                            poc_witnesses_percent := PocWitnessesPercent}=Vars) ->
     TotalWitnesses = lists:sum(maps:values(WitnessRewards)),
-    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocWitnessesPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    ShareOfDCRemainder = share_of_dc_rewards(poc_witnesses_percent, Vars),
     WitnessesReward = (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Witness, Witnessed, Acc) ->
@@ -788,6 +779,12 @@ get_gateway_owner(Address, Ledger) ->
             {ok, blockchain_ledger_gateway_v2:owner_address(GwInfo)}
     end.
 
+
+share_of_dc_rewards( Key, Vars=#{dc_remainder := DCRemainder}) ->
+    erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars)))));
+share_of_dc_rewards(_, _) ->
+    %% DC remainder not set
+    0.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
