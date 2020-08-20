@@ -17,6 +17,7 @@
 
     blocks/1, get_block/2, get_raw_block/2, save_block/2,
     has_block/2,
+    find_first_block_after/2,
 
     add_blocks/2, add_block/2, add_block/3,
     delete_block/2,
@@ -594,6 +595,19 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
         Error ->
             Error
     end.
+
+find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
+    {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
+    L =  fun Loop({ok, <<Height:64/integer-unsigned-big>>, BinBlock}, I) ->
+                 case Height < MinHeight of
+                     %% Skip anything before the min height
+                     true -> Loop(rocksdb:iter_move(I, next));
+                     _ -> {ok, Height, BinBlock}
+                 end;
+             Loop({error, _}, _I) ->
+                 {error, not_found}
+         end,
+    L(rocksdb:iterator_move(Iter, <<MinHeight:64/integer-unsigned-big>>), Iter).
 
 %%--------------------------------------------------------------------
 %% @doc
