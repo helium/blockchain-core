@@ -227,11 +227,14 @@ to_json(Txn, _Opts) ->
 get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) ->
     get_rewards_for_epoch(Start, End, Chain, Vars, Ledger, #{}, #{}, #{}, #{}).
 
-get_rewards_for_epoch(Start, End, _Chain, Vars, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) when Start == End+1 ->
+get_rewards_for_epoch(Start, End, _Chain, Vars0, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) when Start == End+1 ->
+    {DCRemainder, DCRewards} = normalize_dc_rewards(DCRewards, Vars0),
+    Vars = maps:put(dc_remainder, DCRemainder, Vars0),
+    %% apply the DC remainder, if any to the other PoC categories pro rata
     {ok, normalize_challenger_rewards(ChallengerRewards, Vars),
      normalize_challengee_rewards(ChallengeeRewards, Vars),
      normalize_witness_rewards(WitnessRewards, Vars),
-     normalize_dc_rewards(DCRewards, Vars)};
+     DCRewards};
 get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason}=Error ->
@@ -264,6 +267,7 @@ get_reward_vars(Start, End, Ledger) ->
     {ok, PocWitnessesPercent} = blockchain:config(?poc_witnesses_percent, Ledger),
     {ok, ConsensusPercent} = blockchain:config(?consensus_percent, Ledger),
     {ok, ConsensusMembers} = blockchain_ledger_v1:consensus_members(Ledger),
+    {ok, OraclePrice} = blockchain_ledger_v1:current_oracle_price(Ledger),
     DCPercent = case blockchain:config(?dc_percent, Ledger) of
                     {ok, R1} ->
                         R1;
@@ -286,10 +290,15 @@ get_reward_vars(Start, End, Ledger) ->
                      {ok, V} -> V;
                      _ -> 1
                  end,
+    RewardVersion = case blockchain:config(?reward_version, Ledger) of
+        {ok, R4} -> R4;
+        _ -> 1
+    end,
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
         epoch_reward => EpochReward,
+        oracle_price => OraclePrice,
         securities_percent => SecuritiesPercent,
         poc_challengees_percent => PocChallengeesPercent,
         poc_challengers_percent => PocChallengersPercent,
@@ -299,7 +308,8 @@ get_reward_vars(Start, End, Ledger) ->
         dc_percent => DCPercent,
         sc_grace_blocks => SCGrace,
         sc_version => SCVersion,
-        poc_version => POCVersion
+        poc_version => POCVersion,
+        reward_version => RewardVersion
     }.
 
 -spec calculate_epoch_reward(pos_integer(), pos_integer(), blockchain_ledger_v1:ledger()) -> float().
@@ -427,9 +437,13 @@ poc_challengers_rewards(Transactions, #{poc_version := Version},
     ).
 
 normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
+                                                  poc_witnesses_percent := PocWitnessesPercent,
+                                                  poc_challengees_percent := PocChallengeesPercent,
+                                                  dc_remainder := DCRemainder,
                                         poc_challengers_percent := PocChallengersPercent}) ->
     TotalChallenged = lists:sum(maps:values(ChallengerRewards)),
-    ChallengersReward = EpochReward * PocChallengersPercent,
+    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocChallengersPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    ChallengersReward = (EpochReward * PocChallengersPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Challenger, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
@@ -464,9 +478,14 @@ poc_challengees_rewards(Transactions,
         Transactions
     ).
 
-normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward, poc_challengees_percent := PocChallengeesPercent}) ->
+normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
+                                                  poc_witnesses_percent := PocWitnessesPercent,
+                                                  poc_challengers_percent := PocChallengersPercent,
+                                                  dc_remainder := DCRemainder,
+                                                  poc_challengees_percent := PocChallengeesPercent}) ->
     TotalChallenged = lists:sum(maps:values(ChallengeeRewards)),
-    ChallengeesReward = EpochReward * PocChallengeesPercent,
+    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocChallengeesPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    ChallengeesReward = (EpochReward * PocChallengeesPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Challengee, Challenged, Acc) ->
             PercentofReward = (Challenged*100/TotalChallenged)/100,
@@ -623,9 +642,13 @@ poc_witnesses_rewards(Transactions,
     ).
 
 normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
+                                            dc_remainder := DCRemainder,
+                                            poc_challengees_percent := PocChallengeesPercent,
+                                            poc_challengers_percent := PocChallengersPercent,
                                             poc_witnesses_percent := PocWitnessesPercent}) ->
     TotalWitnesses = lists:sum(maps:values(WitnessRewards)),
-    WitnessesReward = EpochReward * PocWitnessesPercent,
+    ShareOfDCRemainder = erlang:round(DCRemainder * ((PocWitnessesPercent / (PocChallengeesPercent + PocChallengersPercent + PocWitnessesPercent)))),
+    WitnessesReward = (EpochReward * PocWitnessesPercent) + ShareOfDCRemainder,
     maps:fold(
         fun(Witness, Witnessed, Acc) ->
             PercentofReward = (Witnessed*100/TotalWitnesses)/100,
@@ -706,7 +729,7 @@ dc_rewards(_Txns, _EndHeight, _Vars, _Ledger, DCRewards) ->
 
 normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
                                    consensus_members := ConsensusMembers,
-                                  dc_percent := DCPercent}) ->
+                                   dc_percent := DCPercent}=Vars) ->
     DCRewards1 = maps:remove(seen, DCRewards0),
     DCRewards = case maps:take(overages, DCRewards1) of
                     {OverageTotal, NewMap} ->
@@ -718,17 +741,37 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
                         %% no overages to account for
                         DCRewards1
                 end,
+    OraclePrice = maps:get(oracle_price, Vars, 0),
+    RewardVersion = maps:get(reward_version, Vars, 1),
     TotalDCs = lists:sum(maps:values(DCRewards)),
-    DCReward = EpochReward * DCPercent,
-    maps:fold(
-        fun(Key, NumDCs, Acc) ->
-            PercentofReward = (NumDCs*100/TotalDCs)/100,
-            Amount = erlang:round(PercentofReward*DCReward),
-            maps:put({gateway, data_credits, Key}, Amount, Acc)
-        end,
-        #{},
-        DCRewards
-    ).
+    MaxDCReward = round(EpochReward * DCPercent),
+    %% compute the price HNT equivalent of the DCs burned in this epoch
+    DCReward = case OraclePrice == 0 orelse RewardVersion < 3 of
+        true ->
+            %% no oracle price, or rewards =< 2
+            MaxDCReward;
+        false ->
+            {ok, DCInThisEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(TotalDCs, OraclePrice),
+            case DCInThisEpochAsHNT >= MaxDCReward of
+                true ->
+                    %% we spent enough, just allocate it proportionally
+                    MaxDCReward;
+                false ->
+                    %% we didn't spend enough this epoch, return the remainder to the pool
+                    DCInThisEpochAsHNT
+            end
+    end,
+
+    {MaxDCReward - DCReward,
+     maps:fold(
+       fun(Key, NumDCs, Acc) ->
+               PercentofReward = (NumDCs*100/TotalDCs)/100,
+               Amount = erlang:round(PercentofReward*DCReward),
+               maps:put({gateway, data_credits, Key}, Amount, Acc)
+       end,
+       #{},
+       DCRewards
+      )}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -824,7 +867,10 @@ poc_challengers_rewards_1_test() ->
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengers_percent => 0.09 + 0.06,
+        poc_challengers_percent => 0.15,
+        poc_witnesses_percent => 0.0,
+        poc_challengees_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 5
     },
     Rewards = #{
@@ -844,7 +890,11 @@ poc_challengers_rewards_2_test() ->
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengers_percent => 0.09 + 0.06,
+        poc_challengers_percent => 0.15,
+        poc_witnesses_percent => 0.0,
+        poc_challengees_percent => 0.0,
+        dc_remainder => 0,
+
         poc_version => 5
     },
     Rewards = #{
@@ -861,9 +911,12 @@ poc_challengees_rewards_1_test() ->
 
     Vars = #{
         epoch_reward => 1000,
-        poc_challengees_percent => 0.19 + 0.16,
+        poc_challengees_percent => 0.35,
+        poc_witnesses_percent => 0.0,
+        poc_challengers_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 5
-    },
+},
 
     LedgerVars = maps:put(?poc_version, 5, common_poc_vars()),
 
@@ -914,7 +967,10 @@ poc_challengees_rewards_2_test() ->
 
     Vars = #{
         epoch_reward => 1000,
-        poc_challengees_percent => 0.19 + 0.16,
+        poc_challengees_percent => 0.35,
+        poc_witnesses_percent => 0.0,
+        poc_challengers_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 5
     },
 
@@ -967,7 +1023,10 @@ poc_challengees_rewards_3_test() ->
 
     Vars = #{
         epoch_reward => 1000,
-        poc_challengees_percent => 0.19 + 0.16,
+        poc_challengees_percent => 0.35,
+        poc_witnesses_percent => 0.0,
+        poc_challengers_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 5
     },
 
@@ -1029,7 +1088,10 @@ poc_witnesses_rewards_test() ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     EpochVars = #{
       epoch_reward => 1000,
-      poc_witnesses_percent => 0.02 + 0.03,
+      poc_witnesses_percent => 0.05,
+      poc_challengees_percent => 0.0,
+      poc_challengers_percent => 0.0,
+      dc_remainder => 0,
       poc_version => 5
      },
 
@@ -1082,7 +1144,10 @@ old_poc_challengers_rewards_test() ->
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengers_percent => 0.09 + 0.06,
+        poc_challengers_percent => 0.15,
+        poc_challengees_percent => 0.0,
+        poc_witnesses_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 2
     },
     Rewards = #{
@@ -1111,7 +1176,10 @@ old_poc_challengees_rewards_version_1_test() ->
     ],
     Vars = #{
         epoch_reward => 1000,
-        poc_challengees_percent => 0.19 + 0.16,
+        poc_challengees_percent => 0.35,
+        poc_challengers_percent => 0.0,
+        poc_witnesses_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 1
     },
     Rewards = #{
@@ -1153,6 +1221,9 @@ old_poc_challengees_rewards_version_2_test() ->
     Vars = #{
         epoch_reward => 1000,
         poc_challengees_percent => 0.19 + 0.16,
+        poc_challengers_percent => 0.0,
+        poc_witnesses_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 2
     },
     Rewards = #{
@@ -1181,7 +1252,10 @@ old_poc_witnesses_rewards_test() ->
     ],
     EpochVars = #{
         epoch_reward => 1000,
-        poc_witnesses_percent => 0.02 + 0.03,
+        poc_witnesses_percent => 0.05,
+        poc_challengers_percent => 0.0,
+        poc_challengees_percent => 0.0,
+        dc_remainder => 0,
         poc_version => 2
     },
     Rewards = #{
@@ -1198,10 +1272,17 @@ dc_rewards_test() ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
 
     Vars = #{
-        epoch_reward => 1000,
+        epoch_reward => 100000,
         dc_percent => 0.3,
+        consensus_percent => 0.06 + 0.025,
+        poc_challengees_percent => 0.18,
+        poc_challengers_percent => 0.0095,
+        poc_witnesses_percent => 0.0855,
+        securities_percent => 0.34,
         sc_version => 2,
         sc_grace_blocks => 5,
+        reward_version => 2,
+        oracle_price => 100000000, %% 1 dollar
         consensus_members => [<<"c">>, <<"d">>]
     },
 
@@ -1226,10 +1307,57 @@ dc_rewards_test() ->
     ],
     %% NOTE: Rewards are split 33-66%
     Rewards = #{
-        {gateway, data_credits, <<"a">>} => 100,
-        {gateway, data_credits, <<"b">>} => 200
+        {gateway, data_credits, <<"a">>} => trunc(100000 * 0.3 * (1/3)),
+        {gateway, data_credits, <<"b">>} => trunc(100000 * 0.3 * (2/3))
     },
-    ?assertEqual(Rewards, normalize_dc_rewards(dc_rewards(Txns, 100, Vars, Ledger1, #{}), Vars)).
+    ?assertEqual({0, Rewards}, normalize_dc_rewards(dc_rewards(Txns, 100, Vars, Ledger1, #{}), Vars)).
+
+dc_rewards_v3_test() ->
+    BaseDir = test_utils:tmp_dir("poc_challengees_rewards_2_test"),
+    Ledger = blockchain_ledger_v1:new(BaseDir),
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+
+    Vars = #{
+        epoch_reward => 100000,
+        dc_percent => 0.3,
+        consensus_percent => 0.06 + 0.025,
+        poc_challengees_percent => 0.18,
+        poc_challengers_percent => 0.0095,
+        poc_witnesses_percent => 0.0855,
+        securities_percent => 0.34,
+        sc_version => 2,
+        sc_grace_blocks => 5,
+        reward_version => 3,
+        oracle_price => 100000000, %% 1 dollar
+        consensus_members => [<<"c">>, <<"d">>]
+    },
+
+    LedgerVars = maps:merge(#{?poc_version => 5, ?sc_version => 2, ?sc_grace_blocks => 5}, common_poc_vars()),
+
+    ok = blockchain_ledger_v1:vars(LedgerVars, [], Ledger1),
+
+    {SC0, _} = blockchain_state_channel_v1:new(<<"id">>, <<"owner">>, 100, <<"blockhash">>, 10),
+    SC = blockchain_state_channel_v1:summaries([blockchain_state_channel_summary_v1:new(<<"a">>, 1, 1), blockchain_state_channel_summary_v1:new(<<"b">>, 2, 2)], SC0),
+
+    ok = blockchain_ledger_v1:add_state_channel(<<"id">>, <<"owner">>, 10, 1, 100, 200, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+    ok = blockchain_ledger_v1:close_state_channel(<<"owner">>, <<"owner">>, SC, <<"id">>, false, Ledger1),
+
+    {ok, _} = blockchain_ledger_v1:find_state_channel(<<"id">>, <<"owner">>, Ledger1),
+
+
+    Txns = [
+         blockchain_txn_state_channel_close_v1:new(SC, <<"owner">>)
+    ],
+    {ok, DCsInEpochAsHNT} = blockchain_ledger_v1:dc_to_hnt(3, 100000000), %% 3 DCs burned at HNT price of 1 dollar
+    %% NOTE: Rewards are split 33-66%
+    Rewards = #{
+        {gateway, data_credits, <<"a">>} => round(DCsInEpochAsHNT * (1/3)),
+        {gateway, data_credits, <<"b">>} => round(DCsInEpochAsHNT * (2/3))
+    },
+    ?assertEqual({26999, Rewards}, normalize_dc_rewards(dc_rewards(Txns, 100, Vars, Ledger1, #{}), Vars)).
 
 
 to_json_test() ->
