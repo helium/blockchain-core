@@ -602,7 +602,7 @@ find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
                  case Height < MinHeight of
                      %% Skip anything before the min height
                      true -> Loop(rocksdb:iter_move(I, next));
-                     _ -> {ok, Height, BinBlock}
+                     _ -> {ok, Height, blockchain_block:deserialize(BinBlock)}
                  end;
              Loop({error, _}, _I) ->
                  {error, not_found}
