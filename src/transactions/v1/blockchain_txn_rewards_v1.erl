@@ -735,7 +735,7 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
     OraclePrice = maps:get(oracle_price, Vars, 0),
     RewardVersion = maps:get(reward_version, Vars, 1),
     TotalDCs = lists:sum(maps:values(DCRewards)),
-    MaxDCReward = round(EpochReward * DCPercent),
+    MaxDCReward = EpochReward * DCPercent,
     %% compute the price HNT equivalent of the DCs burned in this epoch
     DCReward = case OraclePrice == 0 orelse RewardVersion < 3 of
         true ->
@@ -753,7 +753,7 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
             end
     end,
 
-    {MaxDCReward - DCReward,
+    {round(MaxDCReward - DCReward),
      maps:fold(
        fun(Key, NumDCs, Acc) ->
                PercentofReward = (NumDCs*100/TotalDCs)/100,
