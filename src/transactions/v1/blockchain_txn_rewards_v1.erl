@@ -228,13 +228,13 @@ get_rewards_for_epoch(Start, End, Chain, Vars, Ledger) ->
     get_rewards_for_epoch(Start, End, Chain, Vars, Ledger, #{}, #{}, #{}, #{}).
 
 get_rewards_for_epoch(Start, End, _Chain, Vars0, _Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) when Start == End+1 ->
-    {DCRemainder, DCRewards} = normalize_dc_rewards(DCRewards, Vars0),
+    {DCRemainder, NewDCRewards} = normalize_dc_rewards(DCRewards, Vars0),
     Vars = maps:put(dc_remainder, DCRemainder, Vars0),
     %% apply the DC remainder, if any to the other PoC categories pro rata
     {ok, normalize_challenger_rewards(ChallengerRewards, Vars),
      normalize_challengee_rewards(ChallengeeRewards, Vars),
      normalize_witness_rewards(WitnessRewards, Vars),
-     DCRewards};
+     NewDCRewards};
 get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, ChallengeeRewards, WitnessRewards, DCRewards) ->
     case blockchain:get_block(Current, Chain) of
         {error, _Reason}=Error ->
