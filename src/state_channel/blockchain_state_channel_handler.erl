@@ -40,7 +40,7 @@
           pending_packet_offers = #{} :: #{binary() => blockchain_state_channel_packet_offer_v1:offer()},
           offer_queue = [] :: [blockchain_state_channel_packet_offer_v1:offer()],
           handler_mod :: atom(),
-          pending_offer_limit :: pos_integer()
+          pending_offer_limit = undefined :: undefined | pos_integer()
          }).
 
 %% ------------------------------------------------------------------
