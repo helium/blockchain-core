@@ -1675,7 +1675,7 @@ add_gateway_txn(OwnerB58, PayerB58, Fee, StakingFee) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
-                <<>> -> <<>>;
+                [] -> <<>>;
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
@@ -1696,7 +1696,7 @@ add_gateway_txn(OwnerB58, PayerB58) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
-                <<>> -> <<>>;
+                [] -> <<>>;
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     Chain = blockchain_worker:blockchain(),
@@ -1757,7 +1757,7 @@ assert_loc_txn(H3String, OwnerB58, PayerB58, Nonce) ->
     Owner = libp2p_crypto:b58_to_bin(OwnerB58),
     Payer = case PayerB58 of
                 undefined -> <<>>;
-                <<>> -> <<>>;
+                [] -> <<>>;
                 _ -> libp2p_crypto:b58_to_bin(PayerB58)
             end,
     {ok, PubKey, SigFun, _ECDHFun} =  blockchain_swarm:keys(),
