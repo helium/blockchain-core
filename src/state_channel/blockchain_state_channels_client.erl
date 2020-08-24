@@ -53,7 +53,9 @@
          }).
 
 -type state() :: #state{}.
--type streams() :: #{non_neg_integer() | string() => pid()}.
+-type stream_key() :: non_neg_integer() | string().
+-type stream_val() :: undefined | dialing | {unverified, pid()} | pid().
+-type streams() :: #{stream_key() => stream_val()}.
 -type waiting_packet() :: {Packet :: blockchain_helium_packet_v1:packet(), Region :: atom()}.
 -type waiting_key() :: non_neg_integer() | string().
 -type waiting() :: #{waiting_key() => [waiting_packet()]}.
@@ -150,8 +152,6 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
                     Packets = get_waiting_packet(AddressOrOUI, State),
                     lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
                     case AddressOrOUI of
-                        undefined ->
-                            {noreply, State};
                         OUI when is_integer(OUI) ->
                             lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
                             State1 = lists:foldl(
@@ -472,8 +472,7 @@ handle_purchase(Purchase, Stream,
             end
     end.
 
--spec find_stream(AddressOrOUI :: string() | non_neg_integer(),
-                  State :: state()) -> undefined | dialing | {unverified, pid()} | pid().
+-spec find_stream(AddressOrOUI :: stream_key(), State :: state()) -> stream_val().
 find_stream(AddressOrOUI, #state{streams=Streams}) ->
     maps:get(AddressOrOUI, Streams, undefined).
 
