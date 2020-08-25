@@ -17,6 +17,7 @@
 
     blocks/1, get_block/2, get_raw_block/2, save_block/2,
     has_block/2,
+    find_first_block_after/2,
 
     add_blocks/2, add_block/2, add_block/3,
     delete_block/2,
@@ -593,6 +594,15 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
             end;
         Error ->
             Error
+    end.
+
+find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
+    {ok, Iter} = rocksdb:iterator(DB, HeightsCF, [{seek, <<MinHeight:64/integer-unsigned-big>>}]),
+    case rocksdb:iterator_move(Iter, next) of
+        {ok, <<Height:64/integer-unsigned-big>>, BinBlock} ->
+            {ok, Height, blockchain_block:deserialize(BinBlock)};
+        {error, _} ->
+            {error, not_found}
     end.
 
 %%--------------------------------------------------------------------
