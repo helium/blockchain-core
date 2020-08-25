@@ -189,7 +189,7 @@ handle_cast({purchase, Purchase, HandlerPid}, State) ->
 handle_cast({packet, Packet, DefaultRouters, Region}, #state{chain=Chain}=State) ->
     NewState = case find_routing(Packet, Chain) of
                    {error, _Reason} ->
-                       lager:error("failed to find router for packet with routing information ~p:~p, trying default routers",
+                       lager:notice("failed to find router for packet with routing information ~p:~p, trying default routers",
                                    [blockchain_helium_packet_v1:routing_info(Packet), _Reason]),
                        handle_packet(Packet, DefaultRouters, Region, State);
                    {ok, Routes} ->
