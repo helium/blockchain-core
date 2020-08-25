@@ -780,11 +780,10 @@ get_gateway_owner(Address, Ledger) ->
     end.
 
 
-share_of_dc_rewards( Key, Vars=#{dc_remainder := DCRemainder}) ->
-    erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars)))));
-share_of_dc_rewards(_, _) ->
-    %% DC remainder not set
-    0.
+share_of_dc_rewards(_Key, #{dc_remainder := 0}) ->
+    0;
+share_of_dc_rewards(Key, Vars=#{dc_remainder := DCRemainder}) ->
+    erlang:round(DCRemainder * ((maps:get(Key, Vars) / (maps:get(poc_challengers_percent, Vars) + maps:get(poc_challengees_percent, Vars) + maps:get(poc_witnesses_percent, Vars))))).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1450,7 +1449,7 @@ dc_rewards_v3_spillover_test() ->
 
     ?assertEqual({DCAward - DCsInEpochAsHNT, Rewards}, {DCRemainder, DCRewards}),
     NewVars = maps:put(dc_remainder, DCRemainder, Vars),
-    
+
     %% compute the original rewards with no spillover
     ChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), Vars),
     ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Ledger, #{}), Vars),
