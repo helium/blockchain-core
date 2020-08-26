@@ -597,7 +597,8 @@ has_block(Block, #blockchain{db=DB, blocks=BlocksCF,
     end.
 
 find_first_block_after(MinHeight, #blockchain{db=DB, heights=HeightsCF}) ->
-    {ok, Iter} = rocksdb:iterator(DB, HeightsCF, [{seek, <<MinHeight:64/integer-unsigned-big>>}]),
+    {ok, Iter} = rocksdb:iterator(DB, HeightsCF, []),
+    rocksdb:iterator_move(Iter, {seek, <<(MinHeight):64/integer-unsigned-big>>}),
     case rocksdb:iterator_move(Iter, next) of
         {ok, <<Height:64/integer-unsigned-big>>, BinBlock} ->
             {ok, Height, blockchain_block:deserialize(BinBlock)};
