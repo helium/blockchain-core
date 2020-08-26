@@ -26,6 +26,7 @@ register_all_usage() ->
                    snapshot_diff_usage(),
                    snapshot_info_usage(),
                    snapshot_list_usage(),
+                   snapshot_load_height_usage(),
                    snapshot_usage()
                   ]).
 
@@ -39,6 +40,7 @@ register_all_cmds() ->
                    snapshot_diff_cmd(),
                    snapshot_info_cmd(),
                    snapshot_list_cmd(),
+                   snapshot_load_height_cmd(),
                    snapshot_cmd()
                   ]).
 %%
@@ -48,11 +50,12 @@ register_all_cmds() ->
 snapshot_usage() ->
     [["snapshot"],
      ["blockchain snapshot commands\n\n",
-      "  snapshot take   - Take a snapshot at the current ledger height.\n",
-      "  snapshot load   - Load a snapshot from a file.\n"
-      "  snapshot diff   - Load two snapshots from files and find changes.\n"
-      "  snapshot info   - Show information about a snapshot in a file.\n"
-      "  snapshot list   - Show information about the last 5 snapshots.\n"
+      "  snapshot take          - Take a snapshot at the current ledger height.\n",
+      "  snapshot load     - Load a snapshot from a file.\n"
+      "  snapshot diff          - Load two snapshots from files and find changes.\n"
+      "  snapshot info          - Show information about a snapshot in a file.\n"
+      "  snapshot list          - Show information about the last 5 snapshots.\n"
+      "  snapshot load-height   - Load a snapshot from given block height.\n"
      ]
     ].
 
@@ -184,3 +187,68 @@ snapshot_list(["snapshot", "list"], [], []) ->
     end;
 snapshot_list(_, _, _) ->
     usage.
+
+snapshot_load_height_cmd() ->
+    [
+     [["snapshot", "load-height"], [], [], fun snapshot_load_height/3],
+     [["snapshot", "load-height", '*'], [], [], fun snapshot_load_height/3],
+     [["snapshot", "load-height", '*'], [],
+      [{revalidate, [{shortname, "r"}, {longname, "revalidate"}]}],
+      fun snapshot_load_height/3]
+    ].
+
+snapshot_load_height_usage() ->
+    [["snapshot", "load-height"],
+     ["snapshot load-height <block_height> [-r]\n\n",
+      "  Take a snapshot and load-height from given <block_height>\n"
+      "Options\n\n",
+      "  -r, --revalidate\n",
+      "    Take a snapshot and load-height from given <block_height> with revalidation\n"
+     ]
+    ].
+
+snapshot_load_height(["snapshot", "load-height"], [], []) ->
+    snapshot_load_latest_available();
+snapshot_load_height(["snapshot", "load-height"], [], [{revalidate, _}]) ->
+    ok = blockchain_worker:pause_sync(),
+    ok = application:set_env(blockchain, force_resync_validation, true),
+    snapshot_load_latest_available();
+snapshot_load_height(["snapshot", "load-height", BH], [], []) ->
+    snapshot_load_from_height(list_to_integer(BH));
+snapshot_load_height(["snapshot", "load-height", BH], [], [{revalidate, _}]) ->
+    ok = blockchain_worker:pause_sync(),
+    ok = application:set_env(blockchain, force_resync_validation, true),
+    snapshot_load_from_height(list_to_integer(BH));
+snapshot_load_height(_CmdBase, [], []) ->
+    usage.
+
+snapshot_load_from_height(BH) ->
+    Chain = blockchain_worker:blockchain(),
+    {ok, Block} = blockchain:get_block(BH, Chain),
+    case blockchain_block_v1:snapshot_hash(Block) of
+        <<>> ->
+            Text = io_lib:format("No snapshot at block height: ~p", [BH]),
+            [clique_status:alert([clique_status:text(Text)])];
+        Hash ->
+            case blockchain:get_snapshot(Hash, Chain) of
+                {ok, Snapshot} ->
+                    ok = blockchain_worker:install_snapshot(Hash, Snapshot),
+                    [clique_status:text(io_lib:format("Loading snapshot from block_height: ~p with re-validation\n", [BH]))];
+                {error, _} ->
+                    Text = io_lib:format("No local snapshot at block height: ~p", [BH]),
+                    [clique_status:alert([clique_status:text(Text)])]
+            end
+    end.
+
+snapshot_load_latest_available() ->
+    Chain = blockchain_worker:blockchain(),
+    {Height, _BlockHash, SnapHash} = hd(blockchain:find_last_snapshots(Chain, 1)),
+
+    case blockchain:get_snapshot(SnapHash, Chain) of
+        {ok, Snapshot} ->
+            ok = blockchain_worker:install_snapshot(SnapHash, Snapshot),
+            [clique_status:text(io_lib:format("Loading snapshot from latest available block~p\n", [Height]))];
+        {error, _} ->
+            Text = io_lib:format("No local snapshot at block height: ~p", [Height]),
+            [clique_status:alert([clique_status:text(Text)])]
+    end.
