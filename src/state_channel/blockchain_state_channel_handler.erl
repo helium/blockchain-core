@@ -37,8 +37,8 @@
 
 -record(state, {
           ledger :: undefined | blockchain_ledger_v1:ledger(),
-          pending_packet_offers = #{} :: #{binary() => blockchain_state_channel_packet_offer_v1:offer()},
-          offer_queue = [] :: [blockchain_state_channel_packet_offer_v1:offer()],
+          pending_packet_offers = #{} :: #{binary() => {blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}},
+          offer_queue = [] :: [{blockchain_state_channel_packet_offer_v1:offer(), pos_integer()}],
           handler_mod :: atom(),
           pending_offer_limit = undefined :: undefined | pos_integer()
          }).
