@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     nonce/1,
-    packet/3,
+    packet/4,
     offer/4,
     gc_state_channels/1,
     state_channels/0,
@@ -86,9 +86,9 @@ start_link(Args) ->
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec packet(blockchain_state_channel_packet_v1:packet(), atom(), pid()) -> ok.
-packet(SCPacket, SCPacketHandler, HandlerPid) ->
-    case SCPacketHandler:handle_packet(SCPacket, HandlerPid) of
+-spec packet(blockchain_state_channel_packet_v1:packet(), pos_integer(), atom(), pid()) -> ok.
+packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
+    case SCPacketHandler:handle_packet(SCPacket, PacketTime, HandlerPid) of
         ok ->
             %% This is a valid hotspot on chain
             Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
