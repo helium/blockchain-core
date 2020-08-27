@@ -49,7 +49,8 @@
     add_gateway_txn/2, add_gateway_txn/4,
     assert_loc_txn/4, assert_loc_txn/6,
 
-    add_snapshot/2, get_snapshot/2, find_last_snapshot/1,
+    add_snapshot/2, add_bin_snapshot/4,
+    have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
     mark_upgrades/2
@@ -1533,6 +1534,21 @@ add_snapshot(Snapshot, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
             {error, Why}
     end.
 
+-spec add_bin_snapshot(blockchain_ledger_snapshot:snapshot(), integer(), binary(), blockchain()) ->
+                              ok | {error, any()}.
+add_bin_snapshot(BinSnap, Height, Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
+    try
+        {ok, Batch} = rocksdb:batch(),
+        ok = rocksdb:batch_put(Batch, SnapshotsCF, Hash, BinSnap),
+        %% lexiographic ordering works better with big endian
+        ok = rocksdb:batch_put(Batch, SnapshotsCF, <<Height:64/integer-unsigned-big>>, Hash),
+        ok = rocksdb:write_batch(DB, Batch, [])
+    catch What:Why:Stack ->
+            lager:warning("error adding snapshot: ~p:~p, ~p", [What, Why, Stack]),
+            {error, Why}
+    end.
+
+
 -spec get_snapshot(blockchain_block:hash() | integer(), blockchain()) ->
                           {ok, blockchain_ledger_snapshot:snapshot()} | {error, any()}.
 get_snapshot(Hash, #blockchain{db=DB, snapshots=SnapshotsCF}) when is_binary(Hash) ->
@@ -1550,6 +1566,18 @@ get_snapshot(Height, #blockchain{db=DB, snapshots=SnapshotsCF}=Blockchain) ->
            ?MODULE:get_snapshot(Hash, Blockchain);
         not_found ->
             {error, not_found};
+        Error ->
+            Error
+    end.
+
+-spec have_snapshot(integer(), blockchain()) ->
+                           boolean().
+have_snapshot(Height, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
+    case rocksdb:get(DB, SnapshotsCF, <<Height:64/integer-unsigned-big>>, []) of
+       {ok, _Hash} ->
+            true;
+        not_found ->
+            false;
         Error ->
             Error
     end.
