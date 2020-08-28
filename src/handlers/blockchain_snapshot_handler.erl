@@ -65,14 +65,14 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash} = State) ->
         {ok, Snapshot} ->
             Height = blockchain_ledger_snapshot_v1:height(Snapshot),
 
-            case blockchain:add_snapshot(Snapshot, Chain) of
-                ok ->
+            case blockchain:have_snapshot(Height, Chain) orelse
+                ok == blockchain:add_bin_snapshot(BinSnap, Height, Hash, Chain) of
+                true ->
                     lager:info("retrieved and stored snapshot ~p, installing",
                                [Height]),
                     blockchain_worker:install_snapshot(Hash, Snapshot);
-                {error, Reason} ->
-                    lager:info("could not install retrieved snapshot ~p: ~p",
-                               [Height, Reason]),
+                false ->
+                    lager:info("could not install retrieved snapshot ~p", [Height]),
                     ok
             end;
         {error, Reason} ->

@@ -454,9 +454,7 @@ import(Chain, SHA,
                  blockchain_ledger_v1:commit_context(Ledger)
              end
              || Mode <- [delayed, active]],
-            Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
-            Chain1 = blockchain:ledger(Ledger2, Chain),
-            {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger2),
+            {ok, Curr2} = blockchain_ledger_v1:current_height(Ledger0),
             lager:info("ledger height is ~p after absorbing snapshot", [Curr2]),
             lager:info("snapshot contains ~p blocks", [length(Blocks)]),
 
@@ -487,6 +485,12 @@ import(Chain, SHA,
                                   %% we need some blocks before for history, only absorb if they're
                                   %% not on the ledger already
                                   true ->
+                                      %% while it would be more efficient to pile all this stuff up
+                                      %% into one big exterior context, it tends to pile up too much
+                                      %% memory for the v1 spots and OOM them.
+                                      Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
+                                      Chain1 = blockchain:ledger(Ledger2, Chain),
+
                                       lager:info("loading block ~p", [Ht]),
                                       Rescue = blockchain_block:is_rescue_block(Block),
                                       {ok, _Chain} = blockchain_txn:absorb_block(Block, Rescue, Chain1),
@@ -495,23 +499,16 @@ import(Chain, SHA,
 
                                       ok = blockchain_ledger_v1:maybe_gc_scs(Chain1),
 
-                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
+                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
+                                      blockchain_ledger_v1:commit_context(Ledger2);
                                   _ ->
                                       ok
                               end
                       end,
                       Blocks)
             end,
-            blockchain_ledger_v1:commit_context(Ledger2),
             {ok, Curr3} = blockchain_ledger_v1:current_height(Ledger0),
             lager:info("ledger height is ~p after absorbing blocks", [Curr3]),
-
-            %% store the snapshot if we don't have it already
-            case blockchain:get_snapshot(SHA, Chain) of
-                {ok, _Snap} -> ok;
-                {error, not_found} ->
-                    blockchain:add_snapshot(Snapshot, Chain)
-            end,
 
             {ok, Ledger0};
         _ ->
