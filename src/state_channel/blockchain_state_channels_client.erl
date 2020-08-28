@@ -746,7 +746,8 @@ is_causally_correct_sc(SC, State) ->
             %% Check if SC is causally correct
             Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
                      equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
-            lager:info("causality check: ~p, this sc: ~p, known_sc: ~p", [Check, SC, KnownSC]),
+            lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
+                       [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;
         {ok, KnownSCs} ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
