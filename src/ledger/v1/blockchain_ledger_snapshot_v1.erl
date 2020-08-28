@@ -485,6 +485,9 @@ import(Chain, SHA,
                                   %% we need some blocks before for history, only absorb if they're
                                   %% not on the ledger already
                                   true ->
+                                      %% while it would be more efficient to pile all this stuff up
+                                      %% into one big exterior context, it tends to pile up too much
+                                      %% memory for the v1 spots and OOM them.
                                       Ledger2 = blockchain_ledger_v1:new_context(Ledger0),
                                       Chain1 = blockchain:ledger(Ledger2, Chain),
 

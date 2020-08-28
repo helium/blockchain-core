@@ -1571,7 +1571,7 @@ get_snapshot(Height, #blockchain{db=DB, snapshots=SnapshotsCF}=Blockchain) ->
     end.
 
 -spec have_snapshot(integer(), blockchain()) ->
-                           boolean().
+                           boolean() | {error, any()}.
 have_snapshot(Height, #blockchain{db=DB, snapshots=SnapshotsCF}) ->
     case rocksdb:get(DB, SnapshotsCF, <<Height:64/integer-unsigned-big>>, []) of
        {ok, _Hash} ->
