@@ -66,7 +66,7 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash} = State) ->
             Height = blockchain_ledger_snapshot_v1:height(Snapshot),
 
             case blockchain:have_snapshot(Height, Chain) orelse
-                ok == blockchain:add_bin_snapshot(Snapshot, Height, Hash, Chain) of
+                ok == blockchain:add_bin_snapshot(BinSnap, Height, Hash, Chain) of
                 true ->
                     lager:info("retrieved and stored snapshot ~p, installing",
                                [Height]),
