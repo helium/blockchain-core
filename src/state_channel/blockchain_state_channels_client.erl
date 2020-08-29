@@ -138,7 +138,7 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
         BannerSC ->
             case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
-                    lager:error("causal_conflict for banner sc: ~p", [BannerSC]),
+                    lager:error("causal_conflict for banner sc_id: ~p", [blockchain_state_channel_v1:id(BannerSC)]),
                     _ = libp2p_framed_stream:close(HandlerPid),
                     ok = append_state_channel(BannerSC, State),
                     {noreply, State};
@@ -407,7 +407,7 @@ handle_purchase(Purchase, Stream,
 
     case is_valid_sc(PurchaseSC, State) of
         {error, causal_conflict} ->
-            lager:error("causal_conflict for purchase sc: ~p", [PurchaseSC]),
+            lager:error("causal_conflict for purchase sc_id: ~p", [blockchain_state_channel_v1:id(PurchaseSC)]),
             ok = append_state_channel(PurchaseSC, State),
             _ = libp2p_framed_stream:close(Stream),
             State;
@@ -756,6 +756,9 @@ is_causally_correct_sc(SC, State) ->
                               equal == blockchain_state_channel_v1:compare_causality(S, SC)
                     end,
             StalenessCheck = lists:all(Check, KnownSCs),
+
+            ok = debug_multiple_scs(SC, KnownSCs),
+
             lager:info("multiple copies detected for this scid: ~p, staleness check: ~p", [SCID, StalenessCheck]),
             StalenessCheck
     end.
@@ -918,6 +921,22 @@ num_dcs_for(PubkeyBin, SC) ->
         {ok, V} -> V;
         {error, not_found} -> 0
     end.
+
+-spec debug_multiple_scs(SC :: blockchain_state_channel_v1:state_channel(),
+                         KnownSCs :: [blockchain_state_channel_v1:state_channel()]) -> ok.
+debug_multiple_scs(SC, KnownSCs) ->
+    case application:get_env(blockchain, debug_multiple_scs, false) of
+        false ->
+            %% false by default, don't write it out
+            ok;
+        true ->
+            BinSC = term_to_binary(SC),
+            BinKnownSCs = term_to_binary(KnownSCs),
+            ok = file:write_file("/tmp/bin_sc", BinSC),
+            ok = file:write_file("/tmp/known_scs", BinKnownSCs),
+            ok
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
