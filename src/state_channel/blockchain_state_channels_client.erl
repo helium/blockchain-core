@@ -15,8 +15,8 @@
          purchase/2,
          banner/2,
          reject/2,
-         state/0,
          gc_state_channels/1,
+         get_known_channels/1,
          response/1]).
 
 %% ------------------------------------------------------------------
@@ -83,9 +83,9 @@ response(Resp) ->
 packet(Packet, DefaultRouters, Region) ->
     gen_server:cast(?SERVER, {packet, Packet, DefaultRouters, Region}).
 
--spec state() -> state().
-state() ->
-    gen_server:call(?SERVER, state).
+-spec get_known_channels(SCID :: blockchain_state_channel_v1:id()) -> {ok, [blockchain_state_channel_v1:state_channel()]} | {error, any()}.
+get_known_channels(SCID) ->
+    gen_server:call(?SERVER, {get_known_channels, SCID}).
 
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
@@ -215,8 +215,8 @@ handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call(state, _From, State) ->
-    {reply, {ok, State}, State};
+handle_call({get_known_channels, SCID}, _From, State) ->
+    {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
