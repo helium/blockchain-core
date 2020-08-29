@@ -750,9 +750,14 @@ is_causally_correct_sc(SC, State) ->
                        [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;
         {ok, KnownSCs} ->
-            lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
-            %% We have a conflict among incoming state channels
-            false
+            %% If we do have multiple copies, it is possible that the sc we got to check against our known_scs
+            %% is stale, and we as the client "caused" it. That's a valid scenario, any other is a conflict.
+            Check = fun(S) -> caused == blockchain_state_channel_v1:compare_causality(S, SC) orelse
+                              equal == blockchain_state_channel_v1:compare_causality(S, SC)
+                    end,
+            StalenessCheck = lists:all(Check, KnownSCs),
+            lager:info("multiple copies detected for this scid: ~p, staleness check: ~p", [SCID, StalenessCheck]),
+            StalenessCheck
     end.
 
 is_overspent_sc(SC, State=#state{chain=Chain}) ->
