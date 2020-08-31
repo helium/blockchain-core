@@ -443,9 +443,8 @@ update_state_sc_open(Txn,
             State
     end.
 
--spec broadcast_banner(SC :: undefined | blockchain_state_channel_v1:state_channel(),
+-spec broadcast_banner(SC :: blockchain_state_channel_v1:state_channel(),
                        State :: state()) -> ok.
-broadcast_banner(undefined, _) -> ok;
 broadcast_banner(SC, #state{streams=Streams}) ->
     case maps:size(Streams) of
         0 -> ok;
@@ -500,7 +499,6 @@ update_state_sc_close(Txn, #state{db=DB, scf=SCF, state_channels=SCs, active_sc_
                                      State :: state()) -> state().
 check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                                                    active_sc_id=ActiveSCID,
-                                                   chain=Chain,
                                                    state_channels=SCs}=State) ->
     NewStateChannels = maps:map(
                         fun(_ID, {SC, Skewed}) ->
@@ -532,14 +530,7 @@ check_state_channel_expiration(BlockHeight, #state{owner={Owner, OwnerSigFun},
                     end,
 
     NewState = State#state{active_sc_id=NewActiveSCID, state_channels=NewStateChannels},
-
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
-        {ok, 2} ->
-            %% Switching active sc, broadcast banner
-            ok = broadcast_banner(active_sc(NewState), NewState);
-        _ ->
-            ok
-    end,
+    ok = maybe_broadcast_banner(active_sc(NewState), NewState),
 
     NewState.
 
