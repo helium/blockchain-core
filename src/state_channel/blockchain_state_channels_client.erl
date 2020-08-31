@@ -744,23 +744,15 @@ is_causally_correct_sc(SC, State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
-                     equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            Check = (conflict /= blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
             lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
                        [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;
         {ok, KnownSCs} ->
-            %% If we do have multiple copies, it is possible that the sc we got to check against our known_scs
-            %% is stale, and we as the client "caused" it. That's a valid scenario, any other is a conflict.
-            Check = fun(S) -> caused == blockchain_state_channel_v1:compare_causality(S, SC) orelse
-                              equal == blockchain_state_channel_v1:compare_causality(S, SC)
-                    end,
-            StalenessCheck = lists:all(Check, KnownSCs),
-
+            lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
+            %% We have a conflict among incoming state channels
             ok = debug_multiple_scs(SC, KnownSCs),
-
-            lager:info("multiple copies detected for this scid: ~p, staleness check: ~p", [SCID, StalenessCheck]),
-            StalenessCheck
+            false
     end.
 
 is_overspent_sc(SC, State=#state{chain=Chain}) ->
@@ -840,7 +832,22 @@ state_channels(Itr, {ok, _, SCBin}, Acc) ->
 
 -spec overwrite_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
                               State :: state()) -> ok | {error, any()}.
-overwrite_state_channel(SC, #state{db=DB, cf=CF}) ->
+overwrite_state_channel(SC, State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    case get_state_channels(SCID, State) of
+        %% If we somehow have multiple scs, blow up
+        {error, _} ->
+            write_sc(SC, State);
+        {ok, [KnownSC]} ->
+            case blockchain_state_channel_v1:is_causally_newer(SC, KnownSC) of
+                true -> write_sc(SC, State);
+                false -> ok
+            end
+    end.
+
+-spec write_sc(SC :: blockchain_state_channel_v1:state_channel(),
+               State :: state()) -> ok.
+write_sc(SC, #state{db=DB, cf=CF}) ->
     SCID = blockchain_state_channel_v1:id(SC),
     ToInsert = erlang:term_to_binary([SC]),
     rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).

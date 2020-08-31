@@ -30,6 +30,7 @@
     to_json/2,
 
     compare_causality/2,
+    is_causally_newer/2,
     merge/2
 ]).
 
@@ -408,6 +409,16 @@ check_causality(SCSummaries, OtherSC, Init) ->
                         end
                 end, {not_done, Init}, SCSummaries).
 
+-spec is_causally_newer(SCToCheck :: state_channel(),
+                        SCToCompareWith :: state_channel()) -> boolean().
+is_causally_newer(SCToCheck, SCToCompareWith) ->
+    %% If SCToCompareWith caused SCToCheck => SCToCheck is newer, hence true
+    %% Anything else, false
+    case compare_causality(SCToCompareWith, SCToCheck) of
+        caused -> true;
+        _ -> false
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------
@@ -551,6 +562,7 @@ causality_test() ->
     SC1 = new(<<"1">>, <<"owner">>, 1),
     SC2 = nonce(1, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(caused, compare_causality(SC1, SC2)),
+    ?assert(is_causally_newer(SC2, SC1)),
     ?assertEqual(effect_of, compare_causality(SC2, SC1)),
 
     %% 0 (same) nonce, with differing summary, conflict
@@ -563,12 +575,14 @@ causality_test() ->
     SC5 = new(<<"1">>, <<"owner">>, 1),
     SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC6)),
+    ?assert(is_causally_newer(SC6, SC5)),
     ?assertEqual(effect_of, compare_causality(SC6, SC5)),
 
     %% SC7 is allowed after SC5
     %% NOTE: skipped a nonce here (should this actually be allowed?)
     SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC7)),
+    ?assert(is_causally_newer(SC7, SC5)),
     ?assertEqual(effect_of, compare_causality(SC7, SC5)),
 
     %% SC9 has higher nonce than SC8, however,
@@ -588,6 +602,7 @@ causality_test() ->
     SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC12, SC13)),
+    ?assert(is_causally_newer(SC13, SC12)),
     ?assertEqual(effect_of, compare_causality(SC13, SC12)),
 
     %% definite conflict, since summary for a client is missing in higher nonce sc
@@ -600,6 +615,7 @@ causality_test() ->
     SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC16, SC17)),
+    ?assert(is_causally_newer(SC17, SC16)),
     ?assertEqual(effect_of, compare_causality(SC17, SC16)),
 
     %% another definite conflict, since higher nonce sc does not have previous summary
@@ -618,6 +634,7 @@ causality_test() ->
     SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC22, SC23)),
+    ?assert(is_causally_newer(SC23, SC22)),
     ?assertEqual(effect_of, compare_causality(SC23, SC22)),
 
     ok.
