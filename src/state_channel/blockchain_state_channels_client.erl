@@ -15,8 +15,8 @@
          purchase/2,
          banner/2,
          reject/2,
-         state/0,
          gc_state_channels/1,
+         get_known_channels/1,
          response/1]).
 
 %% ------------------------------------------------------------------
@@ -83,9 +83,9 @@ response(Resp) ->
 packet(Packet, DefaultRouters, Region) ->
     gen_server:cast(?SERVER, {packet, Packet, DefaultRouters, Region}).
 
--spec state() -> state().
-state() ->
-    gen_server:call(?SERVER, state).
+-spec get_known_channels(SCID :: blockchain_state_channel_v1:id()) -> {ok, [blockchain_state_channel_v1:state_channel()]} | {error, any()}.
+get_known_channels(SCID) ->
+    gen_server:call(?SERVER, {get_known_channels, SCID}).
 
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
@@ -138,7 +138,7 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
         BannerSC ->
             case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
-                    lager:error("causal_conflict for banner sc: ~p", [BannerSC]),
+                    lager:error("causal_conflict for banner sc_id: ~p", [blockchain_state_channel_v1:id(BannerSC)]),
                     _ = libp2p_framed_stream:close(HandlerPid),
                     ok = append_state_channel(BannerSC, State),
                     {noreply, State};
@@ -215,8 +215,8 @@ handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call(state, _From, State) ->
-    {reply, {ok, State}, State};
+handle_call({get_known_channels, SCID}, _From, State) ->
+    {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
     {reply, ok, State}.
 
@@ -407,7 +407,7 @@ handle_purchase(Purchase, Stream,
 
     case is_valid_sc(PurchaseSC, State) of
         {error, causal_conflict} ->
-            lager:error("causal_conflict for purchase sc: ~p", [PurchaseSC]),
+            lager:error("causal_conflict for purchase sc_id: ~p", [blockchain_state_channel_v1:id(PurchaseSC)]),
             ok = append_state_channel(PurchaseSC, State),
             _ = libp2p_framed_stream:close(Stream),
             State;
@@ -744,13 +744,14 @@ is_causally_correct_sc(SC, State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            Check = (caused == blockchain_state_channel_v1:compare_causality(KnownSC, SC) orelse
-                     equal == blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
-            lager:info("causality check: ~p, this sc: ~p, known_sc: ~p", [Check, SC, KnownSC]),
+            Check = (conflict /= blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
+                       [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;
         {ok, KnownSCs} ->
             lager:error("multiple copies of state channels for id: ~p, found: ~p", [SCID, KnownSCs]),
             %% We have a conflict among incoming state channels
+            ok = debug_multiple_scs(SC, KnownSCs),
             false
     end.
 
@@ -831,7 +832,22 @@ state_channels(Itr, {ok, _, SCBin}, Acc) ->
 
 -spec overwrite_state_channel(SC :: blockchain_state_channel_v1:state_channel(),
                               State :: state()) -> ok | {error, any()}.
-overwrite_state_channel(SC, #state{db=DB, cf=CF}) ->
+overwrite_state_channel(SC, State) ->
+    SCID = blockchain_state_channel_v1:id(SC),
+    case get_state_channels(SCID, State) of
+        %% If we somehow have multiple scs, blow up
+        {error, _} ->
+            write_sc(SC, State);
+        {ok, [KnownSC]} ->
+            case blockchain_state_channel_v1:is_causally_newer(SC, KnownSC) of
+                true -> write_sc(SC, State);
+                false -> ok
+            end
+    end.
+
+-spec write_sc(SC :: blockchain_state_channel_v1:state_channel(),
+               State :: state()) -> ok.
+write_sc(SC, #state{db=DB, cf=CF}) ->
     SCID = blockchain_state_channel_v1:id(SC),
     ToInsert = erlang:term_to_binary([SC]),
     rocksdb:put(DB, CF, SCID, ToInsert, [{sync, true}]).
@@ -912,6 +928,22 @@ num_dcs_for(PubkeyBin, SC) ->
         {ok, V} -> V;
         {error, not_found} -> 0
     end.
+
+-spec debug_multiple_scs(SC :: blockchain_state_channel_v1:state_channel(),
+                         KnownSCs :: [blockchain_state_channel_v1:state_channel()]) -> ok.
+debug_multiple_scs(SC, KnownSCs) ->
+    case application:get_env(blockchain, debug_multiple_scs, false) of
+        false ->
+            %% false by default, don't write it out
+            ok;
+        true ->
+            BinSC = term_to_binary(SC),
+            BinKnownSCs = term_to_binary(KnownSCs),
+            ok = file:write_file("/tmp/bin_sc", BinSC),
+            ok = file:write_file("/tmp/known_scs", BinKnownSCs),
+            ok
+    end.
+
 %% ------------------------------------------------------------------
 %% EUNIT Tests
 %% ------------------------------------------------------------------

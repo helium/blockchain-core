@@ -115,10 +115,18 @@ init(server, _Conn, [_Path, Blockchain]) ->
 handle_data(client, Data, State) ->
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
-            lager:info("sc_handler client got banner: ~p", [Banner]),
-            blockchain_state_channels_client:banner(Banner, self());
+            case blockchain_state_channel_banner_v1:sc(Banner) of
+                undefined ->
+                    %% empty banner, ignore
+                    ok;
+                BannerSC ->
+                    lager:info("sc_handler client got banner, sc_id: ~p",
+                               [blockchain_state_channel_v1:id(BannerSC)]),
+                    blockchain_state_channels_client:banner(Banner, self())
+            end;
         {purchase, Purchase} ->
-            lager:info("sc_handler client got purchase: ~p", [Purchase]),
+            lager:info("sc_handler client got purchase, sc_id: ~p",
+                       [blockchain_state_channel_v1:id(blockchain_state_channel_purchase_v1:sc(Purchase))]),
             blockchain_state_channels_client:purchase(Purchase, self());
         {reject, Rejection} ->
             lager:info("sc_handler client got rejection: ~p", [Rejection]),
