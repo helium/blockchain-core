@@ -744,7 +744,7 @@ is_causally_correct_sc(SC, State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            Check = (conflict /= blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            Check = (conflict /= blockchain_state_channel_v1:quick_compare_causality(KnownSC, SC, State#state.pubkey_bin)),
             lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
                        [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;

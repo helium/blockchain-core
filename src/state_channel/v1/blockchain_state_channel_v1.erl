@@ -30,6 +30,7 @@
     to_json/2,
 
     compare_causality/2,
+    quick_compare_causality/3,
     is_causally_newer/2,
     merge/2
 ]).
@@ -338,6 +339,78 @@ compare_causality(OlderSC, CurrentSC) ->
                end,
     Res.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get causal relation between older SC and current SC for a given pubkey.
+%%
+%% If SC1 -> SC2, return caused
+%% If SC2 -> SC1, return effect_of
+%% If SC1 == SC2, return equal
+%% In all other scenarios, return conflict
+%%
+%% Important: The expected older state channel should be passed <b>first</b>.
+%% @end
+%%--------------------------------------------------------------------
+-spec quick_compare_causality(OlderSC :: state_channel(),
+                        CurrentSC :: state_channel(), PubkeyBin :: libp2p_crypto:pubkey_bin()) -> temporal_relation().
+quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
+    OlderNonce = ?MODULE:nonce(OlderSC),
+    CurrentNonce = ?MODULE:nonce(CurrentSC),
+
+    case {OlderNonce, CurrentNonce} of
+        {OlderNonce, OlderNonce} ->
+            %% nonces are equal, summaries must be equal
+            OlderSummaries = ?MODULE:summaries(OlderSC),
+            CurrentSummaries = ?MODULE:summaries(CurrentSC),
+            case OlderSummaries == CurrentSummaries of
+                false ->
+                    %% If the nonces are the same but the summaries are not
+                    %% then that's a conflict.
+                    conflict;
+                true ->
+                    equal
+            end;
+        {OlderNonce, CurrentNonce} when CurrentNonce > OlderNonce ->
+            case {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)} of
+                {{error, not_found}, {error, not_found}} ->
+                    caused;
+                {{error, not_found}, {ok, _}} ->
+                    caused;
+                {{ok, _}, {error, not_found}} ->
+                    conflict;
+                {{ok, OlderSummary}, {ok, NewerSummary}} ->
+                    SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    case (OtherSCNumPackets >= SC1NumPackets) andalso (OtherSCNumDCs >= SC1NumDCs) of
+                        true ->
+                            caused;
+                        false ->
+                            conflict
+                    end
+            end;
+        {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
+            case {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)} of
+                {{error, not_found}, {error, not_found}} ->
+                    effect;
+                {{ok, _}, {error, not_found}} ->
+                    caused;
+                {{error, not_found}, {ok, _}} ->
+                    conflict;
+                {{ok, OlderSummary}, {ok, NewerSummary}} ->
+                    SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    case (OtherSCNumPackets =< SC1NumPackets) andalso (OtherSCNumDCs =< SC1NumDCs) of
+                        true ->
+                            caused;
+                        false ->
+                            conflict
+                    end
+            end
+    end.
 
 merge(SCA, SCB) ->
     lager:info("merging state channels"),
