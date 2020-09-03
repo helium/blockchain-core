@@ -17,7 +17,7 @@
     root_hash/1, root_hash/2,
     state/1, state/2,
     expire_at_block/1, expire_at_block/2,
-    signature/1, sign/2, validate/1,
+    signature/1, sign/2, validate/1, quick_validate/2,
     encode/1, decode/1,
     save/3, fetch/2,
     summaries/1, summaries/2, update_summary_for/3,
@@ -239,6 +239,27 @@ validate_summaries([H|T]) ->
         Error ->
             Error
     end.
+
+-spec quick_validate(state_channel(), libp2p_crypto:pubkey_bin()) -> ok | {error, any()}.
+quick_validate(SC, PubkeyBin) ->
+    BaseSC = SC#blockchain_state_channel_v1_pb{signature = <<>>},
+    EncodedSC = ?MODULE:encode(BaseSC),
+    Signature = ?MODULE:signature(SC),
+    Owner = ?MODULE:owner(SC),
+    PubKey = libp2p_crypto:bin_to_pubkey(Owner),
+    case libp2p_crypto:verify(EncodedSC, Signature, PubKey) of
+        false -> {error, bad_signature};
+        true ->
+            case ?MODULE:get_summary(PubkeyBin, SC) of
+                {error, not_found} ->
+                    ok;
+                {ok, Summary} ->
+                    %% TODO we need to make sure the merge function handles SCs that are signed but
+                    %% may have corrupt summaries for some actors (but our summary checks out)
+                    blockchain_state_channel_summary_v1:validate(Summary)
+            end
+    end.
+
 
 -spec encode(state_channel()) -> binary().
 encode(#blockchain_state_channel_v1_pb{}=SC) ->

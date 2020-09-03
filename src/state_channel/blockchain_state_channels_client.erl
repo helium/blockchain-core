@@ -694,7 +694,7 @@ send_packet_when_v1(Stream, Packet, Region,
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
                   State :: state()) -> ok | {error, any()}.
 is_valid_sc(SC, State) ->
-    case blockchain_state_channel_v1:validate(SC) of
+    case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
         {error, Reason}=E ->
             lager:error("invalid sc, reason: ~p", [Reason]),
             E;
