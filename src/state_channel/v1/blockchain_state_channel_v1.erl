@@ -373,7 +373,8 @@ compare_causality(OlderSC, CurrentSC) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec quick_compare_causality(OlderSC :: state_channel(),
-                        CurrentSC :: state_channel(), PubkeyBin :: libp2p_crypto:pubkey_bin()) -> temporal_relation().
+                              CurrentSC :: state_channel(),
+                              PubkeyBin :: libp2p_crypto:pubkey_bin()) -> temporal_relation().
 quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
     OlderNonce = ?MODULE:nonce(OlderSC),
     CurrentNonce = ?MODULE:nonce(CurrentSC),
@@ -400,11 +401,11 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
                 {{ok, _}, {error, not_found}} ->
                     conflict;
                 {{ok, OlderSummary}, {ok, NewerSummary}} ->
-                    SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
-                    SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
-                    OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
-                    OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
-                    case (OtherSCNumPackets >= SC1NumPackets) andalso (OtherSCNumDCs >= SC1NumDCs) of
+                    OldNumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    OldNumPackets = blockchain_state_channel_summary_v1:num_packets(OlderSummary),
+                    NewNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    NewNumPackets = blockchain_state_channel_summary_v1:num_packets(NewerSummary),
+                    case (NewNumPackets >= OldNumPackets) andalso (NewNumDCs >= OldNumDCs) of
                         true ->
                             caused;
                         false ->
@@ -414,19 +415,24 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
         {OlderNonce, CurrentNonce} when CurrentNonce < OlderNonce ->
             case {?MODULE:get_summary(PubkeyBin, OlderSC), ?MODULE:get_summary(PubkeyBin, CurrentSC)} of
                 {{error, not_found}, {error, not_found}} ->
-                    effect;
+                    %% only the nonce changes and current is less than old nonce
+                    effect_of;
                 {{ok, _}, {error, not_found}} ->
-                    caused;
+                    %% older_sc has summary, current_sc does not, conflict
+                    conflict;
                 {{error, not_found}, {ok, _}} ->
+                    %% no summary in older_sc, summary in new_sc but new_sc has lower nonce
                     conflict;
                 {{ok, OlderSummary}, {ok, NewerSummary}} ->
-                    SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
-                    SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
-                    OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
-                    OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
-                    case (OtherSCNumPackets =< SC1NumPackets) andalso (OtherSCNumDCs =< SC1NumDCs) of
+                    OldNumDCs = blockchain_state_channel_summary_v1:num_dcs(OlderSummary),
+                    OldNumPackets = blockchain_state_channel_summary_v1:num_packets(OlderSummary),
+                    NewNumDCs = blockchain_state_channel_summary_v1:num_dcs(NewerSummary),
+                    NewNumPackets = blockchain_state_channel_summary_v1:num_packets(NewerSummary),
+                    case (NewNumPackets =< OldNumPackets) andalso (NewNumDCs =< OldNumDCs) of
                         true ->
-                            caused;
+                            %% new_sc has less packets, new_sc has less dcs, new_sc has lower nonce
+                            %% thus, new_sc "caused" old_sc, a.k.a. effect_of
+                            effect_of;
                         false ->
                             conflict
                     end
@@ -651,85 +657,110 @@ causality_test() ->
     BaseSC1 = new(<<"1">>, <<"owner">>, 1),
     BaseSC2 = new(<<"1">>, <<"owner">>, 1),
     ?assertEqual(equal, compare_causality(BaseSC1, BaseSC2)),
+    ?assertEqual(equal, quick_compare_causality(BaseSC1, BaseSC2, PubKeyBin)),
 
     %% no summary, increasing nonce
     SC1 = new(<<"1">>, <<"owner">>, 1),
     SC2 = nonce(1, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(caused, compare_causality(SC1, SC2)),
+    ?assertEqual(caused, quick_compare_causality(SC1, SC2, PubKeyBin)),
     ?assert(is_causally_newer(SC2, SC1)),
     ?assertEqual(effect_of, compare_causality(SC2, SC1)),
+    ?assertEqual(effect_of, quick_compare_causality(SC2, SC1, PubKeyBin)),
 
     %% 0 (same) nonce, with differing summary, conflict
     SC3 = summaries([Summary2], new(<<"1">>, <<"owner">>, 1)),
     SC4 = summaries([Summary1], new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(conflict, compare_causality(SC3, SC4)),
+    ?assertEqual(conflict, quick_compare_causality(SC3, SC4, PubKeyBin)),
     ?assertEqual(conflict, compare_causality(SC4, SC3)),
+    ?assertEqual(conflict, quick_compare_causality(SC4, SC3, PubKeyBin)),
 
     %% SC6 is allowed after SC5
     SC5 = new(<<"1">>, <<"owner">>, 1),
     SC6 = summaries([Summary1], nonce(1, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC6)),
+    ?assertEqual(caused, quick_compare_causality(SC5, SC6, PubKeyBin)),
     ?assert(is_causally_newer(SC6, SC5)),
     ?assertEqual(effect_of, compare_causality(SC6, SC5)),
+    ?assertEqual(effect_of, quick_compare_causality(SC6, SC5, PubKeyBin1)),
 
     %% SC7 is allowed after SC5
     %% NOTE: skipped a nonce here (should this actually be allowed?)
     SC7 = summaries([Summary1], nonce(2, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC5, SC7)),
+    ?assertEqual(caused, quick_compare_causality(SC5, SC7, PubKeyBin)),
     ?assert(is_causally_newer(SC7, SC5)),
     ?assertEqual(effect_of, compare_causality(SC7, SC5)),
+    ?assertEqual(effect_of, quick_compare_causality(SC7, SC5, PubKeyBin1)),
 
     %% SC9 has higher nonce than SC8, however,
     %% SC9 does not have summary which SC8 has, conflict
     SC8 = summaries([Summary1], nonce(8, new(<<"1">>, <<"owner">>, 1))),
     SC9 = nonce(9, new(<<"1">>, <<"owner">>, 1)),
     ?assertEqual(conflict, compare_causality(SC8, SC9)),
+    ?assertEqual(conflict, quick_compare_causality(SC8, SC9, PubKeyBin)),
     ?assertEqual(conflict, compare_causality(SC9, SC8)),
+    ?assertEqual(conflict, quick_compare_causality(SC9, SC8, PubKeyBin)),
 
     %% same non-zero nonce, with differing summary, conflict
     SC10 = nonce(10, new(<<"1">>, <<"owner">>, 1)),
     SC11 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC10, SC11)),
+    ?assertEqual(conflict, quick_compare_causality(SC10, SC11, PubKeyBin)),
     ?assertEqual(conflict, compare_causality(SC11, SC10)),
+    ?assertEqual(conflict, quick_compare_causality(SC11, SC10, PubKeyBin)),
 
     %% natural progression
     SC12 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC13 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC12, SC13)),
+    ?assertEqual(caused, quick_compare_causality(SC12, SC13, PubKeyBin)),
     ?assert(is_causally_newer(SC13, SC12)),
     ?assertEqual(effect_of, compare_causality(SC13, SC12)),
+    ?assertEqual(effect_of, quick_compare_causality(SC13, SC12, PubKeyBin)),
 
     %% definite conflict, since summary for a client is missing in higher nonce sc
     SC14 = summaries([Summary1], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     SC15 = summaries([Summary2], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC14, SC15)),
+    ?assertEqual(conflict, quick_compare_causality(SC14, SC15, PubKeyBin)),
     ?assertEqual(conflict, compare_causality(SC15, SC14)),
+    ?assertEqual(conflict, quick_compare_causality(SC15, SC14, PubKeyBin)),
 
     %% another natural progression
     SC16 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC17 = summaries([Summary2, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC16, SC17)),
+    ?assertEqual(caused, quick_compare_causality(SC16, SC17, PubKeyBin)),
     ?assert(is_causally_newer(SC17, SC16)),
     ?assertEqual(effect_of, compare_causality(SC17, SC16)),
+    ?assertEqual(effect_of, quick_compare_causality(SC17, SC16, PubKeyBin)),
 
     %% another definite conflict, since higher nonce sc does not have previous summary
     SC18 = summaries([Summary1, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC19 = summaries([Summary2], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC18, SC19)),
+    ?assertEqual(conflict, quick_compare_causality(SC18, SC19, PubKeyBin1)),
     ?assertEqual(conflict, compare_causality(SC19, SC18)),
+    ?assertEqual(conflict, quick_compare_causality(SC19, SC18, PubKeyBin1)),
 
     %% yet another conflict, since a higher nonce sc has an older client summary
     SC20 = summaries([Summary2, Summary3], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC21 = summaries([Summary1, Summary3], nonce(11, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(conflict, compare_causality(SC20, SC21)),
+    ?assertEqual(conflict, quick_compare_causality(SC20, SC21, PubKeyBin)),
     ?assertEqual(conflict, compare_causality(SC21, SC20)),
+    ?assertEqual(conflict, quick_compare_causality(SC21, SC20, PubKeyBin)),
 
     %% natural progression with nonce skip
     SC22 = summaries([Summary1], nonce(10, new(<<"1">>, <<"owner">>, 1))),
     SC23 = summaries([Summary2, Summary3], nonce(12, new(<<"1">>, <<"owner">>, 1))),
     ?assertEqual(caused, compare_causality(SC22, SC23)),
+    ?assertEqual(caused, quick_compare_causality(SC22, SC23, PubKeyBin)),
     ?assert(is_causally_newer(SC23, SC22)),
     ?assertEqual(effect_of, compare_causality(SC23, SC22)),
+    ?assertEqual(effect_of, quick_compare_causality(SC23, SC22, PubKeyBin)),
 
     ok.
 
