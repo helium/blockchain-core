@@ -694,7 +694,7 @@ send_packet_when_v1(Stream, Packet, Region,
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
                   State :: state()) -> ok | {error, any()}.
 is_valid_sc(SC, State) ->
-    case blockchain_state_channel_v1:validate(SC) of
+    case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
         {error, Reason}=E ->
             lager:error("invalid sc, reason: ~p", [Reason]),
             E;
@@ -732,7 +732,7 @@ is_active_sc(SC, #state{chain=Chain}) ->
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
                              State :: state()) -> boolean().
-is_causally_correct_sc(SC, State) ->
+is_causally_correct_sc(SC, #state{pubkey_bin=PubkeyBin}=State) ->
     SCID = blockchain_state_channel_v1:id(SC),
 
     case get_state_channels(SCID, State) of
@@ -744,7 +744,7 @@ is_causally_correct_sc(SC, State) ->
             false;
         {ok, [KnownSC]} ->
             %% Check if SC is causally correct
-            Check = (conflict /= blockchain_state_channel_v1:compare_causality(KnownSC, SC)),
+            Check = (conflict /= blockchain_state_channel_v1:quick_compare_causality(KnownSC, SC, PubkeyBin)),
             lager:info("causality check: ~p, this sc_id: ~p, known_sc_id: ~p",
                        [Check, SCID, blockchain_state_channel_v1:id(KnownSC)]),
             Check;
