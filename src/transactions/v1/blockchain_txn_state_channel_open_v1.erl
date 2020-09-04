@@ -38,9 +38,10 @@
 -endif.
 
 -type txn_state_channel_open() :: #blockchain_txn_state_channel_open_v1_pb{}.
--export_type([txn_state_channel_open/0]).
+-type id() :: binary().
+-export_type([id/0, txn_state_channel_open/0]).
 
--spec new(ID :: binary(),
+-spec new(ID :: id(),
           Owner :: libp2p_crypto:pubkey_bin(),
           ExpireWithin :: pos_integer(),
           OUI :: non_neg_integer(),
@@ -65,7 +66,7 @@ hash(Txn) ->
     EncodedTxn = blockchain_txn_state_channel_open_v1_pb:encode_msg(BaseTxn),
     crypto:hash(sha256, EncodedTxn).
 
--spec id(Txn :: txn_state_channel_open()) -> binary().
+-spec id(Txn :: txn_state_channel_open()) -> id().
 id(Txn) ->
     Txn#blockchain_txn_state_channel_open_v1_pb.id.
 
