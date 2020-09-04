@@ -40,8 +40,9 @@
 -define(SERVER, ?MODULE).
 -define(STATE_CHANNELS, <<"blockchain_state_channels_server.STATE_CHANNELS">>). % also copied in sc_db_owner
 -define(MAX_PAYLOAD_SIZE, 255). % lorawan max payload size is 255 bytes
+%% https://hur.st/bloomfilter/?n=500000&p=1.0E-6&m=&k=20
 -define(MAX_UNIQ_CLIENTS, 1000).
--define(FALSE_POS_RATE, 1.0e-6).
+-define(BITMAP_SIZE, 15000000).
 
 -record(state, {
     db :: rocksdb:db_handle() | undefined,
@@ -441,8 +442,8 @@ update_state_sc_open(Txn,
 
             SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
 
-            {ok, ClientBloom} = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
-            {ok, PacketBloom} = bloom:new_optimal(Amt, ?FALSE_POS_RATE),
+            {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, ?MAX_UNIQ_CLIENTS),
+            {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, Amt),
 
             case ActiveSCID of
                 undefined ->
@@ -852,9 +853,9 @@ update_state_with_blooms(#state{state_channels=SCs}=State) when map_size(SCs) ==
     State;
 update_state_with_blooms(#state{state_channels=SCs}=State) ->
     Blooms = maps:map(fun(_, {SC, _}) ->
-                              {ok, ClientBloom} = bloom:new_optimal(?MAX_UNIQ_CLIENTS, ?FALSE_POS_RATE),
+                              {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, ?MAX_UNIQ_CLIENTS),
                               Amount = blockchain_state_channel_v1:amount(SC),
-                              {ok, PacketBloom} = bloom:new_optimal(Amount, ?FALSE_POS_RATE),
+                              {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, Amount),
                               {ClientBloom, PacketBloom}
                       end, SCs),
     State#state{blooms=Blooms}.
