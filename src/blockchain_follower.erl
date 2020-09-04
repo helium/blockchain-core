@@ -102,15 +102,24 @@ handle_info({blockchain_event, {add_block, Hash, Sync, Ledger}},
                    RequiresLedger = FollowerMod:requires_ledger(),
                    lager:info("trying to absorb missing blocks [~p..~p]", [hd(BlockHeights), lists:last(BlockHeights)]),
                    lists:foldl(fun(MissingHeight, {ok, FS}) ->
-                                       {ok, MissingBlock} = blockchain:get_block(MissingHeight, Chain),
-                                       MissingHash = blockchain_block:hash_block(MissingBlock),
-                                       {ok, MissingLedger} = case RequiresLedger of
-                                                                 true ->
-                                                                     blockchain:ledger_at(MissingHeight, Chain);
-                                                                 false ->
-                                                                     {ok, undefined}
-                                                             end,
-                                       FollowerMod:load_block(MissingHash, MissingBlock, true, MissingLedger, FS)
+                                       case blockchain:get_block(MissingHeight, Chain) of
+                                           {ok, MissingBlock} ->
+                                               MissingHash = blockchain_block:hash_block(MissingBlock),
+                                               LedgerResult = case RequiresLedger of
+                                                                         true ->
+                                                                             blockchain:ledger_at(MissingHeight, Chain);
+                                                                         false ->
+                                                                             {ok, undefined}
+                                                                     end,
+                                               case LedgerResult of
+                                                   {ok, MissingLedger} ->
+                                                       FollowerMod:load_block(MissingHash, MissingBlock, true, MissingLedger, FS);
+                                                   _ ->
+                                                       {ok, FS}
+                                               end;
+                                           _ ->
+                                               {ok, FS}
+                                       end
                                end, {ok, State#state.follower_state}, BlockHeights)
            end
         end,
