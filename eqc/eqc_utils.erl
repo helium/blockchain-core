@@ -5,7 +5,8 @@
          ledger/1,
          name/1,
          maybe_output_paths/3,
-         ledger_vars/1
+         ledger_vars/1,
+         big_witness_hotspots/0
         ]).
 
 find_challenger(ChallengerIndex, ActiveGateways) ->
@@ -47,8 +48,8 @@ name(PubkeyBin) ->
     Name.
 
 ledger(ExtraVars) ->
-    %% Ledger at height: 194196
-    %% ActiveGateway Count: 3023
+    %% Ledger at height: 481929
+    %% ActiveGateway Count: 8000
     {ok, Dir} = file:get_cwd(),
     %% Ensure priv dir exists
     PrivDir = filename:join([Dir, "priv"]),
@@ -72,6 +73,15 @@ ledger(ExtraVars) ->
 ledger_vars(Ledger) ->
     blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
+big_witness_hotspots() ->
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    BigWitnessHotspotFile = filename:join([PrivDir, "big_witness_hotspots"]),
+    {ok, LBin} = file:read_file(BigWitnessHotspotFile),
+    binary_to_term(LBin).
+
 extract_ledger_tar(PrivDir, LedgerTar) ->
     case filelib:is_file(LedgerTar) of
         true ->
@@ -87,7 +97,7 @@ extract_ledger_tar(PrivDir, LedgerTar) ->
         false ->
             %% ledger tar file not found, download & extract
             ok = ssl:start(),
-            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger.tar.gz"),
+            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request("https://blockchain-core.s3-us-west-1.amazonaws.com/ledger-481929.tar.gz"),
             ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
             erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
     end.
