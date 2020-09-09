@@ -295,7 +295,8 @@ to_json(Txn, _Opts) ->
       staking_fee => staking_fee(Txn),
       fee => fee(Txn),
       filter => ?MAYBE_B64(filter(Txn)),
-      requested_subnet_size => requested_subnet_size(Txn)
+      requested_subnet_size => requested_subnet_size(Txn),
+      oui => oui(Txn)
      }.
 
 
@@ -502,7 +503,7 @@ to_json_test() ->
     Tx = new(1, <<"owner">>, [?KEY1], undefined, undefined, <<"payer">>),
     Json = to_json(Tx, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size ])).
+                      [type, hash, owner, addresses, payer, staking_fee, fee, filter, requested_subnet_size, oui])).
 
 
 -endif.
