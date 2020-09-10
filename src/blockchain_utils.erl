@@ -245,7 +245,24 @@ free_space_path_loss(Loc1, Loc2) ->
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
     %%
-    -(10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
+    (10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
+
+free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    %% TODO support regional parameters for non-US based hotspots
+    %% TODO support variable Dt,Dr values for better FSPL values
+    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
+    %%
+    (10*math:log10((Gt*Gl)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
+
+%% Subtract FSPL from our transmit power to get the expected minimum received signal.
+-spec min_rcv_sig(float(), float()) -> float().
+min_rcv_sig(Fspl, TxGain) ->
+   TxGain - Fspl.
+min_rcv_sig(Fspl) ->
+   ?TRANSMIT_POWER - Fspl.
+
+
 
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
