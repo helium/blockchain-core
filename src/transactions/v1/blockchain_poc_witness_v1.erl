@@ -19,6 +19,7 @@
     snr/1,
     frequency/1,
     channel/1,
+    datarate/1,
     signature/1,
     sign/2,
     is_valid/1,
@@ -114,6 +115,10 @@ frequency(Witness) ->
 channel(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.channel.
 
+-spec datarate(Witness :: poc_witness()) -> binary().
+datarate(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.datarate.
+
 -spec signature(Witness :: poc_witness()) -> binary().
 signature(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.signature.
@@ -153,7 +158,9 @@ to_json(Witness, _Opts) ->
       signal => signal(Witness),
       packet_hash => ?BIN_TO_B64(packet_hash(Witness)),
       snr => ?MAYBE_UNDEFINED(snr(Witness)),
-      frequency => ?MAYBE_UNDEFINED(frequency(Witness))
+      frequency => ?MAYBE_UNDEFINED(frequency(Witness)),
+      channel => ?MAYBE_UNDEFINED(channel(Witness)),
+      datarate => ?MAYBE_UNDEFINED(datarate(Witness))
      }.
 
 %% ------------------------------------------------------------------

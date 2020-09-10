@@ -21,6 +21,7 @@
     snr/1,
     frequency/1,
     channel/1,
+    datarate/1,
     sign/2,
     is_valid/1,
     print/1,
@@ -114,7 +115,6 @@ data(Receipt) ->
 origin(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.origin.
 
-
 -spec signature(Receipt :: poc_receipt()) -> binary().
 signature(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.signature.
@@ -126,6 +126,10 @@ snr(Receipt) ->
 -spec frequency(Receipt :: poc_receipt()) -> float().
 frequency(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.frequency.
+
+-spec datarate(Receipt :: poc_receipt()) -> binary().
+datarate(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.datarate.
 
 -spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
 channel(Receipt) ->
@@ -171,7 +175,9 @@ to_json(Receipt, _Opts) ->
       data => ?BIN_TO_B64(data(Receipt)),
       origin => origin(Receipt),
       snr => ?MAYBE_UNDEFINED(snr(Receipt)),
-      frequency => ?MAYBE_UNDEFINED(frequency(Receipt))
+      frequency => ?MAYBE_UNDEFINED(frequency(Receipt)),
+      channel => ?MAYBE_UNDEFINED(channel(Receipt)),
+      datarate => ?MAYBE_UNDEFINED(datarate(Receipt))
      }.
 
 %% ------------------------------------------------------------------

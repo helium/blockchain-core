@@ -1025,7 +1025,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                             undefined;
                         true ->
                             case blockchain:config(?data_aggregation_version, Ledger) of
-                                {ok, 1} ->
+                                {ok, 2} ->
                                     {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
                                     case RSSI >= LowerBound of
                                         true ->
@@ -1051,7 +1051,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                             undefined
                                     end;
                                 _ ->
-                                    %% SNR not collected, nothing else we can check
+                                    %% SNR+Freq+Channels not collected, nothing else we can check
                                     Receipt
                             end
                     end;
@@ -1095,7 +1095,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                          false;
                                      true ->
                                          case blockchain:config(?data_aggregation_version, Ledger) of
-                                             {ok, 1} ->
+                                             {ok, 2} ->
                                                  {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
                                                  case RSSI >= LowerBound of
                                                      true ->
@@ -1121,7 +1121,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                          false
                                                  end;
                                              _ ->
-                                                 %% SNR not collected, nothing else we can check
+                                                 %% SNR+Freq+Channels not collected, nothing else we can check
                                                  true
                                          end
                                  end;
