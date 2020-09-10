@@ -621,7 +621,7 @@ good_quality_witnesses(Element, Ledger) ->
                                  WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
+                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, Ledger),
                                  %% Check that the witness is far
                                  try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
                                      Res -> Res
@@ -1014,7 +1014,7 @@ valid_receipt(PreviousElement, Element, Freq, Ledger) ->
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                 true ->
-                    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc),
+                    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Ledger),
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     case RSSI < FreeSpacePathLoss of
@@ -1083,7 +1083,7 @@ valid_witnesses(Element, Freq, Ledger) ->
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                              true ->
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc),
+                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Ledger),
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
 

@@ -253,7 +253,7 @@ free_space_path_loss(Loc1, Loc2, Ledger) ->
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
 
-    case poc_version(Ledger) of
+    case blockchain:config(?poc_version, Ledger) of
         {ok, V} when V >= 9 ->
             %% Do the new and correct calculation
             Distance = blockchain_utils:distance(Loc1, Loc2),
@@ -299,13 +299,6 @@ icdf_select(PopulationList, Rnd) ->
 find_txn(Block, PredFun) ->
     Txns = blockchain_block:transactions(Block),
     lists:filter(fun(T) -> PredFun(T) end, Txns).
-
--spec poc_version(Ledger :: blockchain_ledger_v1:ledger()) -> undefined | non_neg_integer().
-poc_version(Ledger) ->
-    case blockchain:config(?poc_version, Ledger, undefined) of
-        undefined -> undefined;
-        {ok, V} -> V
-    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
