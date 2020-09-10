@@ -242,7 +242,10 @@ score_tagged_gateways(Height, Ledger) ->
 free_space_path_loss(Loc1, Loc2) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
-    ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+    %% TODO support variable Dt,Dr values for better FSPL values
+    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
+    %%
+    ?TRANSMIT_POWER - (10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
 
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
