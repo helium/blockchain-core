@@ -1205,7 +1205,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
             GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
                                       case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
                                           {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, Ledger);
                                           {error, Reason} ->
                                               lager:warning("exiting trying to add witness",
                                                             [Reason]),

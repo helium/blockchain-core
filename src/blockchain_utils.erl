@@ -21,6 +21,7 @@
     distance/2,
     score_gateways/1,
     free_space_path_loss/2,
+    free_space_path_loss/3,
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
     find_txn/2,
@@ -31,7 +32,10 @@
     vars_keys_to_list/1,
     calculate_dc_amount/2, calculate_dc_amount/3,
     do_calculate_dc_amount/2,
-    deterministic_subset/3
+    deterministic_subset/3,
+    %% exports for simulations
+    free_space_path_loss/4,
+    min_rcv_sig/1, min_rcv_sig/2
 ]).
 
 -ifdef(TEST).
@@ -250,10 +254,25 @@ score_tagged_gateways(Height, Ledger) ->
 free_space_path_loss(Loc1, Loc2) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
+    ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+
+-spec free_space_path_loss(Loc1 :: h3:index(),
+                           Loc2 :: h3:index(),
+                           Ledger :: blockchain_ledger_v1:ledger()) -> float().
+free_space_path_loss(Loc1, Loc2, Ledger) ->
+    %% TODO support regional parameters for non-US based hotspots
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
-    %%
-    (10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
+
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V >= 9 ->
+            %% Do the new and correct calculation
+            Distance = blockchain_utils:distance(Loc1, Loc2),
+            10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2));
+        _ ->
+            %% Keep doing the old FSPL calculation
+            free_space_path_loss(Loc1, Loc2)
+    end.
 
 free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
@@ -269,8 +288,6 @@ min_rcv_sig(Fspl, TxGain) ->
    TxGain - Fspl.
 min_rcv_sig(Fspl) ->
    ?TRANSMIT_POWER - Fspl.
-
-
 
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
