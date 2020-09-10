@@ -35,6 +35,7 @@
     deterministic_subset/3,
     %% exports for simulations
     free_space_path_loss/4,
+    free_space_path_loss/5,
     min_rcv_sig/1, min_rcv_sig/2
 ]).
 
@@ -258,21 +259,14 @@ free_space_path_loss(Loc1, Loc2) ->
 
 -spec free_space_path_loss(Loc1 :: h3:index(),
                            Loc2 :: h3:index(),
-                           Ledger :: blockchain_ledger_v1:ledger()) -> float().
-free_space_path_loss(Loc1, Loc2, Ledger) ->
-    %% TODO support regional parameters for non-US based hotspots
-    %% TODO support variable Dt,Dr values for better FSPL values
-    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
-
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V >= 9 ->
-            %% Do the new and correct calculation
-            Distance = blockchain_utils:distance(Loc1, Loc2),
-            10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2));
-        _ ->
-            %% Keep doing the old FSPL calculation
-            free_space_path_loss(Loc1, Loc2)
-    end.
+                           Frequency :: float() | undefined) -> float().
+free_space_path_loss(Loc1, Loc2, undefined) ->
+    %% No frequency specified, defaulting to US915. Definitely incorrect.
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2));
+free_space_path_loss(Loc1, Loc2, Frequency) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2))-1.8-1.8.
 
 free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
@@ -280,7 +274,14 @@ free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     %% TODO support variable Dt,Dr values for better FSPL values
     %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
     %%
-    (10*math:log10((Gt*Gl)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2))).
+    (10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
+free_space_path_loss(Loc1, Loc2, Frequency, Gt, Gl) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    %% TODO support regional parameters for non-US based hotspots
+    %% TODO support variable Dt,Dr values for better FSPL values
+    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
+    %%
+    (10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
 
 %% Subtract FSPL from our transmit power to get the expected minimum received signal.
 -spec min_rcv_sig(float(), float()) -> float().

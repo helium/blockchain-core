@@ -22,7 +22,7 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/6,
+    add_witness/5,
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
@@ -330,8 +330,7 @@ add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce},
             undefined,
             undefined,
-            Gateway = #gateway_v2{witnesses=Witnesses},
-            Ledger) ->
+            Gateway = #gateway_v2{witnesses=Witnesses}) ->
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
     case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
@@ -345,15 +344,14 @@ add_witness(WitnessAddress,
             Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
-                                                           hist=create_histogram(WitnessGW, Gateway, Ledger)},
+                                                           hist=create_histogram(WitnessGW, Gateway)},
                                                   Witnesses)}
     end;
 add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce},
             RSSI,
             TS,
-            Gateway = #gateway_v2{witnesses=Witnesses},
-            Ledger) ->
+            Gateway = #gateway_v2{witnesses=Witnesses}) ->
     case maps:find(WitnessAddress, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
             %% nonce is the same, increment the count
@@ -365,7 +363,7 @@ add_witness(WitnessAddress,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway, Ledger),
+            Histogram = create_histogram(WitnessGW, Gateway),
             Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
                                                   #witness{count=1,
                                                            nonce=Nonce,
@@ -376,10 +374,9 @@ add_witness(WitnessAddress,
     end.
 
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v2{location=GatewayLoc}=_Gateway,
-                 Ledger) ->
+                 #gateway_v2{location=GatewayLoc}=_Gateway) ->
     %% Get the free space path loss
-    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc, Ledger),
+    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc),
     %% Maximum number of bins in the histogram
     NumBins = 10,
     %% Spacing between histogram keys (x axis)
