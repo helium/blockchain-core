@@ -11,7 +11,7 @@
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/5, new/7,
+    new/5, new/7, new/9,
     gateway/1,
     timestamp/1,
     signal/1,
@@ -20,6 +20,7 @@
     signature/1,
     snr/1,
     frequency/1,
+    channel/1,
     sign/2,
     is_valid/1,
     print/1,
@@ -70,6 +71,29 @@ new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency) ->
         signature = <<>>
     }.
 
+-spec new(Address :: libp2p_crypto:pubkey_bin(),
+          Timestamp :: non_neg_integer(),
+          Signal :: integer(),
+          Data :: binary(),
+          Origin :: origin(),
+          SNR :: float(),
+          Frequency :: float(),
+          Channel :: non_neg_integer(),
+          DataRate :: binary()) -> poc_receipt().
+new(Address, Timestamp, Signal, Data, Origin, SNR, Frequency, Channel, DataRate) ->
+    #blockchain_poc_receipt_v1_pb{
+        gateway=Address,
+        timestamp=Timestamp,
+        signal=Signal,
+        data=Data,
+        origin=Origin,
+        snr=SNR,
+        frequency=Frequency,
+        channel=Channel,
+        datarate=DataRate,
+        signature = <<>>
+    }.
+
 -spec gateway(Receipt :: poc_receipt()) -> libp2p_crypto:pubkey_bin().
 gateway(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.gateway.
@@ -102,6 +126,10 @@ snr(Receipt) ->
 -spec frequency(Receipt :: poc_receipt()) -> float().
 frequency(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.frequency.
+
+-spec channel(Receipt :: poc_receipt()) -> non_neg_integer().
+channel(Receipt) ->
+    Receipt#blockchain_poc_receipt_v1_pb.channel.
 
 -spec sign(Receipt :: poc_receipt(), SigFun :: libp2p_crypto:sig_fun()) -> poc_receipt().
 sign(Receipt, SigFun) ->

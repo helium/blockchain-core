@@ -41,9 +41,6 @@
 
 -type txn_poc_receipts() :: #blockchain_txn_poc_receipts_v1_pb{}.
 -type deltas() :: [{libp2p_crypto:pubkey_bin(), {float(), float()}}].
--type frequencies() :: [float()].
-
--define(FREQS, [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]).
 
 -export_type([txn_poc_receipts/0]).
 
@@ -162,7 +159,7 @@ is_valid(Txn, Chain) ->
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
                          Chain :: blockchain:blockchain(),
-                         RunValidation :: boolean()) -> ok | {ok, frequencies()} | {error, any()}.
+                         RunValidation :: boolean()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
 check_is_valid_poc(Txn, Chain, RunValidation) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
@@ -311,23 +308,23 @@ check_is_valid_poc(Txn, Chain, RunValidation) ->
 
                                                     case blockchain:config(?poc_version, OldLedger) of
                                                         {ok, POCVer} when POCVer >= 9 ->
-                                                            Freqs = lists:map(fun(Layer) ->
+                                                            Channels = lists:map(fun(Layer) ->
                                                                                       <<IntData:16/integer-unsigned-little>> = Layer,
-                                                                                      lists:nth((IntData rem 8) + 1, ?FREQS)
+                                                                                      IntData rem 8
                                                                               end, LayerData),
                                                             %% We are on poc v9, check whether we need to run
                                                             %% validation (presumably invoked from is_valid)
                                                             case RunValidation of
                                                                 false ->
                                                                     %% no need to run validations
-                                                                    {ok, Freqs};
+                                                                    {ok, Channels};
                                                                 true ->
                                                                     %% run validations
                                                                     Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
                                                                     maybe_log_duration(receipt_validation, StartV),
                                                                     case Ret of
                                                                         ok ->
-                                                                            {ok, Freqs};
+                                                                            {ok, Channels};
                                                                         {error, _}=E -> E
                                                                     end
                                                             end;
@@ -432,22 +429,22 @@ calculate_delta(Txn, Chain, true) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
 
-    {ok, Frequencies} = check_is_valid_poc(Txn, Chain, false),
+    {ok, Channels} = check_is_valid_poc(Txn, Chain, false),
 
     lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
                                                  Challengee = blockchain_poc_path_element_v1:challengee(Element),
                                                  NextElements = lists:sublist(Path, ElementPos+1, Length),
                                                  HasContinued = check_path_continuation(NextElements),
 
-                                                 {PreviousElement, ReceiptFreq, WitnessFreq} =
+                                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
                                                  case ElementPos of
                                                      1 ->
-                                                         {undefined, 0.0, hd(Frequencies)};
+                                                         {undefined, 0.0, hd(Channels)};
                                                      _ ->
-                                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Frequencies), lists:nth(ElementPos, Frequencies)}
+                                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                                  end,
 
-                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptFreq, WitnessFreq, Ledger),
+                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger),
                                                  {set_deltas(Challengee, Val, Acc), Continue};
                               (_, Acc) ->
                                    Acc
@@ -516,12 +513,12 @@ assign_alpha_beta(HasContinued, Receipt, Witnesses) ->
 -spec calculate_alpha_beta(HasContinued :: boolean(),
                            Element :: blockchain_poc_path_element_v1:poc_element(),
                            PreviousElement :: blockchain_poc_path_element_v1:poc_element(),
-                           ReceiptFreq :: float(),
-                           WitnessFreq :: float(),
+                           ReceiptChannel :: non_neg_integer(),
+                           WitnessChannel :: non_neg_integer(),
                            Ledger :: blockchain_ledger_v1:ledger()) -> {{float(), 0 | 1}, boolean()}.
-calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptFreq, WitnessFreq, Ledger) ->
-    Receipt = valid_receipt(PreviousElement, Element, ReceiptFreq, Ledger),
-    Witnesses = valid_witnesses(Element, WitnessFreq, Ledger),
+calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger) ->
+    Receipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+    Witnesses = valid_witnesses(Element, WitnessChannel, Ledger),
     allocate_alpha_beta(HasContinued, Element, Receipt, Witnesses, Ledger).
 
 -spec calculate_alpha_beta(HasContinued :: boolean(),
@@ -995,10 +992,10 @@ vars(Ledger) ->
     blockchain_utils:vars_binary_keys_to_atoms(
       maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
-valid_receipt(undefined, _Element, _Freq, _Ledger) ->
+valid_receipt(undefined, _Element, _Channel, _Ledger) ->
     %% first hop in the path, cannot be validated.
     undefined;
-valid_receipt(PreviousElement, Element, Freq, Ledger) ->
+valid_receipt(PreviousElement, Element, Channel, Ledger) ->
     case blockchain_poc_path_element_v1:receipt(Element) of
         undefined ->
             %% nothing to validate
@@ -1032,7 +1029,7 @@ valid_receipt(PreviousElement, Element, Freq, Ledger) ->
                                     {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
                                     case RSSI >= LowerBound of
                                         true ->
-                                            case abs(blockchain_poc_receipt_v1:frequency(Receipt) - Freq) =< 0.001 of
+                                            case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                 true ->
                                                     lager:info("receipt ok"),
                                                     Receipt;
@@ -1041,7 +1038,7 @@ valid_receipt(PreviousElement, Element, Freq, Ledger) ->
                                                                   [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                                    ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                    element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                   blockchain_poc_receipt_v1:frequency(Receipt), Freq,
+                                                                   blockchain_poc_receipt_v1:channel(Receipt), Channel,
                                                                    RSSI, SNR]),
                                                     undefined
                                             end;
@@ -1068,7 +1065,7 @@ valid_receipt(PreviousElement, Element, Freq, Ledger) ->
             end
     end.
 
-valid_witnesses(Element, Freq, Ledger) ->
+valid_witnesses(Element, Channel, Ledger) ->
     {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
 
     Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
@@ -1102,7 +1099,7 @@ valid_witnesses(Element, Freq, Ledger) ->
                                                  {LowerBound, _} = calculate_rssi_bounds_from_snr(SNR),
                                                  case RSSI >= LowerBound of
                                                      true ->
-                                                         case abs(blockchain_poc_witness_v1:frequency(Witness) - Freq) =< 0.001 of
+                                                         case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                              true ->
                                                                  lager:info("witness ok"),
                                                                  true;
@@ -1111,7 +1108,7 @@ valid_witnesses(Element, Freq, Ledger) ->
                                                                                [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                 ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                                 element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                                                blockchain_poc_witness_v1:frequency(Witness), Freq,
+                                                                                blockchain_poc_witness_v1:channel(Witness), Channel,
                                                                                 RSSI, SNR]),
                                                                  false
                                                          end;
