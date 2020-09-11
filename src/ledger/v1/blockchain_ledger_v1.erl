@@ -1195,24 +1195,39 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
     end.
 
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                            WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
+                            WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}] | [{integer(), non_neg_integer(), float(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
 add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, GW0} ->
-            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                          {ok, Witness} ->
-                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW, Ledger);
-                                          {error, Reason} ->
-                                              lager:warning("exiting trying to add witness",
-                                                            [Reason]),
-                                              erlang:error({add_gateway_error, Reason})
-                                      end
-                              end, GW0, WitnessInfo),
-            update_gateway(GW1, GatewayAddress, Ledger)
+            case blockchain:config(?poc_version, Ledger) of
+                {ok, V} when V >= 9 ->
+                    GW1 = lists:foldl(fun({RSSI, TS, Freq, WitnessAddress}, GW) ->
+                                              case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+                                                  {ok, Witness} ->
+                                                      blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, Freq, GW);
+                                                  {error, Reason} ->
+                                                      lager:warning("exiting trying to add witness",
+                                                                    [Reason]),
+                                                      erlang:error({add_gateway_error, Reason})
+                                              end
+                                      end, GW0, WitnessInfo),
+                    update_gateway(GW1, GatewayAddress, Ledger);
+                _ ->
+                    GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+                                              case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+                                                  {ok, Witness} ->
+                                                      blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
+                                                  {error, Reason} ->
+                                                      lager:warning("exiting trying to add witness",
+                                                                    [Reason]),
+                                                      erlang:error({add_gateway_error, Reason})
+                                              end
+                                      end, GW0, WitnessInfo),
+                    update_gateway(GW1, GatewayAddress, Ledger)
+            end
     end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
