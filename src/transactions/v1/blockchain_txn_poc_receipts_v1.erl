@@ -622,7 +622,7 @@ good_quality_witnesses(Element, Ledger) ->
                                  FreeSpacePathLoss = case blockchain:config(?poc_version, Ledger) of
                                                          {ok, V} when V >= 9 ->
                                                              WitnessFreq = blockchain_poc_witness_v1:frequency(Witness),
-                                                             blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, WitnessFreq);
+                                                             blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, WitnessFreq));
                                                          _ ->
                                                              blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc)
                                                      end,
@@ -1088,15 +1088,15 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
-                    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq),
-                    case RSSI < FreeSpacePathLoss of
+                    MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
+                    case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
                             lager:warning("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                           [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                            ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                            element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                           RSSI, FreeSpacePathLoss, SNR]),
+                                           RSSI, MinRcvSig, SNR]),
                             undefined;
                         true ->
                             case blockchain:config(?data_aggregation_version, Ledger) of
@@ -1158,16 +1158,16 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq),
+                                 MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
 
-                                 case RSSI < FreeSpacePathLoss of
+                                 case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
                                          lager:warning("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                        RSSI, FreeSpacePathLoss, SNR]),
+                                                        RSSI, MinRcvSig, SNR]),
                                          false;
                                      true ->
                                          case blockchain:config(?data_aggregation_version, Ledger) of
