@@ -618,7 +618,15 @@ good_quality_witnesses(Element, Ledger) ->
                                  WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, Ledger),
+
+                                 FreeSpacePathLoss = case blockchain:config(?poc_version, Ledger) of
+                                                         {ok, V} when V >= 9 ->
+                                                             WitnessFreq = blockchain_poc_witness_v1:frequency(Witness),
+                                                             blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, WitnessFreq));
+                                                         _ ->
+                                                             blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc)
+                                                     end,
+
                                  %% Check that the witness is far
                                  try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
                                      Res -> Res
@@ -766,6 +774,58 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                        UpperTimeBound :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V >= 9 ->
+            %% attach frequency to witness info with poc-v9
+            Length = length(Path),
+            lists:foreach(fun({N, Element}) ->
+                                  Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                  Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
+                                  %% TODO check these witnesses have valid RSSI
+                                  WitnessInfo0 = lists:foldl(
+                                                   fun(Witness, Acc) ->
+                                                           TS = case blockchain_poc_witness_v1:timestamp(Witness) of
+                                                                    T when T < LowerTimeBound ->
+                                                                        LowerTimeBound;
+                                                                    T when T > UpperTimeBound ->
+                                                                        UpperTimeBound;
+                                                                    T ->
+                                                                        T
+                                                                end,
+                                                           [{blockchain_poc_witness_v1:signal(Witness),
+                                                             TS,
+                                                             blockchain_poc_witness_v1:frequency(Witness),
+                                                             blockchain_poc_witness_v1:gateway(Witness)} | Acc]
+                                                   end,
+                                                   [],
+                                                   Witnesses),
+                                  NextElements = lists:sublist(Path, N+1, Length),
+                                  WitnessInfo = case check_path_continuation(NextElements) of
+                                                    true ->
+                                                        %% the next hop is also a witness for this
+                                                        NextHopElement = hd(NextElements),
+                                                        NextHopAddr = blockchain_poc_path_element_v1:challengee(NextHopElement),
+                                                        case blockchain_poc_path_element_v1:receipt(NextHopElement) of
+                                                            undefined ->
+                                                                %% There is no receipt from the next hop
+                                                                %% We clamp to LowerTimeBound as best-effort
+                                                                [{undefined, LowerTimeBound, undefined, NextHopAddr} | WitnessInfo0];
+                                                            NextHopReceipt ->
+                                                                [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
+                                                                  blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
+                                                                  blockchain_poc_receipt_v1:frequency(NextHopReceipt),
+                                                                  NextHopAddr} | WitnessInfo0]
+                                                        end;
+                                                    false ->
+                                                        WitnessInfo0
+                                                end,
+                                  blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
+                          end, lists:zip(lists:seq(1, Length), Path));
+        _ ->
+            insert_witnesses_(Path, LowerTimeBound, UpperTimeBound, Ledger)
+    end.
+
+insert_witnesses_(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
     Length = length(Path),
     lists:foreach(fun({N, Element}) ->
                           Challengee = blockchain_poc_path_element_v1:challengee(Element),
@@ -1025,17 +1085,18 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
             try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                 true ->
-                    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Ledger),
                     RSSI = blockchain_poc_receipt_v1:signal(Receipt),
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
-                    case RSSI < FreeSpacePathLoss of
+                    Freq = blockchain_poc_receipt_v1:frequency(Receipt),
+                    MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
+                    case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
                             lager:warning("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                           [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                            ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                            element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                           RSSI, FreeSpacePathLoss, SNR]),
+                                           RSSI, MinRcvSig, SNR]),
                             undefined;
                         true ->
                             case blockchain:config(?data_aggregation_version, Ledger) of
@@ -1048,7 +1109,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                     lager:info("receipt ok"),
                                                     Receipt;
                                                 false ->
-                                                    lager:warning("receipt ~p -> ~p rejected at height ~p for frequency ~p /= ~p RSSI ~p SNR ~p",
+                                                    lager:warning("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                   [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                                    ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                    element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1094,18 +1155,19 @@ valid_witnesses(Element, Channel, Ledger) ->
                          DestinationParentIndex = h3:parent(DestinationLoc, ParentRes),
                          try h3:grid_distance(SourceParentIndex, DestinationParentIndex) >= ExclusionCells of
                              true ->
-                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Ledger),
                                  RSSI = blockchain_poc_witness_v1:signal(Witness),
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
+                                 Freq = blockchain_poc_witness_v1:frequency(Witness),
+                                 MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
 
-                                 case RSSI < FreeSpacePathLoss of
+                                 case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
                                          lager:warning("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
-                                                        RSSI, FreeSpacePathLoss, SNR]),
+                                                        RSSI, MinRcvSig, SNR]),
                                          false;
                                      true ->
                                          case blockchain:config(?data_aggregation_version, Ledger) of
@@ -1118,7 +1180,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                                  lager:info("witness ok"),
                                                                  true;
                                                              false ->
-                                                                 lager:warning("witness ~p -> ~p rejected at height ~p for frequency ~p /= ~p RSSI ~p SNR ~p",
+                                                                 lager:warning("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                 ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                                 element(2, blockchain_ledger_v1:current_height(Ledger)),
