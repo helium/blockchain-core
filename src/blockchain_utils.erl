@@ -254,10 +254,10 @@ free_space_path_loss(Loc1, Loc2) ->
 free_space_path_loss(Loc1, Loc2, undefined) ->
     %% No frequency specified, defaulting to US915. Definitely incorrect.
     Distance = blockchain_utils:distance(Loc1, Loc2),
-    10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*100000)*(Distance*100000))/(299792458), 2));
+    10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2));
 free_space_path_loss(Loc1, Loc2, Frequency) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
-    10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(Frequency*100000)*(Distance*100000))/(299792458), 2)).
+    10*math:log10((1.8*1.8)*math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2)).
 
 free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
