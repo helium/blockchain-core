@@ -31,7 +31,7 @@
     check_path_continuation/1,
     print/1,
     to_json/2,
-    hex_poc_id/1,
+    poc_id/1,
     good_quality_witnesses/2
 ]).
 
@@ -142,7 +142,7 @@ is_valid(Txn, Chain) ->
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    HexPOCID = ?MODULE:hex_poc_id(Txn),
+    POCID = ?MODULE:poc_id(Txn),
 
     StartPre = erlang:monotonic_time(millisecond),
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
@@ -155,7 +155,7 @@ is_valid(Txn, Chain) ->
                 false ->
                     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
                         {error, Reason}=Error ->
-                            lager:warning([{poc_id, HexPOCID}],
+                            lager:warning([{poc_id, POCID}],
                                           "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
                                           [POCOnionKeyHash, Reason]),
                             Error;
@@ -167,16 +167,16 @@ is_valid(Txn, Chain) ->
                                 {ok, PoC} ->
                                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                                         {error, Reason}=Error ->
-                                            lager:warning([{poc_id, HexPOCID}],
+                                            lager:warning([{poc_id, POCID}],
                                                           "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
                                                           [Challenger, Reason]),
                                             Error;
                                         {ok, GwInfo} ->
                                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
-                                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, HexPOCID, GwInfo]),
+                                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
                                             case blockchain:get_block(LastChallenge, Chain) of
                                                 {error, Reason}=Error ->
-                                                    lager:warning([{poc_id, HexPOCID}],
+                                                    lager:warning([{poc_id, POCID}],
                                                                   "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
                                                                   [LastChallenge, Reason]),
                                                     Error;
@@ -546,7 +546,7 @@ absorb(Txn, Chain) ->
     Secret = ?MODULE:secret(Txn),
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    HexPOCID = ?MODULE:hex_poc_id(Txn),
+    POCID = ?MODULE:poc_id(Txn),
 
     try
         %% get these to make sure we're not replaying.
@@ -598,7 +598,7 @@ absorb(Txn, Chain) ->
                 end
         end
     catch What:Why:Stacktrace ->
-            lager:warning([{poc_id, HexPOCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
+            lager:warning([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
             {error, state_missing}
     end.
 
@@ -734,22 +734,22 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
     RebuiltPathLength = length(Path),
     ZippedLayers = lists:zip(LayerData, LayerHashes),
     ZippedLayersLength = length(ZippedLayers),
-    HexPOCID = ?MODULE:hex_poc_id(Txn),
-    lager:debug([{poc_id, HexPOCID}], "starting poc receipt validation..."),
+    POCID = ?MODULE:poc_id(Txn),
+    lager:debug([{poc_id, POCID}], "starting poc receipt validation..."),
 
     case TxnPathLength == RebuiltPathLength of
         false ->
             HumanTxnPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_poc_path_element_v1:challengee(E)))) || E <- TxnPath],
             HumanRebuiltPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(A))) || A <- Path],
-            lager:warning([{poc_id, HexPOCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
-            lager:warning([{poc_id, HexPOCID}], "TxnPath: ~p", [HumanTxnPath]),
-            lager:warning([{poc_id, HexPOCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
+            lager:warning([{poc_id, POCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
+            lager:warning([{poc_id, POCID}], "TxnPath: ~p", [HumanTxnPath]),
+            lager:warning([{poc_id, POCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
             {error, path_length_mismatch};
         true ->
             %% Now check whether layers are of equal length
             case TxnPathLength == ZippedLayersLength of
                 false ->
-                    lager:warning([{poc_id, HexPOCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p", [TxnPathLength, ZippedLayersLength]),
+                    lager:warning([{poc_id, POCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p", [TxnPathLength, ZippedLayersLength]),
                     {error, zip_layer_length_mismatch};
                 true ->
                     Result = lists:foldl(
@@ -796,11 +796,11 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                    false ->
                                                        case Receipt == undefined of
                                                            true ->
-                                                               lager:warning([{poc_id, HexPOCID}],
+                                                               lager:warning([{poc_id, POCID}],
                                                                              "Receipt undefined, ExpectedOrigin: ~p, LayerDatum: ~p, Gateway: ~p",
                                                                              [Receipt, ExpectedOrigin, LayerDatum, Gateway]);
                                                            false ->
-                                                               lager:warning([{poc_id, HexPOCID}],
+                                                               lager:warning([{poc_id, POCID}],
                                                                              "Origin: ~p, ExpectedOrigin: ~p, Data: ~p, LayerDatum: ~p, ReceiptGateway: ~p, Gateway: ~p",
                                                                              [blockchain_poc_receipt_v1:origin(Receipt),
                                                                               ExpectedOrigin,
@@ -812,7 +812,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                        {error, invalid_receipt}
                                                end;
                                            _ ->
-                                               lager:warning([{poc_id, HexPOCID}], "receipt not in order"),
+                                               lager:warning([{poc_id, POCID}], "receipt not in order"),
                                                {error, receipt_not_in_order}
                                        end
                                end,
@@ -883,11 +883,9 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
         false -> {error, invalid_witness}
     end.
 
--spec hex_poc_id(txn_poc_receipts()) -> string().
-hex_poc_id(Txn) ->
-    #{secret := _OnionPrivKey, public := OnionPubKey} = libp2p_crypto:keys_from_bin(?MODULE:secret(Txn)),
-    <<POCID:10/binary, _/binary>> = libp2p_crypto:pubkey_to_bin(OnionPubKey),
-    blockchain_utils:bin_to_hex(POCID).
+-spec poc_id(txn_poc_receipts()) -> string().
+poc_id(Txn) ->
+    ?BIN_TO_B64(?MODULE:onion_key_hash(Txn)).
 
 vars(Ledger) ->
     blockchain_utils:vars_binary_keys_to_atoms(
