@@ -5,6 +5,8 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_utils).
 
+-include("blockchain_json.hrl").
+
 -export([
     shuffle_from_hash/2,
     shuffle/1,
@@ -13,6 +15,7 @@
     challenge_interval/1,
     serialize_hash/1, deserialize_hash/1,
     hex_to_bin/1, bin_to_hex/1,
+    poc_id/1,
     pmap/2,
     addr2name/1,
     distance/2,
@@ -145,6 +148,11 @@ bin_to_hex(Bin) ->
 -spec hex_to_bin(binary()) -> binary().
 hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
+
+-spec poc_id(libp2p_crypto:pubkey_bin()) -> string().
+poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
+    Hash = crypto:hash(sha256, PubKeyBin),
+    ?BIN_TO_B64(Hash).
 
 pmap(F, L) ->
     Width = application:get_env(blockchain, validation_width, 3),
