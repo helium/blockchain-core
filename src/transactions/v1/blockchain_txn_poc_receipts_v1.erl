@@ -439,7 +439,7 @@ calculate_delta(Txn, Chain, true) ->
                                                  {PreviousElement, ReceiptChannel, WitnessChannel} =
                                                  case ElementPos of
                                                      1 ->
-                                                         {undefined, 0.0, hd(Channels)};
+                                                         {undefined, 0, hd(Channels)};
                                                      _ ->
                                                          {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
                                                  end,
@@ -677,9 +677,23 @@ absorb(Txn, Chain) ->
                         {ok, Channels} = check_is_valid_poc(Txn, Chain, false),
                         ok = lists:foreach(fun({ElementPos, Element}) ->
                                                    Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                   WitnessChannel = lists:nth(ElementPos, Channels),
+                                                   {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                                   case ElementPos of
+                                                       1 ->
+                                                           {undefined, 0, hd(Channels)};
+                                                       _ ->
+                                                           {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                                   end,
+
+                                                   FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
                                                    FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
-                                                   ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger)
+
+                                                   case FilteredReceipt of
+                                                       undefined ->
+                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                                                       FR ->
+                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                                                   end
                                            end,
                                            lists:zip(lists:seq(1, Length), Path));
                     {ok, POCVersion} when POCVersion > 1 ->
