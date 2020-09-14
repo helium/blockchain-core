@@ -22,7 +22,7 @@
     beta/1,
     delta/1,
     set_alpha_beta_delta/4,
-    add_witness/5, add_witness/6,
+    add_witness/5,
     has_witness/2,
     clear_witnesses/1,
     remove_witness/2,
@@ -373,55 +373,6 @@ add_witness(WitnessAddress,
                                                   Witnesses)}
     end.
 
-add_witness(WitnessAddress,
-            WitnessGW = #gateway_v2{nonce=Nonce},
-            undefined,
-            undefined,
-            undefined,
-            Gateway = #gateway_v2{witnesses=Witnesses}) ->
-    %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
-            %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1},
-                                                  Witnesses)};
-        _ ->
-            %% nonce mismatch or first witnesses for this peer
-            %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=create_histogram(WitnessGW, Gateway, undefined)},
-                                                  Witnesses)}
-    end;
-add_witness(WitnessAddress,
-            WitnessGW = #gateway_v2{nonce=Nonce},
-            RSSI,
-            TS,
-            Freq,
-            Gateway = #gateway_v2{witnesses=Witnesses}) ->
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
-            %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1,
-                                                                  hist=update_histogram(RSSI, Hist),
-                                                                  recent_time=TS},
-                                                  Witnesses)};
-        _ ->
-            %% nonce mismatch or first witnesses for this peer
-            %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=update_histogram(RSSI, Histogram),
-                                                           first_time=TS,
-                                                           recent_time=TS},
-                                                  Witnesses)}
-    end.
-
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
                  #gateway_v2{location=GatewayLoc}=_Gateway) ->
     %% Get the free space path loss
@@ -432,20 +383,6 @@ create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
     StepSize = ((-132 + abs(FreeSpacePathLoss))/(NumBins - 1)),
     %% Construct a custom histogram around the expected path loss
     maps:from_list([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
-
-create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
-                 #gateway_v2{location=GatewayLoc}=_Gateway,
-                 Freq) ->
-    %% Get the free space path loss
-    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc, Freq),
-    MinRcvSig = blockchain_utils:min_rcv_sig(FreeSpacePathLoss),
-    %% Maximum number of bins in the histogram
-    NumBins = 10,
-    %% Spacing between histogram keys (x axis)
-    StepSize = ((-132 + abs(MinRcvSig))/(NumBins - 1)),
-    %% Construct a custom histogram around the expected path loss
-    maps:from_list([ {28, 0} | [ {trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
-
 
 update_histogram(Val, Histogram) ->
     Keys = lists:reverse(lists:sort(maps:keys(Histogram))),

@@ -1204,17 +1204,7 @@ add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
         {ok, GW0} ->
             case blockchain:config(?poc_version, Ledger) of
                 {ok, V} when V >= 9 ->
-                    GW1 = lists:foldl(fun({RSSI, TS, Freq, WitnessAddress}, GW) ->
-                                              case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                                  {ok, Witness} ->
-                                                      blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, Freq, GW);
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness",
-                                                                    [Reason]),
-                                                      erlang:error({add_gateway_error, Reason})
-                                              end
-                                      end, GW0, WitnessInfo),
-                    update_gateway(GW1, GatewayAddress, Ledger);
+                    GW0;
                 _ ->
                     GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
                                               case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of

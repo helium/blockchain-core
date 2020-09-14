@@ -611,21 +611,19 @@ good_quality_witnesses(Element, Ledger) ->
     ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
     ChallengeeParentIndex = h3:parent(ChallengeeLoc, ParentRes),
 
-    %% Good quality witnesses
-    lists:filter(fun(Witness) ->
+    case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V >= 9 ->
+            Witnesses;
+        _ ->
+            %% Continue doing the filtering till poc >= 8
+            %% Good quality witnesses
+            lists:filter(fun(Witness) ->
                                  WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(Witness),
                                  {ok, WitnessGw} = blockchain_gateway_cache:get(WitnessPubkeyBin, Ledger),
                                  WitnessGwLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                  WitnessParentIndex = h3:parent(WitnessGwLoc, ParentRes),
                                  WitnessRSSI = blockchain_poc_witness_v1:signal(Witness),
-
-                                 FreeSpacePathLoss = case blockchain:config(?poc_version, Ledger) of
-                                                         {ok, V} when V >= 9 ->
-                                                             WitnessFreq = blockchain_poc_witness_v1:frequency(Witness),
-                                                             blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc, WitnessFreq));
-                                                         _ ->
-                                                             blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc)
-                                                     end,
+                                 FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessGwLoc, ChallengeeLoc),
 
                                  %% Check that the witness is far
                                  try h3:grid_distance(WitnessParentIndex, ChallengeeParentIndex) >= ExclusionCells of
@@ -640,7 +638,8 @@ good_quality_witnesses(Element, Ledger) ->
                                  %% Check that the RSSI seems reasonable
                                  (WitnessRSSI =< FreeSpacePathLoss)
                          end,
-                         Witnesses).
+                         Witnesses)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
