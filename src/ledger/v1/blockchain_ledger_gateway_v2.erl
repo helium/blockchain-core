@@ -332,7 +332,7 @@ add_witness({poc_receipt,
              Gateway = #gateway_v2{witnesses=Witnesses}}) ->
     RSSI = blockchain_poc_receipt_v1:signal(POCWitness),
     TS = blockchain_poc_receipt_v1:timestamp(POCWitness),
-    _Freq = blockchain_poc_receipt_v1:frequency(POCWitness),
+    Freq = blockchain_poc_receipt_v1:frequency(POCWitness),
     case maps:find(WitnessPubkeyBin, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
             %% nonce is the same, increment the count
@@ -344,7 +344,7 @@ add_witness({poc_receipt,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway),
+            Histogram = create_histogram(WitnessGW, Gateway, Freq),
             Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
                                                   #witness{count=1,
                                                            nonce=Nonce,
@@ -360,7 +360,7 @@ add_witness({poc_witness,
              Gateway = #gateway_v2{witnesses=Witnesses}}) ->
     RSSI = blockchain_poc_witness_v1:signal(POCWitness),
     TS = blockchain_poc_witness_v1:timestamp(POCWitness),
-    _Freq = blockchain_poc_witness_v1:frequency(POCWitness),
+    Freq = blockchain_poc_witness_v1:frequency(POCWitness),
     case maps:find(WitnessPubkeyBin, Witnesses) of
         {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
             %% nonce is the same, increment the count
@@ -372,7 +372,7 @@ add_witness({poc_witness,
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Histogram = create_histogram(WitnessGW, Gateway),
+            Histogram = create_histogram(WitnessGW, Gateway, Freq),
             Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
                                                   #witness{count=1,
                                                            nonce=Nonce,
@@ -428,6 +428,19 @@ add_witness(WitnessAddress,
                                                            recent_time=TS},
                                                   Witnesses)}
     end.
+
+create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
+                 #gateway_v2{location=GatewayLoc}=_Gateway,
+                 Freq) ->
+    %% Get the free space path loss
+    FreeSpacePathLoss = blockchain_utils:free_space_path_loss(WitnessLoc, GatewayLoc, Freq),
+    MinRcvSig = blockchain_utils:min_rcv_sig(FreeSpacePathLoss),
+    %% Maximum number of bins in the histogram
+    NumBins = 10,
+    %% Spacing between histogram keys (x axis)
+    StepSize = ((-132 + abs(MinRcvSig))/(NumBins - 1)),
+    %% Construct a custom histogram around the expected path loss
+    maps:from_list([ {28, 0} | [ {trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
 
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
                  #gateway_v2{location=GatewayLoc}=_Gateway) ->
