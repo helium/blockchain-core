@@ -325,6 +325,33 @@ print(Address, Gateway, Ledger, Verbose) ->
      {nonce, nonce(Gateway)}
     ] ++ Scoring.
 
+add_witness(WitnessPubkeyBin,
+            WitnessGW = #gateway_v2{nonce=Nonce},
+            POCWitness,
+            Gateway = #gateway_v2{witnesses=Witnesses}) ->
+    RSSI = blockchain_poc_witness_v1:signal(POCWitness),
+    TS = blockchain_poc_witness_v1:timestamp(POCWitness),
+    Freq = blockchain_poc_witness_v1:frequency(POCWitness),
+    case maps:find(WitnessPubkeyBin, Witnesses) of
+        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
+            %% nonce is the same, increment the count
+            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
+                                                  Witness#witness{count=Count + 1,
+                                                                  hist=update_histogram(RSSI, Hist),
+                                                                  recent_time=TS},
+                                                  Witnesses)};
+        _ ->
+            %% nonce mismatch or first witnesses for this peer
+            %% replace any old witness record with this new one
+            Histogram = create_histogram(WitnessGW, Gateway),
+            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
+                                                  #witness{count=1,
+                                                           nonce=Nonce,
+                                                           hist=update_histogram(RSSI, Histogram),
+                                                           first_time=TS,
+                                                           recent_time=TS},
+                                                  Witnesses)}
+    end.
 
 add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce},

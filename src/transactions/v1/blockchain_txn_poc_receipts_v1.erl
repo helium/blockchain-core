@@ -670,6 +670,18 @@ absorb(Txn, Chain) ->
                     {error, not_found} ->
                         %% Older poc version, don't add witnesses
                         ok;
+                    {ok, POCVersion} when POCVersion >= 9 ->
+                        %% Add filtered witnesses with poc-v9
+                        Path = ?MODULE:path(Txn),
+                        Length = length(Path),
+                        {ok, Channels} = check_is_valid_poc(Txn, Chain, false),
+                        ok = lists:foreach(fun({ElementPos, Element}) ->
+                                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                   WitnessChannel = lists:nth(ElementPos, Channels),
+                                                   FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+                                                   ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger)
+                                           end,
+                                           lists:zip(lists:seq(1, Length), Path));
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
@@ -773,58 +785,6 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                        UpperTimeBound :: non_neg_integer(),
                        Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 insert_witnesses(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
-    case blockchain:config(?poc_version, Ledger) of
-        {ok, V} when V >= 9 ->
-            %% attach frequency to witness info with poc-v9
-            Length = length(Path),
-            lists:foreach(fun({N, Element}) ->
-                                  Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                  Witnesses = blockchain_poc_path_element_v1:witnesses(Element),
-                                  %% TODO check these witnesses have valid RSSI
-                                  WitnessInfo0 = lists:foldl(
-                                                   fun(Witness, Acc) ->
-                                                           TS = case blockchain_poc_witness_v1:timestamp(Witness) of
-                                                                    T when T < LowerTimeBound ->
-                                                                        LowerTimeBound;
-                                                                    T when T > UpperTimeBound ->
-                                                                        UpperTimeBound;
-                                                                    T ->
-                                                                        T
-                                                                end,
-                                                           [{blockchain_poc_witness_v1:signal(Witness),
-                                                             TS,
-                                                             blockchain_poc_witness_v1:frequency(Witness),
-                                                             blockchain_poc_witness_v1:gateway(Witness)} | Acc]
-                                                   end,
-                                                   [],
-                                                   Witnesses),
-                                  NextElements = lists:sublist(Path, N+1, Length),
-                                  WitnessInfo = case check_path_continuation(NextElements) of
-                                                    true ->
-                                                        %% the next hop is also a witness for this
-                                                        NextHopElement = hd(NextElements),
-                                                        NextHopAddr = blockchain_poc_path_element_v1:challengee(NextHopElement),
-                                                        case blockchain_poc_path_element_v1:receipt(NextHopElement) of
-                                                            undefined ->
-                                                                %% There is no receipt from the next hop
-                                                                %% We clamp to LowerTimeBound as best-effort
-                                                                [{undefined, LowerTimeBound, undefined, NextHopAddr} | WitnessInfo0];
-                                                            NextHopReceipt ->
-                                                                [{blockchain_poc_receipt_v1:signal(NextHopReceipt),
-                                                                  blockchain_poc_receipt_v1:timestamp(NextHopReceipt),
-                                                                  blockchain_poc_receipt_v1:frequency(NextHopReceipt),
-                                                                  NextHopAddr} | WitnessInfo0]
-                                                        end;
-                                                    false ->
-                                                        WitnessInfo0
-                                                end,
-                                  blockchain_ledger_v1:add_gateway_witnesses(Challengee, WitnessInfo, Ledger)
-                          end, lists:zip(lists:seq(1, Length), Path));
-        _ ->
-            insert_witnesses_(Path, LowerTimeBound, UpperTimeBound, Ledger)
-    end.
-
-insert_witnesses_(Path, LowerTimeBound, UpperTimeBound, Ledger) ->
     Length = length(Path),
     lists:foreach(fun({N, Element}) ->
                           Challengee = blockchain_poc_path_element_v1:challengee(Element),
@@ -1065,6 +1025,10 @@ vars(Ledger) ->
     blockchain_utils:vars_binary_keys_to_atoms(
       maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
 
+-spec valid_receipt(PreviousElement :: undefined | blockchain_poc_path_element_v1:poc_element(),
+                    Element :: blockchain_poc_path_element_v1:poc_element(),
+                    Channel :: non_neg_integer(),
+                    Ledger :: blockchain_ledger_v1:ledger()) -> undefined | blockchain_poc_receipt_v1:poc_receipt().
 valid_receipt(undefined, _Element, _Channel, _Ledger) ->
     %% first hop in the path, cannot be validated.
     undefined;
@@ -1139,6 +1103,9 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
             end
     end.
 
+-spec valid_witnesses(Element :: blockchain_poc_path_element_v1:poc_element(),
+                      Channel :: non_neg_integer(),
+                      Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
 valid_witnesses(Element, Channel, Ledger) ->
     {ok, Source} = blockchain_gateway_cache:get(blockchain_poc_path_element_v1:challengee(Element), Ledger),
 
