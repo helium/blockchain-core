@@ -43,6 +43,7 @@
     update_gateway/3,
     fixup_neighbors/4,
     add_gateway_location/4,
+    insert_witnesses/3,
     add_gateway_witnesses/3,
     refresh_gateway_witnesses/2,
 
@@ -178,6 +179,7 @@
 -include("blockchain.hrl").
 -include("blockchain_vars.hrl").
 -include("blockchain_txn_fees.hrl").
+-include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -ifdef(TEST).
 -export([median/1]).
@@ -1194,30 +1196,66 @@ update_gateway_oui(Gateway, OUI, Nonce, Ledger) ->
             update_gateway(NewGw, Gateway, Ledger)
     end.
 
+-spec insert_witnesses(PubkeyBin :: libp2p_crypto:pubkey_bin(),
+                       Witnesses :: [blockchain_poc_witness_v1:poc_witness() | blockchain_poc_receipt_v1:poc_receipt()],
+                       Ledger :: ledger()) -> ok | {error, any()}.
+insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
+    case blockchain:config(?poc_version, Ledger) of
+        %% only works with poc-v9 and above
+        {ok, V} when V >= 9 ->
+            case ?MODULE:find_gateway_info(PubkeyBin, Ledger) of
+                {error, _}=Error ->
+                    Error;
+                {ok, GW0} ->
+                    GW1 = lists:foldl(fun(POCWitness, GW) ->
+                                              case erlang:is_record(POCWitness, blockchain_poc_witness_v1_pb) of
+                                                  true ->
+                                                      WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
+                                                      case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
+                                                          {ok, WitnessGw} ->
+                                                              blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
+                                                          {error, Reason} ->
+                                                              lager:warning("exiting trying to add witness", [Reason]),
+                                                              erlang:error({insert_witnesses_error, Reason})
+                                                      end;
+                                                  false when erlang:is_record(POCWitness, blockchain_poc_receipt_v1_pb) ->
+                                                      ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
+                                                      case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
+                                                          {ok, ReceiptGw} ->
+                                                              blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
+                                                          {error, Reason} ->
+                                                              lager:warning("exiting trying to add witness", [Reason]),
+                                                              erlang:error({insert_witnesses_error, Reason})
+                                                      end;
+                                                  _ ->
+                                                      erlang:error({invalid, unknown_witness_type})
+                                              end
+                                      end, GW0, Witnesses),
+                    update_gateway(GW1, PubkeyBin, Ledger)
+            end;
+        _ ->
+            {error, incorrect_poc_version}
+    end.
+
 -spec add_gateway_witnesses(GatewayAddress :: libp2p_crypto:pubkey_bin(),
-                            WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}] | [{integer(), non_neg_integer(), float(), libp2p_crypto:pubkey_bin()}],
+                            WitnessInfo :: [{integer(), non_neg_integer(), libp2p_crypto:pubkey_bin()}],
                             Ledger :: ledger()) -> ok | {error, any()}.
 add_gateway_witnesses(GatewayAddress, WitnessInfo, Ledger) ->
     case ?MODULE:find_gateway_info(GatewayAddress, Ledger) of
         {error, _}=Error ->
             Error;
         {ok, GW0} ->
-            case blockchain:config(?poc_version, Ledger) of
-                {ok, V} when V >= 9 ->
-                    GW0;
-                _ ->
-                    GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
-                                              case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
-                                                  {ok, Witness} ->
-                                                      blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
-                                                  {error, Reason} ->
-                                                      lager:warning("exiting trying to add witness",
-                                                                    [Reason]),
-                                                      erlang:error({add_gateway_error, Reason})
-                                              end
-                                      end, GW0, WitnessInfo),
-                    update_gateway(GW1, GatewayAddress, Ledger)
-            end
+            GW1 = lists:foldl(fun({RSSI, TS, WitnessAddress}, GW) ->
+                                      case ?MODULE:find_gateway_info(WitnessAddress, Ledger) of
+                                          {ok, Witness} ->
+                                              blockchain_ledger_gateway_v2:add_witness(WitnessAddress, Witness, RSSI, TS, GW);
+                                          {error, Reason} ->
+                                              lager:warning("exiting trying to add witness",
+                                                            [Reason]),
+                                              erlang:error({add_gateway_error, Reason})
+                                      end
+                              end, GW0, WitnessInfo),
+            update_gateway(GW1, GatewayAddress, Ledger)
     end.
 
 -spec remove_gateway_witness(GatewayPubkeyBin :: libp2p_crypto:pubkey_bin(),
