@@ -33,7 +33,6 @@
     to_json/2,
     hex_poc_id/1,
     good_quality_witnesses/2,
-    check_is_valid_poc/3,
     valid_witnesses/3,
     get_channels/2
 ]).
