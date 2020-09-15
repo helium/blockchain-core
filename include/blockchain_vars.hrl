@@ -357,3 +357,6 @@
 %% Radio data gathering
 %%
 -define(data_aggregation_version, data_aggregation_version).
+
+%% Multi-key
+-define(use_multi_keys, use_multi_keys).

@@ -600,6 +600,7 @@ absorb_txns([], _Rescue, _Chain) ->
     ok;
 absorb_txns([Txn|Txns], Rescue, Chain) ->
     Type = ?MODULE:type(Txn),
+    code:ensure_loaded(Type),
     case Rescue andalso
         erlang:function_exported(Type, rescue_absorb, 2) of
         true ->

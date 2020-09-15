@@ -290,7 +290,6 @@ signed_metadata_fun() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Args) ->
-    ok = blockchain_event:add_handler(self()),
     lager:info("~p init with ~p", [?SERVER, Args]),
     Swarm = blockchain_swarm:swarm(),
     SwarmTID = blockchain_swarm:tid(),
@@ -495,9 +494,6 @@ handle_cast(_Msg, State) ->
 
 handle_info(maybe_sync, State) ->
     {noreply, maybe_sync(State)};
-handle_info({blockchain_event, {add_block, _Hash, _Sync, _Ledger}}, State) ->
-    %% nothing to do here, block re-gossip is handled by the gossip handler
-    {noreply, State};
 handle_info({'DOWN', SyncRef, process, _SyncPid, _Reason},
             #state{sync_ref = SyncRef, blockchain = Chain, mode = Mode} = State0) ->
     State = State0#state{sync_pid = undefined},

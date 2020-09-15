@@ -30,6 +30,7 @@
     htlcs/1,
 
     master_key/1, master_key/2,
+    multi_keys/1, multi_keys/2,
 
     vars/3,
     config/2,  % no version with default, use the set value or fail
@@ -217,6 +218,7 @@
 -define(ELECTION_EPOCH, <<"election_epoch">>).
 -define(OUI_COUNTER, <<"oui_counter">>).
 -define(MASTER_KEY, <<"master_key">>).
+-define(MULTI_KEYS, <<"multi_keys">>).
 -define(VARS_NONCE, <<"vars_nonce">>).
 -define(BURN_RATE, <<"token_burn_exchange_rate">>).
 -define(CURRENT_ORACLE_PRICE, <<"current_oracle_price">>). %% stores the current calculated price
@@ -878,6 +880,23 @@ master_key(Ledger) ->
 master_key(NewKey, Ledger) ->
     DefaultCF = default_cf(Ledger),
     cache_put(Ledger, DefaultCF, ?MASTER_KEY, NewKey).
+
+-spec multi_keys(ledger()) -> {ok, [binary()]} | {error, any()}.
+multi_keys(Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    case cache_get(Ledger, DefaultCF, ?MULTI_KEYS, []) of
+        {ok, MultiKeysBin} ->
+            {ok, blockchain_utils:bin_keys_to_list(MultiKeysBin)};
+        not_found ->
+            {ok, []};
+        Error ->
+            Error
+    end.
+
+-spec multi_keys([binary()], ledger()) -> ok | {error, any()}.
+multi_keys(NewKeys, Ledger) ->
+    DefaultCF = default_cf(Ledger),
+    cache_put(Ledger, DefaultCF, ?MULTI_KEYS, blockchain_utils:keys_list_to_bin(NewKeys)).
 
 vars(Vars, Unset, Ledger) ->
     DefaultCF = default_cf(Ledger),
@@ -1588,7 +1607,7 @@ calc_remaining_dcs(SC) ->
 staking_keys(Ledger)->
     case blockchain:config(?staking_keys, Ledger) of
         {error, not_found} -> not_found;
-        {ok, V} -> blockchain_utils:vars_keys_to_list(V)
+        {ok, V} -> blockchain_utils:bin_keys_to_list(V)
     end.
 
 %%--------------------------------------------------------------------
@@ -1751,7 +1770,7 @@ recalc_price(LastPrice, BlockT, _DefaultCF, Ledger) ->
     {ok, Prices} = current_oracle_price_list(Ledger),
     NewPriceList = trim_price_list(EndScan, Prices),
     {ok, RawOracleKeys} = blockchain:config(?price_oracle_public_keys, Ledger),
-    Maximum = length(blockchain_utils:vars_keys_to_list(RawOracleKeys)),
+    Maximum = length(blockchain_utils:bin_keys_to_list(RawOracleKeys)),
     Minimum = (Maximum div 2) + 1,
 
     ValidPrices = lists:foldl(
