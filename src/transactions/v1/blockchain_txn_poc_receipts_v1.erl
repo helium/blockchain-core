@@ -715,13 +715,13 @@ absorb(Txn, Chain) ->
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
                         %% as new calculate_delta calls back into check_is_valid_poc
-                        _ = lists:foldl(fun({Gateway, Delta}, _Acc) ->
+                        lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                             blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                     end,
                                     ok,
-                                    ?MODULE:deltas(Txn, Chain)),
-                        %% This will ok or error out, so no need to case it
-                        blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
+                                    ?MODULE:deltas(Txn, Chain));
+                        %% Rely on the poc gc to delete pocs
+                        %% blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
                     _ ->
                         %% continue doing the old behavior
                         case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
