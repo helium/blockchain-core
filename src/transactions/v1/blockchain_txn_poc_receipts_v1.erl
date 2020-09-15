@@ -32,7 +32,9 @@
     print/1,
     to_json/2,
     poc_id/1,
-    good_quality_witnesses/2
+    good_quality_witnesses/2,
+    valid_witnesses/3,
+    get_channels/2
 ]).
 
 -ifdef(TEST).
@@ -139,9 +141,6 @@ is_valid(Txn, Chain) ->
     PubKey = libp2p_crypto:bin_to_pubkey(Challenger),
     BaseTxn = Txn#blockchain_txn_poc_receipts_v1_pb{signature = <<>>},
     EncodedTxn = blockchain_txn_poc_receipts_v1_pb:encode_msg(BaseTxn),
-    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
-    POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    POCID = ?MODULE:poc_id(Txn),
 
     case libp2p_crypto:verify(EncodedTxn, Signature, PubKey) of
         false ->
@@ -168,12 +167,12 @@ check_is_valid_poc(Txn, Chain, RunValidation) ->
     Challenger = ?MODULE:challenger(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
     POCOnionKeyHash = ?MODULE:onion_key_hash(Txn),
-    HexPOCID = ?MODULE:hex_poc_id(Txn),
+    POCID = ?MODULE:poc_id(Txn),
     StartPre = erlang:monotonic_time(millisecond),
 
     case blockchain_ledger_v1:find_poc(POCOnionKeyHash, Ledger) of
         {error, Reason}=Error ->
-            lager:warning([{poc_id, HexPOCID}],
+            lager:warning([{poc_id, POCID}],
                           "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
                           [POCOnionKeyHash, Reason]),
             Error;
@@ -186,40 +185,28 @@ check_is_valid_poc(Txn, Chain, RunValidation) ->
                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, Reason}=Error ->
                             lager:warning([{poc_id, POCID}],
-                                          "poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
-                                          [POCOnionKeyHash, Reason]),
+                                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                                          [Challenger, Reason]),
                             Error;
-                        {ok, PoCs} ->
-                            Secret = ?MODULE:secret(Txn),
-                            case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
-                                {error, _} ->
-                                    {error, poc_not_found};
-                                {ok, PoC} ->
-                                    case blockchain_gateway_cache:get(Challenger, Ledger) of
-                                        {error, Reason}=Error ->
-                                            lager:warning([{poc_id, POCID}],
-                                                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                                                          [Challenger, Reason]),
-                                            Error;
-                                        {ok, GwInfo} ->
-                                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
-                                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
-                                            case blockchain:get_block(LastChallenge, Chain) of
-                                                {error, Reason}=Error ->
-                                                    lager:warning([{poc_id, POCID}],
-                                                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                                  [LastChallenge, Reason]),
-                                                    Error;
-                                                {ok, Block1} ->
-                                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
-                                                    case LastChallenge + PoCInterval >= Height of
-                                                        false ->
-                                                            lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
-                                                            {error, challenge_too_old};
-                                                        true ->
-                                                            Condition = case blockchain:config(?poc_version, Ledger) of
-                                                                {ok, POCVersion} when POCVersion > 1 ->
-                                                                    fun(T) ->
+                        {ok, GwInfo} ->
+                            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+                            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
+                            case blockchain:get_block(LastChallenge, Chain) of
+                                {error, Reason}=Error ->
+                                    lager:warning([{poc_id, POCID}],
+                                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                                  [LastChallenge, Reason]),
+                                    Error;
+                                {ok, Block1} ->
+                                    PoCInterval = blockchain_utils:challenge_interval(Ledger),
+                                    case LastChallenge + PoCInterval >= Height of
+                                        false ->
+                                            lager:info("challenge too old ~p ~p", [Challenger, GwInfo]),
+                                            {error, challenge_too_old};
+                                        true ->
+                                            Condition = case blockchain:config(?poc_version, Ledger) of
+                                                            {ok, POCVersion} when POCVersion > 1 ->
+                                                                fun(T) ->
                                                                         blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
                                                                         blockchain_txn_poc_request_v1:onion_key_hash(T) == POCOnionKeyHash andalso
                                                                         blockchain_txn_poc_request_v1:block_hash(T) == blockchain_ledger_poc_v2:block_hash(PoC)
@@ -728,13 +715,13 @@ absorb(Txn, Chain) ->
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
                         %% as new calculate_delta calls back into check_is_valid_poc
-                        _ = lists:foldl(fun({Gateway, Delta}, _Acc) ->
+                        lists:foldl(fun({Gateway, Delta}, _Acc) ->
                                             blockchain_ledger_v1:update_gateway_score(Gateway, Delta, Ledger)
                                     end,
                                     ok,
-                                    ?MODULE:deltas(Txn, Chain)),
-                        %% This will ok or error out, so no need to case it
-                        blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
+                                    ?MODULE:deltas(Txn, Chain));
+                        %% Rely on the poc gc to delete pocs
+                        %% blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger);
                     _ ->
                         %% continue doing the old behavior
                         case blockchain_ledger_v1:delete_poc(LastOnionKeyHash, Challenger, Ledger) of
@@ -1219,6 +1206,44 @@ calculate_rssi_bounds_from_snr(SNR) ->
             V
     end.
 
+-spec get_channels(Txn :: txn_poc_receipts(),
+                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Challenger = ?MODULE:challenger(Txn),
+    POCID = ?MODULE:poc_id(Txn),
+    Path = ?MODULE:path(Txn),
+
+    Secret = ?MODULE:secret(Txn),
+    case blockchain_gateway_cache:get(Challenger, Ledger) of
+        {error, Reason}=Error ->
+            lager:warning([{poc_id, POCID}],
+                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                          [Challenger, Reason]),
+            Error;
+        {ok, GwInfo} ->
+            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
+            case blockchain:get_block(LastChallenge, Chain) of
+                {error, Reason}=Error ->
+                    lager:warning([{poc_id, POCID}],
+                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                  [LastChallenge, Reason]),
+                    Error;
+                {ok, Block1} ->
+                    N = erlang:length(Path),
+                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
+                    [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                    %% no witness will exist with the first layer hash
+                    Channels = lists:map(fun(Layer) ->
+                                                 <<IntData:16/integer-unsigned-little>> = Layer,
+                                                 IntData rem 8
+                                         end, LayerData),
+                    {ok, Channels}
+            end
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -1416,3 +1441,4 @@ to_json_test() ->
 
 
 -endif.
+

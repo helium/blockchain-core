@@ -36,7 +36,8 @@
     %% exports for simulations
     free_space_path_loss/4,
     free_space_path_loss/5,
-    min_rcv_sig/1, min_rcv_sig/2
+    min_rcv_sig/1, min_rcv_sig/2,
+    index_of/2
 ]).
 
 -ifdef(TEST).
@@ -194,6 +195,7 @@ partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
 
+addr2name(undefined) -> undefined;
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
@@ -398,6 +400,13 @@ deterministic_subset(Limit, RandState, L) ->
     TruncList0 = lists:sublist(lists:sort(FullList), Limit),
     {_, TruncList} = lists:unzip(TruncList0),
     {RandState1, TruncList}.
+
+-spec index_of(any(), [any()]) -> pos_integer().
+index_of(Item, List) -> index_of(Item, List, 1).
+
+index_of(_, [], _)  -> not_found;
+index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
