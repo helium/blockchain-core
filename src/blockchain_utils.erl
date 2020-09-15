@@ -187,6 +187,7 @@ partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
 
+addr2name(undefined) -> undefined;
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),

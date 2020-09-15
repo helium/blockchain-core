@@ -505,7 +505,9 @@ poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, I
                         {ok, Channels} = blockchain_txn_poc_receipts_v1:check_is_valid_poc(Txn, Chain, false),
                         ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                         WitnessChannel = lists:nth(ElemPos, Channels),
-                        blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger);
+                        ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
+                        lager:info("ValidWitnesses: ~p", [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
+                        ValidWitnesses;
                     V when is_integer(V), V > 4 ->
                         blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger);
                     _ ->
