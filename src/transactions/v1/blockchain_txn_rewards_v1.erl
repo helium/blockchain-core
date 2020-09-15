@@ -248,7 +248,7 @@ get_rewards_for_epoch(Current, End, Chain, Vars, Ledger, ChallengerRewards, Chal
                 false ->
                     get_rewards_for_epoch(Current+1, End, Chain, Vars, Ledger,
                                           poc_challengers_rewards(Transactions, Vars, ChallengerRewards),
-                                          poc_challengees_rewards(Transactions, Vars, Ledger, ChallengeeRewards),
+                                          poc_challengees_rewards(Transactions, Vars, Chain, Ledger, ChallengeeRewards),
                                           poc_witnesses_rewards(Transactions, Vars, Ledger, WitnessRewards),
                                           dc_rewards(Transactions, End, Vars, Ledger, DCRewards))
             end
@@ -457,10 +457,14 @@ normalize_challenger_rewards(ChallengerRewards, #{epoch_reward := EpochReward,
 %%--------------------------------------------------------------------
 -spec poc_challengees_rewards(Transactions :: blockchain_txn:txns(),
                               Vars :: map(),
-                              Ledger :: blockchain_ledger_v1:ledger(), map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
+                              Chain :: blockchain:blockchain(),
+                              Ledger :: blockchain_ledger_v1:ledger(),
+                              map()) -> #{{gateway, libp2p_crypto:pubkey_bin()} => non_neg_integer()}.
 poc_challengees_rewards(Transactions,
                         #{poc_version := Version},
-                        Ledger, ExistingRewards) ->
+                        Chain,
+                        Ledger,
+                        ExistingRewards) ->
     lists:foldl(
         fun(Txn, Acc0) ->
             case blockchain_txn:type(Txn) == blockchain_txn_poc_receipts_v1 of
@@ -468,7 +472,7 @@ poc_challengees_rewards(Transactions,
                     Acc0;
                 true ->
                     Path = blockchain_txn_poc_receipts_v1:path(Txn),
-                    poc_challengees_rewards_(Version, Path, Ledger, true, Acc0)
+                    poc_challengees_rewards_(Version, Path, Path, Txn, Chain, Ledger, true, Acc0)
             end
         end,
         ExistingRewards,
@@ -491,11 +495,17 @@ normalize_challengee_rewards(ChallengeeRewards, #{epoch_reward := EpochReward,
         ChallengeeRewards
     ).
 
-poc_challengees_rewards_(_Version, [], _Ledger, _, Acc) ->
+poc_challengees_rewards_(_Version, [], _StaticPath, _Txn, _Chain, _Ledger, _, Acc) ->
     Acc;
-poc_challengees_rewards_(Version, [Elem|Path], Ledger, IsFirst, Acc0) when Version >= 2 ->
+poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, IsFirst, Acc0) when Version >= 2 ->
     %% check if there were any legitimate witnesses
     Witnesses = case Version of
+                    V when is_integer(V), V >= 9 ->
+                        %% Get channels without validation
+                        {ok, Channels} = blockchain_txn_poc_receipts_v1:check_is_valid_poc(Txn, Chain, false),
+                        ElemPos = blockchain_utils:index_of(Elem, StaticPath),
+                        WitnessChannel = lists:nth(ElemPos, Channels),
+                        blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger);
                     V when is_integer(V), V > 4 ->
                         blockchain_txn_poc_receipts_v1:good_quality_witnesses(Elem, Ledger);
                     _ ->
@@ -524,7 +534,7 @@ poc_challengees_rewards_(Version, [Elem|Path], Ledger, IsFirst, Acc0) when Versi
                        _ ->
                            Acc0
                    end,
-            poc_challengees_rewards_(Version, Path, Ledger, false, Acc1);
+            poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc1);
         Receipt ->
             case blockchain_poc_receipt_v1:origin(Receipt) of
                 radio ->
@@ -543,7 +553,7 @@ poc_challengees_rewards_(Version, [Elem|Path], Ledger, IsFirst, Acc0) when Versi
                                _ ->
                                    maps:put(Challengee, I+1, Acc0)
                            end,
-                    poc_challengees_rewards_(Version, Path, Ledger, false, Acc1);
+                    poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc1);
                 p2p ->
                     %% if there are legitimate witnesses or the path continues
                     %% the challengee did their job
@@ -560,18 +570,18 @@ poc_challengees_rewards_(Version, [Elem|Path], Ledger, IsFirst, Acc0) when Versi
                                true ->
                                    maps:put(Challengee, I+1, Acc0)
                            end,
-                    poc_challengees_rewards_(Version, Path, Ledger, false, Acc1)
+                    poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc1)
             end
     end;
-poc_challengees_rewards_(Version, [Elem|Path], Ledger, _IsFirst, Acc0) ->
+poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, _IsFirst, Acc0) ->
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
-            poc_challengees_rewards_(Version, Path, Ledger, false, Acc0);
+            poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc0);
         _Receipt ->
             Challengee = blockchain_poc_path_element_v1:challengee(Elem),
             I = maps:get(Challengee, Acc0, 0),
             Acc1 =  maps:put(Challengee, I+1, Acc0),
-            poc_challengees_rewards_(Version, Path, Ledger, false, Acc1)
+            poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc1)
     end.
 
 %%--------------------------------------------------------------------

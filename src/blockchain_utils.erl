@@ -33,7 +33,8 @@
     %% exports for simulations
     free_space_path_loss/4,
     free_space_path_loss/5,
-    min_rcv_sig/1, min_rcv_sig/2
+    min_rcv_sig/1, min_rcv_sig/2,
+    index_of/2
 ]).
 
 -ifdef(TEST).
@@ -390,6 +391,13 @@ deterministic_subset(Limit, RandState, L) ->
     TruncList0 = lists:sublist(lists:sort(FullList), Limit),
     {_, TruncList} = lists:unzip(TruncList0),
     {RandState1, TruncList}.
+
+-spec index_of(any(), [any()]) -> pos_integer().
+index_of(Item, List) -> index_of(Item, List, 1).
+
+index_of(_, [], _)  -> not_found;
+index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
