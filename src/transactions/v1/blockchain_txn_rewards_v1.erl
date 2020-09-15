@@ -509,8 +509,8 @@ poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, I
                             ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
                             lager:info("ValidWitnesses: ~p", [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
                             ValidWitnesses
-                        catch C:E ->
-                            lager:error("failed to calculate poc_challengees_rewards, error ~p:~p", [C, E]),
+                        catch What:Why:ST ->
+                            lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
                             []
                         end;
                     V when is_integer(V), V > 4 ->
@@ -641,8 +641,8 @@ poc_witnesses_rewards(Transactions,
                                   Acc0,
                                   Path
                                  )
-                            catch C:E ->
-                                  lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p", [C, E]),
+                            catch What:Why:ST ->
+                                  lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why, ST]),
                                   Acc0
                             end;
                         V when is_integer(V), V > 4 ->

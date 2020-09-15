@@ -1226,7 +1226,8 @@ get_channels(Txn, Chain) ->
                                                       blockchain_block:hash_block(Block);
                                                   _ ->
                                                       undefined
-                                              end
+                                              end;
+                                         (_, _Hash) -> return
                                       end, undefined, Head, Chain),
     case BlockHash of
         undefined ->
