@@ -34,7 +34,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/3
+    get_channels/2
 ]).
 
 -ifdef(TEST).
@@ -1205,43 +1205,41 @@ calculate_rssi_bounds_from_snr(SNR) ->
     end.
 
 -spec get_channels(Txn :: txn_poc_receipts(),
-                   Chain :: blockchain:blockchain(),
-                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn, Chain, Ledger) ->
+                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
-    POCID = ?MODULE:poc_id(Txn),
     Path = ?MODULE:path(Txn),
-
     Secret = ?MODULE:secret(Txn),
-    case blockchain_gateway_cache:get(Challenger, Ledger) of
-        {error, Reason}=Error ->
-            lager:warning([{poc_id, POCID}],
-                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                          [Challenger, Reason]),
-            Error;
-        {ok, GwInfo} ->
-            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
-            %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
-            case blockchain:get_block(LastChallenge, Chain) of
-                {error, Reason}=Error ->
-                    lager:warning([{poc_id, POCID}],
-                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                  [LastChallenge, Reason]),
-                    Error;
-                {ok, Block1} ->
-                    N = erlang:length(Path),
-                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
-                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
-                    [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
-                    %% no witness will exist with the first layer hash
-                    Channels = lists:map(fun(Layer) ->
-                                                 <<IntData:16/integer-unsigned-little>> = Layer,
-                                                 IntData rem 8
-                                         end, LayerData),
-                    {ok, Channels}
-            end
-    end.
+    PathLength = length(Path),
 
+    %% Retry by walking the chain and attempt to find the last challenge block
+    OnionKeyHash = ?MODULE:onion_key_hash(Txn),
+    {ok, Head} = blockchain:head_block(Chain),
+    RequestFilter = fun(T) ->
+                            blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                            blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
+                    end,
+
+    BlockHash = blockchain:fold_chain(fun(Block, undefined) ->
+                                              case blockchain_utils:find_txn(Block, RequestFilter) of
+                                                  [_T] ->
+                                                      blockchain_block:hash_block(Block);
+                                                  _ ->
+                                                      undefined
+                                              end
+                                      end, undefined, Head, Chain),
+    case BlockHash of
+        undefined ->
+            {error, request_block_hash_not_found};
+        BH ->
+            Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
+            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
+            Channels1 = lists:map(fun(Layer) ->
+                                          <<IntData:16/integer-unsigned-little>> = Layer,
+                                          IntData rem 8
+                                  end, LayerData1),
+            {ok, Channels1}
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
