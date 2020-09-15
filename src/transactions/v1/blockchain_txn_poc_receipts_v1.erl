@@ -34,7 +34,8 @@
     hex_poc_id/1,
     good_quality_witnesses/2,
     check_is_valid_poc/3,
-    valid_witnesses/3
+    valid_witnesses/3,
+    get_channels/2
 ]).
 
 -ifdef(TEST).
@@ -1206,6 +1207,44 @@ calculate_rssi_bounds_from_snr(SNR) ->
             scale_unknown_snr(CeilSNR);
         V ->
             V
+    end.
+
+-spec get_channels(Txn :: txn_poc_receipts(),
+                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Chain) ->
+    Ledger = blockchain:ledger(Chain),
+    Challenger = ?MODULE:challenger(Txn),
+    HexPOCID = ?MODULE:hex_poc_id(Txn),
+    Path = ?MODULE:path(Txn),
+
+    Secret = ?MODULE:secret(Txn),
+    case blockchain_gateway_cache:get(Challenger, Ledger) of
+        {error, Reason}=Error ->
+            lager:warning([{poc_id, HexPOCID}],
+                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                          [Challenger, Reason]),
+            Error;
+        {ok, GwInfo} ->
+            LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
+            %% lager:info("gw last ~p ~p ~p", [LastChallenge, HexPOCID, GwInfo]),
+            case blockchain:get_block(LastChallenge, Chain) of
+                {error, Reason}=Error ->
+                    lager:warning([{poc_id, HexPOCID}],
+                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                  [LastChallenge, Reason]),
+                    Error;
+                {ok, Block1} ->
+                    N = erlang:length(Path),
+                    PoCAbsorbedAtBlockHash  = blockchain_block:hash_block(Block1),
+                    Entropy = <<Secret/binary, PoCAbsorbedAtBlockHash/binary, Challenger/binary>>,
+                    [_ | LayerData] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, N+1),
+                    %% no witness will exist with the first layer hash
+                    Channels = lists:map(fun(Layer) ->
+                                                 <<IntData:16/integer-unsigned-little>> = Layer,
+                                                 IntData rem 8
+                                         end, LayerData),
+                    {ok, Channels}
+            end
     end.
 
 
