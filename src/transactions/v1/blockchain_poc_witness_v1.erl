@@ -11,13 +11,15 @@
 -include_lib("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -export([
-    new/4, new/6,
+    new/4, new/6, new/8,
     gateway/1,
     timestamp/1,
     signal/1,
     packet_hash/1,
     snr/1,
     frequency/1,
+    channel/1,
+    datarate/1,
     signature/1,
     sign/2,
     is_valid/1,
@@ -64,6 +66,27 @@ new(Gateway, Timestamp, Signal, PacketHash, SNR, Frequency) ->
         signature = <<>>
     }.
 
+-spec new(Gateway :: libp2p_crypto:pubkey_bin(),
+          Timestamp :: non_neg_integer(),
+          Signal :: integer(),
+          PacketHash :: binary(),
+          SNR :: float(),
+          Frequency :: float(),
+          Channel :: non_neg_integer(),
+          DataRate :: binary()) -> poc_witness().
+new(Gateway, Timestamp, Signal, PacketHash, SNR, Frequency, Channel, DataRate) ->
+    #blockchain_poc_witness_v1_pb{
+        gateway=Gateway,
+        timestamp=Timestamp,
+        signal=Signal,
+        packet_hash=PacketHash,
+        snr=SNR,
+        frequency=Frequency,
+        channel=Channel,
+        datarate=DataRate,
+        signature = <<>>
+    }.
+
 -spec gateway(Witness :: poc_witness()) -> libp2p_crypto:pubkey_bin().
 gateway(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.gateway.
@@ -87,6 +110,14 @@ snr(Witness) ->
 -spec frequency(Witness :: poc_witness()) -> float().
 frequency(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.frequency.
+
+-spec channel(Witness :: poc_witness()) -> non_neg_integer().
+channel(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.channel.
+
+-spec datarate(Witness :: poc_witness()) -> binary().
+datarate(Witness) ->
+    Witness#blockchain_poc_witness_v1_pb.datarate.
 
 -spec signature(Witness :: poc_witness()) -> binary().
 signature(Witness) ->
@@ -127,7 +158,9 @@ to_json(Witness, _Opts) ->
       signal => signal(Witness),
       packet_hash => ?BIN_TO_B64(packet_hash(Witness)),
       snr => ?MAYBE_UNDEFINED(snr(Witness)),
-      frequency => ?MAYBE_UNDEFINED(frequency(Witness))
+      frequency => ?MAYBE_UNDEFINED(frequency(Witness)),
+      channel => ?MAYBE_UNDEFINED(channel(Witness)),
+      datarate => ?MAYBE_UNDEFINED(datarate(Witness))
      }.
 
 %% ------------------------------------------------------------------

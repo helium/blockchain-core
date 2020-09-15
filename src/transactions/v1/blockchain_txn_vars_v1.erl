@@ -711,7 +711,7 @@ validate_var(?poc_challenge_interval, Value) ->
     validate_int(Value, "poc_challenge_interval", 10, 1440, false);
 validate_var(?poc_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 8 ->
+        N when is_integer(N), N >= 1,  N =< 9 ->
             ok;
         _ ->
             throw({error, {invalid_poc_version, Value}})
@@ -934,7 +934,7 @@ validate_var(?txn_fee_multiplier, Value) ->
 
 %% Data aggregation vars
 validate_var(?data_aggregation_version, Value) ->
-    validate_int(Value, "data_aggregation_version", 1, 50, false);
+    validate_int(Value, "data_aggregation_version", 1, 3, false);
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash

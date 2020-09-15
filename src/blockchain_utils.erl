@@ -21,6 +21,7 @@
     distance/2,
     score_gateways/1,
     free_space_path_loss/2,
+    free_space_path_loss/3,
     vars_binary_keys_to_atoms/1,
     icdf_select/2,
     find_txn/2,
@@ -31,7 +32,12 @@
     vars_keys_to_list/1,
     calculate_dc_amount/2, calculate_dc_amount/3,
     do_calculate_dc_amount/2,
-    deterministic_subset/3
+    deterministic_subset/3,
+    %% exports for simulations
+    free_space_path_loss/4,
+    free_space_path_loss/5,
+    min_rcv_sig/1, min_rcv_sig/2,
+    index_of/2
 ]).
 
 -ifdef(TEST).
@@ -189,6 +195,7 @@ partition_list(L, [H | T], Acc) ->
     {Take, Rest} = lists:split(H, L),
     partition_list(Rest, T, [Take | Acc]).
 
+addr2name(undefined) -> undefined;
 addr2name(Addr) ->
     B58Addr = libp2p_crypto:bin_to_b58(Addr),
     {ok, N} = erl_angry_purple_tiger:animal_name(B58Addr),
@@ -251,6 +258,39 @@ free_space_path_loss(Loc1, Loc2) ->
     Distance = blockchain_utils:distance(Loc1, Loc2),
     %% TODO support regional parameters for non-US based hotspots
     ?TRANSMIT_POWER - (32.44 + 20*math:log10(?FREQUENCY) + 20*math:log10(Distance) - ?MAX_ANTENNA_GAIN - ?MAX_ANTENNA_GAIN).
+
+-spec free_space_path_loss(Loc1 :: h3:index(),
+                           Loc2 :: h3:index(),
+                           Frequency :: float() | undefined) -> float().
+free_space_path_loss(Loc1, Loc2, undefined) ->
+    %% No frequency specified, defaulting to US915. Definitely incorrect.
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2));
+free_space_path_loss(Loc1, Loc2, Frequency) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2))-1.8-1.8.
+
+free_space_path_loss(Loc1, Loc2, Gt, Gl) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    %% TODO support regional parameters for non-US based hotspots
+    %% TODO support variable Dt,Dr values for better FSPL values
+    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
+    %%
+    (10*math:log10(math:pow((4*math:pi()*(?FREQUENCY*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
+free_space_path_loss(Loc1, Loc2, Frequency, Gt, Gl) ->
+    Distance = blockchain_utils:distance(Loc1, Loc2),
+    %% TODO support regional parameters for non-US based hotspots
+    %% TODO support variable Dt,Dr values for better FSPL values
+    %% FSPL = 10log_10(Dt*Dr*((4*pi*f*d)/(c))^2)
+    %%
+    (10*math:log10(math:pow((4*math:pi()*(Frequency*1000000)*(Distance*1000))/(299792458), 2)))-Gt-Gl.
+
+%% Subtract FSPL from our transmit power to get the expected minimum received signal.
+-spec min_rcv_sig(float(), float()) -> float().
+min_rcv_sig(Fspl, TxGain) ->
+   TxGain - Fspl.
+min_rcv_sig(Fspl) ->
+   ?TRANSMIT_POWER - Fspl.
 
 -spec vars_binary_keys_to_atoms(map()) -> map().
 vars_binary_keys_to_atoms(Vars) ->
@@ -360,6 +400,13 @@ deterministic_subset(Limit, RandState, L) ->
     TruncList0 = lists:sublist(lists:sort(FullList), Limit),
     {_, TruncList} = lists:unzip(TruncList0),
     {RandState1, TruncList}.
+
+-spec index_of(any(), [any()]) -> pos_integer().
+index_of(Item, List) -> index_of(Item, List, 1).
+
+index_of(_, [], _)  -> not_found;
+index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_|Tl], Index) -> index_of(Item, Tl, Index+1).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
