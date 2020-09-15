@@ -1207,29 +1207,26 @@ insert_witnesses(PubkeyBin, Witnesses, Ledger) ->
                 {error, _}=Error ->
                     Error;
                 {ok, GW0} ->
-                    GW1 = lists:foldl(fun(POCWitness, GW) ->
-                                              case erlang:is_record(POCWitness, blockchain_poc_witness_v1_pb) of
-                                                  true ->
-                                                      WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
-                                                      case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
-                                                          {ok, WitnessGw} ->
-                                                              blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
-                                                          {error, Reason} ->
-                                                              lager:warning("exiting trying to add witness", [Reason]),
-                                                              erlang:error({insert_witnesses_error, Reason})
-                                                      end;
-                                                  false when erlang:is_record(POCWitness, blockchain_poc_receipt_v1_pb) ->
-                                                      ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
-                                                      case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
-                                                          {ok, ReceiptGw} ->
-                                                              blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
-                                                          {error, Reason} ->
-                                                              lager:warning("exiting trying to add witness", [Reason]),
-                                                              erlang:error({insert_witnesses_error, Reason})
-                                                      end;
-                                                  _ ->
-                                                      erlang:error({invalid, unknown_witness_type})
-                                              end
+                    GW1 = lists:foldl(fun(#blockchain_poc_witness_v1_pb{}=POCWitness, GW) ->
+                                              WitnessPubkeyBin = blockchain_poc_witness_v1:gateway(POCWitness),
+                                              case ?MODULE:find_gateway_info(WitnessPubkeyBin, Ledger) of
+                                                  {ok, WitnessGw} ->
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_witness, WitnessPubkeyBin, WitnessGw, POCWitness, GW});
+                                                  {error, Reason} ->
+                                                      lager:warning("exiting trying to add witness", [Reason]),
+                                                      erlang:error({insert_witnesses_error, Reason})
+                                              end;
+                                         (#blockchain_poc_receipt_v1_pb{}=POCWitness, GW) ->
+                                              ReceiptPubkeyBin = blockchain_poc_receipt_v1:gateway(POCWitness),
+                                              case ?MODULE:find_gateway_info(ReceiptPubkeyBin, Ledger) of
+                                                  {ok, ReceiptGw} ->
+                                                      blockchain_ledger_gateway_v2:add_witness({poc_receipt, ReceiptPubkeyBin, ReceiptGw, POCWitness, GW});
+                                                  {error, Reason} ->
+                                                      lager:warning("exiting trying to add witness", [Reason]),
+                                                      erlang:error({insert_witnesses_error, Reason})
+                                              end;
+                                         (_, _) ->
+                                              erlang:error({invalid, unknown_witness_type})
                                       end, GW0, Witnesses),
                     update_gateway(GW1, PubkeyBin, Ledger)
             end;

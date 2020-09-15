@@ -34,7 +34,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/2
+    get_channels/3
 ]).
 
 -ifdef(TEST).
@@ -1207,9 +1207,9 @@ calculate_rssi_bounds_from_snr(SNR) ->
     end.
 
 -spec get_channels(Txn :: txn_poc_receipts(),
-                   Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn, Chain) ->
-    Ledger = blockchain:ledger(Chain),
+                   Chain :: blockchain:blockchain(),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn, Chain, Ledger) ->
     Challenger = ?MODULE:challenger(Txn),
     POCID = ?MODULE:poc_id(Txn),
     Path = ?MODULE:path(Txn),

@@ -502,7 +502,7 @@ poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, I
     Witnesses = case Version of
                     V when is_integer(V), V >= 9 ->
                         %% Get channels without validation
-                        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+                        {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain, Ledger),
                         ElemPos = blockchain_utils:index_of(Elem, StaticPath),
                         WitnessChannel = lists:nth(ElemPos, Channels),
                         ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
@@ -609,7 +609,7 @@ poc_witnesses_rewards(Transactions,
                     case POCVersion of
                         V when is_integer(V), V >= 9 ->
                             %% Get channels without validation
-                            {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
+                            {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain, Ledger),
                             Path = blockchain_txn_poc_receipts_v1:path(Txn),
 
                             %% Do the new thing for witness filtering
