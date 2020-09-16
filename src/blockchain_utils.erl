@@ -159,7 +159,7 @@ bin_to_hex(Bin) ->
 hex_to_bin(Hex) ->
   << begin {ok, [V], []} = io_lib:fread("~16u", [X, Y]), <<V:8/integer-little>> end || <<X:8/integer, Y:8/integer>> <= Hex >>.
 
--spec poc_id(libp2p_crypto:pubkey_bin()) -> string().
+-spec poc_id(libp2p_crypto:pubkey_bin()) -> binary().
 poc_id(PubKeyBin) when is_binary(PubKeyBin) ->
     Hash = crypto:hash(sha256, PubKeyBin),
     ?BIN_TO_B64(Hash).
