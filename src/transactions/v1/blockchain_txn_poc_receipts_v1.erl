@@ -1081,7 +1081,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                         true ->
                                             case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                 true ->
-                                                    lager:info("receipt ok"),
+                                                    lager:debug("receipt ok"),
                                                     Receipt;
                                                 false ->
                                                     lager:warning("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
@@ -1155,7 +1155,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                      true ->
                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                              true ->
-                                                                 lager:info("witness ok"),
+                                                                 lager:debug("witness ok"),
                                                                  true;
                                                              false ->
                                                                  lager:warning("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
@@ -1348,20 +1348,25 @@ delta_test() ->
                                    <<"bar">>,
                                    <<"baz">>,
                                    [{blockchain_poc_path_element_v1_pb,<<"first">>,
-                                                                       {blockchain_poc_receipt_v1_pb,<<"a">>,
-                                                                                                     123,0,
-                                                                                                     <<1,2,3,4>>,
-                                                                                                     p2p,
-                                                                                                     <<"b">>, 10.1, 912.4},
-                                                                       []},
+                                     {blockchain_poc_receipt_v1_pb,<<"a">>,
+                                      123,0,
+                                      <<1,2,3,4>>,
+                                      p2p,
+                                      <<"b">>,
+                                      10.1,
+                                      912.4,
+                                      1,
+                                      <<"dr">>
+                                     },
+                                     []},
                                     {blockchain_poc_path_element_v1_pb,<<"c">>,
-                                                                       undefined,[]},
+                                     undefined,[]},
                                     {blockchain_poc_path_element_v1_pb,<<"d">>,
-                                                                       undefined,[]},
+                                     undefined,[]},
                                     {blockchain_poc_path_element_v1_pb,<<"e">>,
-                                                                       undefined,[]},
+                                     undefined,[]},
                                     {blockchain_poc_path_element_v1_pb,<<"f">>,
-                                                                       undefined,[]}],
+                                     undefined,[]}],
                                    0,
                                    <<"g">>},
     Deltas2 = deltas(Txn2),
@@ -1416,15 +1421,15 @@ to_json_test() ->
            [{blockchain_poc_path_element_v1_pb,<<"first">>,
              {blockchain_poc_receipt_v1_pb,<<"d">>,
               123,0,<<"e">>,p2p,
-              <<"f">>, 10.1, 912.4},
+              <<"f">>, 10.1, 912.4, 1, <<"dr">>},
              [{blockchain_poc_witness_v1_pb,<<"g">>,
                456,-100,
                <<"h">>,
-               <<"i">>, 10.1, 912.4},
+               <<"i">>, 10.1, 912.4, 1, <<"dr">>},
               {blockchain_poc_witness_v1_pb,<<"j">>,
                789,-114,
                <<"k">>,
-               <<"l">>, 10.1, 912.4}]},
+               <<"l">>, 10.1, 912.4, 1, <<"dr">>}]},
             {blockchain_poc_path_element_v1_pb,<<"second">>, undefined,[]},
             {blockchain_poc_path_element_v1_pb,<<"m">>, undefined,[]},
             {blockchain_poc_path_element_v1_pb,<<"n">>, undefined,[]},
