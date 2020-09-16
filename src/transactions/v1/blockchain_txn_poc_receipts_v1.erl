@@ -1081,7 +1081,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                         true ->
                                             case blockchain_poc_receipt_v1:channel(Receipt) == Channel of
                                                 true ->
-                                                    lager:info("receipt ok"),
+                                                    lager:debug("receipt ok"),
                                                     Receipt;
                                                 false ->
                                                     lager:warning("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
@@ -1155,7 +1155,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                      true ->
                                                          case blockchain_poc_witness_v1:channel(Witness) == Channel of
                                                              true ->
-                                                                 lager:info("witness ok"),
+                                                                 lager:debug("witness ok"),
                                                                  true;
                                                              false ->
                                                                  lager:warning("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
