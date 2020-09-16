@@ -1029,7 +1029,7 @@ check_witness_layerhash(Witnesses, Gateway, LayerHash, OldLedger) ->
         false -> {error, invalid_witness}
     end.
 
--spec poc_id(txn_poc_receipts()) -> string().
+-spec poc_id(txn_poc_receipts()) -> binary().
 poc_id(Txn) ->
     ?BIN_TO_B64(?MODULE:onion_key_hash(Txn)).
 
