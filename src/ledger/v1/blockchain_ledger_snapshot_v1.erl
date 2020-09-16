@@ -982,8 +982,17 @@ diff(A, B) ->
                               Diff = diff_gateways(AUniq, BUniq, []),
                               [{gateways, Diff} | Acc];
                           blocks ->
-                              AHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- AI],
-                              BHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- BI],
+                              AHeightAndHash = [ begin
+                                                     Block = blockchain_block:deserialize(Block0),
+                                                     {blockchain_block:height(Block),
+                                                      blockchain_block:hash_block(Block)}
+                                                 end
+                                                 || Block0 <- AI],
+                              BHeightAndHash = [ begin
+                                                     Block = blockchain_block:deserialize(Block0),
+                                                     {blockchain_block:height(Block),
+                                                      blockchain_block:hash_block(Block)}
+                                                 end || Block0 <- BI],
                               case {AHeightAndHash -- BHeightAndHash, BHeightAndHash -- AHeightAndHash} of
                                   {[], []} ->
                                       Acc;
