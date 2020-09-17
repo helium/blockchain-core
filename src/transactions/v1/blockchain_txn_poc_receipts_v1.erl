@@ -15,12 +15,14 @@
 
 -export([
     new/4,
+    new/5,
     hash/1,
     onion_key_hash/1,
     challenger/1,
     secret/1,
     path/1,
     fee/1,
+    request_block_hash/1,
     signature/1,
     sign/2,
     is_valid/2,
@@ -61,6 +63,20 @@ new(Challenger, Secret, OnionKeyHash, Path) ->
         fee=0,
         signature = <<>>
     }.
+
+-spec new(libp2p_crypto:pubkey_bin(), binary(), binary(), binary(),
+          blockchain_poc_path_element_v1:path()) -> txn_poc_receipts().
+new(Challenger, Secret, OnionKeyHash, BlockHash, Path) ->
+    #blockchain_txn_poc_receipts_v1_pb{
+        challenger=Challenger,
+        secret=Secret,
+        onion_key_hash=OnionKeyHash,
+        path=Path,
+        fee=0,
+        request_block_hash=BlockHash,
+        signature = <<>>
+    }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -112,6 +128,9 @@ path(Txn) ->
 fee(_Txn) ->
     0.
 
+request_block_hash(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.request_block_hash.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -150,7 +169,7 @@ is_valid(Txn, Chain) ->
                 true ->
                     {error, empty_path};
                 false ->
-                    case check_is_valid_poc(Txn, Chain, true) of
+                    case check_is_valid_poc(Txn, Chain) of
                         ok -> ok;
                         {ok, _} ->
                             ok;
@@ -160,9 +179,8 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec check_is_valid_poc(Txn :: txn_poc_receipts(),
-                         Chain :: blockchain:blockchain(),
-                         RunValidation :: boolean()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
-check_is_valid_poc(Txn, Chain, RunValidation) ->
+                         Chain :: blockchain:blockchain()) -> ok | {ok, [non_neg_integer(), ...]} | {error, any()}.
+check_is_valid_poc(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
@@ -314,21 +332,25 @@ check_is_valid_poc(Txn, Chain, RunValidation) ->
                                                                                       <<IntData:16/integer-unsigned-little>> = Layer,
                                                                                       IntData rem 8
                                                                               end, LayerData),
-                                                            %% We are on poc v9, check whether we need to run
-                                                            %% validation (presumably invoked from is_valid)
-                                                            case RunValidation of
-                                                                false ->
-                                                                    %% no need to run validations
+                                                            %% We are on poc v9
+                                                            %% %% run validations
+                                                            Ret = case POCVer >= 10 of
+                                                                        true ->
+                                                                            %% check the block hash in the receipt txn is correct
+                                                                            case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
+                                                                                true ->
+                                                                                    validate(Txn, Path, LayerData, LayerHashes, OldLedger);
+                                                                                false ->
+                                                                                    {error, bad_poc_request_block_hash}
+                                                                            end;
+                                                                        false ->
+                                                                            validate(Txn, Path, LayerData, LayerHashes, OldLedger)
+                                                                    end,
+                                                            maybe_log_duration(receipt_validation, StartV),
+                                                            case Ret of
+                                                                ok ->
                                                                     {ok, Channels};
-                                                                true ->
-                                                                    %% run validations
-                                                                    Ret = validate(Txn, Path, LayerData, LayerHashes, OldLedger),
-                                                                    maybe_log_duration(receipt_validation, StartV),
-                                                                    case Ret of
-                                                                        ok ->
-                                                                            {ok, Channels};
-                                                                        {error, _}=E -> E
-                                                                    end
+                                                                {error, _}=E -> E
                                                             end;
                                                         _ ->
                                                             %% We are not on poc v9, just do old behavior
@@ -1212,24 +1234,34 @@ get_channels(Txn, Chain) ->
     Secret = ?MODULE:secret(Txn),
     PathLength = length(Path),
 
-    %% Retry by walking the chain and attempt to find the last challenge block
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     {ok, Head} = blockchain:head_block(Chain),
-    RequestFilter = fun(T) ->
-                            blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                            blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
-                    end,
 
-    BlockHash = blockchain:fold_chain(fun(Block, undefined) ->
-                                              case blockchain_utils:find_txn(Block, RequestFilter) of
-                                                  [_T] ->
-                                                      blockchain_block:hash_block(Block);
-                                                  _ ->
-                                                      undefined
-                                              end;
-                                         (_, _Hash) -> return
-                                      end, undefined, Head, Chain),
+    BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
+        {ok, POCVer} when POCVer >= 10 ->
+            ?MODULE:request_block_hash(Txn);
+        _ ->
+            %% Retry by walking the chain and attempt to find the last challenge block
+            %% Note that this does not scale at all and should not be used
+            RequestFilter = fun(T) ->
+                                    blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
+                            end,
+
+            blockchain:fold_chain(fun(Block, undefined) ->
+                                                      case blockchain_utils:find_txn(Block, RequestFilter) of
+                                                          [_T] ->
+                                                              blockchain_block:hash_block(Block);
+                                                          _ ->
+                                                              undefined
+                                                      end;
+                                                 (_, _Hash) -> return
+                                              end, undefined, Head, Chain)
+    end,
+
     case BlockHash of
+        <<>> ->
+            {error, request_block_hash_not_found};
         undefined ->
             {error, request_block_hash_not_found};
         BH ->
@@ -1338,7 +1370,7 @@ delta_test() ->
                                     {blockchain_poc_path_element_v1_pb,<<"i">>,
                                                                        undefined,[]}],
                                    0,
-                                   <<"impala">>},
+                                   <<"impala">>, <<"blockhash">>},
     Deltas1 = deltas(Txn1),
     ?assertEqual(2, length(Deltas1)),
     ?assertEqual({0.9, 0}, proplists:get_value(<<"first">>, Deltas1)),
@@ -1368,7 +1400,7 @@ delta_test() ->
                                     {blockchain_poc_path_element_v1_pb,<<"f">>,
                                      undefined,[]}],
                                    0,
-                                   <<"g">>},
+                                   <<"g">>, <<"blockhash">>},
     Deltas2 = deltas(Txn2),
     ?assertEqual(1, length(Deltas2)),
     ?assertEqual({0, 0}, proplists:get_value(<<"first">>, Deltas2)),
@@ -1406,7 +1438,7 @@ duplicate_delta_test() ->
                                                                                                       <<>>,
                                                                                                       <<>>, 10.1, 912.4}]}],
                                    0,
-                                   <<"gg">>},
+                                   <<"gg">>, <<"blockhash">>},
 
     Deltas = deltas(Txn),
     ?assertEqual(4, length(Deltas)),
@@ -1435,7 +1467,7 @@ to_json_test() ->
             {blockchain_poc_path_element_v1_pb,<<"n">>, undefined,[]},
             {blockchain_poc_path_element_v1_pb,<<"i">>, undefined,[]}],
            0,
-           <<"impala">>},
+           <<"impala">>, <<"blockhash">>},
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
