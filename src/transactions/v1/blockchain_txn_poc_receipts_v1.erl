@@ -22,7 +22,7 @@
     secret/1,
     path/1,
     fee/1,
-    block_hash/1,
+    request_block_hash/1,
     signature/1,
     sign/2,
     is_valid/2,
@@ -73,7 +73,7 @@ new(Challenger, Secret, OnionKeyHash, BlockHash, Path) ->
         onion_key_hash=OnionKeyHash,
         path=Path,
         fee=0,
-        block_hash=BlockHash,
+        request_block_hash=BlockHash,
         signature = <<>>
     }.
 
@@ -128,8 +128,8 @@ path(Txn) ->
 fee(_Txn) ->
     0.
 
-block_hash(Txn) ->
-    Txn#blockchain_txn_poc_receipts_v1_pb.block_hash.
+request_block_hash(Txn) ->
+    Txn#blockchain_txn_poc_receipts_v1_pb.request_block_hash.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -334,14 +334,14 @@ check_is_valid_poc(Txn, Chain) ->
                                                                               end, LayerData),
                                                             %% We are on poc v9
                                                             %% %% run validations
-                                                            Ret = case POCVer > 10 of
+                                                            Ret = case POCVer >= 10 of
                                                                         true ->
                                                                             %% check the block hash in the receipt txn is correct
-                                                                            case PoCAbsorbedAtBlockHash == ?MODULE:block_hash(Txn) of
+                                                                            case PoCAbsorbedAtBlockHash == ?MODULE:request_block_hash(Txn) of
                                                                                 true ->
                                                                                     validate(Txn, Path, LayerData, LayerHashes, OldLedger);
                                                                                 false ->
-                                                                                    {error, bad_poc_receipt_block_hash}
+                                                                                    {error, bad_poc_request_block_hash}
                                                                             end;
                                                                         false ->
                                                                             validate(Txn, Path, LayerData, LayerHashes, OldLedger)
@@ -1239,7 +1239,7 @@ get_channels(Txn, Chain) ->
 
     BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
         {ok, POCVer} when POCVer >= 10 ->
-            ?MODULE:block_hash(Txn);
+            ?MODULE:request_block_hash(Txn);
         _ ->
             %% Retry by walking the chain and attempt to find the last challenge block
             %% Note that this does not scale at all and should not be used
@@ -1260,6 +1260,8 @@ get_channels(Txn, Chain) ->
     end,
 
     case BlockHash of
+        <<>> ->
+            {error, request_block_hash_not_found};
         undefined ->
             {error, request_block_hash_not_found};
         BH ->
