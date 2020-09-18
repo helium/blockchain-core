@@ -36,7 +36,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/2
+    get_channels/1, get_channels/2
 ]).
 
 -ifdef(TEST).
@@ -438,17 +438,45 @@ deltas(Txn) ->
 deltas(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case blockchain:config(?poc_version, Ledger) of
+        {ok, V} when V >= 10 ->
+            calculate_delta(Txn, Chain, v10);
         {ok, V} when V >= 9 ->
-            %% do the new thing
-            calculate_delta(Txn, Chain, true);
+            calculate_delta(Txn, Chain, v9);
         _ ->
-            calculate_delta(Txn, Chain, false)
+            calculate_delta(Txn, Chain, old)
     end.
 
 -spec calculate_delta(Txn :: txn_poc_receipts(),
                       Chain :: blockchain:blockchain(),
-                      CalcFreq :: boolean()) -> deltas().
-calculate_delta(Txn, Chain, true) ->
+                      PoCVer :: atom()) -> deltas().
+calculate_delta(Txn, Chain, v10) ->
+    Ledger = blockchain:ledger(Chain),
+    Path = blockchain_txn_poc_receipts_v1:path(Txn),
+    Length = length(Path),
+
+    {ok, Channels} = get_channels(Txn),
+
+    lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
+                                                 Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                 NextElements = lists:sublist(Path, ElementPos+1, Length),
+                                                 HasContinued = check_path_continuation(NextElements),
+
+                                                 {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                                 case ElementPos of
+                                                     1 ->
+                                                         {undefined, 0, hd(Channels)};
+                                                     _ ->
+                                                         {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                                 end,
+
+                                                 {Val, Continue} = calculate_alpha_beta(HasContinued, Element, PreviousElement, ReceiptChannel, WitnessChannel, Ledger),
+                                                 {set_deltas(Challengee, Val, Acc), Continue};
+                              (_, Acc) ->
+                                   Acc
+                           end,
+                           {[], true},
+                           lists:zip(lists:seq(1, Length), Path))));
+calculate_delta(Txn, Chain, v9) ->
     Ledger = blockchain:ledger(Chain),
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
@@ -475,7 +503,7 @@ calculate_delta(Txn, Chain, true) ->
                            end,
                            {[], true},
                            lists:zip(lists:seq(1, Length), Path))));
-calculate_delta(Txn, Chain, false) ->
+calculate_delta(Txn, Chain, old) ->
     Ledger = blockchain:ledger(Chain),
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
@@ -694,6 +722,32 @@ absorb(Txn, Chain) ->
                     {error, not_found} ->
                         %% Older poc version, don't add witnesses
                         ok;
+                    {ok, POCVersion} when POCVersion >= 10 ->
+                        %% Add filtered witnesses with poc-v9
+                        Path = ?MODULE:path(Txn),
+                        Length = length(Path),
+                        {ok, Channels} = get_channels(Txn),
+                        ok = lists:foreach(fun({ElementPos, Element}) ->
+                                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                   {PreviousElement, ReceiptChannel, WitnessChannel} =
+                                                   case ElementPos of
+                                                       1 ->
+                                                           {undefined, 0, hd(Channels)};
+                                                       _ ->
+                                                           {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                                                   end,
+
+                                                   FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                                                   FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+
+                                                   case FilteredReceipt of
+                                                       undefined ->
+                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                                                       FR ->
+                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                                                   end
+                                           end,
+                                           lists:zip(lists:seq(1, Length), Path));
                     {ok, POCVersion} when POCVersion >= 9 ->
                         %% Add filtered witnesses with poc-v9
                         Path = ?MODULE:path(Txn),
@@ -1226,6 +1280,28 @@ calculate_rssi_bounds_from_snr(SNR) ->
             V
     end.
 
+-spec get_channels(Txn :: txn_poc_receipts()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn) ->
+    %% This will only work poc-v10 onwards, but no check is made for that here
+    Challenger = ?MODULE:challenger(Txn),
+    Path = ?MODULE:path(Txn),
+    Secret = ?MODULE:secret(Txn),
+    PathLength = length(Path),
+    case ?MODULE:request_block_hash(Txn) of
+        <<>> ->
+            {error, request_block_hash_not_found};
+        undefined ->
+            {error, request_block_hash_not_found};
+        BH ->
+            Entropy = <<Secret/binary, BH/binary, Challenger/binary>>,
+            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, PathLength+1),
+            Channels = lists:map(fun(Layer) ->
+                                         <<IntData:16/integer-unsigned-little>> = Layer,
+                                         IntData rem 8
+                                 end, LayerData1),
+            {ok, Channels}
+    end.
+
 -spec get_channels(Txn :: txn_poc_receipts(),
                    Chain :: blockchain:blockchain()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn, Chain) ->
@@ -1234,34 +1310,24 @@ get_channels(Txn, Chain) ->
     Secret = ?MODULE:secret(Txn),
     PathLength = length(Path),
 
+    %% Retry by walking the chain and attempt to find the last challenge block
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     {ok, Head} = blockchain:head_block(Chain),
+    RequestFilter = fun(T) ->
+                            blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
+                            blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
+                    end,
 
-    BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
-        {ok, POCVer} when POCVer >= 10 ->
-            ?MODULE:request_block_hash(Txn);
-        _ ->
-            %% Retry by walking the chain and attempt to find the last challenge block
-            %% Note that this does not scale at all and should not be used
-            RequestFilter = fun(T) ->
-                                    blockchain_txn:type(T) == blockchain_txn_poc_request_v1 andalso
-                                    blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
-                            end,
-
-            blockchain:fold_chain(fun(Block, undefined) ->
-                                                      case blockchain_utils:find_txn(Block, RequestFilter) of
-                                                          [_T] ->
-                                                              blockchain_block:hash_block(Block);
-                                                          _ ->
-                                                              undefined
-                                                      end;
-                                                 (_, _Hash) -> return
-                                              end, undefined, Head, Chain)
-    end,
-
+    BlockHash = blockchain:fold_chain(fun(Block, undefined) ->
+                                              case blockchain_utils:find_txn(Block, RequestFilter) of
+                                                  [_T] ->
+                                                      blockchain_block:hash_block(Block);
+                                                  _ ->
+                                                      undefined
+                                              end;
+                                         (_, _Hash) -> return
+                                      end, undefined, Head, Chain),
     case BlockHash of
-        <<>> ->
-            {error, request_block_hash_not_found};
         undefined ->
             {error, request_block_hash_not_found};
         BH ->

@@ -500,15 +500,20 @@ poc_challengees_rewards_(_Version, [], _StaticPath, _Txn, _Chain, _Ledger, _, Ac
 poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, IsFirst, Acc0) when Version >= 2 ->
     %% check if there were any legitimate witnesses
     Witnesses = case Version of
+                    V when is_integer(V), V >= 10 ->
+                        try
+                            %% Get channels without validation
+                            {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn),
+                            fetch_valid_witnesses(Elem, StaticPath, Channels, Ledger)
+                        catch What:Why:ST ->
+                            lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
+                            []
+                        end;
                     V when is_integer(V), V >= 9 ->
                         try
                             %% Get channels without validation
                             {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn, Chain),
-                            ElemPos = blockchain_utils:index_of(Elem, StaticPath),
-                            WitnessChannel = lists:nth(ElemPos, Channels),
-                            ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
-                            lager:debug("ValidWitnesses: ~p", [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
-                            ValidWitnesses
+                            fetch_valid_witnesses(Elem, StaticPath, Channels, Ledger)
                         catch What:Why:ST ->
                             lager:error("failed to calculate poc_challengees_rewards, error ~p:~p:~p", [What, Why, ST]),
                             []
@@ -591,6 +596,17 @@ poc_challengees_rewards_(Version, [Elem|Path], StaticPath, Txn, Chain, Ledger, _
             poc_challengees_rewards_(Version, Path, StaticPath, Txn, Chain, Ledger, false, Acc1)
     end.
 
+-spec fetch_valid_witnesses(Elem :: blockchain_poc_path_element_v1:poc_element(),
+                            StaticPath :: blockchain_poc_path_element_v1:poc_path(),
+                            Channels :: [non_neg_integer()],
+                            Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_poc_witness_v1:poc_witnesses().
+fetch_valid_witnesses(Elem, StaticPath, Channels, Ledger) ->
+    ElemPos = blockchain_utils:index_of(Elem, StaticPath),
+    WitnessChannel = lists:nth(ElemPos, Channels),
+    ValidWitnesses = blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger),
+    lager:debug("ValidWitnesses: ~p", [[blockchain_utils:addr2name(blockchain_poc_witness_v1:gateway(W)) || W <- ValidWitnesses]]),
+    ValidWitnesses.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -612,6 +628,39 @@ poc_witnesses_rewards(Transactions,
                     Acc0;
                 true ->
                     case POCVersion of
+                        V when is_integer(V), V >= 10 ->
+                            try
+                                %% Get channels without validation
+                                {ok, Channels} = blockchain_txn_poc_receipts_v1:get_channels(Txn),
+                                Path = blockchain_txn_poc_receipts_v1:path(Txn),
+
+                                %% Do the new thing for witness filtering
+                                lists:foldl(
+                                  fun(Elem, Acc1) ->
+                                          ElemPos = blockchain_utils:index_of(Elem, Path),
+                                          WitnessChannel = lists:nth(ElemPos, Channels),
+                                          case blockchain_txn_poc_receipts_v1:valid_witnesses(Elem, WitnessChannel, Ledger) of
+                                              [] ->
+                                                  Acc1;
+                                              ValidWitnesses ->
+                                                  lists:foldl(
+                                                    fun(WitnessRecord, Map) ->
+                                                            Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                            I = maps:get(Witness, Map, 0),
+                                                            maps:put(Witness, I+1, Map)
+                                                    end,
+                                                    Acc1,
+                                                    ValidWitnesses
+                                                   )
+                                          end
+                                  end,
+                                  Acc0,
+                                  Path
+                                 )
+                            catch What:Why:ST ->
+                                  lager:error("failed to calculate poc_witnesses_rewards, error ~p:~p:~p", [What, Why, ST]),
+                                  Acc0
+                            end;
                         V when is_integer(V), V >= 9 ->
                             try
                                 %% Get channels without validation
