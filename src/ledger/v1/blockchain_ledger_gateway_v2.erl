@@ -27,6 +27,7 @@
     clear_witnesses/1,
     remove_witness/2,
     witnesses/1,
+    witnesses_plain/1,
     witness_hist/1, witness_recent_time/1, witness_first_time/1,
     oui/1, oui/2
 ]).
@@ -43,7 +44,7 @@
 -record(witness, {
           nonce :: non_neg_integer(),
           count :: non_neg_integer(),
-          hist = erlang:error(no_histogram) :: #{integer() => integer()}, %% sampled rssi histogram
+          hist = erlang:error(no_histogram) :: [{integer(), integer()}], %% sampled rssi histogram
           first_time :: undefined | non_neg_integer(), %% first time a hotspot witnessed this one
           recent_time :: undefined | non_neg_integer(), %% most recent a hotspots witnessed this one
           time = #{} :: #{integer() => integer()} %% TODO: add time of flight histogram
@@ -60,13 +61,14 @@
     nonce = 0 :: non_neg_integer(),
     version = 0 :: non_neg_integer(),
     neighbors = [] :: [libp2p_crypto:pubkey_bin()],
-    witnesses = #{} :: witnesses(),
+    witnesses = [] :: witnesses_int(),
     oui = undefined :: undefined | pos_integer()
 }).
 
 -type gateway() :: #gateway_v2{}.
 -type gateway_witness() :: #witness{}.
 -type witnesses() :: #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
+-type witnesses_int() :: [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
 -type histogram() :: #{integer() => integer()}.
 -export_type([gateway/0, gateway_witness/0, witnesses/0, histogram/0]).
 
@@ -388,45 +390,45 @@ add_witness(WitnessAddress,
             undefined,
             Gateway = #gateway_v2{witnesses=Witnesses}) ->
     %% NOTE: This clause is for next hop receipts (which are also considered witnesses) but have no signal and timestamp
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count}} ->
+    case lists:keytake(WitnessAddress, 1, Witnesses) of
+        {value, {_, Witness=#witness{nonce=Nonce, count=Count}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1},
-                                                  Witnesses)};
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      Witness#witness{count=Count + 1}}
+                                                     | Witnesses1])};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=create_histogram(WitnessGW, Gateway)},
-                                                  Witnesses)}
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      #witness{count=1,
+                                                               nonce=Nonce,
+                                                               hist=create_histogram(WitnessGW, Gateway)}}
+                                                     | Witnesses])}
     end;
 add_witness(WitnessAddress,
             WitnessGW = #gateway_v2{nonce=Nonce},
             RSSI,
             TS,
             Gateway = #gateway_v2{witnesses=Witnesses}) ->
-    case maps:find(WitnessAddress, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
+    case lists:keytake(WitnessAddress, 1, Witnesses) of
+        {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  Witness#witness{count=Count + 1,
-                                                                  hist=update_histogram(RSSI, Hist),
-                                                                  recent_time=TS},
-                                                  Witnesses)};
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      Witness#witness{count=Count + 1,
+                                                                      hist=update_histogram(RSSI, Hist),
+                                                                      recent_time=TS}}
+                                                     | Witnesses1])};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway),
-            Gateway#gateway_v2{witnesses=maps:put(WitnessAddress,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=update_histogram(RSSI, Histogram),
-                                                           first_time=TS,
-                                                           recent_time=TS},
-                                                  Witnesses)}
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      #witness{count=1,
+                                                               nonce=Nonce,
+                                                               hist=update_histogram(RSSI, Histogram),
+                                                               first_time=TS,
+                                                               recent_time=TS}}
+                                                     | Witnesses])}
     end.
 
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
@@ -451,11 +453,13 @@ create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
     %% Spacing between histogram keys (x axis)
     StepSize = ((-132 + abs(FreeSpacePathLoss))/(NumBins - 1)),
     %% Construct a custom histogram around the expected path loss
-    maps:from_list([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
+    lists:sort([ {28, 0} | [ {trunc(FreeSpacePathLoss + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
 
-update_histogram(Val, Histogram) ->
-    Keys = lists:reverse(lists:sort(maps:keys(Histogram))),
-    update_histogram_(Val, Keys, Histogram).
+update_histogram(Val, Histogram0) ->
+    Keys = lists:reverse(lists:sort(element(1, lists:unzip(Histogram0)))),
+    Histogram = maps:from_list(Histogram0),
+    Histogram1 = update_histogram_(Val, Keys, Histogram),
+    lists:sort(maps:to_list(Histogram1)).
 
 update_histogram_(_Val, [LastKey], Histogram) ->
     maps:put(LastKey, maps:get(LastKey, Histogram, 0) + 1, Histogram);
@@ -466,23 +470,30 @@ update_histogram_(Val, [_ | Tail], Histogram) ->
 
 -spec clear_witnesses(gateway()) -> gateway().
 clear_witnesses(Gateway) ->
-    Gateway#gateway_v2{witnesses=#{}}.
+    Gateway#gateway_v2{witnesses=[]}.
 
 -spec remove_witness(gateway(), libp2p_crypto:pubkey_bin()) -> gateway().
 remove_witness(Gateway, WitnessAddr) ->
-    Gateway#gateway_v2{witnesses=maps:remove(WitnessAddr, Gateway#gateway_v2.witnesses)}.
+    Gateway#gateway_v2{witnesses=lists:keydelete(WitnessAddr, 1, Gateway#gateway_v2.witnesses)}.
 
 -spec has_witness(gateway(), libp2p_crypto:pubkey_bin()) -> boolean().
 has_witness(#gateway_v2{witnesses=Witnesses}, WitnessAddr) ->
-    maps:is_key(WitnessAddr, Witnesses).
+    case lists:keyfind(WitnessAddr, 1, Witnesses) of
+        false -> false;
+        _ -> true
+    end.
 
 -spec witnesses(gateway()) -> #{libp2p_crypto:pubkey_bin() => gateway_witness()}.
 witnesses(Gateway) ->
+    maps:from_list(Gateway#gateway_v2.witnesses).
+
+-spec witnesses_plain(gateway()) -> [{libp2p_crypto:pubkey_bin(), gateway_witness()}].
+witnesses_plain(Gateway) ->
     Gateway#gateway_v2.witnesses.
 
 -spec witness_hist(gateway_witness()) -> erlang:error(no_histogram) | histogram().
 witness_hist(Witness) ->
-    Witness#witness.hist.
+    maps:from_list(Witness#witness.hist).
 
 -spec witness_recent_time(gateway_witness()) -> undefined | non_neg_integer().
 witness_recent_time(Witness) ->
@@ -516,6 +527,10 @@ serialize(Gw) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-dialyzer([
+    {nowarn_function, deserialize/1}
+]).
+
 -spec deserialize(binary()) -> gateway().
 deserialize(<<1, Bin/binary>>) ->
     V1 = erlang:binary_to_term(Bin),
@@ -535,7 +550,22 @@ deserialize(<<2, Bin/binary>>) ->
                 Gw
         end,
     Neighbors = neighbors(Gw1),
-    neighbors(lists:usort(Neighbors), Gw1).
+    Gw2 = neighbors(lists:usort(Neighbors), Gw1),
+    Witnesses = Gw2#gateway_v2.witnesses,
+    Witnesses1 =
+        case is_map(Witnesses) of
+            true ->
+                lists:sort(
+                  maps:to_list(
+                    maps:map(
+                      fun(_K, #witness{hist = Hist} = W) ->
+                              W#witness{hist = lists:sort(maps:to_list(Hist))}
+                      end,
+                      Witnesses)));
+            false ->
+                Witnesses
+        end,
+    Gw2#gateway_v2{witnesses = Witnesses1}.
 
 %% OK to include here, v1 should now be immutable.
 -record(gateway_v1, {

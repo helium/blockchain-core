@@ -431,7 +431,7 @@ calculate_delta(Txn, Chain, true) ->
     Path = blockchain_txn_poc_receipts_v1:path(Txn),
     Length = length(Path),
 
-    {ok, Channels} = check_is_valid_poc(Txn, Chain, false),
+    {ok, Channels} = get_channels(Txn, Chain),
 
     lists:reverse(element(1, lists:foldl(fun({ElementPos, Element}, {Acc, true}) ->
                                                  Challengee = blockchain_poc_path_element_v1:challengee(Element),
@@ -676,7 +676,7 @@ absorb(Txn, Chain) ->
                         %% Add filtered witnesses with poc-v9
                         Path = ?MODULE:path(Txn),
                         Length = length(Path),
-                        {ok, Channels} = check_is_valid_poc(Txn, Chain, false),
+                        {ok, Channels} = get_channels(Txn, Chain),
                         ok = lists:foreach(fun({ElementPos, Element}) ->
                                                    Challengee = blockchain_poc_path_element_v1:challengee(Element),
                                                    {PreviousElement, ReceiptChannel, WitnessChannel} =
