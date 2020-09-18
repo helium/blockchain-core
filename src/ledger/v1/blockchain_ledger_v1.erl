@@ -590,8 +590,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
             false ->
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash}};
             _ ->
-                [GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
-                 PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash, _] = L,
+                [_, GWsHash, EntriesHash, DCEntriesHash, HTLCsHash,
+                 PoCsHash, SecuritiesHash, RoutingsHash, StateChannelsHash, SubnetsHash] = L,
                 {ok, #{<<"ledger_fingerprint">> => LedgerHash,
                        <<"gateways_fingerprint">> => GWsHash,
                        <<"core_fingerprint">> => DefaultHash,

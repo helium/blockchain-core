@@ -1033,7 +1033,9 @@ gwget(Addr, L) ->
             missing
     end.
 
-minimize_gw(A, B) ->
+minimize_gw(A0, B0) ->
+    A = blockchain_ledger_gateway_v2:deserialize(A0),
+    B = blockchain_ledger_gateway_v2:deserialize(B0),
     %% We can directly compare some fields
     Compare =
         lists:flatmap(
