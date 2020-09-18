@@ -979,8 +979,12 @@ diff(A, B) ->
                           gateways ->
                               AUniq = AI -- BI,
                               BUniq = BI -- AI,
-                              Diff = diff_gateways(AUniq, BUniq, []),
-                              [{gateways, Diff} | Acc];
+                              case diff_gateways(AUniq, BUniq, []) of
+                                  [] ->
+                                      Acc;
+                                  Diff ->
+                                      [{gateways, Diff} | Acc]
+                              end;
                           blocks ->
                               AHeightAndHash = [ begin
                                                      Block = blockchain_block:deserialize(Block0),
