@@ -338,22 +338,22 @@ add_witness({poc_receipt,
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=[{WitnessAddress,
-                                           Witness#witness{count=Count + 1,
-                                                           hist=update_histogram(RSSI, Hist),
-                                                           recent_time=TS}}
-                                          | Witnesses1]};
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      Witness#witness{count=Count + 1,
+                                                                      hist=update_histogram(RSSI, Hist),
+                                                                      recent_time=TS}}
+                                                     | Witnesses1])};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=[{WitnessAddress,
-                                           #witness{count=1,
-                                                    nonce=Nonce,
-                                                    hist=update_histogram(RSSI, Histogram),
-                                                    first_time=TS,
-                                                    recent_time=TS}}
-                                          | Witnesses]}
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      #witness{count=1,
+                                                               nonce=Nonce,
+                                                               hist=update_histogram(RSSI, Histogram),
+                                                               first_time=TS,
+                                                               recent_time=TS}}
+                                                     | Witnesses])}
     end;
 add_witness({poc_witness,
              WitnessAddress,
@@ -366,22 +366,22 @@ add_witness({poc_witness,
     case lists:keytake(WitnessAddress, 1, Witnesses) of
         {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=[{WitnessAddress,
-                                           Witness#witness{count=Count + 1,
-                                                           hist=update_histogram(RSSI, Hist),
-                                                           recent_time=TS}}
-                                          | Witnesses1]};
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      Witness#witness{count=Count + 1,
+                                                                      hist=update_histogram(RSSI, Hist),
+                                                                      recent_time=TS}}
+                                                     | Witnesses1])};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=[{WitnessAddress,
-                                           #witness{count=1,
-                                                    nonce=Nonce,
-                                                    hist=update_histogram(RSSI, Histogram),
-                                                    first_time=TS,
-                                                    recent_time=TS}}
-                                                  | Witnesses]}
+            Gateway#gateway_v2{witnesses=lists:sort([{WitnessAddress,
+                                                      #witness{count=1,
+                                                               nonce=Nonce,
+                                                               hist=update_histogram(RSSI, Histogram),
+                                                               first_time=TS,
+                                                               recent_time=TS}}
+                                                     | Witnesses])}
     end.
 
 add_witness(WitnessAddress,
