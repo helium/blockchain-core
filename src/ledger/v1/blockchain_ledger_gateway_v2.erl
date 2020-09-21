@@ -328,60 +328,60 @@ print(Address, Gateway, Ledger, Verbose) ->
     ] ++ Scoring.
 
 add_witness({poc_receipt,
-             WitnessPubkeyBin,
+             WitnessAddress,
              WitnessGW = #gateway_v2{nonce=Nonce},
              POCWitness,
              Gateway = #gateway_v2{witnesses=Witnesses}}) ->
     RSSI = blockchain_poc_receipt_v1:signal(POCWitness),
     TS = blockchain_poc_receipt_v1:timestamp(POCWitness),
     Freq = blockchain_poc_receipt_v1:frequency(POCWitness),
-    case maps:find(WitnessPubkeyBin, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
+    case lists:keytake(WitnessAddress, 1, Witnesses) of
+        {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
-                                                  Witness#witness{count=Count + 1,
-                                                                  hist=update_histogram(RSSI, Hist),
-                                                                  recent_time=TS},
-                                                  Witnesses)};
+            Gateway#gateway_v2{witnesses=[{WitnessAddress,
+                                           Witness#witness{count=Count + 1,
+                                                           hist=update_histogram(RSSI, Hist),
+                                                           recent_time=TS}}
+                                          | Witnesses1]};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=update_histogram(RSSI, Histogram),
-                                                           first_time=TS,
-                                                           recent_time=TS},
-                                                  Witnesses)}
+            Gateway#gateway_v2{witnesses=[{WitnessAddress,
+                                           #witness{count=1,
+                                                    nonce=Nonce,
+                                                    hist=update_histogram(RSSI, Histogram),
+                                                    first_time=TS,
+                                                    recent_time=TS}}
+                                          | Witnesses]}
     end;
 add_witness({poc_witness,
-             WitnessPubkeyBin,
+             WitnessAddress,
              WitnessGW = #gateway_v2{nonce=Nonce},
              POCWitness,
              Gateway = #gateway_v2{witnesses=Witnesses}}) ->
     RSSI = blockchain_poc_witness_v1:signal(POCWitness),
     TS = blockchain_poc_witness_v1:timestamp(POCWitness),
     Freq = blockchain_poc_witness_v1:frequency(POCWitness),
-    case maps:find(WitnessPubkeyBin, Witnesses) of
-        {ok, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}} ->
+    case lists:keytake(WitnessAddress, 1, Witnesses) of
+        {value, {_, Witness=#witness{nonce=Nonce, count=Count, hist=Hist}}, Witnesses1} ->
             %% nonce is the same, increment the count
-            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
-                                                  Witness#witness{count=Count + 1,
-                                                                  hist=update_histogram(RSSI, Hist),
-                                                                  recent_time=TS},
-                                                  Witnesses)};
+            Gateway#gateway_v2{witnesses=[{WitnessAddress,
+                                           Witness#witness{count=Count + 1,
+                                                           hist=update_histogram(RSSI, Hist),
+                                                           recent_time=TS}}
+                                          | Witnesses1]};
         _ ->
             %% nonce mismatch or first witnesses for this peer
             %% replace any old witness record with this new one
             Histogram = create_histogram(WitnessGW, Gateway, Freq),
-            Gateway#gateway_v2{witnesses=maps:put(WitnessPubkeyBin,
-                                                  #witness{count=1,
-                                                           nonce=Nonce,
-                                                           hist=update_histogram(RSSI, Histogram),
-                                                           first_time=TS,
-                                                           recent_time=TS},
-                                                  Witnesses)}
+            Gateway#gateway_v2{witnesses=[{WitnessAddress,
+                                           #witness{count=1,
+                                                    nonce=Nonce,
+                                                    hist=update_histogram(RSSI, Histogram),
+                                                    first_time=TS,
+                                                    recent_time=TS}}
+                                                  | Witnesses]}
     end.
 
 add_witness(WitnessAddress,
@@ -442,7 +442,7 @@ create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
     %% Spacing between histogram keys (x axis)
     StepSize = ((-132 + abs(MinRcvSig))/(NumBins - 1)),
     %% Construct a custom histogram around the expected path loss
-    maps:from_list([ {28, 0} | [ {trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
+    lists:sort([ {28, 0} | [ {trunc(MinRcvSig + (N * StepSize)), 0} || N <- lists:seq(0, (NumBins - 1))]]).
 
 create_histogram(#gateway_v2{location=WitnessLoc}=_WitnessGW,
                  #gateway_v2{location=GatewayLoc}=_Gateway) ->
