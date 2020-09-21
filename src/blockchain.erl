@@ -1433,6 +1433,7 @@ crosscheck(Blockchain, Recalc) ->
             Error
     end.
 
+-spec compare(LedgerA :: blockchain_ledger_v1:ledger(), LedgerB :: blockchain_ledger_v1:ledger()) -> ok | {error, any()}.
 compare(LedgerA, LedgerB) ->
     {ok, FPA} = blockchain_ledger_v1:raw_fingerprint(LedgerA, true),
     {ok, FPB} = blockchain_ledger_v1:raw_fingerprint(LedgerB, true),
