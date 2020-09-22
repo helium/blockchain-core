@@ -388,7 +388,8 @@ import(Chain, SHA,
 
                                       ok = blockchain_ledger_v1:maybe_gc_scs(Chain1),
 
-                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2);
+                                      ok = blockchain_ledger_v1:refresh_gateway_witnesses(Hash, Ledger2),
+                                      ok = blockchain_ledger_v1:maybe_recalc_price(Chain1, Ledger2);
                                   _ ->
                                       ok
                               end
