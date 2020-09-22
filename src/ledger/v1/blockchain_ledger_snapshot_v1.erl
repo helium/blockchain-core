@@ -979,11 +979,24 @@ diff(A, B) ->
                           gateways ->
                               AUniq = AI -- BI,
                               BUniq = BI -- AI,
-                              Diff = diff_gateways(AUniq, BUniq, []),
-                              [{gateways, Diff} | Acc];
+                              case diff_gateways(AUniq, BUniq, []) of
+                                  [] ->
+                                      Acc;
+                                  Diff ->
+                                      [{gateways, Diff} | Acc]
+                              end;
                           blocks ->
-                              AHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- AI],
-                              BHeightAndHash = [ {blockchain_block:height(Block), blockchain_block:hash_block(Block)} || Block <- BI],
+                              AHeightAndHash = [ begin
+                                                     Block = blockchain_block:deserialize(Block0),
+                                                     {blockchain_block:height(Block),
+                                                      blockchain_block:hash_block(Block)}
+                                                 end
+                                                 || Block0 <- AI],
+                              BHeightAndHash = [ begin
+                                                     Block = blockchain_block:deserialize(Block0),
+                                                     {blockchain_block:height(Block),
+                                                      blockchain_block:hash_block(Block)}
+                                                 end || Block0 <- BI],
                               case {AHeightAndHash -- BHeightAndHash, BHeightAndHash -- AHeightAndHash} of
                                   {[], []} ->
                                       Acc;
@@ -1012,8 +1025,15 @@ diff_gateways([{Addr, A} | T] , BList, Acc) ->
             diff_gateways(T, lists:keydelete(Addr, 1, BList),
                           [{Addr, b_missing} | Acc]);
         B ->
-            diff_gateways(T, lists:keydelete(Addr, 1, BList),
-                          [{Addr, minimize_gw(A, B)} | Acc])
+            %% sometimes map encoding lies to us
+            case minimize_gw(A, B) of
+                [] ->
+                    diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                                  Acc);
+                MiniGw ->
+                    diff_gateways(T, lists:keydelete(Addr, 1, BList),
+                                  [{Addr, MiniGw} | Acc])
+            end
     end.
 
 gwget(Addr, L) ->
@@ -1024,7 +1044,9 @@ gwget(Addr, L) ->
             missing
     end.
 
-minimize_gw(A, B) ->
+minimize_gw(A0, B0) ->
+    A = blockchain_ledger_gateway_v2:deserialize(A0),
+    B = blockchain_ledger_gateway_v2:deserialize(B0),
     %% We can directly compare some fields
     Compare =
         lists:flatmap(
@@ -1043,7 +1065,13 @@ minimize_gw(A, B) ->
     %% but for witnesses, we want to do additional minimization
     AWits = blockchain_ledger_gateway_v2:witnesses(A),
     BWits = blockchain_ledger_gateway_v2:witnesses(B),
-    [{witnesses, minimize_witnesses(AWits, BWits)} | Compare].
+    %% we do a more detailed comparison here, which can sometimes
+    %% reveal encoding differences :/
+    case minimize_witnesses(AWits, BWits) of
+        [] -> Compare;
+        MiniWit ->
+            [{witnesses, MiniWit} | Compare]
+    end.
 
 minimize_witnesses(A, B) ->
     Compare =
