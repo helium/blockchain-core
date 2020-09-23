@@ -13,8 +13,8 @@
 -export([
     start_link/1,
     nonce/1,
-    packet/2,
-    offer/2,
+    packet/4,
+    offer/3,
     gc_state_channels/1,
     state_channels/0,
     active_sc_id/0,
@@ -80,42 +80,35 @@ start_link(Args) ->
 nonce(ID) ->
     gen_server:call(?SERVER, {nonce, ID}).
 
--spec packet(blockchain_state_channel_packet_v1:packet(), pid()) -> ok.
-packet(Packet, HandlerPid) ->
-    spawn(fun() ->
-                  case blockchain_state_channel_packet_v1:validate(Packet) of
-                      {error, _Reason} ->
-                          lager:warning("packet failed to validate ~p ~p", [_Reason, Packet]);
-                      true ->
-                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
-                          case SCPacketHandler:handle_packet(Packet, HandlerPid) of
-                              ok ->
-                                  gen_server:cast(?SERVER, {packet, Packet, HandlerPid});
-                              {error, _Why} ->
-                                  %% lager:warning("handle_packet failed: ~p", [Why])
-                                  ok
-                          end
-                  end
-          end),
-    ok.
+-spec packet(blockchain_state_channel_packet_v1:packet(), pos_integer(), atom(), pid()) -> ok.
+packet(SCPacket, PacketTime, SCPacketHandler, HandlerPid) ->
+    case SCPacketHandler:handle_packet(SCPacket, PacketTime, HandlerPid) of
+        ok ->
+            %% This is a valid hotspot on chain
+            Packet = blockchain_state_channel_packet_v1:packet(SCPacket),
+            ClientPubkeyBin = blockchain_state_channel_packet_v1:hotspot(SCPacket),
+            gen_server:cast(?SERVER, {packet, ClientPubkeyBin, Packet, HandlerPid});
+        {error, _Why} ->
+            %% lager:warning("handle_packet failed: ~p", [Why])
+            ok
+    end.
 
--spec offer(blockchain_state_channel_offer_v1:offer(), pid()) -> ok.
-offer(Offer, HandlerPid) ->
-    spawn(fun() ->
-                  case blockchain_state_channel_offer_v1:validate(Offer) of
-                      {error, _Reason} ->
-                          lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]);
-                      true ->
-                          SCPacketHandler = application:get_env(blockchain, sc_packet_handler, undefined),
-                          case SCPacketHandler:handle_offer(Offer, HandlerPid) of
-                              ok ->
-                                  gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
-                              {error, _Why} ->
-                                   ok = send_rejection(HandlerPid)
-                          end
-                  end
-          end),
-    ok.
+-spec offer(blockchain_state_channel_offer_v1:offer(), atom(), pid()) -> ok | reject.
+offer(Offer, SCPacketHandler, HandlerPid) ->
+    %% Get the client (i.e. the hotspot who received this packet)
+    case blockchain_state_channel_offer_v1:validate(Offer) of
+        {error, _Reason} ->
+            lager:debug("offer failed to validate ~p ~p", [_Reason, Offer]),
+            reject;
+        true ->
+            case SCPacketHandler:handle_offer(Offer, HandlerPid) of
+                ok ->
+                    gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
+                {error, _Why} ->
+                    reject
+            end
+    end.
+
 
 -spec gc_state_channels([ binary() ]) -> ok.
 gc_state_channels([]) -> ok;
@@ -754,8 +747,7 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSiz
     NewPurchaseSC = update_sc_summary(Hotspot, PayloadSize, DCPayloadSize, NewPurchaseSC0),
     SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
-    PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-    ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
+    ok = blockchain_state_channel_handler:send_purchase(Stream, SignedPurchaseSC, Hotspot, PacketHash, Region),
     {ok, SignedPurchaseSC}.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
