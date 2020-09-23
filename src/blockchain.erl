@@ -55,7 +55,8 @@
     have_snapshot/2, get_snapshot/2, find_last_snapshot/1,
     find_last_snapshots/2,
 
-    mark_upgrades/2
+    mark_upgrades/2,
+    snapshot_height/1
 ]).
 
 -include("blockchain.hrl").
@@ -2252,6 +2253,37 @@ run_absorb_block_hooks(Syncing, Hash, Blockchain) ->
             Error;
         {ok, NewLedger} ->
             ok = blockchain_worker:notify({add_block, Hash, Syncing, NewLedger})
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc This function is exposed so that blockchain-node and simulator
+%% can access the height from the snapshot when they load it via
+%% `blockchain_follower` behavior.
+%% @end
+%%--------------------------------------------------------------------
+-spec snapshot_height(Height :: non_neg_integer()) -> non_neg_integer().
+snapshot_height(Height) ->
+    case application:get_env(blockchain, honor_quick_sync, false) == true andalso
+         application:get_env(blockchain, quick_sync_mode, assumed_valid) == blessed_snapshot of
+        true ->
+            Chain = blockchain_worker:blockchain(),
+            {ok, HeadBlock} = blockchain:head_block(Chain),
+            {ok, ChainHeight} = blockchain:height(Chain),
+            EndHeight = case Height > ChainHeight of
+                            true ->
+                                %% we've rolled back
+                                0;
+                            false ->
+                                Height
+                        end,
+            %% find the oldest block we have that's newer than the last known height
+            blockchain:fold_chain(fun(B, Acc) when Acc > EndHeight ->
+                                          blockchain_block:height(B);
+                                     (_, _) ->
+                                          return
+                                  end, ChainHeight, HeadBlock, Chain);
+        false ->
+            Height
     end.
 
 %% ------------------------------------------------------------------
