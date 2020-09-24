@@ -1530,6 +1530,7 @@ maybe_gc_scs(Chain) ->
     {ok, Height} = current_height(Ledger),
     {ok, Block} = blockchain:get_block(Height, Chain),
     {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
+    {ok, RewardVersion} = ?MODULE:config(?reward_version, Ledger),
 
     case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
@@ -1558,8 +1559,19 @@ maybe_gc_scs(Chain) ->
                                                    blockchain_ledger_state_channel_v1 ->
                                                        {[KeyHash | CacheAcc], []};
                                                    blockchain_ledger_state_channel_v2 ->
-                                                       case (ExpireAtBlock + Grace) < EpochStart of
-                                                           false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
+                                                       %% We have to protect state channels
+                                                       %% that closed during the grace blocks
+                                                       %% in the previous epoch so that
+                                                       %% we can calculate rewards for those
+                                                       %% closes.
+                                                       %%
+                                                       %% So only expire state channels that
+                                                       %% closed *before* grace in the previous
+                                                       %% epoch
+                                                       case check_sc_expire(ExpireAtBlock, Grace,
+                                                                            EpochStart,
+                                                                            RewardVersion) of
+                                                           false -> Acc;
                                                            true ->
                                                                ID = Mod:id(SC),
                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
@@ -1590,6 +1602,15 @@ maybe_gc_scs(Chain) ->
         _ ->
             ok
     end.
+
+-spec check_sc_expire(ExpiresAt :: pos_integer(),
+                      Grace :: pos_integer(),
+                      EpochStart :: pos_integer(),
+                      RewardVersion :: pos_integer()) -> boolean().
+check_sc_expire(ExpiresAt, Grace, EpochStart, RewardVersion) when RewardVersion > 4 ->
+    (ExpiresAt + Grace) < (EpochStart - Grace);
+check_sc_expire(ExpiresAt, Grace, EpochStart, _RewardVersion) ->
+    (ExpiresAt + Grace) < EpochStart.
 
 -spec calc_remaining_dcs( blockchain_ledger_state_channel_v2:state_channel() ) -> non_neg_integer().
 calc_remaining_dcs(SC) ->
