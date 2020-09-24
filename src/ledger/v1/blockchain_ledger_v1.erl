@@ -2267,7 +2267,7 @@ find_routing(OUI, Ledger) ->
 -spec find_routing_for_packet(blockchain_helium_packet_v1:packet(), ledger()) -> {ok, [blockchain_ledger_routing_v1:routing(), ...]}
                                                                                  | {error, any()}.
 find_routing_for_packet(Packet, Ledger) ->
-    case blockchain_helium_packet_v1:routing_info(Packet) of
+    case blockchain_helium_packet_v1:routing(Packet) of
         {eui, DevEUI, AppEUI} ->
             find_routing_via_eui(DevEUI, AppEUI, Ledger);
         {devaddr, DevAddr0} ->

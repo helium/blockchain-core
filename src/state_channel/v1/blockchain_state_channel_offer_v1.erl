@@ -31,7 +31,7 @@
                   Hotspot :: libp2p_crypto:pubkey_bin(),
                   Region :: atom()) -> offer().
 from_packet(Packet, Hotspot, Region) ->
-    case blockchain_helium_packet_v1:routing_info(Packet) of
+    case blockchain_helium_packet_v1:routing(Packet) of
         {eui, _, _}=Routing ->
             #blockchain_state_channel_offer_v1_pb{
                routing=blockchain_helium_packet_v1:make_routing_info(Routing),

@@ -411,14 +411,14 @@ wait_until_height(Node, Height) ->
 
 join_packet(AppKey, DevNonce, RSSI) ->
     RoutingInfo = {devaddr, 1207959553},
-    blockchain_helium_packet_v1:new(RoutingInfo,
-                                    lorawan,
+    blockchain_helium_packet_v1:new(lorawan,
                                     join_payload(AppKey, DevNonce),
-                                    1000,
                                     RSSI,
+                                    0.0,
+                                    1000,
                                     923.3,
                                     <<"SF8BW125">>,
-                                    0.0).
+                                    RoutingInfo).
 
 join_payload(AppKey, DevNonce) ->
     MType = ?JOIN_REQUEST,
