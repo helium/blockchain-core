@@ -111,7 +111,8 @@ offer(Offer, _Ledger, SCPacketHandler, HandlerPid) ->
             case SCPacketHandler:handle_offer(Offer, HandlerPid) of
                 ok ->
                     gen_server:cast(?SERVER, {offer, Offer, HandlerPid});
-                {error, _Why} ->
+                {error, Reason} ->
+                    lager:error("offer failed, reason: ~p", [Reason]),
                     reject
             end
     end.
