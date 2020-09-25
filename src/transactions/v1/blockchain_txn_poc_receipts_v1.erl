@@ -1018,6 +1018,7 @@ to_json(Txn, _Opts) ->
       hash => ?BIN_TO_B64(hash(Txn)),
       secret => ?BIN_TO_B64(secret(Txn)),
       onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
+      request_block_hash => ?MAYBE_B64(request_block_hash(Txn)),
       path => [blockchain_poc_path_element_v1:to_json(E, []) || E <- path(Txn)],
       fee => fee(Txn),
       challenger => ?BIN_TO_B58(challenger(Txn))
@@ -1471,7 +1472,7 @@ to_json_test() ->
     Json = to_json(Txn, []),
 
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [type, hash, secret, onion_key_hash, path, fee, challenger])).
+                      [type, hash, secret, onion_key_hash, request_block_hash, path, fee, challenger])).
 
 
 -endif.
