@@ -665,6 +665,27 @@ good_quality_witnesses(Element, Ledger) ->
                          Witnesses)
     end.
 
+
+%% Iterate over all poc_path elements and for each path element calls a given
+%% callback function with the valid witnesses and valid receipt.
+valid_path_elements_fold(Fun, Acc0, Txn, Ledger) ->
+    Path = ?MODULE:path(Txn),
+    {ok, Channels} = get_channels(Txn),
+    lists:foldl(fun({ElementPos, Element}, Acc) ->
+                        {PreviousElement, ReceiptChannel, WitnessChannel} =
+                            case ElementPos of
+                                1 ->
+                                    {undefined, 0, hd(Channels)};
+                                _ ->
+                                    {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                            end,
+
+                        FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                        FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+
+                        Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
+                end, Acc0, lists:zip(lists:seq(1, length(Path)), Path)).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -696,30 +717,15 @@ absorb(Txn, Chain) ->
                         ok;
                     {ok, POCVersion} when POCVersion >= 9 ->
                         %% Add filtered witnesses with poc-v9
-                        Path = ?MODULE:path(Txn),
-                        Length = length(Path),
-                        {ok, Channels} = get_channels(Txn, Chain),
-                        ok = lists:foreach(fun({ElementPos, Element}) ->
-                                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                   {PreviousElement, ReceiptChannel, WitnessChannel} =
-                                                   case ElementPos of
-                                                       1 ->
-                                                           {undefined, 0, hd(Channels)};
-                                                       _ ->
-                                                           {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                                                   end,
-
-                                                   FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                                                   FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
-
-                                                   case FilteredReceipt of
-                                                       undefined ->
-                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                                                       FR ->
-                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                                                   end
-                                           end,
-                                           lists:zip(lists:seq(1, Length), Path));
+                        ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
+                                                              Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                              case FilteredReceipt of
+                                                                  undefined ->
+                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                                                                  FR ->
+                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                                                              end
+                                                      end, ok, Txn, Ledger);
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
@@ -1012,14 +1018,31 @@ print_path(Path) ->
                           Path), "\n\t").
 
 -spec to_json(txn_poc_receipts(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, _Opts) ->
+to_json(Txn, Opts) ->
+    PathElems =
+        case lists:keyfind(ledger, 1, Opts) of
+            false ->
+                [{Elem, []} || Elem <- path(Txn)];
+            {ledger, Ledger} ->
+                case blockchain:config(?poc_version, Ledger) of
+                    {error, not_found} ->
+                        %% Older poc version, don't add validity
+                        [{Elem, []} || Elem <- path(Txn)];
+                    {ok, POCVersion} when POCVersion >= 9 ->
+                        valid_path_elements_fold(fun(Elem, {ValidWitnesses, ValidReceipt}, Acc) ->
+                                                         ElemOpts = [{valid_witnesses, ValidWitnesses},
+                                                                     {valid_receipt, ValidReceipt}],
+                                                         [{Elem, ElemOpts} | Acc]
+                                                 end, [], Txn, Ledger)
+                end
+        end,
     #{
       type => <<"poc_receipts_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
       secret => ?BIN_TO_B64(secret(Txn)),
       onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
       request_block_hash => ?MAYBE_B64(request_block_hash(Txn)),
-      path => [blockchain_poc_path_element_v1:to_json(E, []) || E <- path(Txn)],
+      path => [blockchain_poc_path_element_v1:to_json(Elem, ElemOpts) || {Elem, ElemOpts} <- PathElems],
       fee => fee(Txn),
       challenger => ?BIN_TO_B58(challenger(Txn))
      }.

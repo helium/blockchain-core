@@ -151,17 +151,22 @@ print(#blockchain_poc_witness_v1_pb{
                   ]).
 
 -spec to_json(poc_witness(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Witness, _Opts) ->
-    #{
-      gateway => ?BIN_TO_B58(gateway(Witness)),
-      timestamp => timestamp(Witness),
-      signal => signal(Witness),
-      packet_hash => ?BIN_TO_B64(packet_hash(Witness)),
-      snr => ?MAYBE_UNDEFINED(snr(Witness)),
-      frequency => ?MAYBE_UNDEFINED(frequency(Witness)),
-      channel => ?MAYBE_UNDEFINED(channel(Witness)),
-      datarate => ?MAYBE_UNDEFINED(datarate(Witness))
-     }.
+to_json(Witness, Opts) ->
+    Base = #{
+             gateway => ?BIN_TO_B58(gateway(Witness)),
+             timestamp => timestamp(Witness),
+             signal => signal(Witness),
+             packet_hash => ?BIN_TO_B64(packet_hash(Witness)),
+             snr => ?MAYBE_UNDEFINED(snr(Witness)),
+             frequency => ?MAYBE_UNDEFINED(frequency(Witness)),
+             channel => ?MAYBE_UNDEFINED(channel(Witness)),
+             datarate => ?MAYBE_UNDEFINED(datarate(Witness))
+            },
+    case lists:keyfind(is_valid, 1, Opts) of
+        false -> Base;
+        {is_valid, Valid} -> Base#{ is_valid => Valid }
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
