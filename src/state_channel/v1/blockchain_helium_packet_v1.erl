@@ -15,7 +15,10 @@
          rx1_window/1,
          rx2_window/1,
          routing/1,
-         window/1, window/3,
+         window/3,
+         timestamp/1,
+         frequency/1,
+         datarate/1,
          packet_hash/1,
          encode/1, decode/1
         ]).
@@ -111,13 +114,28 @@ routing(#packet_pb{routing=RoutingInfo}) ->
             {eui, DevEUI, AppEUI}
     end.
 
--spec window(window()) -> {non_neg_integer(), float(), string()}.
-window(#window_pb{timestamp=TS, frequency=Freq, datarate=DataRate}) ->
-    {TS, Freq, DataRate}.
-
 -spec window(non_neg_integer(), float(), string()) -> window().
 window(TS, Freq, DataRate) ->
     #window_pb{timestamp=TS, frequency=Freq, datarate=DataRate}.
+
+
+-spec timestamp(packet()| window()) -> non_neg_integer().
+timestamp(#packet_pb{rx1_window=Window})  ->
+    ?MODULE:timestamp(Window);
+timestamp(#window_pb{timestamp=TS}) ->
+    TS.
+
+-spec frequency(packet()| window()) -> float().
+frequency(#packet_pb{rx1_window=Window})  ->
+    ?MODULE:frequency(Window);
+frequency(#window_pb{frequency=Freq}) ->
+    Freq.
+
+-spec datarate(packet()| window()) -> string().
+datarate(#packet_pb{rx1_window=Window})  ->
+    ?MODULE:datarate(Window);
+datarate(#window_pb{datarate=DataRate}) ->
+    DataRate.
 
 -spec packet_hash(packet()) -> binary().
 packet_hash(Packet) ->
@@ -194,8 +212,25 @@ routing_test() ->
 
 window_test() ->
     Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    ?assertEqual({12, 1.0, "DR"}, window(Window)),
     ?assertEqual(Window, window(12, 1.0, "DR")).
+
+timestamp_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, Window),
+    ?assertEqual(12, timestamp(Window)),
+    ?assertEqual(12, timestamp(Packet)).
+
+frequency_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, Window),
+    ?assertEqual(1.0, frequency(Window)),
+    ?assertEqual(1.0, frequency(Packet)).
+
+datarate_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, Window),
+    ?assertEqual("DR", datarate(Window)),
+    ?assertEqual("DR", datarate(Packet)).
 
 packet_hash_test() ->
     Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
