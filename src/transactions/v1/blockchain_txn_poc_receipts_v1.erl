@@ -36,7 +36,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/2
+    get_channels/2, get_channels/1
 ]).
 
 -ifdef(TEST).
@@ -1237,9 +1237,9 @@ get_channels(Txn, Chain) ->
     OnionKeyHash = ?MODULE:onion_key_hash(Txn),
     {ok, Head} = blockchain:head_block(Chain),
 
-    BlockHash = case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
+    case blockchain:config(?poc_version, blockchain:ledger(Chain)) of
         {ok, POCVer} when POCVer >= 10 ->
-            ?MODULE:request_block_hash(Txn);
+            ?MODULE:get_channels(Txn);
         _ ->
             %% Retry by walking the chain and attempt to find the last challenge block
             %% Note that this does not scale at all and should not be used
@@ -1248,7 +1248,7 @@ get_channels(Txn, Chain) ->
                                     blockchain_txn_poc_request_v1:onion_key_hash(T) == OnionKeyHash
                             end,
 
-            blockchain:fold_chain(fun(Block, undefined) ->
+            BH = blockchain:fold_chain(fun(Block, undefined) ->
                                                       case blockchain_utils:find_txn(Block, RequestFilter) of
                                                           [_T] ->
                                                               blockchain_block:hash_block(Block);
@@ -1256,15 +1256,8 @@ get_channels(Txn, Chain) ->
                                                               undefined
                                                       end;
                                                  (_, _Hash) -> return
-                                              end, undefined, Head, Chain)
-    end,
+                                              end, undefined, Head, Chain),
 
-    case BlockHash of
-        <<>> ->
-            {error, request_block_hash_not_found};
-        undefined ->
-            {error, request_block_hash_not_found};
-        BH ->
             Entropy1 = <<Secret/binary, BH/binary, Challenger/binary>>,
             [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy1, PathLength+1),
             Channels1 = lists:map(fun(Layer) ->
@@ -1273,6 +1266,30 @@ get_channels(Txn, Chain) ->
                                   end, LayerData1),
             {ok, Channels1}
     end.
+
+
+-spec get_channels(Txn :: txn_poc_receipts()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn) ->
+    %% This will only work poc-v10 onwards, but no check is made for that here
+    Challenger = ?MODULE:challenger(Txn),
+    Path = ?MODULE:path(Txn),
+    Secret = ?MODULE:secret(Txn),
+    PathLength = length(Path),
+    case ?MODULE:request_block_hash(Txn) of
+        <<>> ->
+            {error, request_block_hash_not_found};
+        undefined ->
+            {error, request_block_hash_not_found};
+        BH ->
+            Entropy = <<Secret/binary, BH/binary, Challenger/binary>>,
+            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, PathLength+1),
+            Channels = lists:map(fun(Layer) ->
+                                         <<IntData:16/integer-unsigned-little>> = Layer,
+                                         IntData rem 8
+                                 end, LayerData1),
+            {ok, Channels}
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
