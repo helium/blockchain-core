@@ -36,7 +36,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/2
+    get_channels/2, get_channels/1
 ]).
 
 -ifdef(TEST).
@@ -1272,6 +1272,38 @@ get_channels(Txn, Chain) ->
                                           IntData rem 8
                                   end, LayerData1),
             {ok, Channels1}
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%%
+%% This will only work poc-v10 onwards, but no check is made for
+%% that in this function.
+%%
+%% Furthermore, this is exposed so that `to_json` function for poc_receipt and
+%% poc_witness can use it.
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec get_channels(Txn :: txn_poc_receipts()) -> {ok, [non_neg_integer()]} | {error, any()}.
+get_channels(Txn) ->
+    Challenger = ?MODULE:challenger(Txn),
+    Path = ?MODULE:path(Txn),
+    Secret = ?MODULE:secret(Txn),
+    PathLength = length(Path),
+    case ?MODULE:request_block_hash(Txn) of
+        <<>> ->
+            {error, request_block_hash_not_found};
+        undefined ->
+            {error, request_block_hash_not_found};
+        BH ->
+            Entropy = <<Secret/binary, BH/binary, Challenger/binary>>,
+            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, PathLength+1),
+            Channels = lists:map(fun(Layer) ->
+                                         <<IntData:16/integer-unsigned-little>> = Layer,
+                                         IntData rem 8
+                                 end, LayerData1),
+            {ok, Channels}
     end.
 
 %% ------------------------------------------------------------------
