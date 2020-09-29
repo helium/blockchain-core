@@ -216,7 +216,7 @@ deserialize(<<1,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
     try binary_to_term(BinSnap) of
         OldSnapshot ->
-            Snapshot = v1_to_v2(OldSnapshot),
+            Snapshot = v3_to_v4(v2_to_v3(v1_to_v2(OldSnapshot))),
             {ok, Snapshot}
     catch _:_ ->
             {error, bad_snapshot_binary}
@@ -226,7 +226,7 @@ deserialize(<<2,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
     try binary_to_term(BinSnap) of
         OldSnapshot ->
-            Snapshot = v2_to_v3(OldSnapshot),
+            Snapshot = v3_to_v4(v2_to_v3(OldSnapshot)),
             {ok, Snapshot}
     catch _:_ ->
             {error, bad_snapshot_binary}
