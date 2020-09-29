@@ -62,8 +62,10 @@
 
 -ifdef(TEST).
 -define(min_snap_interval, 1).
+-define(expire_lower_bound, 2).
 -else.
 -define(min_snap_interval, 4*60).
+-define(expire_lower_bound, 9).
 -endif.
 
 -type txn_vars() :: #blockchain_txn_vars_v1_pb{}.
@@ -919,7 +921,7 @@ validate_var(?txn_field_validation_version, Value) ->
 %% state channel vars
 %% XXX: what are some reasonable limits here?
 validate_var(?min_expire_within, Value) ->
-    validate_int(Value, "min_expire_within", 9, 20, false);
+    validate_int(Value, "min_expire_within", ?expire_lower_bound, 20, false);
 validate_var(?max_open_sc, Value) ->
     validate_int(Value, "max_open_sc", 1, 10, false);
 validate_var(?max_xor_filter_size, Value) ->
