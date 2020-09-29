@@ -6,19 +6,18 @@
 -module(blockchain_helium_packet_v1).
 
 -export([new/0, new/2, new/8,
-         new_downlink/3, new_downlink/4,
+         new_downlink/5, new_downlink/6,
          make_routing_info/1,
          type/1,
          payload/1,
-         signal_strength/1,
-         snr/1,
-         rx1_window/1,
-         rx2_window/1,
-         routing/1,
-         window/3,
          timestamp/1,
+         signal_strength/1,
          frequency/1,
          datarate/1,
+         snr/1,
+         routing/1,
+         rx2_window/1,
+         window/3,
          packet_hash/1,
          encode/1, decode/1
         ]).
@@ -46,34 +45,40 @@ new(RoutingInfo, Payload) ->
 
 -spec new(Type :: longfi | lorawan,
           Payload :: binary(),
+          Timestamp :: non_neg_integer(),
           SignalStrength :: float(),
-          SNR :: float(),
-          TimeStamp :: non_neg_integer(),
           Frequency :: float(),
           DataRate :: string(),
+          SNR :: float(),
           RoutingInfo :: routing_info()) -> packet().
-new(Type, Payload, SignalStrength, SNR, TimeStamp, Frequency, DataRate, RoutingInfo) ->
+new(Type, Payload, Timestamp, SignalStrength, Frequency, DataRate, SNR, RoutingInfo) ->
     #packet_pb{
        type=Type,
        payload=Payload,
+       timestamp=Timestamp,
        signal_strength=SignalStrength,
+       frequency=Frequency,
+       datarate=DataRate,
        snr=SNR,
-       rx1_window=?MODULE:window(TimeStamp, Frequency, DataRate),
        routing=?MODULE:make_routing_info(RoutingInfo)}.
 
--spec new_downlink(Payload :: binary(), SignalStrength :: integer(), Rx1 :: window()) -> packet().
-new_downlink(Payload, SignalStrength, Rx1) ->
-    ?MODULE:new_downlink(Payload, SignalStrength, Rx1, undefined).
+-spec new_downlink(Payload :: binary(), SignalStrength :: integer(), Timestamp :: non_neg_integer(),
+                   Frequency :: float(), DataRate :: string()) -> packet().
+new_downlink(Payload, SignalStrength, Timestamp, Frequency, DataRate) ->
+    ?MODULE:new_downlink(Payload, SignalStrength, Timestamp, Frequency, DataRate, undefined).
 
--spec new_downlink(Payload :: binary(), SignalStrength :: integer(),
-                  Rx1 :: window(), Rx1 :: window() | undefined) -> packet().
-new_downlink(Payload, SignalStrength, Rx1, Rx2) ->
+-spec new_downlink(Payload :: binary(), SignalStrength :: integer(), Timestamp :: non_neg_integer(),
+                   Frequency :: float(), DataRate :: string(), window() | undefined) -> packet().
+new_downlink(Payload, SignalStrength, Timestamp, Frequency, DataRate, Rx2) ->
     #packet_pb{
        type=lorawan,
        payload=Payload,
+       timestamp=Timestamp,
        signal_strength=SignalStrength,
-       rx1_window=Rx1,
-       rx2_window=Rx2}.
+       frequency=Frequency,
+       datarate=DataRate,
+       rx2_window=Rx2
+    }.
 
 -spec make_routing_info(routing_info()) -> routing_information().
 make_routing_info({devaddr, DevAddr}) ->
@@ -89,21 +94,31 @@ type(#packet_pb{type=Type}) ->
 payload(#packet_pb{payload=Payload}) ->
     Payload.
 
+-spec timestamp(packet() | window()) -> non_neg_integer().
+timestamp(#packet_pb{timestamp=TS})  ->
+    TS;
+timestamp(#window_pb{timestamp=TS}) ->
+    TS.
+
 -spec signal_strength(packet()) -> float().
 signal_strength(#packet_pb{signal_strength=SS}) ->
     SS.
 
+-spec frequency(packet() | window()) -> float().
+frequency(#packet_pb{frequency=Freq})  ->
+    Freq;
+frequency(#window_pb{frequency=Freq}) ->
+    Freq.
+
+-spec datarate(packet() | window()) -> string().
+datarate(#packet_pb{datarate=DataRate})  ->
+    DataRate;
+datarate(#window_pb{datarate=DataRate}) ->
+    DataRate.
+
 -spec snr(packet()) -> float().
 snr(#packet_pb{snr=SNR}) ->
     SNR.
-
--spec rx1_window(packet()) ->  window() | undefined.
-rx1_window(#packet_pb{rx1_window=Window}) ->
-    Window.
-
--spec rx2_window(packet()) -> window() | undefined.
-rx2_window(#packet_pb{rx2_window=Window}) ->
-    Window.
 
 -spec routing(packet()) -> routing_info().
 routing(#packet_pb{routing=RoutingInfo}) ->
@@ -114,28 +129,13 @@ routing(#packet_pb{routing=RoutingInfo}) ->
             {eui, DevEUI, AppEUI}
     end.
 
+-spec rx2_window(packet()) -> window() | undefined.
+rx2_window(#packet_pb{rx2_window=Window}) ->
+    Window.
+
 -spec window(non_neg_integer(), float(), string()) -> window().
 window(TS, Freq, DataRate) ->
     #window_pb{timestamp=TS, frequency=Freq, datarate=DataRate}.
-
-
--spec timestamp(packet()| window()) -> non_neg_integer().
-timestamp(#packet_pb{rx1_window=Window})  ->
-    ?MODULE:timestamp(Window);
-timestamp(#window_pb{timestamp=TS}) ->
-    TS.
-
--spec frequency(packet()| window()) -> float().
-frequency(#packet_pb{rx1_window=Window})  ->
-    ?MODULE:frequency(Window);
-frequency(#window_pb{frequency=Freq}) ->
-    Freq.
-
--spec datarate(packet()| window()) -> string().
-datarate(#packet_pb{rx1_window=Window})  ->
-    ?MODULE:datarate(Window);
-datarate(#window_pb{datarate=DataRate}) ->
-    DataRate.
 
 -spec packet_hash(packet()) -> binary().
 packet_hash(Packet) ->
@@ -163,81 +163,85 @@ new2_test() ->
     ?assertEqual(Packet, new({devaddr, 16#deadbeef}, <<"payload">>)).
 
 new8_test() ->
-    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
     RoutingInfo = #routing_information_pb{data={devaddr, 16#deadbeef}},
-    Packet = #packet_pb{type=lorawan, payload= <<"payload">>, signal_strength=0.1, snr=0.2,
-                        rx1_window=Window, routing=RoutingInfo},
-    ?assertEqual(Packet, new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef})).
+    Packet = #packet_pb{type=lorawan,
+                        payload= <<"payload">>,
+                        timestamp=12,
+                        signal_strength=0.1,
+                        frequency=1.0,
+                        datarate="DR",
+                        snr=0.2,
+                        routing=RoutingInfo},
+    ?assertEqual(Packet, new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef})).
 
 new_downlink_test() ->
-    Window1 = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    Packet1 = #packet_pb{type=lorawan, payload= <<"payload">>, signal_strength=0.1, rx1_window=Window1},
-    ?assertEqual(Packet1, new_downlink(<<"payload">>, 0.1, Window1)),
+    Packet1 = #packet_pb{type=lorawan,
+                         payload= <<"payload">>,
+                         timestamp=100,
+                         signal_strength=0.1,
+                         frequency=0.2,
+                         datarate="DR"},
+    ?assertEqual(Packet1, new_downlink(<<"payload">>, 0.1, 100, 0.2, "DR")),
     Window2 = #window_pb{timestamp=22, frequency=2.0, datarate="DR2"},
-    Packet2 = #packet_pb{type=lorawan, payload= <<"payload">>, signal_strength=0.1, rx1_window=Window1, rx2_window=Window2},
-    ?assertEqual(Packet2, new_downlink(<<"payload">>, 0.1, Window1, Window2)).
+    Packet2 = Packet1#packet_pb{rx2_window=Window2},
+    ?assertEqual(Packet2, new_downlink(<<"payload">>, 0.1, 100, 0.2, "DR", Window2)).
 
 make_routing_info_test() ->
     ?assertEqual(#routing_information_pb{data={devaddr, 16#deadbeef}}, make_routing_info({devaddr, 16#deadbeef})),
     ?assertEqual(#routing_information_pb{data={eui, #eui_pb{deveui=16#deadbeef, appeui=16#deadbeef}}}, make_routing_info({eui, 16#deadbeef, 16#deadbeef})).
 
 type_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual(lorawan, type(Packet)).
 
 payload_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual(<<"payload">>, payload(Packet)).
 
+timestamp_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, 12, 0.2, "DR"),
+    ?assertEqual(12, timestamp(Window)),
+    ?assertEqual(12, timestamp(Packet)).
+
 signal_strength_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual(0.1, signal_strength(Packet)).
 
+frequency_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, 12, 1.0, "DR"),
+    ?assertEqual(1.0, frequency(Window)),
+    ?assertEqual(1.0, frequency(Packet)).
+
+datarate_test() ->
+    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
+    Packet = new_downlink(<<"payload">>, 0.1, 12, 1.0, "DR"),
+    ?assertEqual("DR", datarate(Window)),
+    ?assertEqual("DR", datarate(Packet)).
+
 snr_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual(0.2, snr(Packet)).
 
-rx1_window_test() ->
-    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
-    ?assertEqual(Window, rx1_window(Packet)).
-
 rx2_window_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual(undefined, rx2_window(Packet)).
 
 routing_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 12, 0.1, 1.0, "DR", 0.2, {devaddr, 16#deadbeef}),
     ?assertEqual({devaddr, 16#deadbeef}, routing(Packet)).
 
 window_test() ->
     Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
     ?assertEqual(Window, window(12, 1.0, "DR")).
 
-timestamp_test() ->
-    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    Packet = new_downlink(<<"payload">>, 0.1, Window),
-    ?assertEqual(12, timestamp(Window)),
-    ?assertEqual(12, timestamp(Packet)).
-
-frequency_test() ->
-    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    Packet = new_downlink(<<"payload">>, 0.1, Window),
-    ?assertEqual(1.0, frequency(Window)),
-    ?assertEqual(1.0, frequency(Packet)).
-
-datarate_test() ->
-    Window = #window_pb{timestamp=12, frequency=1.0, datarate="DR"},
-    Packet = new_downlink(<<"payload">>, 0.1, Window),
-    ?assertEqual("DR", datarate(Window)),
-    ?assertEqual("DR", datarate(Packet)).
-
 packet_hash_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.1, 0.2, 12, 1.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 1500, 2.0, 1.0, "DR", 1.0, {devaddr, 16#deadbeef}),
     ?assertEqual(crypto:hash(sha256, <<"payload">>), packet_hash(Packet)).
 
 encode_decode_test() ->
-    Packet = new(lorawan, <<"payload">>, 0.0, 0.0, 12, 0.0, "DR", {devaddr, 16#deadbeef}),
+    Packet = new(lorawan, <<"payload">>, 1500, 2.0, 1.0, "DR", 1.0, {devaddr, 16#deadbeef}),
     ?assertEqual(Packet, decode(encode(Packet))).
 
 -endif.
