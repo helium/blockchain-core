@@ -36,7 +36,7 @@
     poc_id/1,
     good_quality_witnesses/2,
     valid_witnesses/3,
-    get_channels/2, get_channels/1
+    get_channels/2
 ]).
 
 -ifdef(TEST).
@@ -665,6 +665,27 @@ good_quality_witnesses(Element, Ledger) ->
                          Witnesses)
     end.
 
+
+%% Iterate over all poc_path elements and for each path element calls a given
+%% callback function with the valid witnesses and valid receipt.
+valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
+    Path = ?MODULE:path(Txn),
+    {ok, Channels} = get_channels(Txn, Chain),
+    lists:foldl(fun({ElementPos, Element}, Acc) ->
+                        {PreviousElement, ReceiptChannel, WitnessChannel} =
+                            case ElementPos of
+                                1 ->
+                                    {undefined, 0, hd(Channels)};
+                                _ ->
+                                    {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
+                            end,
+
+                        FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
+                        FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
+
+                        Fun(Element, {FilteredWitnesses, FilteredReceipt}, Acc)
+                end, Acc0, lists:zip(lists:seq(1, length(Path)), Path)).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -696,30 +717,15 @@ absorb(Txn, Chain) ->
                         ok;
                     {ok, POCVersion} when POCVersion >= 9 ->
                         %% Add filtered witnesses with poc-v9
-                        Path = ?MODULE:path(Txn),
-                        Length = length(Path),
-                        {ok, Channels} = get_channels(Txn, Chain),
-                        ok = lists:foreach(fun({ElementPos, Element}) ->
-                                                   Challengee = blockchain_poc_path_element_v1:challengee(Element),
-                                                   {PreviousElement, ReceiptChannel, WitnessChannel} =
-                                                   case ElementPos of
-                                                       1 ->
-                                                           {undefined, 0, hd(Channels)};
-                                                       _ ->
-                                                           {lists:nth(ElementPos - 1, Path), lists:nth(ElementPos - 1, Channels), lists:nth(ElementPos, Channels)}
-                                                   end,
-
-                                                   FilteredReceipt = valid_receipt(PreviousElement, Element, ReceiptChannel, Ledger),
-                                                   FilteredWitnesses = valid_witnesses(Element, WitnessChannel, Ledger),
-
-                                                   case FilteredReceipt of
-                                                       undefined ->
-                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
-                                                       FR ->
-                                                           ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
-                                                   end
-                                           end,
-                                           lists:zip(lists:seq(1, Length), Path));
+                        ok = valid_path_elements_fold(fun(Element, {FilteredWitnesses, FilteredReceipt}, _) ->
+                                                              Challengee = blockchain_poc_path_element_v1:challengee(Element),
+                                                              case FilteredReceipt of
+                                                                  undefined ->
+                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses, Ledger);
+                                                                  FR ->
+                                                                      ok = blockchain_ledger_v1:insert_witnesses(Challengee, FilteredWitnesses ++ [FR], Ledger)
+                                                              end
+                                                      end, ok, Txn, Ledger, Chain);
                     {ok, POCVersion} when POCVersion > 1 ->
                         %% Find upper and lower time bounds for this poc txn and use those to clamp
                         %% witness timestamps being inserted in the ledger
@@ -1017,15 +1023,33 @@ print_path(Path) ->
                           end,
                           Path), "\n\t").
 
--spec to_json(txn_poc_receipts(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Txn, _Opts) ->
+-spec to_json(Txn :: txn_poc_receipts(),
+              Opts :: blockchain_json:opts()) -> blockchain_json:json_object().
+to_json(Txn, Opts) ->
+    PathElems =
+    case {lists:keyfind(ledger, 1, Opts), lists:keyfind(chain, 1, Opts)} of
+        {{ledger, Ledger}, {chain, Chain}} ->
+            case blockchain:config(?poc_version, Ledger) of
+                {ok, POCVersion} when POCVersion >= 10 ->
+                    valid_path_elements_fold(fun(Elem, {ValidWitnesses, ValidReceipt}, Acc) ->
+                                                     ElemOpts = [{valid_witnesses, ValidWitnesses},
+                                                                 {valid_receipt, ValidReceipt}],
+                                                     [{Elem, ElemOpts} | Acc]
+                                             end, [], Txn, Ledger, Chain);
+                _ ->
+                    %% Older poc version, don't add validity
+                    [{Elem, []} || Elem <- path(Txn)]
+            end;
+        {_, _} ->
+            [{Elem, []} || Elem <- path(Txn)]
+    end,
     #{
       type => <<"poc_receipts_v1">>,
       hash => ?BIN_TO_B64(hash(Txn)),
       secret => ?BIN_TO_B64(secret(Txn)),
       onion_key_hash => ?BIN_TO_B64(onion_key_hash(Txn)),
       request_block_hash => ?MAYBE_B64(request_block_hash(Txn)),
-      path => [blockchain_poc_path_element_v1:to_json(E, []) || E <- path(Txn)],
+      path => [blockchain_poc_path_element_v1:to_json(Elem, ElemOpts) || {Elem, ElemOpts} <- PathElems],
       fee => fee(Txn),
       challenger => ?BIN_TO_B58(challenger(Txn))
      }.
@@ -1279,38 +1303,6 @@ get_channels(Txn, Chain) ->
                                           IntData rem 8
                                   end, LayerData1),
             {ok, Channels1}
-    end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%%
-%% This will only work poc-v10 onwards, but no check is made for
-%% that in this function.
-%%
-%% Furthermore, this is exposed so that `to_json` function for poc_receipt and
-%% poc_witness can use it.
-%%
-%% @end
-%%--------------------------------------------------------------------
--spec get_channels(Txn :: txn_poc_receipts()) -> {ok, [non_neg_integer()]} | {error, any()}.
-get_channels(Txn) ->
-    Challenger = ?MODULE:challenger(Txn),
-    Path = ?MODULE:path(Txn),
-    Secret = ?MODULE:secret(Txn),
-    PathLength = length(Path),
-    case ?MODULE:request_block_hash(Txn) of
-        <<>> ->
-            {error, request_block_hash_not_found};
-        undefined ->
-            {error, request_block_hash_not_found};
-        BH ->
-            Entropy = <<Secret/binary, BH/binary, Challenger/binary>>,
-            [_ | LayerData1] = blockchain_txn_poc_receipts_v1:create_secret_hash(Entropy, PathLength+1),
-            Channels = lists:map(fun(Layer) ->
-                                         <<IntData:16/integer-unsigned-little>> = Layer,
-                                         IntData rem 8
-                                 end, LayerData1),
-            {ok, Channels}
     end.
 
 %% ------------------------------------------------------------------
