@@ -202,18 +202,18 @@ check_is_valid_poc(Txn, Chain) ->
                 {ok, PoC} ->
                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, Reason}=Error ->
-                            lager:warning([{poc_id, POCID}],
-                                          "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
-                                          [Challenger, Reason]),
+                            lager:error([{poc_id, POCID}],
+                                        "poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                                        [Challenger, Reason]),
                             Error;
                         {ok, GwInfo} ->
                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                             %% lager:info("gw last ~p ~p ~p", [LastChallenge, POCID, GwInfo]),
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error ->
-                                    lager:warning([{poc_id, POCID}],
-                                                  "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
-                                                  [LastChallenge, Reason]),
+                                    lager:error([{poc_id, POCID}],
+                                                "poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                                [LastChallenge, Reason]),
                                     Error;
                                 {ok, Block1} ->
                                     PoCInterval = blockchain_utils:challenge_interval(Ledger),
@@ -766,7 +766,8 @@ absorb(Txn, Chain) ->
                 end
         end
     catch What:Why:Stacktrace ->
-            lager:warning([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p", [What, Why, Stacktrace]),
+              lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
+                          [What, Why, Stacktrace]),
             {error, state_missing}
     end.
 
@@ -778,7 +779,8 @@ absorb(Txn, Chain) ->
 get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
     case blockchain_ledger_v1:find_poc(OnionKeyHash, Ledger) of
         {error, Reason}=Error0 ->
-            lager:warning("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p", [OnionKeyHash, Reason]),
+            lager:error("poc_receipts error find_poc, poc_onion_key_hash: ~p, reason: ~p",
+                        [OnionKeyHash, Reason]),
             Error0;
         {ok, PoCs} ->
             case blockchain_ledger_poc_v2:find_valid(PoCs, Challenger, Secret) of
@@ -787,13 +789,15 @@ get_lower_and_upper_bounds(Secret, OnionKeyHash, Challenger, Ledger, Chain) ->
                 {ok, _PoC} ->
                     case blockchain_gateway_cache:get(Challenger, Ledger) of
                         {error, Reason}=Error2 ->
-                            lager:warning("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p", [Challenger, Reason]),
+                            lager:error("poc_receipts error find_gateway_info, challenger: ~p, reason: ~p",
+                                        [Challenger, Reason]),
                             Error2;
                         {ok, GwInfo} ->
                             LastChallenge = blockchain_ledger_gateway_v2:last_poc_challenge(GwInfo),
                             case blockchain:get_block(LastChallenge, Chain) of
                                 {error, Reason}=Error3 ->
-                                    lager:warning("poc_receipts error get_block, last_challenge: ~p, reason: ~p", [LastChallenge, Reason]),
+                                    lager:error("poc_receipts error get_block, last_challenge: ~p, reason: ~p",
+                                                [LastChallenge, Reason]),
                                     Error3;
                                 {ok, Block1} ->
                                     {ok, HH} = blockchain_ledger_v1:current_height(Ledger),
@@ -909,7 +913,8 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
         false ->
             HumanTxnPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_poc_path_element_v1:challengee(E)))) || E <- TxnPath],
             HumanRebuiltPath = [element(2, erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(A))) || A <- Path],
-            lager:warning([{poc_id, POCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p", [TxnPathLength, RebuiltPathLength]),
+            lager:warning([{poc_id, POCID}], "TxnPathLength: ~p, RebuiltPathLength: ~p",
+                          [TxnPathLength, RebuiltPathLength]),
             lager:warning([{poc_id, POCID}], "TxnPath: ~p", [HumanTxnPath]),
             lager:warning([{poc_id, POCID}], "RebuiltPath: ~p", [HumanRebuiltPath]),
             {error, path_length_mismatch};
@@ -917,7 +922,8 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
             %% Now check whether layers are of equal length
             case TxnPathLength == ZippedLayersLength of
                 false ->
-                    lager:warning([{poc_id, POCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p", [TxnPathLength, ZippedLayersLength]),
+                    lager:error([{poc_id, POCID}], "TxnPathLength: ~p, ZippedLayersLength: ~p",
+                                [TxnPathLength, ZippedLayersLength]),
                     {error, zip_layer_length_mismatch};
                 true ->
                     Result = lists:foldl(
@@ -980,7 +986,7 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                        {error, invalid_receipt}
                                                end;
                                            _ ->
-                                               lager:warning([{poc_id, POCID}], "receipt not in order"),
+                                               lager:error([{poc_id, POCID}], "receipt not in order"),
                                                {error, receipt_not_in_order}
                                        end
                                end,
@@ -1090,7 +1096,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
-                            lager:warning("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
+                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                           [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                            ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                            element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1107,7 +1113,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                     lager:debug("receipt ok"),
                                                     Receipt;
                                                 false ->
-                                                    lager:warning("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
+                                                    lager:debug("receipt ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                   [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                                    ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                    element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1116,7 +1122,7 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                                                     undefined
                                             end;
                                         false ->
-                                            lager:warning("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                            lager:debug("receipt ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
                                                           [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(PreviousElement)),
                                                            ?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                            element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1164,7 +1170,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness
-                                         lager:warning("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
+                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p above FSPL ~p with SNR ~p",
                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1181,7 +1187,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                                  lager:debug("witness ok"),
                                                                  true;
                                                              false ->
-                                                                 lager:warning("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
+                                                                 lager:debug("witness ~p -> ~p rejected at height ~p for channel ~p /= ~p RSSI ~p SNR ~p",
                                                                                [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                                 ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                                 element(2, blockchain_ledger_v1:current_height(Ledger)),
@@ -1190,7 +1196,7 @@ valid_witnesses(Element, Channel, Ledger) ->
                                                                  false
                                                          end;
                                                      false ->
-                                                         lager:warning("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
+                                                         lager:debug("witness ~p -> ~p rejected at height ~p for RSSI ~p below lower bound ~p with SNR ~p",
                                                                        [?TO_ANIMAL_NAME(blockchain_poc_path_element_v1:challengee(Element)),
                                                                         ?TO_ANIMAL_NAME(blockchain_poc_witness_v1:gateway(Witness)),
                                                                         element(2, blockchain_ledger_v1:current_height(Ledger)),
