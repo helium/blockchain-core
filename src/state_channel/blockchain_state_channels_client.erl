@@ -90,7 +90,7 @@ get_known_channels(SCID) ->
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
 purchase(Purchase, HandlerPid) ->
-    gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
+    gen_server:call(?SERVER, {purchase, Purchase, HandlerPid}, infinity).
 
 -spec banner(Banner :: blockchain_state_channel_banner_v1:banner(),
              HandlerPid :: pid()) -> ok.
@@ -187,9 +187,6 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
                     end
             end
     end;
-handle_cast({purchase, Purchase, HandlerPid}, State) ->
-    NewState = handle_purchase(Purchase, HandlerPid, State),
-    {noreply, NewState};
 handle_cast({packet, Packet, DefaultRouters, Region}, #state{chain=Chain}=State) ->
     NewState = case find_routing(Packet, Chain) of
                    {error, _Reason} ->
@@ -219,6 +216,9 @@ handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
+handle_call({purchase, Purchase, HandlerPid}, _From, State) ->
+    NewState = handle_purchase(Purchase, HandlerPid, State),
+    {reply, ok, NewState};
 handle_call({get_known_channels, SCID}, _From, State) ->
     {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
