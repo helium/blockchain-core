@@ -540,8 +540,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            state_channels = SCsCF,
            subnets = SubnetsCF
           } = SubLedger,
-        %% NB: keep in sync with upgrades macro in blockchain.erl
-        Filter = ?BC_UPGRADE_NAMES,
+        %% NB: remove multi_keys when they go live
+        Filter = ?BC_UPGRADE_NAMES ++ [<<"transaction_fee">>, <<"multi_keys">>],
         DefaultHash0 =
             cache_fold(
               Ledger, DefaultCF,
