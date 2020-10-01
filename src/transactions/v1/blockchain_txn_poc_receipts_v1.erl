@@ -1031,11 +1031,13 @@ to_json(Txn, Opts) ->
         {{ledger, Ledger}, {chain, Chain}} ->
             case blockchain:config(?poc_version, Ledger) of
                 {ok, POCVersion} when POCVersion >= 10 ->
-                    valid_path_elements_fold(fun(Elem, {ValidWitnesses, ValidReceipt}, Acc) ->
+                    FoldedPath =
+                        valid_path_elements_fold(fun(Elem, {ValidWitnesses, ValidReceipt}, Acc) ->
                                                      ElemOpts = [{valid_witnesses, ValidWitnesses},
                                                                  {valid_receipt, ValidReceipt}],
                                                      [{Elem, ElemOpts} | Acc]
-                                             end, [], Txn, Ledger, Chain);
+                                             end, [], Txn, Ledger, Chain),
+                    lists:reverse(FoldedPath);
                 _ ->
                     %% Older poc version, don't add validity
                     [{Elem, []} || Elem <- path(Txn)]
