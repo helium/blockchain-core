@@ -218,7 +218,12 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
 handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
     erlang:monitor(process, Stream),
     State1 = add_stream(OUIOrAddress, Stream, State0),
-    {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)};
+    case blockchain:config(?sc_version, blockchain:ledger(State1#state.chain)) of
+        {ok, N} when N >= 2 ->
+            {noreply, State1};
+        _ ->
+            {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
+    end;
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
