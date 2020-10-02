@@ -130,7 +130,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% gen_server message handling
 %% ------------------------------------------------------------------
 
-handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
+handle_cast({banner, Banner, HandlerPid}, State) ->
     case blockchain_state_channel_banner_v1:sc(Banner) of
         undefined ->
             %% TODO in theory if you're in the same OUI as the router this is ok
@@ -149,42 +149,7 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
                 ok ->
                     overwrite_state_channel(BannerSC, State),
                     AddressOrOUI = lookup_stream_id(HandlerPid, State),
-                    Packets = get_waiting_packet(AddressOrOUI, State),
-                    lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
-                    case AddressOrOUI of
-                        OUI when is_integer(OUI) ->
-                            lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
-                            State1 = lists:foldl(
-                                       fun({Packet, Region}, Acc) ->
-                                               send_packet_or_offer(HandlerPid, OUI, Packet, Region, Acc)
-                                       end,
-                                       State,
-                                       Packets
-                                      ),
-                            {noreply, verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1))};
-                        Address when is_list(Address) ->
-                            lager:debug("dial_success sending ~p packets or offer depending on address", [Address]),
-                            State1 = case blockchain:config(sc_version, blockchain:ledger(State#state.chain)) of
-                                         {ok, 2} ->
-                                             lists:foldl(
-                                               fun({Packet, Region}, Acc) ->
-                                                       ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region),
-                                                       enqueue_packet(HandlerPid, Packet, Acc)
-                                               end,
-                                               State,
-                                               Packets
-                                              );
-                                         _ ->
-                                             lists:foreach(
-                                               fun({Packet, Region}) ->
-                                                       ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
-                                               end,
-                                               Packets
-                                              ),
-                                             State
-                                     end,
-                            {noreply, verify_stream(HandlerPid, remove_packet_from_waiting(Address, State1))}
-                    end
+                    {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
 handle_cast({purchase, Purchase, HandlerPid}, State) ->
@@ -253,7 +218,12 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
 handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
     erlang:monitor(process, Stream),
     State1 = add_stream(OUIOrAddress, Stream, State0),
-    {noreply, State1};
+    case blockchain:config(?sc_version, blockchain:ledger(State1#state.chain)) of
+        {ok, N} when N >= 2 ->
+            {noreply, State1};
+        _ ->
+            {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
+    end;
 handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
     {noreply, State};
 handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
@@ -666,7 +636,7 @@ is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) ->
                            State :: #state{}) -> #state{}.
 send_packet_or_offer(Stream, OUI, Packet, Region,
                      #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    SCVer = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+    SCVer = case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
                 {ok, N} -> N;
                 _ -> 1
             end,
@@ -685,7 +655,7 @@ send_packet_or_offer(Stream, OUI, Packet, Region,
                           State :: #state{}) -> #state{}.
 send_packet_when_v1(Stream, Packet, Region,
                     #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+    case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
         {ok, N} when N > 1 ->
             lager:debug("got stream sending offer"),
             ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region),
@@ -694,6 +664,43 @@ send_packet_when_v1(Stream, Packet, Region,
             lager:debug("got stream sending packet"),
             ok = send_packet(PubkeyBin, SigFun, Stream, Packet, Region),
             State
+    end.
+
+
+maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fun=SigFun} = State) ->
+    Packets = get_waiting_packet(AddressOrOUI, State),
+    case AddressOrOUI of
+        OUI when is_integer(OUI) ->
+            lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
+            State1 = lists:foldl(
+                       fun({Packet, Region}, Acc) ->
+                               send_packet_or_offer(HandlerPid, OUI, Packet, Region, Acc)
+                       end,
+                       State,
+                       Packets
+                      ),
+            verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1));
+        Address when is_list(Address) ->
+            case blockchain:config(?sc_version, blockchain:ledger(State#state.chain)) of
+                {ok, N} when N >= 2 ->
+                    lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
+                    lists:foldl(
+                      fun({Packet, Region}, Acc) ->
+                              ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region),
+                              enqueue_packet(HandlerPid, Packet, Acc)
+                      end,
+                      State,
+                      Packets
+                     );
+                _ ->
+                    lists:foreach(
+                      fun({Packet, Region}) ->
+                              ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
+                      end,
+                      Packets
+                     )
+            end,
+            verify_stream(HandlerPid, remove_packet_from_waiting(Address, State))
     end.
 
 %% ------------------------------------------------------------------
