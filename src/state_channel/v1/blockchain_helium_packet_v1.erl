@@ -33,7 +33,7 @@
 -type routing_info() :: {devaddr, DevAddr::non_neg_integer()} | {eui, DevEUI::non_neg_integer(), AppEUI::non_neg_integer()}.
 -type window() :: #window_pb{}.
 -type packet() :: #packet_pb{}.
--export_type([packet/0, routing_info/0, routing_information/0]).
+-export_type([window/0, packet/0, routing_info/0, routing_information/0]).
 
 -spec new() -> packet().
 new() ->
