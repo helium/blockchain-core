@@ -859,6 +859,14 @@ validate_var(?poc_centrality_wt, Value) ->
     validate_float(Value, "poc_centrality_wt", 0.0, 1.0);
 validate_var(?poc_max_hop_cells, Value) ->
     validate_int(Value, "poc_max_hop_cells", 100, 4000, false);
+validate_var(?poc_per_hop_max_witnesses, Value) ->
+    case Value of
+        N when is_integer(N), N >= 5,  N =< 20 ->
+            ok;
+        _ ->
+            %% Defaulted to 5
+            5
+    end;
 
 %% score vars
 validate_var(?alpha_decay, Value) ->
