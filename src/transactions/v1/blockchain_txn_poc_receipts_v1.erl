@@ -955,7 +955,8 @@ validate(Txn, Path, LayerData, LayerHashes, OldLedger) ->
                                                    true ->
                                                        %% ok the receipt looks good, check the witnesses
                                                        Witnesses = blockchain_poc_path_element_v1:witnesses(Elem),
-                                                       case erlang:length(Witnesses) > 5 of
+                                                       PerHopMaxWitnesses = blockchain_utils:poc_per_hop_max_witnesses(OldLedger),
+                                                       case erlang:length(Witnesses) > PerHopMaxWitnesses of
                                                            true ->
                                                                {error, too_many_witnesses};
                                                            false ->
