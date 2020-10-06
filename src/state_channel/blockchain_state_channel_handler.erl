@@ -71,7 +71,11 @@ send_offer(Pid, Offer) ->
     Pid ! {send_offer, Offer},
     ok.
 
-%-spec send_purchase(pid(), blockchain_state_channel_purchase_v1:purchase()) -> ok.
+-spec send_purchase(Pid :: pid(),
+                    NewPurchaseSC :: blockchain_state_channel_v1:state_channel(),
+                    Hotspot :: libp2p_crypto:pubkey_bin(),
+                    PacketHash :: binary(),
+                    Region :: atom()) -> ok.
 send_purchase(Pid, NewPurchaseSC, Hotspot, PacketHash, Region) ->
     %lager:info("sending purchase: ~p, pid: ~p", [Purchase, Pid]),
     Pid ! {send_purchase, NewPurchaseSC, Hotspot, PacketHash, Region},
