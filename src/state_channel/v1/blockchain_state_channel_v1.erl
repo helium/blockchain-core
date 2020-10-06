@@ -22,6 +22,8 @@
     save/3, fetch/2,
     summaries/1, summaries/2, update_summary_for/3,
 
+    normalize/1,
+
     add_payload/3,
     get_summary/2,
     num_packets_for/2, num_dcs_for/2,
@@ -301,6 +303,32 @@ add_payload(Payload, SC, Skewed) ->
             {SC#blockchain_state_channel_v1_pb{root_hash=NewRootHash}, NewSkewed}
     end.
 
+
+normalize(#blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+    Total = amount(SC),
+    %% if any individual entry is greater than the total amount, reduce it to the total amount
+    {SumTotal, NewSummaries} = lists:foldl(fun(Summary, {AccTotal, AccSummaries}) ->
+                                                   Amt = blockchain_state_channel_summary_v1:num_dcs(Summary),
+                                                   case Amt > Total of
+                                                       true ->
+                                                           {AccTotal + Total, [blockchain_state_channel_summary_v1:num_dcs(Total, Summary)|AccSummaries]};
+                                                       false ->
+                                                           {AccTotal + Amt, [Summary|AccSummaries]}
+                                                   end
+                                           end, {0, []}, Summaries),
+
+    %% then scale rewards proportionally if they collectively sum to more than the total amount
+    FinalSummaries = case SumTotal > Total of
+                         true ->
+                             lists:map(fun(Summary) ->
+                                               %% use trunc here so rounding up cannot inflate DC counts
+                                               NewAmt = trunc((blockchain_state_channel_summary_v1:num_dcs(Summary) / SumTotal) * Total),
+                                               blockchain_state_channel_summary_v1:num_dcs(NewAmt, Summary)
+                                       end, NewSummaries);
+                         false ->
+                             NewSummaries
+                     end,
+    #blockchain_state_channel_v1_pb{summaries=FinalSummaries}.
 
 -spec to_json(state_channel(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(SC, _Opts) ->

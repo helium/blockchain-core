@@ -704,7 +704,7 @@ normalize_witness_rewards(WitnessRewards, #{epoch_reward := EpochReward,
         WitnessRewards
     ).
 
-dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version := 2}, Ledger, DCRewards) ->
+dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version := 2}=Vars, Ledger, DCRewards) ->
     lists:foldl(
       fun(Txn, Acc) ->
               %% check the state channel's grace period ended in this epoch
@@ -724,13 +724,20 @@ dc_rewards(Transactions, EndHeight, #{sc_grace_blocks := GraceBlocks, sc_version
                                 true ->
                                     %% pull out the final version of the state channel
                                     FinalSC = blockchain_ledger_state_channel_v2:state_channel(SC),
-                                    Summaries = blockchain_state_channel_v1:summaries(FinalSC),
+                                    RewardVersion = maps:get(reward_version, Vars, 1),
+
+                                    Summaries = case RewardVersion > 3 of
+                                                    %% reward version 4 normalizes payouts
+                                                    true -> blockchain_state_channel_v1:summaries(blockchain_state_channel_v1:normalize(FinalSC));
+                                                    false -> blockchain_state_channel_v1:summaries(FinalSC)
+                                                end,
 
                                     %% check the dispute status
                                     Bonus = case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                 dispute ->
+                                                %% Reward version 4 or higher just slashes overcommit
+                                                 dispute when RewardVersion < 4 ->
                                                     %% the owner of the state channel did a naughty thing, divide their overcommit between the participants
-                                                     OverCommit = blockchain_ledger_state_channel_v2:amount(SC) -blockchain_ledger_state_channel_v2:original(SC),
+                                                     OverCommit = blockchain_ledger_state_channel_v2:amount(SC) - blockchain_ledger_state_channel_v2:original(SC),
                                                      OverCommit div length(Summaries);
                                                  _ ->
                                                      0
