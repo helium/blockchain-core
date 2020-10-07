@@ -127,7 +127,7 @@ snr(Receipt) ->
 frequency(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.frequency.
 
--spec datarate(Receipt :: poc_receipt()) -> binary().
+-spec datarate(Receipt :: poc_receipt()) -> list().
 datarate(Receipt) ->
     Receipt#blockchain_poc_receipt_v1_pb.datarate.
 
@@ -177,7 +177,7 @@ to_json(Receipt, _Opts) ->
       snr => ?MAYBE_UNDEFINED(snr(Receipt)),
       frequency => ?MAYBE_UNDEFINED(frequency(Receipt)),
       channel => ?MAYBE_UNDEFINED(channel(Receipt)),
-      datarate => ?MAYBE_UNDEFINED(datarate(Receipt))
+      datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Receipt)))
      }.
 
 %% ------------------------------------------------------------------

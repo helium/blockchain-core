@@ -20,7 +20,8 @@
          maybe_fn/2,
          maybe_b64/1,
          maybe_b58/1,
-         maybe_h3/1
+         maybe_h3/1,
+         maybe_list_to_binary/1
         ]).
 
 %%
@@ -58,3 +59,11 @@ maybe_b58(V) ->
 -spec maybe_h3(undefined | h3:h3index()) -> undefined | binary().
 maybe_h3(V) ->
     maybe_fn(fun(I) -> list_to_binary(h3:to_string(I)) end, V).
+
+-spec maybe_list_to_binary(undefined | list()) -> undefined | binary().
+maybe_list_to_binary(V) ->
+    maybe_fn(fun ([]) -> undefined;
+                 (I) when is_list(I) -> list_to_binary(I);
+                 (<<>>) -> undefined;
+                 (I) when is_binary(I) -> I
+             end, V).
