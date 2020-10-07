@@ -115,7 +115,7 @@ frequency(Witness) ->
 channel(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.channel.
 
--spec datarate(Witness :: poc_witness()) -> binary().
+-spec datarate(Witness :: poc_witness()) -> list().
 datarate(Witness) ->
     Witness#blockchain_poc_witness_v1_pb.datarate.
 
@@ -160,7 +160,7 @@ to_json(Witness, Opts) ->
              snr => ?MAYBE_UNDEFINED(snr(Witness)),
              frequency => ?MAYBE_UNDEFINED(frequency(Witness)),
              channel => ?MAYBE_UNDEFINED(channel(Witness)),
-             datarate => ?MAYBE_UNDEFINED(datarate(Witness))
+             datarate => ?MAYBE_UNDEFINED(?MAYBE_LIST_TO_BINARY(datarate(Witness)))
             },
     case lists:keyfind(is_valid, 1, Opts) of
         false -> Base;
@@ -219,10 +219,10 @@ encode_decode_test() ->
     ?assertEqual({witness, Witness}, blockchain_poc_response_v1:decode(blockchain_poc_response_v1:encode(Witness))).
 
 to_json_test() ->
-    Witness = new(<<"gateway">>, 1, 12, <<"hash">>),
+    Witness = new(<<"gateway">>, 1, 12, <<"hash">>, 9.8, 915.2, 8, "SF12BW500"),
     Json = to_json(Witness, []),
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
-                      [gateway, timestamp, signal, packet_hash])).
+                      [gateway, timestamp, signal, packet_hash, datarate])).
 
 new2_test() ->
     Witness = #blockchain_poc_witness_v1_pb{
