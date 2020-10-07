@@ -41,7 +41,8 @@
     min_rcv_sig/1, min_rcv_sig/2,
     index_of/2,
 
-    verify_multisig/3
+    verify_multisig/3,
+    poc_per_hop_max_witnesses/1
 ]).
 
 -ifdef(TEST).
@@ -53,6 +54,7 @@
 -define(FREQUENCY, 915).
 -define(TRANSMIT_POWER, 28).
 -define(MAX_ANTENNA_GAIN, 6).
+-define(POC_PER_HOP_MAX_WITNESSES, 5).
 
 -type zone_map() :: #{h3:index() => gateway_score_map()}.
 -type gateway_score_map() :: #{libp2p_crypto:pubkey_bin() => {blockchain_ledger_gateway_v2:gateway(), float()}}.
@@ -451,6 +453,16 @@ count_votes(Artifact, MultiKeys, [Proof | Proofs], Acc) ->
             count_votes(Artifact, lists:delete(GoodKey, MultiKeys),
                         Proofs, Acc + 1)
     end.
+
+-spec poc_per_hop_max_witnesses(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
+poc_per_hop_max_witnesses(Ledger) ->
+    case blockchain:config(?poc_per_hop_max_witnesses, Ledger) of
+        {ok, N} -> N;
+        _ ->
+            %% Defaulted to 5 to preserve backward compatability
+            ?POC_PER_HOP_MAX_WITNESSES
+    end.
+
 
 %% majority(N) ->
 %%     N div 2 + 1.

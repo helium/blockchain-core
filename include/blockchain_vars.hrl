@@ -253,6 +253,8 @@
 -define(poc_good_bucket_high, poc_good_bucket_high).
 %% Maximum allowed h3 grid cells for a potential next hop
 -define(poc_max_hop_cells, poc_max_hop_cells).
+%% Maximum allow witnesses per hop
+-define(poc_per_hop_max_witnesses, poc_per_hop_max_witnesses).
 
 %% ------------------------------------------------------------------
 %%
