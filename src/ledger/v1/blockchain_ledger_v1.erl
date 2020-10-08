@@ -1564,7 +1564,7 @@ maybe_gc_scs(Chain) ->
                                                                ID = Mod:id(SC),
                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
                                                                    undefined -> ok; %% due to tests must handle
-                                                                   dispute -> ok;
+                                                                   dispute -> ok; %% slash overcommit
                                                                    closed -> %% refund overcommit DCs
                                                                        SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
                                                                        Owner = blockchain_state_channel_v1:owner(SC0),

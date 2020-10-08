@@ -152,63 +152,68 @@ is_valid(Txn, Chain) ->
         false ->
             {error, {cannot_expire, LedgerHeight, SCGrace, ExpiresAt}};
         true ->
-            case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
-                  blockchain_state_channel_v1:validate(SC)} of
-                {false, _} ->
-                    {error, bad_closer_signature};
-                {true, {error, _}} ->
-                    {error, bad_state_channel_signature};
-                {true, ok} ->
-                    ID = blockchain_state_channel_v1:id(SC),
-                    Owner = blockchain_state_channel_v1:owner(SC),
-                    case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
-                        {error, _Reason} ->
-                            {error, state_channel_not_open};
-                        {ok, LedgerSC} ->
-                            case Owner == Closer of
-                                %% check the owner's close conditions
-                                %% the owner is not allowed to update if the channel is in dispute
-                                %% and must provide a causally newer version of the channel if there's already a close on file
-                                true ->
-                                    case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
-                                        false ->
-                                            ok;
+            case length(blockchain_state_channel_v1:summaries(SC)) > ?MAX_UNIQ_CLIENTS of
+                true ->
+                    {error, max_clients_exceeded};
+                false ->
+                    case {libp2p_crypto:verify(EncodedTxn, Signature, PubKey),
+                          blockchain_state_channel_v1:validate(SC)} of
+                        {false, _} ->
+                            {error, bad_closer_signature};
+                        {true, {error, _}} ->
+                            {error, bad_state_channel_signature};
+                        {true, ok} ->
+                            ID = blockchain_state_channel_v1:id(SC),
+                            Owner = blockchain_state_channel_v1:owner(SC),
+                            case blockchain_ledger_v1:find_state_channel(ID, Owner, Ledger) of
+                                {error, _Reason} ->
+                                    {error, state_channel_not_open};
+                                {ok, LedgerSC} ->
+                                    case Owner == Closer of
+                                        %% check the owner's close conditions
+                                        %% the owner is not allowed to update if the channel is in dispute
+                                        %% and must provide a causally newer version of the channel if there's already a close on file
                                         true ->
-                                            LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
-                                            CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
-                                            lager:info("close state was ~p", [CloseState]),
-                                            %% check this new SC is newer than the current one, if any
-                                            case LSC == undefined orelse (CloseState /= dispute andalso blockchain_state_channel_v1:compare_causality(LSC, SC) == caused) of
-                                                true ->
-                                                    ok;
+                                            case blockchain_ledger_state_channel_v2:is_v2(LedgerSC) of
                                                 false ->
-                                                    {error, redundant}
-                                            end
-                                    end;
-                                false ->
-                                    case blockchain_state_channel_v1:get_summary(Closer, SC) of
-                                        {error, _Reason}=E ->
-                                            E;
-                                        {ok, _Summary} ->
-                                            case check_close_updates(LedgerSC, Txn, Ledger) of
-                                                ok ->
-                                                    %% This closer was part of the state channel
-                                                    %% Is therefore allowed to close said state channel
-                                                    %% Verify they can afford the fee
+                                                    ok;
+                                                true ->
+                                                    LSC = blockchain_ledger_state_channel_v2:state_channel(LedgerSC),
+                                                    CloseState = blockchain_ledger_state_channel_v2:close_state(LedgerSC),
+                                                    lager:info("close state was ~p", [CloseState]),
+                                                    %% check this new SC is newer than the current one, if any
+                                                    case LSC == undefined orelse (CloseState /= dispute andalso blockchain_state_channel_v1:compare_causality(LSC, SC) == caused) of
+                                                        true ->
+                                                            ok;
+                                                        false ->
+                                                            {error, redundant}
+                                                    end
+                                            end;
+                                        false ->
+                                            case blockchain_state_channel_v1:get_summary(Closer, SC) of
+                                                {error, _Reason}=E ->
+                                                    E;
+                                                {ok, _Summary} ->
+                                                    case check_close_updates(LedgerSC, Txn, Ledger) of
+                                                        ok ->
+                                                            %% This closer was part of the state channel
+                                                            %% Is therefore allowed to close said state channel
+                                                            %% Verify they can afford the fee
 
-                                                    AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-                                                    TxnFee = ?MODULE:fee(Txn),
-                                                    %% NOTE: TMP removing fee check as SC close fees are hardcoded to zero atm and the check breaks dialyzer
-                                                    %% ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
-                                                    %% case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
-                                                    %%     false ->
-                                                    %%         {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
-                                                    %%     true ->
-                                                    %%         blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled)
-                                                    %% end
-                                                    blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled);
-                                                E ->
-                                                    E
+                                                            AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
+                                                            TxnFee = ?MODULE:fee(Txn),
+                                                            %% NOTE: TMP removing fee check as SC close fees are hardcoded to zero atm and the check breaks dialyzer
+                                                            %% ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
+                                                            %% case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
+                                                            %%     false ->
+                                                            %%         {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                            %%     true ->
+                                                            %%         blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled)
+                                                            %% end
+                                                            blockchain_ledger_v1:check_dc_or_hnt_balance(Closer, TxnFee, Ledger, AreFeesEnabled);
+                                                        E ->
+                                                            E
+                                                    end
                                             end
                                     end
                             end
