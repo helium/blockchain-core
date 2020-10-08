@@ -524,7 +524,10 @@ type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
 type(#blockchain_txn_state_channel_close_v1_pb{}) ->
     blockchain_txn_state_channel_close_v1;
 type(#blockchain_txn_price_oracle_v1_pb{}) ->
-    blockchain_txn_price_oracle_v1.
+    blockchain_txn_price_oracle_v1;
+type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
+    blockchain_txn_gen_price_oracle_v1.
+
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
