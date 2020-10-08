@@ -183,7 +183,9 @@ wrap_txn(#blockchain_txn_update_gateway_oui_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_state_channel_close_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={state_channel_close, Txn}};
 wrap_txn(#blockchain_txn_price_oracle_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={price_oracle_submission, Txn}}.
+    #blockchain_txn_pb{txn={price_oracle_submission, Txn}};
+wrap_txn(#blockchain_txn_gen_price_oracle_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={gen_price_oracle, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
