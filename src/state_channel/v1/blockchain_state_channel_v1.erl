@@ -7,6 +7,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/3, new/5,
@@ -38,8 +39,6 @@
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
-
--define(MAX_UNIQ_CLIENTS, 1000).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
