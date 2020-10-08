@@ -48,4 +48,4 @@
                      -13 => {-125,-125},
                      11 => {-90,-35}}).
 
--define(MAX_UNIQ_CLIENTS, 1000).
+-define(MAX_UNIQ_CLIENTS, 1100).
