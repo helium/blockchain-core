@@ -303,7 +303,7 @@ add_payload(Payload, SC, Skewed) ->
             {SC#blockchain_state_channel_v1_pb{root_hash=NewRootHash}, NewSkewed}
     end.
 
-
+-spec normalize(SC :: state_channel()) -> state_channel().
 normalize(#blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
     Total = amount(SC),
     %% if any individual entry is greater than the total amount, reduce it to the total amount
@@ -640,6 +640,28 @@ expire_at_block_test() ->
     SC = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(0, expire_at_block(SC)),
     ?assertEqual(1234567, expire_at_block(expire_at_block(1234567, SC))).
+
+normalize_test() ->
+    InitDCs = 20,
+    SC = new(<<"1">>, <<"owner">>, InitDCs),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin2 = libp2p_crypto:pubkey_to_bin(PubKey2),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(30, blockchain_state_channel_summary_v1:num_dcs(30, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(40, blockchain_state_channel_summary_v1:num_dcs(40, blockchain_state_channel_summary_v1:new(PubKeyBin2))),
+    SC1 = summaries([Summary1, Summary2], SC),
+
+    {ok, DC1} = num_dcs_for(PubKeyBin1, SC1),
+    {ok, DC2} = num_dcs_for(PubKeyBin2, SC1),
+    ?assert((DC1 + DC2) > InitDCs),
+
+    SC2 = normalize(SC1),
+
+    {ok, DC3} = num_dcs_for(PubKeyBin1, SC2),
+    {ok, DC4} = num_dcs_for(PubKeyBin2, SC2),
+
+    ?assert((DC3 + DC4) =< InitDCs).
 
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>, 0),
