@@ -887,7 +887,7 @@ validate_var(?dc_percent, Value) ->
     validate_float(Value, "dc_percent", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
-        N when is_integer(N), N >= 1,  N =< 4 ->
+        N when is_integer(N), N >= 1,  N =< 5 ->
             ok;
         _ ->
             throw({error, {invalid_reward_version, Value}})
