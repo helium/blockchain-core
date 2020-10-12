@@ -208,6 +208,8 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
     %% We somehow lost the chain here, likely we were restarting and haven't gotten it yet
     %% There really isn't anything we can do about it, but we should probably keep this stream
     %% (if we don't already have it)
+    %%
+    %% NOTE: We don't keep the packets we were waiting on as we lost the chain, maybe we should?
     NewState = case find_stream(AddressOrOUI, State) of
                    undefined ->
                        add_stream(AddressOrOUI, Stream, State);
@@ -338,34 +340,35 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                     {address, Address} ->
                         case find_stream(Address, StateAcc) of
                             undefined ->
-                                lager:debug("stream undef dialing first"),
+                                lager:debug("stream undef dialing first, address: ~p", [Address]),
                                 ok = dial(Swarm, RouteOrAddress),
                                 add_packet_to_waiting(Address, {Packet, Region}, add_stream(Address, dialing, StateAcc));
                             dialing ->
-                                lager:debug("stream is still dialing queueing packet"),
+                                lager:debug("stream is still dialing queueing packet, address: ~p", [Address]),
                                 add_packet_to_waiting(Address, {Packet, Region}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
                                 lager:debug("unverified stream, add_packet_to_waiting, address: ~p", [Address]),
                                 add_packet_to_waiting(Address, {Packet, Region}, StateAcc);
                             Stream ->
+                                lager:debug("stream ~p, send_packet_when_v1, address: ~p", [Stream, Address]),
                                 send_packet_when_v1(Stream, Packet, Region, StateAcc)
                         end;
                     {oui, OUI} ->
                         case find_stream(OUI, StateAcc) of
                             undefined ->
-                                lager:debug("stream undef dialing first"),
+                                lager:debug("stream undef dialing first, oui: ~p", [OUI]),
                                 ok = dial(Swarm, RouteOrAddress),
                                 add_packet_to_waiting(OUI, {Packet, Region}, add_stream(OUI, dialing, StateAcc));
                             dialing ->
-                                lager:debug("stream is still dialing queueing packet"),
+                                lager:debug("stream is still dialing queueing packet, oui: ~p", [OUI]),
                                 add_packet_to_waiting(OUI, {Packet, Region}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
                                 lager:debug("unverified stream, add_packet_to_waiting, oui: ~p", [OUI]),
                                 add_packet_to_waiting(OUI, {Packet, Region}, StateAcc);
                             Stream ->
-                                lager:debug("got stream sending offer"),
+                                lager:debug("got stream: ~p, send_packet_or_offer, oui: ~p", [Stream, OUI]),
                                 send_packet_or_offer(Stream, OUI, Packet, Region, StateAcc)
                         end
                 end
@@ -411,7 +414,7 @@ handle_purchase(Purchase, Stream,
                             %% All we do is store the state channel by overwriting instead of appending
                             %% since there was not a causal conflict
                             ok = overwrite_state_channel(PurchaseSC, State0),
-                            lager:debug("failed dequeue_packet, purchase: ~p", [Purchase]),
+                            lager:debug("failed dequeue_packet, stream: ~p, purchase: ~p", [Stream, Purchase]),
                             State0;
                         {Packet, NewState} ->
                             Payload = blockchain_helium_packet_v1:payload(Packet),
@@ -489,6 +492,7 @@ get_waiting_packet(AddressOrOUI, #state{waiting=Waiting}) ->
                             State :: state()) -> state().
 add_packet_to_waiting(AddressOrOUI, {Packet, Region}, #state{waiting=Waiting}=State) ->
     Q = get_waiting_packet(AddressOrOUI, State),
+    lager:debug("add_packet_to_waiting, AddressOrOUI: ~p", [AddressOrOUI]),
     State#state{waiting=maps:put(AddressOrOUI, Q ++ [{Packet, Region}], Waiting)}.
 
 -spec remove_packet_from_waiting(AddressOrOUI :: waiting_key(), State :: state()) -> state().
@@ -499,6 +503,7 @@ remove_packet_from_waiting(AddressOrOUI, #state{waiting=Waiting}=State) ->
                      Packet :: blockchain_helium_packet_v1:packet(),
                      State :: state()) -> state().
 enqueue_packet(Stream, Packet, #state{packets=Packets}=State) ->
+    lager:debug("enqueue_packet, stream: ~p, packet: ~p", [Stream, Packet]),
     State#state{packets=maps:update_with(Stream, fun(PacketList) -> queue:in(Packet, PacketList) end, queue:in(Packet, queue:new()), Packets)}.
 
 -spec dequeue_packet(Stream :: pid(), State :: state()) -> {undefined | blockchain_helium_packet_v1:packet(), state()}.
@@ -681,26 +686,27 @@ maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fu
                       ),
             verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1));
         Address when is_list(Address) ->
-            case blockchain:config(?sc_version, blockchain:ledger(State#state.chain)) of
-                {ok, N} when N >= 2 ->
-                    lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
-                    lists:foldl(
-                      fun({Packet, Region}, Acc) ->
-                              ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region),
-                              enqueue_packet(HandlerPid, Packet, Acc)
-                      end,
-                      State,
-                      Packets
-                     );
-                _ ->
-                    lists:foreach(
-                      fun({Packet, Region}) ->
-                              ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
-                      end,
-                      Packets
-                     )
-            end,
-            verify_stream(HandlerPid, remove_packet_from_waiting(Address, State))
+            State1 = case blockchain:config(?sc_version, blockchain:ledger(State#state.chain)) of
+                         {ok, N} when N >= 2 ->
+                             lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
+                             lists:foldl(
+                               fun({Packet, Region}, Acc) ->
+                                       ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region),
+                                       enqueue_packet(HandlerPid, Packet, Acc)
+                               end,
+                               State,
+                               Packets
+                              );
+                         _ ->
+                             lists:foreach(
+                               fun({Packet, Region}) ->
+                                       ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
+                               end,
+                               Packets
+                              ),
+                             State
+                     end,
+            verify_stream(HandlerPid, remove_packet_from_waiting(Address, State1))
     end.
 
 %% ------------------------------------------------------------------
