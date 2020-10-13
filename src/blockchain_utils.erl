@@ -42,6 +42,7 @@
     index_of/2,
 
     verify_multisig/3,
+    count_votes/3,
     poc_per_hop_max_witnesses/1
 ]).
 

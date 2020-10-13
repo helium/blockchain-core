@@ -419,6 +419,8 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                 [] ->
                     ok;
                 MultiKeys ->
+                    {ok, OldMultiKeys} = blockchain_ledger_v1:multi_keys(Ledger),
+                    ProofKeys = MultiKeys -- OldMultiKeys,
                     KeyProofs =
                         case multi_key_proofs(Txn) of
                             [] ->
@@ -426,14 +428,15 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                             Ps ->
                                 Ps
                         end,
-                    [case verify_key(Artifact, Key, KeyProof) of
+                    Votes = blockchain_utils:count_votes(Artifact, MultiKeys, KeyProofs),
+                    case Votes >= length(ProofKeys) of
                         true ->
                              ok;
-                         _ ->
-                             throw({error, bad_multi_key_proof})
-                     end
-                     || {Key, KeyProof} <- lists:zip(MultiKeys, KeyProofs)],
-                    ok
+                        _ ->
+                            lager:warning("not enough votes: votes ~p new keys ~p",
+                                          [Votes, length(ProofKeys)]),
+                            throw({error, bad_multi_key_proof})
+                    end
             end;
         _ ->
             case master_key(Txn) of
