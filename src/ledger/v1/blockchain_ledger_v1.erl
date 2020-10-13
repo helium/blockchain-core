@@ -1530,7 +1530,10 @@ maybe_gc_scs(Chain) ->
     {ok, Height} = current_height(Ledger),
     {ok, Block} = blockchain:get_block(Height, Chain),
     {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
-    {ok, RewardVersion} = ?MODULE:config(?reward_version, Ledger),
+    RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
+                        {ok, N} -> N;
+                        _ -> 1
+                    end,
 
     case ?MODULE:config(?sc_grace_blocks, Ledger) of
         {ok, Grace} ->
