@@ -430,10 +430,9 @@ verify_multisig(Artifact, Sigs, Keys) ->
     Total = length(Keys),
     lager:debug("sigs ~p keys ~p", [Sigs, Keys]),
     Votes = count_votes(Artifact, Keys, Sigs),
-    %% this code is still good, uncomment to get majority voting
-    %% Majority = majority(Total),
-    %% lager:debug("votes ~p, majority: ~p", [Votes, Majority]),
-    Votes == Total.
+    Majority = majority(Total),
+    lager:info("votes ~p, majority: ~p", [Votes, Majority]),
+    Votes >= Majority.
 
 count_votes(Artifact, MultiKeys, Proofs) ->
     count_votes(Artifact, MultiKeys, Proofs, 0).
@@ -464,8 +463,8 @@ poc_per_hop_max_witnesses(Ledger) ->
     end.
 
 
-%% majority(N) ->
-%%     N div 2 + 1.
+majority(N) ->
+    N div 2 + 1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

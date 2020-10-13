@@ -279,13 +279,13 @@ is_valid(Txn, Chain) ->
                                 %% handle the case where this gets set before
                                 %% the keys are set
                                 case blockchain_ledger_v1:multi_keys(Ledger) of
-                                    {ok, MultiKeys} ->
+                                    {ok, MultiKeys} when MultiKeys /= [] ->
                                         Proofs = multi_proofs(Txn),
                                         case blockchain_utils:verify_multisig(Artifact, Proofs, MultiKeys) of
                                             true -> ok;
                                             false -> throw({error, insufficient_votes})
                                         end;
-                                    {error, not_found} ->
+                                    _ ->
                                         {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
                                         case verify_key(Artifact, MasterKey, proof(Txn)) of
                                             true -> ok;
@@ -573,11 +573,11 @@ print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
                                  multi_keys = MultiKeys, multi_key_proofs = MultiKeyProofs,
                                  unsets = Unsets, cancels = Cancels,
                                  nonce = Nonce}) ->
-    io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p "
-                  "multi_keys=~p multi_key_proofs=~p unsets=~p cancels=~p nonce=~p",
-                  [Vars, VersionP, MasterKey, KeyProof,
-                   MultiKeys, MultiKeyProofs,
-                   Unsets, Cancels, Nonce]).
+    io_lib:format("type=vars vars=~p nonce=~p unsets=~p version_predicate=~p master_key=~p key_proof=~p "
+                  "multi_keys=~p multi_key_proofs=~p cancels=~p",
+                  [Vars, Nonce, Unsets, VersionP,
+                   MasterKey, KeyProof,
+                   MultiKeys, MultiKeyProofs, Cancels]).
 
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
