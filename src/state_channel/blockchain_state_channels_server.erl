@@ -729,6 +729,8 @@ maybe_get_new_active(SCs) ->
             %% Don't have any state channel in state
             undefined;
         L ->
+            %% We want to pick the next active state channel which has a higher block expiration
+            %% but lower nonce
             SCSortFun = fun({_ID1, {SC1, _}}, {_ID2, {SC2, _}}) ->
                                 blockchain_state_channel_v1:expire_at_block(SC1) =< blockchain_state_channel_v1:expire_at_block(SC2)
                         end,
