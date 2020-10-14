@@ -163,7 +163,8 @@ end_per_testcase(_, Config) ->
         false ->
             ok
     end,
-    ok.
+    test_utils:cleanup_tmp_dir(?config(base_dir, Config)),
+    {comment, done}.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
