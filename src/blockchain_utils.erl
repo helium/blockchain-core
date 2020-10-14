@@ -472,7 +472,7 @@ poc_per_hop_max_witnesses(Ledger) ->
 
 
 majority(N) ->
-    N div 2 + 1.
+    (N div 2) + 1.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
