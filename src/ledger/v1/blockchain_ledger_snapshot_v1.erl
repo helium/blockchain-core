@@ -86,7 +86,10 @@ generate_snapshot(Ledger0, Blocks) ->
         {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
         {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
         {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-        {ok, MultiKeys} = blockchain_ledger_v1:multi_keys(Ledger),
+        MultiKeys = case blockchain_ledger_v1:multi_keys(Ledger) of
+                        {ok, Keys} -> Keys;
+                        _ -> []
+                    end,
         DelayedVars = blockchain_ledger_v1:snapshot_delayed_vars(Ledger),
         ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
