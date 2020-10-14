@@ -436,22 +436,29 @@ verify_multisig(Artifact, Sigs, Keys) ->
     Votes >= Majority.
 
 count_votes(Artifact, MultiKeys, Proofs) ->
-    count_votes(Artifact, MultiKeys, Proofs, 0).
+    %% fold over the proofs as they're likely to be shorter than the list of keys
+    {_UnusedKeys, Count} = lists:foldl(fun(Proof, {Keys, Count}) ->
+                                               case find_key(Proof, Artifact, Keys) of
+                                                   undefined ->
+                                                       {Keys, Count};
+                                                   GoodKey ->
+                                                       %% remove a matched key from the list so it can't doublesign
+                                                       %% and to reduce the search space, then increment the count
+                                                       {Keys -- [GoodKey], Count + 1}
+                                               end
+                                       end, {MultiKeys, 0}, Proofs),
+    Count.
 
-count_votes(_Artifact, _MultiKeys, [], Acc) ->
-    Acc;
-count_votes(Artifact, MultiKeys, [Proof | Proofs], Acc) ->
-    case lists:filter(
-           fun(Key) ->
-                   libp2p_crypto:verify(Artifact, Proof,
-                                        libp2p_crypto:bin_to_pubkey(Key))
-           end, MultiKeys) of
-        %% proof didn't match any keys
-        [] ->
-            count_votes(Artifact, MultiKeys, Proofs, Acc);
-        [GoodKey] ->
-            count_votes(Artifact, lists:delete(GoodKey, MultiKeys),
-                        Proofs, Acc + 1)
+find_key(_, _, []) ->
+    undefined;
+find_key(Proof, Artifact, [Key|Keys]) ->
+    case libp2p_crypto:verify(Artifact, Proof,
+                              libp2p_crypto:bin_to_pubkey(Key)) of
+        true ->
+            %% return early
+            Key;
+        false ->
+            find_key(Proof, Artifact, Keys)
     end.
 
 -spec poc_per_hop_max_witnesses(Ledger :: blockchain_ledger_v1:ledger()) -> pos_integer().
@@ -550,5 +557,35 @@ calculate_dc_amount_test() ->
 
     meck:unload(blockchain_ledger_v1),
     test_utils:cleanup_tmp_dir(BaseDir).
+
+count_votes_test() ->
+    #{ public := PubKey1, secret := SecKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := PubKey2, secret := SecKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := PubKey3, secret := SecKey3} = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := PubKey4, secret := SecKey4} = libp2p_crypto:generate_keys(ecc_compact),
+
+    PKeys = [libp2p_crypto:pubkey_to_bin(PK) || PK <- [PubKey1, PubKey2, PubKey3, PubKey4]],
+
+    Artifact = crypto:strong_rand_bytes(10),
+
+    Sigs = [ (libp2p_crypto:mk_sig_fun(SK))(Artifact) || SK <- [SecKey1, SecKey2, SecKey3, SecKey4] ],
+
+    %% check signatures cannot be double counted
+    ?assertEqual(4, count_votes(Artifact, PKeys, Sigs)),
+    ?assertEqual(4, count_votes(Artifact, PKeys, Sigs ++ [hd(Sigs)])),
+    ?assertEqual(3, count_votes(Artifact, PKeys, tl(Sigs) ++ tl(Sigs))),
+
+    %% check signatures from existing keys cannot be counted
+    DupSig = (libp2p_crypto:mk_sig_fun(SecKey2))(Artifact),
+    ?assertEqual(3, count_votes(Artifact, PKeys, tl(Sigs) ++ [DupSig])),
+
+    %% check signatures from unknown keys do not count
+    #{ public := PubKey5, secret := SecKey5} = libp2p_crypto:generate_keys(ecc_compact),
+    ExtraSig = (libp2p_crypto:mk_sig_fun(SecKey5))(Artifact),
+    ?assertEqual(4, count_votes(Artifact, PKeys, Sigs ++ [ExtraSig])),
+
+    %% check adding the unknown key to the list does work
+    ?assertEqual(5, count_votes(Artifact, PKeys ++ [libp2p_crypto:pubkey_to_bin(PubKey5)], Sigs ++ [ExtraSig])),
+    ok.
 
 -endif.
