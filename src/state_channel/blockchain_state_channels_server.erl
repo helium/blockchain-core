@@ -757,7 +757,7 @@ send_purchase(SC, Hotspot, Stream, PacketHash, PayloadSize, Region, DCPayloadSiz
     SignedPurchaseSC = blockchain_state_channel_v1:sign(NewPurchaseSC, OwnerSigFun),
     %% NOTE: We're constructing the purchase with the hotspot obtained from offer here
     PurchaseMsg = blockchain_state_channel_purchase_v1:new(SignedPurchaseSC, Hotspot, PacketHash, Region),
-    ok = blockchain_state_channel_handler:send_purchase(Stream, PurchaseMsg),
+    ok = blockchain_state_channel_stream:send_purchase(Stream, PurchaseMsg),
     {ok, SignedPurchaseSC}.
 
 -spec active_sc(State :: state()) -> undefined | blockchain_state_channel_v1:state_channel().
@@ -773,12 +773,12 @@ send_banner(SC, Stream) ->
     %% NOTE: The banner itself is not signed, however, the state channel
     %% it contains should be signed already
     BannerMsg1 = blockchain_state_channel_banner_v1:new(SC),
-    blockchain_state_channel_handler:send_banner(Stream, BannerMsg1).
+    blockchain_state_channel_stream:send_banner(Stream, BannerMsg1).
 
 -spec send_rejection(Stream :: pid()) -> ok.
 send_rejection(Stream) ->
     RejectionMsg = blockchain_state_channel_rejection_v1:new(),
-    blockchain_state_channel_handler:send_rejection(Stream, RejectionMsg).
+    blockchain_state_channel_stream:send_rejection(Stream, RejectionMsg).
 
 -spec update_sc_summary(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                         PayloadSize :: pos_integer(),

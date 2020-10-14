@@ -49,7 +49,8 @@
           streams = #{} :: streams(),
           packets = #{} :: #{pid() => queue:queue(blockchain_helium_packet_v1:packet())},
           waiting = #{} :: waiting(),
-          pending_closes = [] :: list() %% TODO GC these
+          pending_closes = [] :: list(), %% TODO GC these
+          ed25519_keypair
          }).
 
 -type state() :: #state{}.
@@ -90,7 +91,7 @@ get_known_channels(SCID) ->
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
 purchase(Purchase, HandlerPid) ->
-    gen_server:call(?SERVER, {purchase, Purchase, HandlerPid}, infinity).
+    gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
 
 -spec banner(Banner :: blockchain_state_channel_banner_v1:banner(),
              HandlerPid :: pid()) -> ok.
@@ -109,15 +110,15 @@ gc_state_channels(SCIDs) ->
 %% ------------------------------------------------------------------
 %% init, terminate and code_change
 %% ------------------------------------------------------------------
-init(Args) ->
-    lager:info("~p init with ~p", [?SERVER, Args]),
+init(#{swarm := Swarm, ed25519_keypair := Ed25519KeyPair} = _Args) ->
+    lager:info("~p init with ~p", [?SERVER, _Args]),
     ok = blockchain_event:add_handler(self()),
-    Swarm = maps:get(swarm, Args),
     DB = blockchain_state_channels_db_owner:db(),
     CF = blockchain_state_channels_db_owner:sc_clients_cf(),
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    State = #state{db=DB, cf=CF, swarm=Swarm, pubkey_bin=PubkeyBin, sig_fun=SigFun},
+    State = #state{db=DB, cf=CF, swarm=Swarm, pubkey_bin=PubkeyBin,
+                    sig_fun=SigFun, ed25519_keypair=Ed25519KeyPair},
     {ok, State}.
 
 terminate(_Reason, _State) ->
@@ -139,12 +140,12 @@ handle_cast({banner, Banner, HandlerPid}, State) ->
             case is_valid_sc(BannerSC, State) of
                 {error, causal_conflict} ->
                     lager:error("causal_conflict for banner sc_id: ~p", [blockchain_state_channel_v1:id(BannerSC)]),
-                    _ = libp2p_framed_stream:close(HandlerPid),
+                    _ = blockchain_state_channel_stream:stop(HandlerPid),
                     ok = append_state_channel(BannerSC, State),
                     {noreply, State};
                 {error, Reason} ->
                     lager:error("reason: ~p", [Reason]),
-                    _ = libp2p_framed_stream:close(HandlerPid),
+                    _ = blockchain_state_channel_stream:stop(HandlerPid),
                     {noreply, State};
                 ok ->
                     overwrite_state_channel(BannerSC, State),
@@ -177,13 +178,13 @@ handle_cast({gc_state_channels, SCIDs}, #state{pending_closes=P, db=DB, cf=CF}=S
     ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
     rocksdb:release_batch(Batch),
     {noreply, State#state{pending_closes=P -- SCIDs}};
+handle_cast({purchase, Purchase, HandlerPid}, State) ->
+    NewState = handle_purchase(Purchase, HandlerPid, State),
+    {noreply, NewState};
 handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
-handle_call({purchase, Purchase, HandlerPid}, _From, State) ->
-    NewState = handle_purchase(Purchase, HandlerPid, State),
-    {reply, ok, NewState};
 handle_call({get_known_channels, SCID}, _From, State) ->
     {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
@@ -325,7 +326,7 @@ handle_info(_Msg, State) ->
                     RoutesOrAddresses :: [string()] | [blockchain_ledger_routing_v1:routing()],
                     Region :: atom(),
                     State :: state()) -> state().
-handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
+handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm, ed25519_keypair = Ed25519KeyPair}=State0) ->
     lager:info("handle_packet ~p to ~p", [Packet, RoutesOrAddresses]),
     lists:foldl(
         fun(RouteOrAddress, StateAcc) ->
@@ -341,7 +342,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                         case find_stream(Address, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first, address: ~p", [Address]),
-                                ok = dial(Swarm, RouteOrAddress),
+                                ok = dial(Swarm, RouteOrAddress, Ed25519KeyPair),
                                 add_packet_to_waiting(Address, {Packet, Region}, add_stream(Address, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet, address: ~p", [Address]),
@@ -358,7 +359,7 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                         case find_stream(OUI, StateAcc) of
                             undefined ->
                                 lager:debug("stream undef dialing first, oui: ~p", [OUI]),
-                                ok = dial(Swarm, RouteOrAddress),
+                                ok = dial(Swarm, RouteOrAddress, Ed25519KeyPair),
                                 add_packet_to_waiting(OUI, {Packet, Region}, add_stream(OUI, dialing, StateAcc));
                             dialing ->
                                 lager:debug("stream is still dialing queueing packet, oui: ~p", [OUI]),
@@ -388,11 +389,11 @@ handle_purchase(Purchase, Stream,
         {error, causal_conflict} ->
             lager:error("causal_conflict for purchase sc_id: ~p", [blockchain_state_channel_v1:id(PurchaseSC)]),
             ok = append_state_channel(PurchaseSC, State),
-            _ = libp2p_framed_stream:close(Stream),
+            _ = blockchain_state_channel_stream:stop(Stream),
             State;
         {error, Reason} ->
             lager:error("failed sc validation, closing stream: ~p, reason: ~p", [Stream, Reason]),
-            _ = libp2p_framed_stream:close(Stream),
+            _ = blockchain_state_channel_stream:stop(Stream),
             State;
         ok ->
             Ledger = blockchain:ledger(Chain),
@@ -402,7 +403,7 @@ handle_purchase(Purchase, Stream,
             case blockchain_ledger_v1:is_state_channel_overpaid(PurchaseSC, Ledger) of
                 true ->
                     lager:error("insufficient dcs for purchase sc: ~p: ~p - ~p = ~p", [PurchaseSC, DCBudget, TotalDCs, RemainingDCs]),
-                    _ = libp2p_framed_stream:close(Stream),
+                    _ = blockchain_state_channel_stream:stop(Stream),
                     %% we don't need to keep a sibling here as proof of misbehaviour is standalone
                     %% this will conflict or dominate any later attempt to close within spec
                     ok = overwrite_state_channel(PurchaseSC, State),
@@ -423,7 +424,7 @@ handle_purchase(Purchase, Stream,
                                 false ->
                                     lager:error("current packet (~p) (dc charge: ~p) will exceed remaining DCs (~p) in this SC, dropping",
                                                 [Packet, PacketDCs, RemainingDCs]),
-                                    _ = libp2p_framed_stream:close(Stream),
+                                    _ = blockchain_state_channel_stream:stop(Stream),
                                     NewState;
                                 true ->
                                     %% now we need to make sure that our DC count between the previous
@@ -443,7 +444,7 @@ handle_purchase(Purchase, Stream,
                                             %% do not send it. Close the stream.
                                             lager:error("purchase not valid - did not pay for packet: ~p, dropping.",
                                                         [Packet]),
-                                            _ = libp2p_framed_stream:close(Stream),
+                                            _ = blockchain_state_channel_stream:stop(Stream),
                                             %% append this state channel, so we know about it later
                                             ok = overwrite_state_channel(PurchaseSC, NewState),
                                             NewState
@@ -531,15 +532,16 @@ find_routing(Packet, Chain) ->
     end.
 
 -spec dial(Swarm :: pid(),
-           Address :: string() | blockchain_ledger_routing_v1:routing()) -> ok.
-dial(Swarm, Address) when is_list(Address) ->
+           Address :: string() | blockchain_ledger_routing_v1:routing(), any()) -> ok.
+dial(Swarm, Address, Ed25519KeyPair) when is_list(Address) ->
     Self = self(),
     erlang:spawn(
       fun() ->
               {P, R} =
                   erlang:spawn_monitor(
                     fun() ->
-                            case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                            case blockchain_state_channel_stream:dial(Swarm, Address,
+                                                                        #{ed25519_keypair => Ed25519KeyPair}) of
                                 {error, _Reason} ->
                                     Self ! {dial_fail, Address, _Reason};
                                 {ok, Stream} ->
@@ -555,7 +557,7 @@ dial(Swarm, Address) when is_list(Address) ->
               end
       end),
     ok;
-dial(Swarm, Route) ->
+dial(Swarm, Route, Ed25519KeyPair) ->
     Self = self(),
     erlang:spawn(
       fun() ->
@@ -568,7 +570,7 @@ dial(Swarm, Route) ->
                                                Acc;
                                           (PubkeyBin, not_dialed) ->
                                                Address = libp2p_crypto:pubkey_bin_to_p2p(PubkeyBin),
-                                               case blockchain_state_channel_handler:dial(Swarm, Address, []) of
+                                               case blockchain_state_channel_stream:dial(Swarm, Address, #{ed25519_keypair => Ed25519KeyPair}) of
                                                    {error, _Reason} ->
                                                        lager:error("failed to dial ~p:~p", [Address, _Reason]),
                                                        not_dialed;
@@ -604,7 +606,7 @@ dial(Swarm, Route) ->
 send_packet(PubkeyBin, SigFun, Stream, Packet, Region) ->
     PacketMsg0 = blockchain_state_channel_packet_v1:new(Packet, PubkeyBin, Region),
     PacketMsg1 = blockchain_state_channel_packet_v1:sign(PacketMsg0, SigFun),
-    blockchain_state_channel_handler:send_packet(Stream, PacketMsg1).
+    blockchain_state_channel_stream:send_packet(Stream, PacketMsg1).
 
 -spec send_offer(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                  SigFun :: libp2p_crypto:sig_fun(),
@@ -615,7 +617,7 @@ send_offer(PubkeyBin, SigFun, Stream, Packet, Region) ->
     OfferMsg0 = blockchain_state_channel_offer_v1:from_packet(Packet, PubkeyBin, Region),
     OfferMsg1 = blockchain_state_channel_offer_v1:sign(OfferMsg0, SigFun),
     lager:info("OfferMsg1: ~p", [OfferMsg1]),
-    blockchain_state_channel_handler:send_offer(Stream, OfferMsg1).
+    blockchain_state_channel_stream:send_offer(Stream, OfferMsg1).
 
 -spec is_hotspot_in_router_oui(PubkeyBin :: libp2p_crypto:pubkey_bin(),
                                OUI :: pos_integer(),

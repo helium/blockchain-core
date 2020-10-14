@@ -40,16 +40,18 @@ start_link(Args) ->
 %% ------------------------------------------------------------------
 %% Supervisor callbacks
 %% ------------------------------------------------------------------
-init([BaseDir]) ->
+init([BaseDir, Ed25519KeyPair]) ->
     Swarm = blockchain_swarm:swarm(),
     ServerOpts = #{swarm => Swarm},
-    ClientOpts = #{swarm => Swarm},
+    ClientOpts = #{swarm => Swarm, ed25519_keypair => Ed25519KeyPair},
     DbOwnerOpts = #{base_dir => BaseDir,
                     cfs => ["default",
                             "sc_servers_cf",
                             "sc_clients_cf"
                            ]
                    },
+
+
     ChildSpecs = [
         ?WORKER(blockchain_state_channels_db_owner, [DbOwnerOpts]),
         ?WORKER(blockchain_state_channels_server, [ServerOpts]),

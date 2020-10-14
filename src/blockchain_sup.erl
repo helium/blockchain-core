@@ -73,6 +73,9 @@ init(Args) ->
                 [{group_delete_predicate, Pred}]
         end,
     BaseDir = proplists:get_value(base_dir, Args, "data"),
+    %% get the ed25519 key passed in from the top level app
+    %% and pass along to state channels
+    Ed25519KeyPair = proplists:get_value(ed25519_keypair, Args),
 
     %% allow the parent app to change this if it needs to.
     MetadataFun = application:get_env(blockchain, metadata_fun,
@@ -110,7 +113,7 @@ init(Args) ->
     %% we call `ets:give_away' every time we start_link the txn manager
     BTxnManagerOpts = #{ets => blockchain_txn_mgr:make_ets_table()},
     BTxnMgrSupOpts = [],
-    StateChannelSupOpts = [BaseDir],
+    StateChannelSupOpts = [BaseDir, Ed25519KeyPair],
     ChildSpecs = [
         ?WORKER(blockchain_lock, []),
         ?WORKER(blockchain_swarm, [SwarmWorkerOpts]),

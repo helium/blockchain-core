@@ -23,6 +23,8 @@ start(_StartType, _StartArgs) ->
             {ok, K} ->
                 K
         end,
+
+
     BaseDir = application:get_env(blockchain, base_dir, "data"),
     Port = application:get_env(blockchain, port, 0),
     SeedNodes = application:get_env(blockchain, seed_nodes, []),
