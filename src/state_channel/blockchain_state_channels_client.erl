@@ -552,6 +552,9 @@ dial(Swarm, Address) when is_list(Address) ->
                       ok;
                   {'DOWN', R, process, P, _Reason} ->
                       Self ! {dial_fail, Address, _Reason}
+              after 30000 ->
+                      erlang:exit(P, kill),
+                      Self ! {dial_fail, Address, timeout}
               end
       end),
     ok;
@@ -592,6 +595,9 @@ dial(Swarm, Route) ->
                       ok;
                   {'DOWN', R, process, P, _Reason} ->
                       Self ! {dial_fail, OUI, failed}
+              after 30000 ->
+                      erlang:exit(P, kill),
+                      Self ! {dial_fail, OUI, timeout}
               end
       end),
     ok.
