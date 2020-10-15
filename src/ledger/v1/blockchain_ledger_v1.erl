@@ -885,10 +885,12 @@ master_key(NewKey, Ledger) ->
 multi_keys(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?MULTI_KEYS, []) of
+        {ok, []} ->
+            {error, not_found};
         {ok, MultiKeysBin} ->
             {ok, blockchain_utils:bin_keys_to_list(MultiKeysBin)};
         not_found ->
-            {ok, []};
+            {error, not_found};
         Error ->
             Error
     end.

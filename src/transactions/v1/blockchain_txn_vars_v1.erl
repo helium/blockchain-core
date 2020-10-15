@@ -280,12 +280,17 @@ is_valid(Txn, Chain) ->
                                 %% the keys are set
                                 case blockchain_ledger_v1:multi_keys(Ledger) of
                                     {ok, MultiKeys} ->
+                                        MaxProofs = length(MultiKeys),
                                         Proofs = multi_proofs(Txn),
-                                        case blockchain_utils:verify_multisig(Artifact, Proofs, MultiKeys) of
-                                            true -> ok;
-                                            false -> throw({error, insufficient_votes})
+                                        case length(Proofs) > MaxProofs of
+                                            true -> throw({error, too_many_proofs});
+                                            false ->
+                                                case blockchain_utils:verify_multisig(Artifact, Proofs, MultiKeys) of
+                                                    true -> ok;
+                                                    false -> throw({error, insufficient_votes})
+                                                end
                                         end;
-                                    {error, not_found} ->
+                                    _ ->
                                         {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
                                         case verify_key(Artifact, MasterKey, proof(Txn)) of
                                             true -> ok;
@@ -419,21 +424,45 @@ validate_master_keys(Txn, Gen, Artifact, Ledger) ->
                 [] ->
                     ok;
                 MultiKeys ->
+                    MaxProofs = length(MultiKeys),
+                    %% in order for a new key set to be valid, we need to make sure that all new
+                    %% keys have a valid proof associated with them, much like the old master key
+                    %% system uses its singular proof to ensure that we have a valid and known key.
+                    %% the more complicated logic here is to make sure we don't have to re-prove old
+                    %% keys, and to ensure that all new keys have one proof associated with them.
+                    OldMultiKeys = case blockchain_ledger_v1:multi_keys(Ledger) of
+                                       {ok, Keys} -> Keys;
+                                       {error, not_found} -> []
+                                   end,
+                    %% remove all existing keys from the new list. They don't need to re-prove
+                    %% themselves and cannot 'vote' for the change here.  Their votes as to the
+                    %% signedness of the transaction are counted elsewhere.
+                    ProofKeys = MultiKeys -- OldMultiKeys,
                     KeyProofs =
-                        case multi_key_proofs(Txn) of
+                        %% deduplicate the proofs
+                        case lists:usort(multi_key_proofs(Txn)) of
                             [] ->
                                 throw({error, no_multi_keys_proofs});
                             Ps ->
                                 Ps
                         end,
-                    [case verify_key(Artifact, Key, KeyProof) of
-                        true ->
-                             ok;
-                         _ ->
-                             throw({error, bad_multi_key_proof})
-                     end
-                     || {Key, KeyProof} <- lists:zip(MultiKeys, KeyProofs)],
-                    ok
+                    %% count_votes here counts the number of proofs that can be validated by the
+                    %% keys in MultiKeys, with each key only being allowed to be used once.
+                    case length(KeyProofs) > MaxProofs of
+                        true -> throw({error, too_many_key_proofs});
+                        false ->
+                            Votes = blockchain_utils:count_votes(Artifact, MultiKeys, KeyProofs),
+                            %% ProofKeys here is the number of new keys in the list of multi-keys, so if the
+                            %% 'vote count' is equal to the number of keys, then every key has a valid proof.
+                            case Votes == length(ProofKeys) of
+                                true ->
+                                    ok;
+                                _ ->
+                                    lager:warning("not enough votes: votes ~p new keys ~p",
+                                                  [Votes, length(ProofKeys)]),
+                                    throw({error, bad_multi_key_proof})
+                            end
+                    end
             end;
         _ ->
             case master_key(Txn) of
@@ -573,11 +602,11 @@ print(#blockchain_txn_vars_v1_pb{vars = Vars, version_predicate = VersionP,
                                  multi_keys = MultiKeys, multi_key_proofs = MultiKeyProofs,
                                  unsets = Unsets, cancels = Cancels,
                                  nonce = Nonce}) ->
-    io_lib:format("type=vars vars=~p version_predicate=~p master_key=~p key_proof=~p "
-                  "multi_keys=~p multi_key_proofs=~p unsets=~p cancels=~p nonce=~p",
-                  [Vars, VersionP, MasterKey, KeyProof,
-                   MultiKeys, MultiKeyProofs,
-                   Unsets, Cancels, Nonce]).
+    io_lib:format("type=vars vars=~p nonce=~p unsets=~p version_predicate=~p master_key=~p key_proof=~p "
+                  "multi_keys=~p multi_key_proofs=~p cancels=~p",
+                  [Vars, Nonce, Unsets, VersionP,
+                   MasterKey, KeyProof,
+                   MultiKeys, MultiKeyProofs, Cancels]).
 
 -spec to_json(txn_vars(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(Txn, _Opts) ->
