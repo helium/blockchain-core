@@ -1528,83 +1528,90 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
 maybe_gc_scs(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = current_height(Ledger),
-    {ok, Block} = blockchain:get_block(Height, Chain),
-    {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
-    RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
-                        {ok, N} -> N;
-                        _ -> 1
-                    end,
 
-    case ?MODULE:config(?sc_grace_blocks, Ledger) of
-        {ok, Grace} ->
-            GCInterval = case ?MODULE:config(?sc_gc_interval, Ledger) of
-                             {ok, I} ->
-                                 I;
-                             _ ->
-                                 %% 100 was the previously hardcoded value
-                                 100
-                         end,
-            case Height rem GCInterval == 0 of
-                true ->
-                    lager:info("gcing old state_channels..."),
-                    SCsCF = state_channels_cf(Ledger),
-                    {Alters, SCIDs} = cache_fold(
-                               Ledger,
-                               SCsCF,
-                               fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
-                                       {Mod, SC} = deserialize_state_channel(BinSC),
-                                       ExpireAtBlock = Mod:expire_at_block(SC),
-                                       case (ExpireAtBlock + Grace) < Height of
-                                           false ->
-                                               Acc;
-                                           true ->
-                                               case Mod of
-                                                   blockchain_ledger_state_channel_v1 ->
-                                                       {[KeyHash | CacheAcc], []};
-                                                   blockchain_ledger_state_channel_v2 ->
-                                                       %% We have to protect state channels
-                                                       %% that closed during the grace blocks
-                                                       %% in the previous epoch so that
-                                                       %% we can calculate rewards for those
-                                                       %% closes.
-                                                       %%
-                                                       %% So only expire state channels that
-                                                       %% closed *before* grace in the previous
-                                                       %% epoch
-                                                       case check_sc_expire(ExpireAtBlock, Grace,
-                                                                            EpochStart,
-                                                                            RewardVersion) of
-                                                           false -> Acc;
-                                                           true ->
-                                                               ID = Mod:id(SC),
-                                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                                   undefined -> ok; %% due to tests must handle
-                                                                   dispute -> ok; %% slash overcommit
-                                                                   closed -> %% refund overcommit DCs
-                                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
-                                                                       Owner = blockchain_state_channel_v1:owner(SC0),
-                                                                       Credit = calc_remaining_dcs(SC),
-                                                                       ok = credit_dc(Owner, Credit, Ledger)
-                                                               end,
-                                                               {[KeyHash | CacheAcc], [ID | IDAcc]}
+    case blockchain:get_block(Height, Chain) of
+        {ok, Block} ->
+            {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
+            RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
+                                {ok, N} -> N;
+                                _ -> 1
+                            end,
 
-                                                       end
-                                               end
-                                       end
-                               end, {[], []}),
-                    ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
-                    ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
-                    ok = lists:foreach(fun(KeyHash) ->
-                                               cache_delete(Ledger, SCsCF, KeyHash)
-                                       end,
-                                       Alters),
-                    ok;
+            case ?MODULE:config(?sc_grace_blocks, Ledger) of
+                {ok, Grace} ->
+                    GCInterval = case ?MODULE:config(?sc_gc_interval, Ledger) of
+                                     {ok, I} ->
+                                         I;
+                                     _ ->
+                                         %% 100 was the previously hardcoded value
+                                         100
+                                 end,
+                    case Height rem GCInterval == 0 of
+                        true ->
+                            lager:info("gcing old state_channels..."),
+                            SCsCF = state_channels_cf(Ledger),
+                            {Alters, SCIDs} = cache_fold(
+                                                Ledger,
+                                                SCsCF,
+                                                fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
+                                                        {Mod, SC} = deserialize_state_channel(BinSC),
+                                                        ExpireAtBlock = Mod:expire_at_block(SC),
+                                                        case (ExpireAtBlock + Grace) < Height of
+                                                            false ->
+                                                                Acc;
+                                                            true ->
+                                                                case Mod of
+                                                                    blockchain_ledger_state_channel_v1 ->
+                                                                        {[KeyHash | CacheAcc], []};
+                                                                    blockchain_ledger_state_channel_v2 ->
+                                                                        %% We have to protect state channels
+                                                                        %% that closed during the grace blocks
+                                                                        %% in the previous epoch so that
+                                                                        %% we can calculate rewards for those
+                                                                        %% closes.
+                                                                        %%
+                                                                        %% So only expire state channels that
+                                                                        %% closed *before* grace in the previous
+                                                                        %% epoch
+                                                                        case check_sc_expire(ExpireAtBlock, Grace,
+                                                                                             EpochStart,
+                                                                                             RewardVersion) of
+                                                                            false -> Acc;
+                                                                            true ->
+                                                                                ID = Mod:id(SC),
+                                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                                                    undefined -> ok; %% due to tests must handle
+                                                                                    dispute -> ok; %% slash overcommit
+                                                                                    closed -> %% refund overcommit DCs
+                                                                                        SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                                                        Owner = blockchain_state_channel_v1:owner(SC0),
+                                                                                        Credit = calc_remaining_dcs(SC),
+                                                                                        ok = credit_dc(Owner, Credit, Ledger)
+                                                                                end,
+                                                                                {[KeyHash | CacheAcc], [ID | IDAcc]}
+
+                                                                        end
+                                                                end
+                                                        end
+                                                end, {[], []}),
+                            ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
+                            ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
+                            ok = lists:foreach(fun(KeyHash) ->
+                                                       cache_delete(Ledger, SCsCF, KeyHash)
+                                               end,
+                                               Alters),
+                            ok;
+                        _ ->
+                            ok
+                    end;
                 _ ->
                     ok
             end;
         _ ->
+            %% We do not have the block, hence cannot gc scs
             ok
     end.
+
 
 -spec check_sc_expire(ExpiresAt :: pos_integer(),
                       Grace :: pos_integer(),

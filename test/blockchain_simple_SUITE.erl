@@ -163,7 +163,8 @@ end_per_testcase(_, Config) ->
         false ->
             ok
     end,
-    ok.
+    test_utils:cleanup_tmp_dir(?config(base_dir, Config)),
+    {comment, done}.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -642,6 +643,7 @@ poc_request_test(Config) ->
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
     meck:unload(blockchain_ledger_v1),
     ok.
@@ -823,6 +825,7 @@ export_test(Config) ->
                       Token == Balance
               end, Securities),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -945,7 +948,9 @@ fees_since_test(Config) ->
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
     ?assertEqual({ok, 100*10}, blockchain:fees_since(2, Chain)),
     ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1).
+    ?assert(meck:validate(blockchain_txn_payment_v1)),
+    meck:unload(blockchain_ledger_v1),
+    meck:unload(blockchain_txn_payment_v1).
 
 security_token_test(Config) ->
     BaseDir = ?config(base_dir, Config),
@@ -1201,6 +1206,9 @@ max_subnet_test(Config) ->
 
     {error, {invalid_txns, [RoutingTxn21]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
 
+    ?assert(meck:validate(blockchain_txn_oui_v1)),
+    meck:unload(blockchain_txn_oui_v1),
+
     ok.
 
 block_save_failed_test(Config) ->
@@ -1211,7 +1219,7 @@ block_save_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
-     % Test a payment transaction, add a block and check balances
+    % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
@@ -1229,17 +1237,17 @@ block_save_failed_test(Config) ->
     {ok, NewHeight} = blockchain:height(Chain),
     ?assert(NewHeight == OldHeight + 1),
 
-     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
-     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-     Ledger = blockchain:ledger(Chain),
+    Ledger = blockchain:ledger(Chain),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
-     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
@@ -1317,7 +1325,9 @@ missing_last_block_test(Config) ->
             ok
     end),
     blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    ?assert(meck:validate(blockchain)),
     meck:unload(blockchain),
+
     Ledger = blockchain:ledger(Chain),
     {ok, GenesisBlock} = blockchain:genesis_block(Chain),
 
@@ -1807,6 +1817,7 @@ token_burn_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     TxnFee = 0, %% default fee will be zero
     ?assertEqual((10*OP)-TxnFee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
 
     ok.
@@ -1929,6 +1940,7 @@ payer_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
     ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2050,6 +2062,7 @@ poc_sync_interval_test(Config) ->
     {ok, AddedGw4} = blockchain_gateway_cache:get(Gateway, Ledger),
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2205,6 +2218,7 @@ update_gateway_oui_test(Config) ->
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
     ?assertEqual(1, blockchain_ledger_gateway_v2:nonce(GwInfo)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2343,6 +2357,7 @@ replay_oui_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4]),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
