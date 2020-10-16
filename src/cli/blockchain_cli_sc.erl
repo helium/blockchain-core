@@ -110,13 +110,15 @@ sc_list([], [], []) ->
     usage.
 
 format_sc_list(SCs) ->
+    {ok, Height} = blockchain:height(blockchain_worker:blockchain()),
     maps:fold(fun(SCID, {SC, _}, Acc) ->
                       ID = binary_to_list(base64:encode(SCID)),
                       {ok, SCOwnerName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:owner(SC))),
                       SCNonce = blockchain_state_channel_v1:nonce(SC),
+                      Amount = blockchain_state_channel_v1:amount(SC),
                       RootHash = binary_to_list(base64:encode(blockchain_state_channel_v1:root_hash(SC))),
                       State = atom_to_list(blockchain_state_channel_v1:state(SC)),
-                      Summaries = format_sc_summaries(blockchain_state_channel_v1:summaries(SC)),
+                      {NumDCs, NumPackets, NumParticipants} = summarize(blockchain_state_channel_v1:summaries(SC)),
                       ExpireAtBlock = blockchain_state_channel_v1:expire_at_block(SC),
                       IsActive = is_active(SC),
                       [
@@ -127,21 +129,21 @@ format_sc_list(SCs) ->
                         {is_active, io_lib:format("~p", [IsActive])},
                         {root_hash, io_lib:format("~p", [RootHash])},
                         {expire_at, io_lib:format("~p", [ExpireAtBlock])},
-                        {summaries, io_lib:format("~p", [Summaries])}
+                        {expired, ExpireAtBlock =< Height},
+                        {amount, Amount},
+                        {num_dcs, NumDCs},
+                        {num_packets, NumPackets},
+                        {participants, NumParticipants}
                        ] | Acc]
               end, [], SCs).
 
-format_sc_summaries(Summaries) ->
-    lists:foldl(fun(Summary, Acc) ->
-                        {ok, ClientName} = erl_angry_purple_tiger:animal_name(libp2p_crypto:bin_to_b58(blockchain_state_channel_summary_v1:client_pubkeybin(Summary))),
+summarize(Summaries) ->
+    lists:foldl(fun(Summary, {DCs, Packets, Participants}) ->
                         NumDCs = blockchain_state_channel_summary_v1:num_dcs(Summary),
                         NumPackets = blockchain_state_channel_summary_v1:num_packets(Summary),
-                        [ {receiver, ClientName},
-                          {num_dcs, NumDCs},
-                          {num_packets, NumPackets}
-                          | Acc]
+                        {DCs + NumDCs, Packets + NumPackets, Participants+1}
                 end,
-                [], Summaries).
+                {0, 0, 0}, Summaries).
 
 is_active(SC) ->
     ActiveSCID = blockchain_state_channels_server:active_sc_id(),
