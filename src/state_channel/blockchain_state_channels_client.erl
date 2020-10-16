@@ -307,13 +307,19 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
                                            end
                                    end, [], SCs),
     {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
-handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams}=State) ->
+handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
     FilteredStreams = maps:filter(fun(_Name, {unverified, Stream}) ->
                                           Stream /= Pid;
                                      (_Name, Stream) ->
                                           Stream /= Pid
                                   end, Streams),
-    {noreply, State#state{streams=FilteredStreams}};
+
+    %% Keep the streams which don't have downed pid, given we're monitoring correctly
+    FilteredPackets = maps:filter(fun(StreamPid, _PacketQueue) ->
+                                          StreamPid /= Pid
+                                  end, Packets),
+
+    {noreply, State#state{streams=FilteredStreams, packets=FilteredPackets}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
