@@ -212,6 +212,7 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
     %% NOTE: We don't keep the packets we were waiting on as we lost the chain, maybe we should?
     NewState = case find_stream(AddressOrOUI, State) of
                    undefined ->
+                       erlang:monitor(process, Stream),
                        add_stream(AddressOrOUI, Stream, State);
                    _ ->
                        State
