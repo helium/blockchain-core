@@ -32,7 +32,7 @@
         {
          chain :: blockchain:blochain(),
          hash :: any(),
-         owner :: pid()
+         owner = undefined :: undefined | pid()
         }).
 
 %% ------------------------------------------------------------------
