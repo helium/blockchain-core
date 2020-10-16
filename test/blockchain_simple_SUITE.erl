@@ -659,7 +659,7 @@ bogus_coinbase_test(Config) ->
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
 
     %% Check that the chain didn't grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -682,7 +682,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers,
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers,
                                                                           [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
     %% Check that the chain didnt' grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -1204,7 +1204,7 @@ max_subnet_test(Config) ->
 
     RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 21), SigFun),
 
-    {error, {invalid_txns, [RoutingTxn21]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
+    {error, {invalid_txns, [{RoutingTxn21, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
 
     ?assert(meck:validate(blockchain_txn_oui_v1)),
     meck:unload(blockchain_txn_oui_v1),
@@ -1761,7 +1761,7 @@ token_burn_test(Config) ->
     % Step 2: Token burn txn (without an oracle price set) should fail and stay at same block
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 2),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
-    {error, {invalid_txns, [SignedBurnTx0]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    {error, {invalid_txns, [{SignedBurnTx0, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -2081,7 +2081,7 @@ zero_payment_v1_test(Config) ->
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
 
     ok.
 
@@ -2100,7 +2100,7 @@ negative_payment_v1_test(Config) ->
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
 
     ok.
 
@@ -2124,7 +2124,7 @@ zero_amt_htlc_create_test(Config) ->
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    {[], [{SignedCreateTx, _InvalidReason}]} = blockchain_txn:validate([SignedCreateTx], Chain),
     ok.
 
 negative_amt_htlc_create_test(Config) ->
@@ -2147,7 +2147,7 @@ negative_amt_htlc_create_test(Config) ->
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    {[], [{SignedCreateTx, _InvalidReason}]} = blockchain_txn:validate([SignedCreateTx], Chain),
     ok.
 
 update_gateway_oui_test(Config) ->

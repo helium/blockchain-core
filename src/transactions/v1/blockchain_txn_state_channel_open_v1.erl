@@ -125,7 +125,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
     ?calculate_fee(Txn#blockchain_txn_state_channel_open_v1_pb{fee=0, signature = <<0:512>>}, Ledger, DCPayloadSize, TxnFeeMultiplier).
 
 -spec is_valid(Txn :: txn_state_channel_open(),
-               Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+               Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Owner = ?MODULE:owner(Txn),
     Signature = ?MODULE:signature(Txn),
@@ -140,7 +140,7 @@ is_valid(Txn, Chain) ->
     end.
 
 -spec absorb(Txn :: txn_state_channel_open(),
-             Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+             Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
@@ -197,7 +197,7 @@ to_json(Txn, _Opts) ->
       amount => amount(Txn)
      }.
 
--spec do_is_valid_checks(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec do_is_valid_checks(txn_state_channel_open(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 do_is_valid_checks(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     ExpireWithin = ?MODULE:expire_within(Txn),
@@ -216,7 +216,7 @@ do_is_valid_checks(Txn, Chain) ->
                             case blockchain_ledger_v1:find_routing(OUI, Ledger) of
                                 {error, not_found} ->
                                     lager:error("oui: ~p not found for this router: ~p", [OUI, Owner]),
-                                    {error, {not_found, OUI, Owner}};
+                                    {error, {not_found, {OUI, Owner}}};
                                 {ok, Routing} ->
                                     KnownRouters = blockchain_ledger_routing_v1:addresses(Routing),
                                     case lists:member(Owner, KnownRouters) of
@@ -239,7 +239,7 @@ do_is_valid_checks(Txn, Chain) ->
                                                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                                                 false ->
-                                                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                                                 true ->
                                                                     case blockchain:config(?sc_open_validation_bugfix, Ledger) of
                                                                         {ok, 1} ->

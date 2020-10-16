@@ -111,7 +111,7 @@ fee(_Txn) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_consensus_group(), blockchain:blockchain()) -> ok.
+-spec is_valid(txn_consensus_group(), blockchain:blockchain()) -> {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Members = ?MODULE:members(Txn),
@@ -139,7 +139,7 @@ is_valid(Txn, Chain) ->
                     {ok, BaseHeight} when TxnHeight > BaseHeight ->
                         ok;
                     {ok, BaseHeight} ->
-                        throw({error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}})
+                        throw({error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}})
                 end,
                 {_, LastElectionHeight} = blockchain_block_v1:election_info(CurrBlock),
                 {ok, ElectionInterval} = blockchain:config(?election_interval, Ledger),
@@ -155,14 +155,14 @@ is_valid(Txn, Chain) ->
                         NextRestart = LastElectionHeight + ElectionInterval + Delay + RestartInterval,
                         case CurrHeight > NextRestart of
                             true ->
-                                throw({error, {txn_too_old, CurrHeight, NextRestart}});
+                                throw({error, {txn_too_old, {CurrHeight, NextRestart}}});
                             _ ->
                                 ok
                         end,
                         {ok, N} = blockchain:config(?num_consensus_members, Ledger),
                         case length(Members) == N of
                             true -> ok;
-                            _ -> throw({error, {wrong_members_size, N, length(Members)}})
+                            _ -> throw({error, {wrong_members_size, {N, length(Members)}}})
                         end,
                         Hash = blockchain_block:hash_block(Block),
                         {ok, OldLedger} = blockchain:ledger_at(EffectiveHeight, Chain),
@@ -171,8 +171,8 @@ is_valid(Txn, Chain) ->
                             {error, _} = VerifyErr -> throw(VerifyErr)
                         end;
                     _ ->
-                        throw({error, {election_too_early, TxnHeight,
-                                       LastElectionHeight + ElectionInterval}})
+                        throw({error, {election_too_early, {TxnHeight,
+                                       LastElectionHeight + ElectionInterval}}})
                 end
         end
     catch throw:E ->
@@ -183,7 +183,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_consensus_group(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Height = ?MODULE:height(Txn),
     Ledger = blockchain:ledger(Chain),
@@ -195,7 +195,7 @@ absorb(Txn, Chain) ->
             {ok, BaseHeight} when Height > BaseHeight ->
                 ok;
             {ok, BaseHeight} ->
-                {error, {duplicate_group, ?MODULE:height(Txn), BaseHeight}}
+                {error, {duplicate_group, {?MODULE:height(Txn), BaseHeight}}}
         end,
     case Check of
         ok ->

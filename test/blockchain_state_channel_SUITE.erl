@@ -565,7 +565,7 @@ replay_test(Config) ->
     ReplaySignedSCOpenTxn = create_sc_open_txn(RouterNode, ReplayID, ExpireWithin, 1, Nonce),
     ct:pal("ReplaySignedSCOpenTxn: ~p", [ReplaySignedSCOpenTxn]),
 
-    {error, {invalid_txns, [ReplaySignedSCOpenTxn]}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [ReplaySignedSCOpenTxn]]),
+    {error, {invalid_txns, [{ReplaySignedSCOpenTxn, _InvalidReason}]}} = ct_rpc:call(RouterNode, test_utils, create_block, [ConsensusMembers, [ReplaySignedSCOpenTxn]]),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
@@ -999,7 +999,7 @@ open_without_oui_test(Config) ->
     ct:pal("SignedSCOpenTxn: ~p", [SignedSCOpenTxn]),
 
     %% Adding block
-    {error, {invalid_txns, [SignedSCOpenTxn]}} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedSCOpenTxn]),
+    {error, {invalid_txns, [{SignedSCOpenTxn, _InvalidReason}]}} = add_block(RouterNode, RouterChain, ConsensusMembers, [SignedSCOpenTxn]),
 
     ok.
 

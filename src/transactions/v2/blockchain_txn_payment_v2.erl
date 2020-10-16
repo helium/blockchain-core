@@ -215,7 +215,7 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                     case LengthPayments > MaxPayments of
                         %% Check that we don't exceed max payments
                         true ->
-                            {error, {exceeded_max_payments, LengthPayments, MaxPayments}};
+                            {error, {exceeded_max_payments, {LengthPayments, MaxPayments}}};
                         false ->
                             case lists:member(Payer, ?MODULE:payees(Txn)) of
                                 false ->
@@ -242,7 +242,7 @@ do_is_valid_checks(Txn, Chain, MaxPayments) ->
                                                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                                     case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                                         false ->
-                                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                                         true ->
                                                             blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
                                                     end

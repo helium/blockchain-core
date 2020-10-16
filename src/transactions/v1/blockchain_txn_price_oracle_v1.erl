@@ -145,7 +145,7 @@ sign(Txn, SigFun) ->
 %% `price_oracle_height_delta' chain variable.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Price = ?MODULE:price(Txn),
@@ -185,7 +185,7 @@ is_valid(Txn, Chain) ->
 %% ledger
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_price_oracle(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, LedgerHeight} = blockchain_ledger_v1:current_height(Ledger),

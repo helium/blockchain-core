@@ -294,7 +294,7 @@ is_valid_staking_key(#blockchain_txn_add_gateway_v1_pb{payer=Payer}=_Txn, Ledger
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     case {?MODULE:is_valid_owner(Txn),
@@ -318,9 +318,9 @@ is_valid(Txn, Chain) ->
             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
             case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
                 {false,_} ->
-                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                 {_,false} ->
-                    {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                    {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
                 {true, true} ->
                     Payer = ?MODULE:payer(Txn),
                     Owner = ?MODULE:owner(Txn),
@@ -338,7 +338,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_add_gateway(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),

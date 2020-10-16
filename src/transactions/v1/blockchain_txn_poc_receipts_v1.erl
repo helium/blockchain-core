@@ -153,7 +153,7 @@ sign(Txn, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Challenger = ?MODULE:challenger(Txn),
     Signature = ?MODULE:signature(Txn),
@@ -690,7 +690,7 @@ valid_path_elements_fold(Fun, Acc0, Txn, Ledger, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
- -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, any()}.
+ -spec absorb(txn_poc_receipts(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     LastOnionKeyHash = ?MODULE:onion_key_hash(Txn),
     Challenger = ?MODULE:challenger(Txn),

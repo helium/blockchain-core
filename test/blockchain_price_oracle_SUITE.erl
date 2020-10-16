@@ -511,7 +511,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedBurnTx2 = blockchain_txn_token_burn_v1:sign(BurnTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_token_burn_v1:is_valid(SignedBurnTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_token_burn_v1:is_valid(SignedBurnTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_token_burn_v1:is_valid(SignedBurnTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_token_burn_v1:is_valid(SignedBurnTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -568,9 +568,9 @@ txn_fees_pay_with_dc(Config) ->
     SignedOUITx4 = blockchain_txn_oui_v1:sign(OUITx4, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_oui_v1:is_valid(SignedOUITx0, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,1}}, blockchain_txn_oui_v1:is_valid(SignedOUITx1, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,_}}, blockchain_txn_oui_v1:is_valid(SignedOUITx4, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx0, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,1}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx1, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,_}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx4, Chain)),
     ?assertMatch(ok, blockchain_txn_oui_v1:is_valid(SignedOUITx2, Chain)),
     ?assertMatch(ok, blockchain_txn_oui_v1:is_valid(SignedOUITx3, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -633,9 +633,9 @@ txn_fees_pay_with_dc(Config) ->
     SignedPayerAddGatewayTx4 = blockchain_txn_add_gateway_v1:sign_payer(SignedGatewayAddGatewayTx4, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx0, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,1}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx1, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,_}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx4, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx0, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,1}}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx1, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,_}}}, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx4, Chain)),
     ?assertMatch(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx2, Chain)),
     ?assertMatch(ok, blockchain_txn_add_gateway_v1:is_valid(SignedPayerAddGatewayTx3, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -693,9 +693,9 @@ txn_fees_pay_with_dc(Config) ->
     SignedPayerAssertLocationTx4 = blockchain_txn_assert_location_v1:sign_payer(SignedAssertLocationTx4, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx0, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,1}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx1, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,_}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx4, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx0, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,1}}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx1, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,_}}}, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx4, Chain)),
     ?assertMatch(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx2, Chain)),
     ?assertMatch(ok, blockchain_txn_assert_location_v1:is_valid(SignedPayerAssertLocationTx3, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -743,7 +743,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedCreateHTLCTx2 = blockchain_txn_create_htlc_v1:sign(CreateHTLCTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateHTLCTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_create_htlc_v1:is_valid(SignedCreateHTLCTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateHTLCTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_create_htlc_v1:is_valid(SignedCreateHTLCTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -792,7 +792,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedRedeemTx2 = blockchain_txn_redeem_htlc_v1:sign(RedeemTx2, PayeeSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_redeem_htlc_v1:is_valid(SignedRedeemTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_redeem_htlc_v1:is_valid(SignedRedeemTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_redeem_htlc_v1:is_valid(SignedRedeemTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_redeem_htlc_v1:is_valid(SignedRedeemTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -833,7 +833,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedPaymentTx2 = blockchain_txn_payment_v1:sign(PaymentTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_payment_v1:is_valid(SignedPaymentTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_payment_v1:is_valid(SignedPaymentTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -877,7 +877,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedRoutingTx2 = blockchain_txn_routing_v1:sign(RoutingTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_routing_v1:is_valid(SignedRoutingTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_routing_v1:is_valid(SignedRoutingTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_routing_v1:is_valid(SignedRoutingTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_routing_v1:is_valid(SignedRoutingTx2, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -925,9 +925,9 @@ txn_fees_pay_with_dc(Config) ->
 
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx0, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,0}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx1, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,_}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx4, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx0, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,0}}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx1, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,_}}}, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx4, Chain)),
     ?assertMatch(ok, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx2, Chain)),
     ?assertMatch(ok, blockchain_txn_routing_v1:is_valid(SignedRoutingSubnetTx3, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -967,7 +967,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedSecExchTx2 = blockchain_txn_security_exchange_v1:sign(SecExchTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_security_exchange_v1:is_valid(SignedSecExchTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_security_exchange_v1:is_valid(SignedSecExchTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_security_exchange_v1:is_valid(SignedSecExchTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_security_exchange_v1:is_valid(SignedSecExchTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -1008,7 +1008,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedPaymentV2Tx2 = blockchain_txn_payment_v2:sign(PaymentV2Tx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_payment_v2:is_valid(SignedPaymentV2Tx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_payment_v2:is_valid(SignedPaymentV2Tx0, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v2:is_valid(SignedPaymentV2Tx1, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v2:is_valid(SignedPaymentV2Tx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -1058,7 +1058,7 @@ txn_fees_pay_with_dc(Config) ->
     SignedSCTx2 = blockchain_txn_state_channel_open_v1:sign(SCTx2, RouterSigFun),
 
     %% check is_valid behaves as expected and returns blockchain_txn_state_channel_open_v1 error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_state_channel_open_v1:is_valid(SignedSCTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_state_channel_open_v1:is_valid(SignedSCTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_state_channel_open_v1:is_valid(SignedSCTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_state_channel_open_v1:is_valid(SignedSCTx2, Chain)),
     %% check create block on tx with invalid txn fee
@@ -1133,9 +1133,9 @@ txn_fees_pay_with_hnt(Config) ->
 
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_oui_v1:is_valid(SignedOUITx0, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,1}}, blockchain_txn_oui_v1:is_valid(SignedOUITx1, Chain)),
-    ?assertMatch({error,{wrong_staking_fee,_,_}}, blockchain_txn_oui_v1:is_valid(SignedOUITx4, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx0, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,1}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx1, Chain)),
+    ?assertMatch({error,{wrong_staking_fee,{_,_}}}, blockchain_txn_oui_v1:is_valid(SignedOUITx4, Chain)),
     ?assertMatch(ok, blockchain_txn_oui_v1:is_valid(SignedOUITx2, Chain)),
     ?assertMatch(ok, blockchain_txn_oui_v1:is_valid(SignedOUITx3, Chain)),
     %% check create block on tx with invalid txn fee and invalid staking fee
@@ -1198,7 +1198,7 @@ staking_key_add_gateway(Config) ->
     SignedPaymentTx2 = blockchain_txn_payment_v1:sign(PaymentTx2, PayerSigFun),
 
     %% check is_valid behaves as expected and returns correct error msgs
-    ?assertMatch({error,{wrong_txn_fee,_,0}}, blockchain_txn_payment_v1:is_valid(SignedPaymentTx0, Chain)),
+    ?assertMatch({error,{wrong_txn_fee,{_,0}}}, blockchain_txn_payment_v1:is_valid(SignedPaymentTx0, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx1, Chain)),
     ?assertMatch(ok, blockchain_txn_payment_v1:is_valid(SignedPaymentTx2, Chain)),
     %% check create block on tx with invalid txn fee
