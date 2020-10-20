@@ -413,11 +413,11 @@ join_packet(AppKey, DevNonce, RSSI) ->
     RoutingInfo = {devaddr, 1207959553},
     blockchain_helium_packet_v1:new(lorawan,
                                     join_payload(AppKey, DevNonce),
-                                    RSSI,
-                                    0.0,
                                     1000,
+                                    RSSI,
                                     923.3,
                                     <<"SF8BW125">>,
+                                    0.0,
                                     RoutingInfo).
 
 join_payload(AppKey, DevNonce) ->
