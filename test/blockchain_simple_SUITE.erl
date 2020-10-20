@@ -1845,6 +1845,8 @@ payer_test(Config) ->
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
     meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, config, fun(sc_version, _) -> {ok, 2};
+                                              (A, B) -> blockchain_ledger_v1_meck_original:config(A, B) end),
 
     Blocks = lists:map(
                fun(_) ->
