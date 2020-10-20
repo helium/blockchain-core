@@ -647,7 +647,7 @@ multiple_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
     end, 30, timer:seconds(1)),
 
     %% Add some fake blocks
