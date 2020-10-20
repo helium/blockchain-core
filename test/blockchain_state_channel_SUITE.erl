@@ -647,7 +647,7 @@ multiple_test(Config) ->
     true = check_sc_open(RouterNode, RouterChain, RouterPubkeyBin, ID2),
 
     ok = blockchain_ct_utils:wait_until(fun() ->
-        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID])
+        {ok, 0} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
     end, 30, timer:seconds(1)),
 
     %% Add some fake blocks
@@ -1409,7 +1409,7 @@ crash_multi_sc_test(Config) ->
     RouterLedger = blockchain:ledger(RouterChain),
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, []} == ct_rpc:call(RouterNode, blockchain_ledger_v1, find_sc_ids_by_owner, [RouterPubkeyBin, RouterLedger])
-    end, 10, timer:seconds(1)),
+    end, 30, timer:seconds(1)),
 
     ok = ct_rpc:call(RouterNode, meck, unload, [blockchain_worker]),
     ok.
@@ -1548,10 +1548,9 @@ multi_sc_gc_test(Config) ->
     ok = blockchain_ct_utils:wait_until(fun() ->
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID1]) orelse
         {ok, 1} == ct_rpc:call(RouterNode, blockchain_state_channels_server, nonce, [ID2])
-    end, 30, timer:seconds(1)),
+    end, 30, timer:seconds(5)),
 
-    %% NOTE: There may be a timing issue in this test, why exactly I'm not sure cuz we check the state channel
-    %% right above, could be an underlying issue, needs investigation
+    %% NOTE: There may be a timing issue in this test, why exactly I'm not sure cuz we check the state channel right above, could be an underlying issue, needs investigation
     timer:sleep(timer:seconds(1)),
 
     %% Sending another packet
@@ -1978,7 +1977,7 @@ create_oui_txn(OUI, RouterNode, EUIs, SubnetSize) ->
 create_sc_open_txn(RouterNode, ID, Expiry, OUI, Nonce) ->
     {ok, RouterPubkey, RouterSigFun, _} = ct_rpc:call(RouterNode, blockchain_swarm, keys, []),
     RouterPubkeyBin = libp2p_crypto:pubkey_to_bin(RouterPubkey),
-    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 0),
+    SCOpenTxn = blockchain_txn_state_channel_open_v1:new(ID, RouterPubkeyBin, Expiry, OUI, Nonce, 20),
     blockchain_txn_state_channel_open_v1:sign(SCOpenTxn, RouterSigFun).
 
 create_update_gateway_oui_txn(GatewayNode, OUI, Nonce, OwnerSigFun, RouterSigFun) ->
