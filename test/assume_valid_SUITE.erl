@@ -45,12 +45,14 @@ init_per_testcase(TestCase, Config) ->
 %%--------------------------------------------------------------------
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
-end_per_testcase(_, _Config) ->
+end_per_testcase(_, Config) ->
     catch gen_server:stop(blockchain_sup),
     application:unset_env(blockchain, assumed_valid_block_hash),
     application:unset_env(blockchain, assumed_valid_block_height),
     application:unset_env(blockchain, honor_quick_sync),
     persistent_term:erase(blockchain_core_assumed_valid_block_hash_and_height),
+    test_utils:cleanup_tmp_dir(?config(base_dir, Config)),
+    test_utils:cleanup_tmp_dir(?config(sim_dir, Config)),
     ok.
 
 
