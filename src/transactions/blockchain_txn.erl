@@ -230,8 +230,7 @@ validate([], Valid, Invalid, PType, PBuf, Chain) ->
         end,
     Ledger = blockchain:ledger(Chain),
     blockchain_ledger_v1:delete_context(Ledger),
-    Invalid2 = [InvTxn || {InvTxn, _InvalidReason} <- Invalid1],
-    lager:info("valid: ~p, invalid: ~p", [types(Valid1), types(Invalid2)]),
+    lager:info("valid: ~p, invalid: ~p", [types(Valid1), types(Invalid1)]),
     {lists:reverse(Valid1), Invalid1};
 validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
     Type = ?MODULE:type(Txn),
@@ -324,7 +323,7 @@ maybe_log_duration(Type, Start) ->
 
 types(L) ->
     L1 = lists:map(fun
-                       ({Txn, _}) -> type(Txn);
+                       ({Txn, _}) when is_tuple(Txn) -> type(Txn);
                        (Txn)-> type(Txn)
                    end, L),
     M = lists:foldl(
