@@ -443,7 +443,7 @@ update_state_sc_open(Txn,
             SignedSC = blockchain_state_channel_v1:sign(SC, OwnerSigFun),
 
             {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, ?MAX_UNIQ_CLIENTS),
-            {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, Amt),
+            {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amt, 1)),
 
             case ActiveSCID of
                 undefined ->
@@ -855,7 +855,7 @@ update_state_with_blooms(#state{state_channels=SCs}=State) ->
     Blooms = maps:map(fun(_, {SC, _}) ->
                               {ok, ClientBloom} = bloom:new(?BITMAP_SIZE, ?MAX_UNIQ_CLIENTS),
                               Amount = blockchain_state_channel_v1:amount(SC),
-                              {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, Amount),
+                              {ok, PacketBloom} = bloom:new(?BITMAP_SIZE, max(Amount, 1)),
                               {ClientBloom, PacketBloom}
                       end, SCs),
     State#state{blooms=Blooms}.
