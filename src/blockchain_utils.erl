@@ -34,6 +34,7 @@
     calculate_dc_amount/2, calculate_dc_amount/3,
     do_calculate_dc_amount/2,
     deterministic_subset/3,
+    fold_condition_checks/1,
 
     %% exports for simulations
     free_space_path_loss/4,
@@ -470,6 +471,22 @@ poc_per_hop_max_witnesses(Ledger) ->
             ?POC_PER_HOP_MAX_WITNESSES
     end.
 
+%%--------------------------------------------------------------------
+%% @doc Given a list of tuples of zero arity functions that return a
+%% boolean and error tuples, evaluate each function. If a function
+%% returns `false' then immediately return the associated error tuple.
+%% Otherwise, if all conditions evaluate as `true', return `ok'.
+%% @end
+%%--------------------------------------------------------------------
+-spec fold_condition_checks([{Condition :: fun(() -> boolean()),
+                              Error :: {error, any()}}]) -> ok | {error, any()}.
+fold_condition_checks(Conditions) ->
+    do_condition_check(Conditions, undefined, true).
+
+do_condition_check(_Conditions, PrevErr, false) -> PrevErr;
+do_condition_check([], _PrevErr, true) -> ok;
+do_condition_check([{Condition, Error}|Tail], _PrevErr, true) ->
+    do_condition_check(Tail, Error, Condition()).
 
 majority(N) ->
     (N div 2) + 1.
@@ -587,5 +604,17 @@ count_votes_test() ->
     %% check adding the unknown key to the list does work
     ?assertEqual(5, count_votes(Artifact, PKeys ++ [libp2p_crypto:pubkey_to_bin(PubKey5)], Sigs ++ [ExtraSig])),
     ok.
+
+fold_condition_checks_good_test() ->
+    Conditions = [{fun() -> true end, {error, true_isnt_true}},
+                  {fun() -> 100 > 10 end, {error, one_hundred_greater_than_10}},
+                  {fun() -> <<"blort">> == <<"blort">> end, {error, blort_isnt_blort}}],
+    ?assertEqual(ok, fold_condition_checks(Conditions)).
+
+fold_condition_checks_bad_test() ->
+    Bad = [{fun() -> true end, {error, true_isnt_true}},
+           {fun() -> 10 > 100 end, {error, '10_not_greater_than_100'}},
+           {fun() -> <<"blort">> == <<"blort">> end, {error, blort_isnt_blort}}],
+    ?assertEqual({error, '10_not_greater_than_100'}, fold_condition_checks(Bad)).
 
 -endif.
