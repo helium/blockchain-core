@@ -307,6 +307,8 @@
 -define(sc_causality_fix, sc_causality_fix).
 %% Block interval to try to GC state channels
 -define(sc_gc_interval, sc_gc_interval).
+%% When rewarding DCs 1:1 in HNT, a scaling factor to reduce the scope for arbitrage
+-define(sc_dc_to_hnt_scaling_factor, sc_dc_to_hnt_scaling_factor).
 
 
 %% ------------------------------------------------------------------
