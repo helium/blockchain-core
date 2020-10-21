@@ -981,7 +981,8 @@ validate_var(?sc_causality_fix, Value) ->
     validate_int(Value, "sc_causality_fix", 1, 1, false);
 validate_var(?sc_gc_interval, Value) ->
     validate_int(Value, "sc_gc_interval", 10, 100, false);
-
+validate_var(?sc_dc_to_hnt_scaling_factor, Value) ->
+    validate_float(Value, "sc_dc_to_hnt_scaling_factor", 0.5, 1.5);
 
 %% txn snapshot vars
 validate_var(?snapshot_version, Value) ->

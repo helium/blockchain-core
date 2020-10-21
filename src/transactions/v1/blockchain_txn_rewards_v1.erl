@@ -291,6 +291,12 @@ get_reward_vars(Start, End, Ledger) ->
         {ok, R4} -> R4;
         _ -> 1
     end,
+    DCToHNTScalingFactor = case blockchain:config(?sc_dc_to_hnt_scaling_factor, Ledger) of
+                               {ok, R5} ->
+                                   R5;
+                               _ ->
+                                   1.0
+                           end,
     EpochReward = calculate_epoch_reward(Start, End, Ledger),
     #{
         monthly_reward => MonthlyReward,
@@ -303,6 +309,7 @@ get_reward_vars(Start, End, Ledger) ->
         consensus_percent => ConsensusPercent,
         consensus_members => ConsensusMembers,
         dc_percent => DCPercent,
+        sc_dc_to_hnt_scaling_factor => DCToHNTScalingFactor,
         sc_grace_blocks => SCGrace,
         sc_version => SCVersion,
         poc_version => POCVersion,
@@ -810,8 +817,9 @@ normalize_dc_rewards(DCRewards0, #{epoch_reward := EpochReward,
                     %% we spent enough, just allocate it proportionally
                     MaxDCReward;
                 false ->
+                    DCToHNTScalingFactor = maps:get(sc_dc_to_hnt_scaling_factor, Vars, 1.0),
                     %% we didn't spend enough this epoch, return the remainder to the pool
-                    DCInThisEpochAsHNT
+                    trunc(DCInThisEpochAsHNT * DCToHNTScalingFactor)
             end
     end,
 
