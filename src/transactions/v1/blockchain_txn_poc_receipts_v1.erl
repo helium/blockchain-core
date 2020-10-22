@@ -774,7 +774,7 @@ absorb(Txn, Chain) ->
     catch What:Why:Stacktrace ->
               lager:error([{poc_id, POCID}], "poc receipt calculation failed: ~p ~p ~p",
                           [What, Why, Stacktrace]),
-            {error, state_missing}
+              {error, state_missing}
     end.
 
 -spec get_lower_and_upper_bounds(Secret :: binary(),

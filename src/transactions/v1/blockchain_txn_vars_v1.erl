@@ -914,6 +914,10 @@ validate_var(?poc_challengers_percent, Value) ->
     validate_float(Value, "poc_challengers_percent", 0.0, 1.0);
 validate_var(?dc_percent, Value) ->
     validate_float(Value, "dc_percent", 0.0, 1.0);
+validate_var(?witness_redundancy, Value) ->
+    validate_int(Value, "witness_redundancy", 2, 100, false);
+validate_var(?poc_reward_decay_rate, Value) ->
+    validate_float(Value, "poc_reward_decay_rate", 0.0, 1.0);
 validate_var(?reward_version, Value) ->
     case Value of
         N when is_integer(N), N >= 1,  N =< 5 ->

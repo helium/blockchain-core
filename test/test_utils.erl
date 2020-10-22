@@ -9,7 +9,7 @@
     init_chain/2, init_chain/3, init_chain/4,
     generate_keys/1, generate_keys/2,
     wait_until/1, wait_until/3,
-    create_block/2, create_block/3,
+    create_block/2, create_block/3, create_block/4,
     tmp_dir/0, tmp_dir/1,
     cleanup_tmp_dir/1,
     nonl/1,
@@ -133,39 +133,52 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
     end.
 
 create_block(ConsensusMembers, Txs) ->
-    create_block(ConsensusMembers, Txs, #{}).
+    %% Run validations by default
+    create_block(ConsensusMembers, Txs, #{}, true).
 
 create_block(ConsensusMembers, Txs, Override) ->
+    %% Run validations by default
+    create_block(ConsensusMembers, Txs, Override, true).
+
+create_block(ConsensusMembers, Txs, Override, RunValidation) ->
     Blockchain = blockchain_worker:blockchain(),
-    {ok, PrevHash} = blockchain:head_hash(Blockchain),
+    STxs = lists:sort(fun blockchain_txn:sort/2, Txs),
+    case RunValidation of
+        false ->
+            %% Just make a block without validation
+            {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
+        true ->
+            case blockchain_txn:validate(STxs, Blockchain) of
+                {_, []} ->
+                    {ok, make_block(Blockchain, ConsensusMembers, STxs, Override)};
+                {_, Invalid} ->
+                    {error, {invalid_txns, Invalid}}
+            end
+    end.
+
+make_block(Blockchain, ConsensusMembers, STxs, Override) ->
     {ok, HeadBlock} = blockchain:head_block(Blockchain),
+    {ok, PrevHash} = blockchain:head_hash(Blockchain),
     Height = blockchain_block:height(HeadBlock) + 1,
     Time = blockchain_block:time(HeadBlock) + 1,
-    STxs = lists:sort(fun blockchain_txn:sort/2, Txs),
-    %% make sure all these txns are valid
-    case blockchain_txn:validate(STxs, Blockchain) of
-        {_, []} ->
-            lager:info("creating block ~p", [STxs]),
-            Default = #{prev_hash => PrevHash,
-                        height => Height,
-                        transactions => STxs,
-                        signatures => [],
-                        time => Time,
-                        hbbft_round => 0,
-                        election_epoch => 1,
-                        epoch_start => 0,
-                        seen_votes => [],
-                        bba_completion => <<>>
-                       },
-            Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
-            BinBlock = blockchain_block:serialize(Block0),
-            Signatures = signatures(ConsensusMembers, BinBlock),
-            Block1 = blockchain_block:set_signatures(Block0, Signatures),
-            lager:info("block ~p", [Block1]),
-            {ok, Block1};
-        {_, Invalid} ->
-            {error, {invalid_txns, Invalid}}
-    end.
+    lager:info("creating block ~p", [STxs]),
+    Default = #{prev_hash => PrevHash,
+                height => Height,
+                transactions => STxs,
+                signatures => [],
+                time => Time,
+                hbbft_round => 0,
+                election_epoch => 1,
+                epoch_start => 0,
+                seen_votes => [],
+                bba_completion => <<>>
+               },
+    Block0 = blockchain_block_v1:new(maps:merge(Default, Override)),
+    BinBlock = blockchain_block:serialize(Block0),
+    Signatures = signatures(ConsensusMembers, BinBlock),
+    Block1 = blockchain_block:set_signatures(Block0, Signatures),
+    lager:info("block ~p", [Block1]),
+    Block1.
 
 signatures(ConsensusMembers, BinBlock) ->
     lists:foldl(
