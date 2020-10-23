@@ -235,9 +235,7 @@ handle_cast({offer, SCOffer, HandlerPid},
             case (TotalDCs + NumDCs) > DCAmount andalso
                  application:get_env(blockchain, prevent_sc_overspend, true) of
                 true ->
-                    %% close out this channel
-                    SC0 = blockchain_state_channel_v1:state(closed, ActiveSC),
-                    SC1 = blockchain_state_channel_v1:sign(SC0, OwnerSigFun),
+                    SC1 = blockchain_state_channel_v1:sign(ActiveSC, OwnerSigFun),
                     ok = blockchain_state_channel_v1:save(State#state.db, SC1, Skewed),
 
                     %% will overspend so drop
