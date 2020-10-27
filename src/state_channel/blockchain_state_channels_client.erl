@@ -227,10 +227,8 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
         _ ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
-handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
-    {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
-            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) ->
+handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
                             {error, Reason} ->
                                 lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -308,6 +306,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
                                            end
                                    end, [], SCs),
     {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
+handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, State) ->
+    {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
     FilteredStreams = maps:filter(fun(_Name, {unverified, Stream}) ->
                                           Stream /= Pid;
@@ -728,13 +728,14 @@ maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fu
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
                   State :: state()) -> ok | {error, any()}.
 is_valid_sc(SC, State) ->
-    case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
-        {error, Reason}=E ->
-            lager:error("invalid sc, reason: ~p", [Reason]),
-            E;
+    %% check SC is even active first
+    case is_active_sc(SC, State) of
+        {error, _}=E -> E;
         ok ->
-            case is_active_sc(SC, State) of
-                {error, _}=E -> E;
+            case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
+                {error, Reason}=E ->
+                    lager:error("invalid sc, reason: ~p", [Reason]),
+                    E;
                 ok ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
@@ -744,7 +745,7 @@ is_valid_sc(SC, State) ->
                                 false ->
                                     ok
                             end;
-                       false ->
+                        false ->
                             {error, causal_conflict}
                     end
             end
@@ -758,10 +759,9 @@ is_active_sc(SC, #state{chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     SCOwner = blockchain_state_channel_v1:owner(SC),
     SCID = blockchain_state_channel_v1:id(SC),
-    {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
-    case lists:member(SCID, LedgerSCIDs) of
-        true -> ok;
-        false -> {error, inactive_sc}
+    case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
+        {ok, _SC} -> ok;
+        _ -> {error, inactive_sc}
     end.
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),

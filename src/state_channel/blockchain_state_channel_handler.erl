@@ -127,6 +127,17 @@ init(server, _Conn, [_Path, Blockchain]) ->
     end.
 
 handle_data(client, Data, State) ->
+    %% get ledger if we don't yet have one
+    Ledger = case State#state.ledger of
+                 undefined ->
+                     case blockchain_worker:blockchain() of
+                         undefined ->
+                             undefined;
+                         Chain ->
+                             blockchain:ledger(Chain)
+                     end;
+                 L -> L
+             end,
     case blockchain_state_channel_message_v1:decode(Data) of
         {banner, Banner} ->
             case blockchain_state_channel_banner_v1:sc(Banner) of
@@ -136,12 +147,25 @@ handle_data(client, Data, State) ->
                 BannerSC ->
                     lager:info("sc_handler client got banner, sc_id: ~p",
                                [blockchain_state_channel_v1:id(BannerSC)]),
-                    blockchain_state_channels_client:banner(Banner, self())
+                    %% either we don't have a ledger or we do and the SC is valid
+                    case Ledger == undefined orelse is_active_sc(BannerSC, Ledger) == ok of
+                        true ->
+                            blockchain_state_channels_client:banner(Banner, self());
+                        false ->
+                            ok
+                    end
             end;
         {purchase, Purchase} ->
+            PurchaseSC = blockchain_state_channel_purchase_v1:sc(Purchase),
             lager:info("sc_handler client got purchase, sc_id: ~p",
-                       [blockchain_state_channel_v1:id(blockchain_state_channel_purchase_v1:sc(Purchase))]),
-            blockchain_state_channels_client:purchase(Purchase, self());
+                       [blockchain_state_channel_v1:id(PurchaseSC)]),
+            %% either we don't have a ledger or we do and the SC is valid
+            case Ledger == undefined orelse is_active_sc(PurchaseSC, Ledger) == ok of
+                true ->
+                    blockchain_state_channels_client:purchase(Purchase, self());
+                false ->
+                    ok
+            end;
         {reject, Rejection} ->
             lager:info("sc_handler client got rejection: ~p", [Rejection]),
             blockchain_state_channels_client:reject(Rejection, self());
@@ -149,7 +173,7 @@ handle_data(client, Data, State) ->
             lager:debug("sc_handler client got response: ~p", [Resp]),
             blockchain_state_channels_client:response(Resp)
     end,
-    {noreply, State};
+    {noreply, State#state{ledger=Ledger}};
 handle_data(server, Data, State=#state{pending_packet_offers=PendingOffers, pending_offer_limit=PendingOfferLimit}) ->
     Time = erlang:system_time(millisecond),
     PendingOfferCount = maps:size(PendingOffers),
@@ -241,4 +265,14 @@ handle_offer(Offer, Time, State) ->
             Rejection = blockchain_state_channel_rejection_v1:new(),
             Data = blockchain_state_channel_message_v1:encode(Rejection),
             {noreply, State, Data}
+    end.
+
+-spec is_active_sc(SC :: blockchain_state_channel_v1:state_channel(),
+                   Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, inactive_sc}.
+is_active_sc(SC, Ledger) ->
+    SCOwner = blockchain_state_channel_v1:owner(SC),
+    SCID = blockchain_state_channel_v1:id(SC),
+    case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
+        {ok, _SC} -> ok;
+        _ -> {error, inactive_sc}
     end.
