@@ -117,10 +117,9 @@ init(Args) ->
     CF = blockchain_state_channels_db_owner:sc_clients_cf(),
     {PubkeyBin, SigFun} = blockchain_utils:get_pubkeybin_sigfun(Swarm),
     erlang:send_after(500, self(), post_init),
-    %% NOTE: Setting max_heap_size to 128MB would cause erts to send an untrappable exit
-    %% and this process would exit as soon as possible
+    %% NOTE: Setting max_heap_size to 128MB (this is in words so, 128*1024*1024/8) would cause erts to send an untrappable exit and this process would exit as soon as possible
     erlang:process_flag(max_heap_size,
-                        application:get_env(blockchain, sc_client_max_heap_size, 128*1024*1024)),
+                        application:get_env(blockchain, sc_client_max_heap_size, 128*1024*128)),
     State = #state{db=DB, cf=CF, swarm=Swarm, pubkey_bin=PubkeyBin, sig_fun=SigFun},
     {ok, State}.
 
