@@ -387,7 +387,7 @@ process_packet(ClientPubkeyBin, Packet, SC, Skewed, HandlerPid,
                             %% it happens in `send_purchase` for v2 SCs
                             SC2;
                         _ ->
-                            update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC1, ClientBloom)
+                            update_sc_summary(ClientPubkeyBin, byte_size(Payload), State#state.dc_payload_size, SC2, ClientBloom)
                     end,
 
             SignedSC = blockchain_state_channel_v1:sign(NewSC, OwnerSigFun),
