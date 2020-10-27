@@ -227,10 +227,8 @@ handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
         _ ->
             {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
     end;
-handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
-    {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
-            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) ->
+handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
                             {error, Reason} ->
                                 lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -308,6 +306,8 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
                                            end
                                    end, [], SCs),
     {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
+handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, State) ->
+    {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
     FilteredStreams = maps:filter(fun(_Name, {unverified, Stream}) ->
                                           Stream /= Pid;
