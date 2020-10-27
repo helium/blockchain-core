@@ -299,6 +299,7 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
             lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), Reason, print(T)]),
             separate_res(Rest, Chain, V, [{T, Reason} | I])
     end;
+
 separate_res([{T, Err} | Rest], Chain, V, I) ->
     case Err of
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
@@ -310,7 +311,21 @@ separate_res([{T, Err} | Rest], Chain, V, I) ->
         {error, InvalidReason} = Error ->
             lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
-            separate_res(Rest, Chain, V, [{T, InvalidReason} | I])
+            separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
+        {'EXIT', {{_Why,{error, CrashReason}}, _Stack}} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
+        {'EXIT', CrashReason} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
+        Error->
+            %% since this is critical code, always make sure we have a catchall clause just in case
+            %% Any log events hitting here should be reviewed and considered if we need to add
+            %% specific handling for any such error msg, ensuring we return meaningful error msgs where possible
+            lager:warning("BUG: unexpected txn validation error format ~p : ~p / ~s", [type(T), Error, print(T)]),
+            separate_res(Rest, Chain, V, [{T, txn_failed} | I])
     end.
 
 maybe_log_duration(Type, Start) ->
