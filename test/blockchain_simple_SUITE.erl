@@ -2491,8 +2491,20 @@ failed_txn_error_handling(Config) ->
     meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {'EXIT', exit_reason}}] end),
     {[], [{SignedPoCReqTxn0, exit_reason}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
+    %% meck out the pmap function to simulate it returning an exit crash msg with body formatted as {{Error, Reason, Stack}
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {'EXIT', {{badmatch,{error, crash_in_pmap}}, []}}}] end),
+    {[], [{SignedPoCReqTxn0, crash_in_pmap}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    %% meck out the pmap function to simulate it returning an error msg in an unexpected format {error, unexpected_reason, unexpected_details}
+    %% this will default to a generic error msg
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {crash, something_unexpected}}] end),
+    {[], [{SignedPoCReqTxn0, txn_failed}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
     ?assert(meck:validate(blockchain_utils)),
     meck:unload(blockchain_utils),
+
+    %% confirm the txn passes validation with the mecks removed
+    {[SignedPoCReqTxn0], []} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
 
     ok.
 
