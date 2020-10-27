@@ -728,13 +728,14 @@ maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fu
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
                   State :: state()) -> ok | {error, any()}.
 is_valid_sc(SC, State) ->
-    case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
-        {error, Reason}=E ->
-            lager:error("invalid sc, reason: ~p", [Reason]),
-            E;
+    %% check SC is even active first
+    case is_active_sc(SC, State) of
+        {error, _}=E -> E;
         ok ->
-            case is_active_sc(SC, State) of
-                {error, _}=E -> E;
+            case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
+                {error, Reason}=E ->
+                    lager:error("invalid sc, reason: ~p", [Reason]),
+                    E;
                 ok ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
@@ -744,7 +745,7 @@ is_valid_sc(SC, State) ->
                                 false ->
                                     ok
                             end;
-                       false ->
+                        false ->
                             {error, causal_conflict}
                     end
             end
@@ -758,10 +759,9 @@ is_active_sc(SC, #state{chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     SCOwner = blockchain_state_channel_v1:owner(SC),
     SCID = blockchain_state_channel_v1:id(SC),
-    {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
-    case lists:member(SCID, LedgerSCIDs) of
-        true -> ok;
-        false -> {error, inactive_sc}
+    case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
+        {ok, _SC} -> ok;
+        _ -> {error, inactive_sc}
     end.
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
