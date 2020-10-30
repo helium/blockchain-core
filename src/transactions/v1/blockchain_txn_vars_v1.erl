@@ -1063,6 +1063,14 @@ validate_var(?use_multi_keys, Value) ->
         _ -> throw({error, {invalid_multi_keys, Value}})
     end;
 
+
+%% POC Rate limiting vars
+validate_var(?poc_challenges_per_block, Value) ->
+    validate_int(Value, "poc_challenges_per_block", 1, 200, false);
+validate_var(?poc_consider_inactive, Value) ->
+    validate_int(Value, "poc_consider_inactive", 1, 10, false);
+
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

@@ -360,5 +360,15 @@
 %%
 -define(data_aggregation_version, data_aggregation_version).
 
+%% ------------------------------------------------------------------
 %% Multi-key
 -define(use_multi_keys, use_multi_keys).
+
+
+%% ------------------------------------------------------------------
+%% POC Rate Limiting
+%%
+%% Number of times a hotspot is allowed to beacon in a day
+-define(poc_challenges_per_block, poc_challenges_per_block).
+%% Hotspot considered inactive if current_height - last_poc_challenge >= poc_consider_inactive
+-define(poc_consider_inactive, poc_consider_inactive).

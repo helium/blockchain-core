@@ -245,7 +245,7 @@
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
 
--export_type([ledger/0]).
+-export_type([ledger/0, active_gateways/0]).
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
