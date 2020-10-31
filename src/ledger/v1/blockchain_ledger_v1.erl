@@ -618,6 +618,8 @@ current_height(Ledger) ->
             {ok, Height};
         not_found ->
             {ok, 0};
+        {error, not_found} ->
+            {ok, 0};
         Error ->
             Error
     end.
