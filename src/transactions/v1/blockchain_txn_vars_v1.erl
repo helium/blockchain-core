@@ -720,6 +720,7 @@ validate_var(?election_version, Value) ->
         undefined -> ok;
         2 -> ok;
         3 -> ok;
+        4 -> ok;
         _ ->
             throw({error, {invalid_election_version, Value}})
     end;
