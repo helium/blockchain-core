@@ -1063,6 +1063,9 @@ validate_var(?use_multi_keys, Value) ->
         _ -> throw({error, {invalid_multi_keys, Value}})
     end;
 
+validate_var(?transfer_hotspot_stale_poc_blocks, Value) ->
+    validate_int(Value, "transfer_hotspot_stale_poc_blocks", 1, 50000, false);
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).

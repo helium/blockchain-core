@@ -362,3 +362,9 @@
 
 %% Multi-key
 -define(use_multi_keys, use_multi_keys).
+
+%% transfer hotspot
+%% This is the number of blocks after which a hotspot which hasn't had a
+%% POC challenge for X blocks would be considered stale for the purposes
+%% of a hotspot transfer. (We do not allow stale hotspots to be transferred.)
+-define(transfer_hotspot_stale_poc_blocks, transfer_hotspot_stale_poc_blocks).
