@@ -31,7 +31,8 @@
 -record(state,
         {
          chain :: blockchain:blochain(),
-         hash :: any()
+         hash :: any(),
+         owner = undefined :: undefined | pid()
         }).
 
 %% ------------------------------------------------------------------
@@ -55,10 +56,14 @@ init(client, _Conn, [Hash, Height, Chain]) ->
             {ok, #state{chain = Chain, hash = Hash},
              blockchain_snapshot_handler_pb:encode_msg(Msg)}
     end;
+init(client, _Conn, [Hash, Height, Chain, Owner]) ->
+    Msg = #blockchain_snapshot_req_pb{height = Height, hash = Hash},
+    {ok, #state{chain = Chain, hash = Hash, owner = Owner},
+     blockchain_snapshot_handler_pb:encode_msg(Msg)};
 init(server, _Conn, [_Path, _, Chain]) ->
     {ok, #state{chain = Chain}}.
 
-handle_data(client, Data, #state{chain = Chain, hash = Hash} = State) ->
+handle_data(client, Data, #state{chain = Chain, hash = Hash, owner = undefined} = State) ->
     #blockchain_snapshot_resp_pb{snapshot = BinSnap} =
         blockchain_snapshot_handler_pb:decode_msg(Data, blockchain_snapshot_resp_pb),
     case blockchain_ledger_snapshot_v1:deserialize(BinSnap) of
@@ -79,6 +84,16 @@ handle_data(client, Data, #state{chain = Chain, hash = Hash} = State) ->
             lager:info("could not deserialize retrieved snapshot ~p: ~p",
                        [Reason]),
             ok
+    end,
+    {stop, normal, State};
+handle_data(client, Data, #state{owner = Owner} = State) ->
+    #blockchain_snapshot_resp_pb{snapshot = BinSnap} =
+        blockchain_snapshot_handler_pb:decode_msg(Data, blockchain_snapshot_resp_pb),
+    case blockchain_ledger_snapshot_v1:deserialize(BinSnap) of
+        {ok, Snapshot} ->
+            Owner ! {ok, Snapshot};
+        {error, _Reason} ->
+            Owner ! {error, not_found}
     end,
     {stop, normal, State};
 handle_data(server, Data, #state{chain = Chain} = State) ->

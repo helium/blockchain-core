@@ -138,7 +138,7 @@ sign(Txn0, SigFun) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_poc_request(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_poc_request(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),
@@ -196,7 +196,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_poc_request(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_poc_request(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Challenger = ?MODULE:challenger(Txn),

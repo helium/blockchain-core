@@ -45,7 +45,9 @@
     snapshot_sync/2,
     install_snapshot/2,
     reset_ledger_to_snap/2,
-    async_reset/1
+    async_reset/1,
+
+    grab_snapshot/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -791,8 +793,41 @@ start_block_sync(Swarm, Chain, Peer) ->
         end,
     spawn_monitor(fun() -> DialFun() end).
 
+grab_snapshot(Height, Hash) ->
+    Chain = blockchain_worker:blockchain(),
+    Swarm = blockchain_swarm:swarm(),
+    SwarmTID = libp2p_swarm:tid(Swarm),
 
+    Peers = get_peer(SwarmTID),
+    Peer = hd(Peers),
 
+    case libp2p_swarm:dial_framed_stream(Swarm,
+                                         Peer,
+                                         ?SNAPSHOT_PROTOCOL,
+                                         blockchain_snapshot_handler,
+                                         [Hash, Height, Chain, self()])
+    of
+        {ok, Stream} ->
+            Ref1 = erlang:monitor(process, Stream),
+            receive
+                {ok, Snapshot} ->
+                    {ok, Snapshot};
+                {error, not_found} ->
+                    {error, not_found};
+                cancel ->
+                    lager:info("snapshot sync cancelled"),
+                    libp2p_framed_stream:close(Stream);
+                {'DOWN', Ref1, process, Stream, normal} ->
+                    {error, down};
+                {'DOWN', Ref1, process, Stream, Reason} ->
+                    lager:info("snapshot sync failed with error ~p", [Reason]),
+                    {error, down, Reason}
+            after timer:minutes(1) ->
+                    {error, timeout}
+            end;
+        _ ->
+            ok
+    end.
 
 start_snapshot_sync(Hash, Height, Swarm, Chain, Peer) ->
     lager:info("attempting snapshot sync with ~p", [Peer]),
@@ -829,7 +864,9 @@ send_txn(Txn) ->
                                             case Res of
                                                 ok ->
                                                     lager:info("successfully submit txn: ~s", [blockchain_txn:print(Txn)]);
-                                                {error, Reason} ->
+                                                {error, rejected = Reason} ->
+                                                    lager:error("failed to submit txn: ~s error: ~p", [blockchain_txn:print(Txn), Reason]);
+                                                {error, {invalid, _InvalidReason} = Reason} ->
                                                     lager:error("failed to submit txn: ~s error: ~p", [blockchain_txn:print(Txn), Reason])
                                             end
                                     end)).

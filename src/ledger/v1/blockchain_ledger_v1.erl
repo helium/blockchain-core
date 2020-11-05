@@ -540,8 +540,8 @@ raw_fingerprint(#ledger_v1{mode = Mode} = Ledger, Extended) ->
            state_channels = SCsCF,
            subnets = SubnetsCF
           } = SubLedger,
-        %% NB: keep in sync with upgrades macro in blockchain.erl
-        Filter = ?BC_UPGRADE_NAMES,
+        %% NB: remove multi_keys when they go live
+        Filter = ?BC_UPGRADE_NAMES ++ [<<"transaction_fee">>, <<"multi_keys">>],
         DefaultHash0 =
             cache_fold(
               Ledger, DefaultCF,
@@ -885,10 +885,12 @@ master_key(NewKey, Ledger) ->
 multi_keys(Ledger) ->
     DefaultCF = default_cf(Ledger),
     case cache_get(Ledger, DefaultCF, ?MULTI_KEYS, []) of
+        {ok, []} ->
+            {error, not_found};
         {ok, MultiKeysBin} ->
             {ok, blockchain_utils:bin_keys_to_list(MultiKeysBin)};
         not_found ->
-            {ok, []};
+            {error, not_found};
         Error ->
             Error
     end.
@@ -1528,68 +1530,99 @@ filtered_gateways_to_refresh(Hash, RefreshInterval, GatewayOffsets, RandN) ->
 maybe_gc_scs(Chain) ->
     Ledger = blockchain:ledger(Chain),
     {ok, Height} = current_height(Ledger),
-    {ok, Block} = blockchain:get_block(Height, Chain),
-    {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
 
-    case ?MODULE:config(?sc_grace_blocks, Ledger) of
-        {ok, Grace} ->
-            GCInterval = case ?MODULE:config(?sc_gc_interval, Ledger) of
-                             {ok, I} ->
-                                 I;
-                             _ ->
-                                 %% 100 was the previously hardcoded value
-                                 100
-                         end,
-            case Height rem GCInterval == 0 of
-                true ->
-                    lager:info("gcing old state_channels..."),
-                    SCsCF = state_channels_cf(Ledger),
-                    {Alters, SCIDs} = cache_fold(
-                               Ledger,
-                               SCsCF,
-                               fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
-                                       {Mod, SC} = deserialize_state_channel(BinSC),
-                                       ExpireAtBlock = Mod:expire_at_block(SC),
-                                       case (ExpireAtBlock + Grace) < Height of
-                                           false ->
-                                               Acc;
-                                           true ->
-                                               case Mod of
-                                                   blockchain_ledger_state_channel_v1 ->
-                                                       {[KeyHash | CacheAcc], []};
-                                                   blockchain_ledger_state_channel_v2 ->
-                                                       case (ExpireAtBlock + Grace) < EpochStart of
-                                                           false -> Acc; %% we do not want to gc until rewards have been calculated and distributed
-                                                           true ->
-                                                               ID = Mod:id(SC),
-                                                               case blockchain_ledger_state_channel_v2:close_state(SC) of
-                                                                   undefined -> ok; %% due to tests must handle
-                                                                   dispute -> ok;
-                                                                   closed -> %% refund overcommit DCs
-                                                                       SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
-                                                                       Owner = blockchain_state_channel_v1:owner(SC0),
-                                                                       Credit = calc_remaining_dcs(SC),
-                                                                       ok = credit_dc(Owner, Credit, Ledger)
-                                                               end,
-                                                               {[KeyHash | CacheAcc], [ID | IDAcc]}
+    case blockchain:get_block(Height, Chain) of
+        {ok, Block} ->
+            {_Epoch, EpochStart} = blockchain_block_v1:election_info(Block),
+            RewardVersion = case ?MODULE:config(?reward_version, Ledger) of
+                                {ok, N} -> N;
+                                _ -> 1
+                            end,
 
-                                                       end
-                                               end
-                                       end
-                               end, {[], []}),
-                    ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
-                    ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
-                    ok = lists:foreach(fun(KeyHash) ->
-                                               cache_delete(Ledger, SCsCF, KeyHash)
-                                       end,
-                                       Alters),
-                    ok;
+            case ?MODULE:config(?sc_grace_blocks, Ledger) of
+                {ok, Grace} ->
+                    GCInterval = case ?MODULE:config(?sc_gc_interval, Ledger) of
+                                     {ok, I} ->
+                                         I;
+                                     _ ->
+                                         %% 100 was the previously hardcoded value
+                                         100
+                                 end,
+                    case Height rem GCInterval == 0 of
+                        true ->
+                            lager:info("gcing old state_channels..."),
+                            SCsCF = state_channels_cf(Ledger),
+                            {Alters, SCIDs} = cache_fold(
+                                                Ledger,
+                                                SCsCF,
+                                                fun({KeyHash, BinSC}, {CacheAcc, IDAcc} = Acc) ->
+                                                        {Mod, SC} = deserialize_state_channel(BinSC),
+                                                        ExpireAtBlock = Mod:expire_at_block(SC),
+                                                        case (ExpireAtBlock + Grace) < Height of
+                                                            false ->
+                                                                Acc;
+                                                            true ->
+                                                                case Mod of
+                                                                    blockchain_ledger_state_channel_v1 ->
+                                                                        {[KeyHash | CacheAcc], []};
+                                                                    blockchain_ledger_state_channel_v2 ->
+                                                                        %% We have to protect state channels
+                                                                        %% that closed during the grace blocks
+                                                                        %% in the previous epoch so that
+                                                                        %% we can calculate rewards for those
+                                                                        %% closes.
+                                                                        %%
+                                                                        %% So only expire state channels that
+                                                                        %% closed *before* grace in the previous
+                                                                        %% epoch
+                                                                        case check_sc_expire(ExpireAtBlock, Grace,
+                                                                                             EpochStart,
+                                                                                             RewardVersion) of
+                                                                            false -> Acc;
+                                                                            true ->
+                                                                                ID = Mod:id(SC),
+                                                                                case blockchain_ledger_state_channel_v2:close_state(SC) of
+                                                                                    undefined -> ok; %% due to tests must handle
+                                                                                    dispute -> ok; %% slash overcommit
+                                                                                    closed -> %% refund overcommit DCs
+                                                                                        SC0 = blockchain_ledger_state_channel_v2:state_channel(SC),
+                                                                                        Owner = blockchain_state_channel_v1:owner(SC0),
+                                                                                        Credit = calc_remaining_dcs(SC),
+                                                                                        ok = credit_dc(Owner, Credit, Ledger)
+                                                                                end,
+                                                                                {[KeyHash | CacheAcc], [ID | IDAcc]}
+
+                                                                        end
+                                                                end
+                                                        end
+                                                end, {[], []}),
+                            ok = blockchain_state_channels_client:gc_state_channels(SCIDs),
+                            ok = blockchain_state_channels_server:gc_state_channels(SCIDs),
+                            ok = lists:foreach(fun(KeyHash) ->
+                                                       cache_delete(Ledger, SCsCF, KeyHash)
+                                               end,
+                                               Alters),
+                            ok;
+                        _ ->
+                            ok
+                    end;
                 _ ->
                     ok
             end;
         _ ->
+            %% We do not have the block, hence cannot gc scs
             ok
     end.
+
+
+-spec check_sc_expire(ExpiresAt :: pos_integer(),
+                      Grace :: pos_integer(),
+                      EpochStart :: pos_integer(),
+                      RewardVersion :: pos_integer()) -> boolean().
+check_sc_expire(ExpiresAt, Grace, EpochStart, RewardVersion) when RewardVersion > 4 ->
+    (ExpiresAt + Grace) < (EpochStart - Grace);
+check_sc_expire(ExpiresAt, Grace, EpochStart, _RewardVersion) ->
+    (ExpiresAt + Grace) < EpochStart.
 
 -spec calc_remaining_dcs( blockchain_ledger_state_channel_v2:state_channel() ) -> non_neg_integer().
 calc_remaining_dcs(SC) ->
@@ -1879,7 +1912,7 @@ debit_account(Address, Amount, Nonce, Ledger) ->
                             EntriesCF = entries_cf(Ledger),
                             cache_put(Ledger, EntriesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, Amount, Balance}}
+                            {error, {insufficient_balance, {Amount, Balance}}}
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_entry_v1:nonce(Entry)}}}
@@ -1903,7 +1936,7 @@ debit_fee_from_account(Address, Fee, Ledger) ->
                     EntriesCF = entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
-                    {error, {insufficient_balance_for_fee, Fee, Balance}}
+                    {error, {insufficient_balance_for_fee, {Fee, Balance}}}
             end
     end.
 
@@ -1916,7 +1949,7 @@ check_balance(Address, Amount, Ledger) ->
             Balance = blockchain_ledger_entry_v1:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
-                    {error, {insufficient_balance, Amount, Balance}};
+                    {error, {insufficient_balance, {Amount, Balance}}};
                 true ->
                     ok
             end
@@ -1971,7 +2004,7 @@ debit_dc(Address, Nonce, Amount, Ledger) ->
                     EntriesCF = dc_entries_cf(Ledger),
                     cache_put(Ledger, EntriesCF, Address, Bin);
                 false ->
-                    {error, {insufficient_dc_balance, Amount, Balance}}
+                    {error, {insufficient_dc_balance, {Amount, Balance}}}
             end
         end,
 
@@ -2020,7 +2053,7 @@ debit_fee(Address, Fee, Ledger, MaybeTryImplicitBurn) ->
                     {ok, FeeInHNT} = ?MODULE:dc_to_hnt(Fee, Ledger),
                     ?MODULE:debit_fee_from_account(Address, FeeInHNT, Ledger);
                 {false, false} ->
-                    {error, {insufficient_balance, Fee, Balance}}
+                    {error, {insufficient_dc_balance, {Fee, Balance}}}
             end
     end.
 
@@ -2035,7 +2068,7 @@ check_dc_balance(Address, Amount, Ledger) ->
             Balance = blockchain_ledger_data_credits_entry_v1:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
-                    {error, {insufficient_balance, Amount, Balance}};
+                    {error, {insufficient_dc_balance, {Amount, Balance}}};
                 true ->
                     ok
             end
@@ -2057,7 +2090,7 @@ check_dc_or_hnt_balance(Address, Amount, Ledger, IsFeesEnabled) ->
                 {true, _} ->
                     ok;
                 {false, false} ->
-                    {error, {insufficient_balance, Amount, Balance}};
+                    {error, {insufficient_dc_balance, {Amount, Balance}}};
                 {false, true} ->
                     {ok, AmountInHNT} = ?MODULE:dc_to_hnt(Amount, Ledger),
                     ?MODULE:check_balance(Address, AmountInHNT, Ledger)
@@ -2145,7 +2178,7 @@ debit_security(Address, Amount, Nonce, Ledger) ->
                             SecuritiesCF = securities_cf(Ledger),
                             cache_put(Ledger, SecuritiesCF, Address, Bin);
                         false ->
-                            {error, {insufficient_balance, Amount, Balance}}
+                            {error, {insufficient_security_balance, {Amount, Balance}}}
                     end;
                 false ->
                     {error, {bad_nonce, {payment, Nonce, blockchain_ledger_security_entry_v1:nonce(Entry)}}}
@@ -2161,7 +2194,7 @@ check_security_balance(Address, Amount, Ledger) ->
             Balance = blockchain_ledger_security_entry_v1:balance(Entry),
             case (Balance - Amount) >= 0 of
                 false ->
-                    {error, {insufficient_balance, Amount, Balance}};
+                    {error, {insufficient_security_balance, {Amount, Balance}}};
                 true ->
                     ok
             end
@@ -3526,7 +3559,7 @@ debit_account_test() ->
     ok = commit_context(Ledger1),
     ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_account(<<"address">>, 1000, 0, Ledger)),
     ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_account(<<"address">>, 1000, 12, Ledger)),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_account(<<"address">>, 9999, 1, Ledger)),
+    ?assertEqual({error, {insufficient_balance, {9999, 1000}}}, debit_account(<<"address">>, 9999, 1, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_account(<<"address">>, 500, 1, Ledger2),
     ok = commit_context(Ledger2),
@@ -3551,7 +3584,7 @@ debit_fee_test() ->
     Ledger1 = new_context(Ledger),
     ok = credit_dc(<<"address">>, 1000, Ledger1),
     ok = commit_context(Ledger1),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_fee(<<"address">>, 9999, Ledger)),
+    ?assertEqual({error, {insufficient_dc_balance, {9999, 1000}}}, debit_fee(<<"address">>, 9999, Ledger)),
     Ledger2 = new_context(Ledger),
     ok = debit_fee(<<"address">>, 500, Ledger2),
     ok = commit_context(Ledger2),
@@ -3585,7 +3618,7 @@ debit_security_test() ->
     ),
     ?assertEqual({error, {bad_nonce, {payment, 0, 0}}}, debit_security(<<"address">>, 1000, 0, Ledger)),
     ?assertEqual({error, {bad_nonce, {payment, 12, 0}}}, debit_security(<<"address">>, 1000, 12, Ledger)),
-    ?assertEqual({error, {insufficient_balance, 9999, 1000}}, debit_security(<<"address">>, 9999, 1, Ledger)),
+    ?assertEqual({error, {insufficient_security_balance, {9999, 1000}}}, debit_security(<<"address">>, 9999, 1, Ledger)),
     commit(
         fun(L) ->
             ok = debit_security(<<"address">>, 500, 1, L)

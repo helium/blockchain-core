@@ -90,7 +90,7 @@ get_known_channels(SCID) ->
 -spec purchase(Purchase :: blockchain_state_channel_purchase_v1:purchase(),
                HandlerPid :: pid()) -> ok.
 purchase(Purchase, HandlerPid) ->
-    gen_server:cast(?SERVER, {purchase, Purchase, HandlerPid}).
+    gen_server:call(?SERVER, {purchase, Purchase, HandlerPid}, infinity).
 
 -spec banner(Banner :: blockchain_state_channel_banner_v1:banner(),
              HandlerPid :: pid()) -> ok.
@@ -130,7 +130,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% gen_server message handling
 %% ------------------------------------------------------------------
 
-handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
+handle_cast({banner, Banner, HandlerPid}, State) ->
     case blockchain_state_channel_banner_v1:sc(Banner) of
         undefined ->
             %% TODO in theory if you're in the same OUI as the router this is ok
@@ -149,43 +149,9 @@ handle_cast({banner, Banner, HandlerPid}, State=#state{pubkey_bin=PubkeyBin, sig
                 ok ->
                     overwrite_state_channel(BannerSC, State),
                     AddressOrOUI = lookup_stream_id(HandlerPid, State),
-                    Packets = get_waiting_packet(AddressOrOUI, State),
-                    lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
-                    case AddressOrOUI of
-                        OUI when is_integer(OUI) ->
-                            lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
-                            State1 = lists:foldl(
-                                       fun({Packet, Region}, Acc) ->
-                                               send_packet_or_offer(HandlerPid, OUI, Packet, Region, Acc)
-                                       end,
-                                       State,
-                                       Packets
-                                      ),
-                            {noreply, verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1))};
-                        Address when is_list(Address) ->
-                            case blockchain:config(sc_version, blockchain:ledger(State#state.chain)) of
-                                {ok, 2} ->
-                                    lists:foreach(
-                                      fun({Packet, Region}) ->
-                                              ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region)
-                                      end,
-                                      Packets
-                                     );
-                                _ ->
-                                    lists:foreach(
-                                      fun({Packet, Region}) ->
-                                              ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
-                                      end,
-                                      Packets
-                                     )
-                            end,
-                            {noreply, verify_stream(HandlerPid, remove_packet_from_waiting(Address, State))}
-                    end
+                    {noreply, maybe_send_packets(AddressOrOUI, HandlerPid, State)}
             end
     end;
-handle_cast({purchase, Purchase, HandlerPid}, State) ->
-    NewState = handle_purchase(Purchase, HandlerPid, State),
-    {noreply, NewState};
 handle_cast({packet, Packet, DefaultRouters, Region}, #state{chain=Chain}=State) ->
     NewState = case find_routing(Packet, Chain) of
                    {error, _Reason} ->
@@ -215,6 +181,9 @@ handle_cast(_Msg, State) ->
     lager:debug("unhandled receive: ~p", [_Msg]),
     {noreply, State}.
 
+handle_call({purchase, Purchase, HandlerPid}, _From, State) ->
+    NewState = handle_purchase(Purchase, HandlerPid, State),
+    {reply, ok, NewState};
 handle_call({get_known_channels, SCID}, _From, State) ->
     {reply, get_state_channels(SCID, State), State};
 handle_call(_, _, State) ->
@@ -239,8 +208,11 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
     %% We somehow lost the chain here, likely we were restarting and haven't gotten it yet
     %% There really isn't anything we can do about it, but we should probably keep this stream
     %% (if we don't already have it)
+    %%
+    %% NOTE: We don't keep the packets we were waiting on as we lost the chain, maybe we should?
     NewState = case find_stream(AddressOrOUI, State) of
                    undefined ->
+                       erlang:monitor(process, Stream),
                        add_stream(AddressOrOUI, Stream, State);
                    _ ->
                        State
@@ -249,11 +221,14 @@ handle_info({dial_success, AddressOrOUI, Stream}, #state{chain=undefined}=State)
 handle_info({dial_success, OUIOrAddress, Stream}, State0) ->
     erlang:monitor(process, Stream),
     State1 = add_stream(OUIOrAddress, Stream, State0),
-    {noreply, State1};
-handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, #state{chain=undefined}=State) ->
-    {noreply, State};
-handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
-            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) ->
+    case blockchain:config(?sc_version, blockchain:ledger(State1#state.chain)) of
+        {ok, N} when N >= 2 ->
+            {noreply, State1};
+        _ ->
+            {noreply, maybe_send_packets(OUIOrAddress, Stream, State1)}
+    end;
+handle_info({blockchain_event, {add_block, BlockHash, false, Ledger}},
+            #state{chain=Chain, pubkey_bin=PubkeyBin, sig_fun=SigFun, pending_closes=PendingCloses}=State) when Chain /= undefined ->
     ClosingChannels = case blockchain:get_block(BlockHash, Chain) of
                             {error, Reason} ->
                                 lager:error("Couldn't get block with hash: ~p, reason: ~p", [BlockHash, Reason]),
@@ -331,13 +306,21 @@ handle_info({blockchain_event, {add_block, BlockHash, _Syncing, Ledger}},
                                            end
                                    end, [], SCs),
     {noreply, State#state{pending_closes=lists:usort(PendingCloses ++ ClosingChannels ++ ExpiringChannels)}};
-handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams}=State) ->
+handle_info({blockchain_event, {add_block, _BlockHash, _Syncing, _Ledger}}, State) ->
+    {noreply, State};
+handle_info({'DOWN', _Ref, process, Pid, _}, #state{streams=Streams, packets=Packets}=State) ->
     FilteredStreams = maps:filter(fun(_Name, {unverified, Stream}) ->
                                           Stream /= Pid;
                                      (_Name, Stream) ->
                                           Stream /= Pid
                                   end, Streams),
-    {noreply, State#state{streams=FilteredStreams}};
+
+    %% Keep the streams which don't have downed pid, given we're monitoring correctly
+    FilteredPackets = maps:filter(fun(StreamPid, _PacketQueue) ->
+                                          StreamPid /= Pid
+                                  end, Packets),
+
+    {noreply, State#state{streams=FilteredStreams, packets=FilteredPackets}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -364,32 +347,35 @@ handle_packet(Packet, RoutesOrAddresses, Region, #state{swarm=Swarm}=State0) ->
                     {address, Address} ->
                         case find_stream(Address, StateAcc) of
                             undefined ->
-                                lager:debug("stream undef dialing first"),
+                                lager:debug("stream undef dialing first, address: ~p", [Address]),
                                 ok = dial(Swarm, RouteOrAddress),
                                 add_packet_to_waiting(Address, {Packet, Region}, add_stream(Address, dialing, StateAcc));
                             dialing ->
-                                lager:debug("stream is still dialing queueing packet"),
+                                lager:debug("stream is still dialing queueing packet, address: ~p", [Address]),
                                 add_packet_to_waiting(Address, {Packet, Region}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
+                                lager:debug("unverified stream, add_packet_to_waiting, address: ~p", [Address]),
                                 add_packet_to_waiting(Address, {Packet, Region}, StateAcc);
                             Stream ->
+                                lager:debug("stream ~p, send_packet_when_v1, address: ~p", [Stream, Address]),
                                 send_packet_when_v1(Stream, Packet, Region, StateAcc)
                         end;
                     {oui, OUI} ->
                         case find_stream(OUI, StateAcc) of
                             undefined ->
-                                lager:debug("stream undef dialing first"),
+                                lager:debug("stream undef dialing first, oui: ~p", [OUI]),
                                 ok = dial(Swarm, RouteOrAddress),
                                 add_packet_to_waiting(OUI, {Packet, Region}, add_stream(OUI, dialing, StateAcc));
                             dialing ->
-                                lager:debug("stream is still dialing queueing packet"),
+                                lager:debug("stream is still dialing queueing packet, oui: ~p", [OUI]),
                                 add_packet_to_waiting(OUI, {Packet, Region}, StateAcc);
                             {unverified, _Stream} ->
                                 %% queue it until we get a banner
+                                lager:debug("unverified stream, add_packet_to_waiting, oui: ~p", [OUI]),
                                 add_packet_to_waiting(OUI, {Packet, Region}, StateAcc);
                             Stream ->
-                                lager:debug("got stream sending offer"),
+                                lager:debug("got stream: ~p, send_packet_or_offer, oui: ~p", [Stream, OUI]),
                                 send_packet_or_offer(Stream, OUI, Packet, Region, StateAcc)
                         end
                 end
@@ -411,7 +397,8 @@ handle_purchase(Purchase, Stream,
             ok = append_state_channel(PurchaseSC, State),
             _ = libp2p_framed_stream:close(Stream),
             State;
-        {error, _} ->
+        {error, Reason} ->
+            lager:error("failed sc validation, closing stream: ~p, reason: ~p", [Stream, Reason]),
             _ = libp2p_framed_stream:close(Stream),
             State;
         ok ->
@@ -434,6 +421,7 @@ handle_purchase(Purchase, Stream,
                             %% All we do is store the state channel by overwriting instead of appending
                             %% since there was not a causal conflict
                             ok = overwrite_state_channel(PurchaseSC, State0),
+                            lager:debug("failed dequeue_packet, stream: ~p, purchase: ~p", [Stream, Purchase]),
                             State0;
                         {Packet, NewState} ->
                             Payload = blockchain_helium_packet_v1:payload(Packet),
@@ -511,6 +499,7 @@ get_waiting_packet(AddressOrOUI, #state{waiting=Waiting}) ->
                             State :: state()) -> state().
 add_packet_to_waiting(AddressOrOUI, {Packet, Region}, #state{waiting=Waiting}=State) ->
     Q = get_waiting_packet(AddressOrOUI, State),
+    lager:debug("add_packet_to_waiting, AddressOrOUI: ~p", [AddressOrOUI]),
     State#state{waiting=maps:put(AddressOrOUI, Q ++ [{Packet, Region}], Waiting)}.
 
 -spec remove_packet_from_waiting(AddressOrOUI :: waiting_key(), State :: state()) -> state().
@@ -521,6 +510,7 @@ remove_packet_from_waiting(AddressOrOUI, #state{waiting=Waiting}=State) ->
                      Packet :: blockchain_helium_packet_v1:packet(),
                      State :: state()) -> state().
 enqueue_packet(Stream, Packet, #state{packets=Packets}=State) ->
+    lager:debug("enqueue_packet, stream: ~p, packet: ~p", [Stream, Packet]),
     State#state{packets=maps:update_with(Stream, fun(PacketList) -> queue:in(Packet, PacketList) end, queue:in(Packet, queue:new()), Packets)}.
 
 -spec dequeue_packet(Stream :: pid(), State :: state()) -> {undefined | blockchain_helium_packet_v1:packet(), state()}.
@@ -569,6 +559,9 @@ dial(Swarm, Address) when is_list(Address) ->
                       ok;
                   {'DOWN', R, process, P, _Reason} ->
                       Self ! {dial_fail, Address, _Reason}
+              after application:get_env(blockchain, sc_packet_dial_timeout, 30000) ->
+                      erlang:exit(P, kill),
+                      Self ! {dial_fail, Address, timeout}
               end
       end),
     ok;
@@ -609,6 +602,9 @@ dial(Swarm, Route) ->
                       ok;
                   {'DOWN', R, process, P, _Reason} ->
                       Self ! {dial_fail, OUI, failed}
+              after application:get_env(blockchain, sc_packet_dial_timeout, 30000) ->
+                      erlang:exit(P, kill),
+                      Self ! {dial_fail, OUI, timeout}
               end
       end),
     ok.
@@ -658,7 +654,7 @@ is_hotspot_in_router_oui(PubkeyBin, OUI, Chain) ->
                            State :: #state{}) -> #state{}.
 send_packet_or_offer(Stream, OUI, Packet, Region,
                      #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    SCVer = case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+    SCVer = case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
                 {ok, N} -> N;
                 _ -> 1
             end,
@@ -677,7 +673,7 @@ send_packet_or_offer(Stream, OUI, Packet, Region,
                           State :: #state{}) -> #state{}.
 send_packet_when_v1(Stream, Packet, Region,
                     #state{pubkey_bin=PubkeyBin, sig_fun=SigFun, chain=Chain}=State) ->
-    case blockchain:config(sc_version, blockchain:ledger(Chain)) of
+    case blockchain:config(?sc_version, blockchain:ledger(Chain)) of
         {ok, N} when N > 1 ->
             lager:debug("got stream sending offer"),
             ok = send_offer(PubkeyBin, SigFun, Stream, Packet, Region),
@@ -688,19 +684,58 @@ send_packet_when_v1(Stream, Packet, Region,
             State
     end.
 
+
+maybe_send_packets(AddressOrOUI, HandlerPid, #state{pubkey_bin=PubkeyBin, sig_fun=SigFun} = State) ->
+    Packets = get_waiting_packet(AddressOrOUI, State),
+    case AddressOrOUI of
+        OUI when is_integer(OUI) ->
+            lager:debug("dial_success sending ~p packets or offer depending on OUI", [erlang:length(Packets)]),
+            State1 = lists:foldl(
+                       fun({Packet, Region}, Acc) ->
+                               send_packet_or_offer(HandlerPid, OUI, Packet, Region, Acc)
+                       end,
+                       State,
+                       Packets
+                      ),
+            verify_stream(HandlerPid, remove_packet_from_waiting(OUI, State1));
+        Address when is_list(Address) ->
+            State1 = case blockchain:config(?sc_version, blockchain:ledger(State#state.chain)) of
+                         {ok, N} when N >= 2 ->
+                             lager:info("valid banner for ~p, sending ~p packets", [AddressOrOUI, length(Packets)]),
+                             lists:foldl(
+                               fun({Packet, Region}, Acc) ->
+                                       ok = send_offer(PubkeyBin, SigFun, HandlerPid, Packet, Region),
+                                       enqueue_packet(HandlerPid, Packet, Acc)
+                               end,
+                               State,
+                               Packets
+                              );
+                         _ ->
+                             lists:foreach(
+                               fun({Packet, Region}) ->
+                                       ok = send_packet(PubkeyBin, SigFun, HandlerPid, Packet, Region)
+                               end,
+                               Packets
+                              ),
+                             State
+                     end,
+            verify_stream(HandlerPid, remove_packet_from_waiting(Address, State1))
+    end.
+
 %% ------------------------------------------------------------------
 %% State channel validation functions
 %% ------------------------------------------------------------------
 -spec is_valid_sc(SC :: blockchain_state_channel_v1:state_channel(),
                   State :: state()) -> ok | {error, any()}.
 is_valid_sc(SC, State) ->
-    case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
-        {error, Reason}=E ->
-            lager:error("invalid sc, reason: ~p", [Reason]),
-            E;
+    %% check SC is even active first
+    case is_active_sc(SC, State) of
+        {error, _}=E -> E;
         ok ->
-            case is_active_sc(SC, State) of
-                {error, _}=E -> E;
+            case blockchain_state_channel_v1:quick_validate(SC, State#state.pubkey_bin) of
+                {error, Reason}=E ->
+                    lager:error("invalid sc, reason: ~p", [Reason]),
+                    E;
                 ok ->
                     case is_causally_correct_sc(SC, State) of
                         true ->
@@ -710,7 +745,7 @@ is_valid_sc(SC, State) ->
                                 false ->
                                     ok
                             end;
-                       false ->
+                        false ->
                             {error, causal_conflict}
                     end
             end
@@ -724,10 +759,9 @@ is_active_sc(SC, #state{chain=Chain}) ->
     Ledger = blockchain:ledger(Chain),
     SCOwner = blockchain_state_channel_v1:owner(SC),
     SCID = blockchain_state_channel_v1:id(SC),
-    {ok, LedgerSCIDs} = blockchain_ledger_v1:find_sc_ids_by_owner(SCOwner, Ledger),
-    case lists:member(SCID, LedgerSCIDs) of
-        true -> ok;
-        false -> {error, inactive_sc}
+    case blockchain_ledger_v1:find_state_channel(SCID, SCOwner, Ledger) of
+        {ok, _SC} -> ok;
+        _ -> {error, inactive_sc}
     end.
 
 -spec is_causally_correct_sc(SC :: blockchain_state_channel_v1:state_channel(),
@@ -861,7 +895,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
             Txn = blockchain_txn_state_channel_close_v1:new(SC0, SC, PubkeyBin),
             SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
             ok = blockchain_worker:submit_txn(SignedTxn),
-            lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn]);
+            lager:info("closing state channel on conflict ~p: ~p",
+                       [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn]);
         {ok, SCs} ->
             lager:warning("multiple conflicting SCs ~p", [length(SCs)]),
             %% TODO check for 'overpaid' state channels as well, not just causal conflicts
@@ -903,7 +938,8 @@ close_state_channel(SC, State=#state{pubkey_bin=PubkeyBin, sig_fun=SigFun}) ->
                     Txn = blockchain_txn_state_channel_close_v1:new(lists:last(SortedConflicts), SC, PubkeyBin),
                     SignedTxn = blockchain_txn_state_channel_close_v1:sign(Txn, SigFun),
                     ok = blockchain_worker:submit_txn(SignedTxn),
-                    lager:info("closing state channel on conflict ~p: ~p", [blockchain_state_channel_v1:id(SC), SignedTxn])
+                    lager:info("closing state channel on conflict ~p: ~p",
+                               [libp2p_crypto:bin_to_b58(blockchain_state_channel_v1:id(SC)), SignedTxn])
             end;
         _ ->
             ok

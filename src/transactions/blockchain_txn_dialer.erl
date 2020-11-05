@@ -52,7 +52,7 @@ dial(Pid) ->
 init(Args) ->
     lager:debug("blockchain_txn_dialer started with ~p", [Args]),
     [Parent, TxnKey, Txn, Member] = Args,
-    Ref = erlang:send_after(30000, Parent, {timeout, {self(), Txn, Member}}),
+    Ref = erlang:send_after(30000, Parent, {timeout, {self(), TxnKey, Txn, Member}}),
     {ok, #state{parent=Parent, txn_key = TxnKey, txn=Txn, member=Member, timeout=Ref}}.
 
 handle_call(_, _, State) ->

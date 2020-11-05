@@ -7,6 +7,7 @@
 
 -behavior(blockchain_json).
 -include("blockchain_json.hrl").
+-include("blockchain_utils.hrl").
 
 -export([
     new/3, new/5,
@@ -20,7 +21,9 @@
     signature/1, sign/2, validate/1, quick_validate/2,
     encode/1, decode/1,
     save/3, fetch/2,
-    summaries/1, summaries/2, update_summary_for/3,
+    summaries/1, summaries/2, update_summary_for/4,
+
+    normalize/1,
 
     add_payload/3,
     get_summary/2,
@@ -36,8 +39,6 @@
 ]).
 
 -include_lib("helium_proto/include/blockchain_state_channel_v1_pb.hrl").
-
--define(MAX_UNIQ_CLIENTS, 1000).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -118,24 +119,29 @@ summaries(#blockchain_state_channel_v1_pb{summaries=Summaries}) ->
 summaries(Summaries, SC) ->
     SC#blockchain_state_channel_v1_pb{summaries=Summaries}.
 
+%% returns state_channel and whether we were able to fit it
 -spec update_summary_for(ClientPubkeyBin :: libp2p_crypto:pubkey_bin(),
                          NewSummary :: blockchain_state_channel_summary_v1:summary(),
-                         SC :: state_channel()) -> state_channel().
-update_summary_for(ClientPubkeyBin, NewSummary, #blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+                         SC :: state_channel(),
+                         WillFit :: boolean()) -> {state_channel(), boolean()}.
+update_summary_for(ClientPubkeyBin,
+                   NewSummary,
+                   #blockchain_state_channel_v1_pb{summaries=Summaries}=SC,
+                   WillFit) ->
     case get_summary(ClientPubkeyBin, SC) of
         {error, not_found} ->
-            SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]};
+            {SC#blockchain_state_channel_v1_pb{summaries=[NewSummary | Summaries]}, true};
         {ok, _Summary} ->
-            case can_fit(ClientPubkeyBin, Summaries) of
+            case WillFit orelse can_fit(ClientPubkeyBin, Summaries) of
                 false ->
                     %% Cannot fit this into summaries
-                    SC;
+                    {SC, false};
                 true ->
                     NewSummaries = lists:keyreplace(ClientPubkeyBin,
                                                     #blockchain_state_channel_summary_v1_pb.client_pubkeybin,
                                                     Summaries,
                                                     NewSummary),
-                    SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}
+                    {SC#blockchain_state_channel_v1_pb{summaries=NewSummaries}, true}
             end
     end.
 
@@ -272,13 +278,12 @@ decode(Binary) ->
 -spec save(DB :: rocksdb:db_handle(),
            SC :: state_channel(),
            Skewed :: skewed:skewed()) -> ok.
-save(DB, SC, Skewed) ->
-    ID = ?MODULE:id(SC),
-    ok = rocksdb:put(DB, ID, term_to_binary({?MODULE:encode(SC), Skewed}), [{sync, false}]).
+save(_DB, SC, Skewed) ->
+    blockchain_state_channels_db_owner:write(SC, Skewed).
 
 -spec fetch(rocksdb:db_handle(), id()) -> {ok, {state_channel(), skewed:skewed()}} | {error, any()}.
 fetch(DB, ID) ->
-    case rocksdb:get(DB, ID, [{sync, true}]) of
+    case rocksdb:get(DB, ID, []) of
         {ok, Bin} ->
             {BinarySC, Skewed} = binary_to_term(Bin),
             SC = ?MODULE:decode(BinarySC),
@@ -287,8 +292,9 @@ fetch(DB, ID) ->
         Error -> Error
     end.
 
--spec add_payload(Payload :: binary(), SC :: state_channel(), Skewed :: skewed:skewed()) -> {state_channel(),
-                                                                                             skewed:skewed()}.
+-spec add_payload(Payload :: binary(),
+                  SC :: state_channel(),
+                  Skewed :: skewed:skewed()) -> {state_channel(), skewed:skewed()}.
 add_payload(Payload, SC, Skewed) ->
     %% Check if we have already seen this payload in skewed
     %% If yes, don't do anything, otherwise, add to skewed and return new state_channel
@@ -301,6 +307,32 @@ add_payload(Payload, SC, Skewed) ->
             {SC#blockchain_state_channel_v1_pb{root_hash=NewRootHash}, NewSkewed}
     end.
 
+-spec normalize(SC :: state_channel()) -> state_channel().
+normalize(#blockchain_state_channel_v1_pb{summaries=Summaries}=SC) ->
+    Total = amount(SC),
+    %% if any individual entry is greater than the total amount, reduce it to the total amount
+    {SumTotal, NewSummaries} = lists:foldl(fun(Summary, {AccTotal, AccSummaries}) ->
+                                                   Amt = blockchain_state_channel_summary_v1:num_dcs(Summary),
+                                                   case Amt > Total of
+                                                       true ->
+                                                           {AccTotal + Total, [blockchain_state_channel_summary_v1:num_dcs(Total, Summary)|AccSummaries]};
+                                                       false ->
+                                                           {AccTotal + Amt, [Summary|AccSummaries]}
+                                                   end
+                                           end, {0, []}, Summaries),
+
+    %% then scale rewards proportionally if they collectively sum to more than the total amount
+    FinalSummaries = case SumTotal > Total of
+                         true ->
+                             lists:map(fun(Summary) ->
+                                               %% use trunc here so rounding up cannot inflate DC counts
+                                               NewAmt = trunc((blockchain_state_channel_summary_v1:num_dcs(Summary) / SumTotal) * Total),
+                                               blockchain_state_channel_summary_v1:num_dcs(NewAmt, Summary)
+                                       end, NewSummaries);
+                         false ->
+                             NewSummaries
+                     end,
+    #blockchain_state_channel_v1_pb{summaries=FinalSummaries}.
 
 -spec to_json(state_channel(), blockchain_json:opts()) -> blockchain_json:json_object().
 to_json(SC, _Opts) ->
@@ -439,6 +471,8 @@ quick_compare_causality(OlderSC, CurrentSC, PubkeyBin) ->
             end
     end.
 
+-spec merge(SCA :: state_channel(),
+            SCB :: state_channel()) -> state_channel().
 merge(SCA, SCB) ->
     lager:info("merging state channels"),
     [SC1, SC2] = lists:sort(fun(A, B) -> ?MODULE:nonce(A) =< ?MODULE:nonce(B) end, [SCA, SCB]),
@@ -446,11 +480,13 @@ merge(SCA, SCB) ->
     lists:foldl(fun(Summary, SCAcc) ->
                         case get_summary(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), SCAcc) of
                             {error, not_found} ->
-                                update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc);
+                                {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                SC;
                             {ok, OurSummary} ->
                                 case blockchain_state_channel_summary_v1:num_dcs(OurSummary) < blockchain_state_channel_summary_v1:num_dcs(Summary) of
                                     true ->
-                                        update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc);
+                                        {SC, _} = update_summary_for(blockchain_state_channel_summary_v1:client_pubkeybin(Summary), Summary, SCAcc, true),
+                                        SC;
                                     false ->
                                         SCAcc
                                 end
@@ -465,7 +501,7 @@ merge(SCA, SCB) ->
               Summaries :: summaries()) -> boolean().
 can_fit(ClientPubkeyBin, Summaries) ->
     Clients = [blockchain_state_channel_summary_v1:client_pubkeybin(S) || S <- Summaries],
-    CanFit = length(lists:usort(Clients)) =< ?MAX_UNIQ_CLIENTS,
+    CanFit = length(Clients) =< ?MAX_UNIQ_CLIENTS,
     IsKnownClient = lists:member(ClientPubkeyBin, Clients),
 
     case {CanFit, IsKnownClient} of
@@ -594,7 +630,7 @@ update_summaries_test() ->
     io:format("Summaries1: ~p~n", [summaries(NewSC)]),
     ?assertEqual({ok, Summary}, get_summary(PubKeyBin, NewSC)),
     NewSummary = blockchain_state_channel_summary_v1:new(PubKeyBin, 1, 1),
-    NewSC1 = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC),
+    {NewSC1, _} = blockchain_state_channel_v1:update_summary_for(PubKeyBin, NewSummary, NewSC, false),
     io:format("Summaries2: ~p~n", [summaries(NewSC1)]),
     ?assertEqual({ok, NewSummary}, get_summary(PubKeyBin, NewSC1)).
 
@@ -613,6 +649,28 @@ expire_at_block_test() ->
     ?assertEqual(0, expire_at_block(SC)),
     ?assertEqual(1234567, expire_at_block(expire_at_block(1234567, SC))).
 
+normalize_test() ->
+    InitDCs = 20,
+    SC = new(<<"1">>, <<"owner">>, InitDCs),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin1 = libp2p_crypto:pubkey_to_bin(PubKey1),
+    #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin2 = libp2p_crypto:pubkey_to_bin(PubKey2),
+    Summary1 = blockchain_state_channel_summary_v1:num_packets(30, blockchain_state_channel_summary_v1:num_dcs(30, blockchain_state_channel_summary_v1:new(PubKeyBin1))),
+    Summary2 = blockchain_state_channel_summary_v1:num_packets(40, blockchain_state_channel_summary_v1:num_dcs(40, blockchain_state_channel_summary_v1:new(PubKeyBin2))),
+    SC1 = summaries([Summary1, Summary2], SC),
+
+    {ok, DC1} = num_dcs_for(PubKeyBin1, SC1),
+    {ok, DC2} = num_dcs_for(PubKeyBin2, SC1),
+    ?assert((DC1 + DC2) > InitDCs),
+
+    SC2 = normalize(SC1),
+
+    {ok, DC3} = num_dcs_for(PubKeyBin1, SC2),
+    {ok, DC4} = num_dcs_for(PubKeyBin2, SC2),
+
+    ?assert((DC3 + DC4) =< InitDCs).
+
 encode_decode_test() ->
     SC0 = new(<<"1">>, <<"owner">>, 0),
     ?assertEqual(SC0, decode(encode(SC0))),
@@ -627,24 +685,7 @@ encode_decode_test() ->
     ?assertEqual(SC1, decode(encode(SC1))),
     ?assertEqual(SC2, decode(encode(SC2))).
 
-save_fetch_test() ->
-    BaseDir = test_utils:tmp_dir("save_fetch_test"),
-    {ok, DB} = open_db(BaseDir),
-    SC = new(<<"1">>, <<"owner">>, 0),
-    Skewed = skewed:new(<<"yolo">>),
-    ?assertEqual(ok, save(DB, SC, Skewed)),
-    ?assertEqual({ok, {SC, Skewed}}, fetch(DB, <<"1">>)).
-
-open_db(Dir) ->
-    DBDir = filename:join(Dir, "state_channels.db"),
-    ok = filelib:ensure_dir(DBDir),
-    GlobalOpts = application:get_env(rocksdb, global_opts, []),
-    DBOptions = [{create_if_missing, true}] ++ GlobalOpts,
-    {ok, _DB} = rocksdb:open(DBDir, DBOptions).
-
 causality_test() ->
-    BaseDir = test_utils:tmp_dir("causality_test"),
-    {ok, _DB} = open_db(BaseDir),
     #{public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     PubKeyBin = libp2p_crypto:pubkey_to_bin(PubKey),
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),

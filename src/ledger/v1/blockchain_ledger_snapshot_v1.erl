@@ -1,6 +1,7 @@
 -module(blockchain_ledger_snapshot_v1).
 
 -include("blockchain_ledger_snapshot_v1.hrl").
+-include("blockchain_vars.hrl").
 
 -export([
          serialize/1,
@@ -86,7 +87,10 @@ generate_snapshot(Ledger0, Blocks) ->
         {ok, ElectionHeight} = blockchain_ledger_v1:election_height(Ledger),
         {ok, ElectionEpoch} = blockchain_ledger_v1:election_epoch(Ledger),
         {ok, MasterKey} = blockchain_ledger_v1:master_key(Ledger),
-        {ok, MultiKeys} = blockchain_ledger_v1:multi_keys(Ledger),
+        MultiKeys = case blockchain_ledger_v1:multi_keys(Ledger) of
+                        {ok, Keys} -> Keys;
+                        _ -> []
+                    end,
         DelayedVars = blockchain_ledger_v1:snapshot_delayed_vars(Ledger),
         ThresholdTxns = blockchain_ledger_v1:snapshot_threshold_txns(Ledger),
         {ok, VarsNonce} = blockchain_ledger_v1:vars_nonce(Ledger),
@@ -216,7 +220,7 @@ deserialize(<<1,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
     try binary_to_term(BinSnap) of
         OldSnapshot ->
-            Snapshot = v1_to_v2(OldSnapshot),
+            Snapshot = v3_to_v4(v2_to_v3(v1_to_v2(OldSnapshot))),
             {ok, Snapshot}
     catch _:_ ->
             {error, bad_snapshot_binary}
@@ -226,7 +230,7 @@ deserialize(<<2,
               BinSz:32/little-unsigned-integer, BinSnap:BinSz/binary>>) ->
     try binary_to_term(BinSnap) of
         OldSnapshot ->
-            Snapshot = v2_to_v3(OldSnapshot),
+            Snapshot = v3_to_v4(v2_to_v3(OldSnapshot)),
             {ok, Snapshot}
     catch _:_ ->
             {error, bad_snapshot_binary}
@@ -414,14 +418,26 @@ import(Chain, SHA,
 
 get_blocks(Chain) ->
     Ledger = blockchain:ledger(Chain),
-    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+
+    %% this is for rewards calculation when an epoch ends
+    %% see https://github.com/helium/blockchain-core/pull/627
+    #{ election_height := ElectionHeight } = blockchain_election:election_info(Ledger, Chain),
+    {ok, GraceBlocks} = blockchain:config(?sc_grace_blocks, Ledger),
+
+    DLedger = blockchain_ledger_v1:mode(delayed, Ledger),
     {ok, DHeight} = blockchain_ledger_v1:current_height(DLedger),
+
+    %% We need _at least_ the grace blocks before current election
+    %% or the delayed ledger height less 181 blocks, whichever is
+    %% lower.
+    LoadBlockStart = min(DHeight - 181, ElectionHeight - GraceBlocks),
+
     [begin
          {ok, B} = blockchain:get_raw_block(N, Chain),
          B
      end
-     || N <- lists:seq(max(?min_height, DHeight - 181), Height)].
+     || N <- lists:seq(max(?min_height, LoadBlockStart), Height)].
 
 height(#blockchain_snapshot_v4{current_height = Height}) ->
     Height.

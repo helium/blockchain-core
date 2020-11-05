@@ -190,7 +190,7 @@ calculate_staking_fee(#blockchain_txn_routing_v1_pb{}, _Ledger, _Fee, _ExtraData
 %% @end
 %%--------------------------------------------------------------------
 -spec is_valid(txn_routing(),
-               blockchain:blockchain()) -> ok | {error, any()}.
+               blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     OUI = ?MODULE:oui(Txn),
@@ -254,7 +254,7 @@ is_valid(Txn, Chain) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec absorb(txn_routing(),
-             blockchain:blockchain()) -> ok | {error, any()}.
+             blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     TxnFee = ?MODULE:fee(Txn),
@@ -290,10 +290,8 @@ absorb(Txn, Chain) ->
             Error;
         _ ->
             AreFeesEnabled = blockchain_ledger_v1:txn_fees_active(Ledger),
-            lager:info("*** debiting router fee of ~p", [TxnFee + StakingFee]),
             case blockchain_ledger_v1:debit_fee(Owner, TxnFee + StakingFee, Ledger, AreFeesEnabled) of
                 {error, _}=Error ->
-                    lager:info("*** failed to debit fee of ~p", [TxnFee + StakingFee]),
                     Error;
                 ok ->
                     OUI = ?MODULE:oui(Txn),
@@ -365,7 +363,7 @@ validate_addresses(Addresses) ->
                          MinSubnetSize :: pos_integer(),
                          MaxSubnetSize :: pos_integer(),
                          MaxSubnetNum :: pos_integer(),
-                         Chain :: blockchain:blockchain()) -> ok | {error, any()}.
+                         Chain :: blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetSize, MaxSubnetSize, MaxSubnetNum, Chain) ->
     case ?MODULE:action(Txn) of
         {update_routers, Addresses} ->
@@ -379,7 +377,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                     Owner = ?MODULE:owner(Txn),
                     case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                         false ->
-                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                         true ->
                             blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
                     end
@@ -398,7 +396,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                             Owner = ?MODULE:owner(Txn),
                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                 false ->
-                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                 true ->
                                     blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
                             end;
@@ -424,7 +422,7 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                             Owner = ?MODULE:owner(Txn),
                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                 false ->
-                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                 true ->
                                     blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee, Ledger, AreFeesEnabled)
                             end;
@@ -457,9 +455,9 @@ do_is_valid_checks(Txn, Ledger, Routing, XORFilterSize, XORFilterNum, MinSubnetS
                                     Owner = ?MODULE:owner(Txn),
                                     case {(ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled), ExpectedStakingFee == StakingFee} of
                                         {false,_} ->
-                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                         {_,false} ->
-                                            {error, {wrong_staking_fee, ExpectedStakingFee, StakingFee}};
+                                            {error, {wrong_staking_fee, {ExpectedStakingFee, StakingFee}}};
                                         {true, true} ->
                                             blockchain_ledger_v1:check_dc_or_hnt_balance(Owner, TxnFee + StakingFee, Ledger, AreFeesEnabled)
                                     end;

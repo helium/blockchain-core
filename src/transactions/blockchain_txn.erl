@@ -36,6 +36,7 @@
              | blockchain_txn_update_gateway_oui_v1:txn_update_gateway_oui()
              | blockchain_txn_price_oracle_v1:txn_price_oracle()
              | blockchain_txn_gen_price_oracle_v1:txn_genesis_price_oracle()
+             | blockchain_txn_transfer_hotspot_v1:txn_transfer_hotspot()
              | blockchain_txn_state_channel_close_v1:txn_state_channel_close().
 
 -type before_commit_callback() :: fun((blockchain:blockchain(), blockchain_block:hash()) -> ok | {error, any()}).
@@ -108,7 +109,8 @@
     {blockchain_txn_payment_v2, 19},
     {blockchain_txn_state_channel_open_v1, 20},
     {blockchain_txn_update_gateway_oui_v1, 21},
-    {blockchain_txn_state_channel_close_v1, 22}
+    {blockchain_txn_state_channel_close_v1, 22},
+    {blockchain_txn_transfer_hotspot_v1, 23}
 ]).
 
 block_delay() ->
@@ -183,7 +185,11 @@ wrap_txn(#blockchain_txn_update_gateway_oui_v1_pb{}=Txn) ->
 wrap_txn(#blockchain_txn_state_channel_close_v1_pb{}=Txn) ->
     #blockchain_txn_pb{txn={state_channel_close, Txn}};
 wrap_txn(#blockchain_txn_price_oracle_v1_pb{}=Txn) ->
-    #blockchain_txn_pb{txn={price_oracle_submission, Txn}}.
+    #blockchain_txn_pb{txn={price_oracle_submission, Txn}};
+wrap_txn(#blockchain_txn_gen_price_oracle_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={gen_price_oracle, Txn}};
+wrap_txn(#blockchain_txn_transfer_hotspot_v1_pb{}=Txn) ->
+    #blockchain_txn_pb{txn={transfer_hotspot, Txn}}.
 
 -spec unwrap_txn(#blockchain_txn_pb{}) -> blockchain_txn:txn().
 unwrap_txn(#blockchain_txn_pb{txn={bundle, #blockchain_txn_bundle_v1_pb{transactions=Txns} = Bundle}}) ->
@@ -201,7 +207,7 @@ validate(Transactions, Chain) ->
     validate(Transactions, Chain, false).
 
 -spec validate(txns(), blockchain:blockchain(), boolean()) ->
-                      {blockchain_txn:txns(), blockchain_txn:txns()}.
+                      {blockchain_txn:txns(), [{txn(), atom()}]}.
 validate(Transactions, _Chain, true) ->
     {Transactions, []};
 validate(Transactions, Chain0, false) ->
@@ -245,18 +251,31 @@ validate([Txn | Tail] = Txns, Valid, Invalid, PType, PBuf, Chain) ->
                         ok ->
                             maybe_log_duration(type(Txn), Start),
                             validate(Tail, [Txn|Valid], Invalid, PType, PBuf, Chain);
-                        {error, _Reason} ->
-                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, _Reason, print(Txn)]),
-                            validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
+                        {error, {InvalidReason, _Details}} = Error ->
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                        {error, InvalidReason} = Error->
+                            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                            validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain)
                     end;
                 {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
                     %% we don't have enough context to decide if this transaction is valid yet, keep it
                     %% but don't include it in the block (so it stays in the buffer)
                     validate(Tail, Valid, Invalid, PType, PBuf, Chain);
+                {error, {InvalidReason, _Details}} = Error ->
+                    lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                    %% any other error means we drop it
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
+                {error, InvalidReason}=Error when is_atom(InvalidReason) ->
+                    lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
+                    %% any other error means we drop it
+                    validate(Tail, Valid, [{Txn, InvalidReason} | Invalid], PType, PBuf, Chain);
                 Error ->
                     lager:warning("invalid txn ~p : ~p / ~s", [Type, Error, print(Txn)]),
                     %% any other error means we drop it
-                    validate(Tail, Valid, [Txn | Invalid], PType, PBuf, Chain)
+                    %% this error is unexpected and could be a crash report or some other weirdness
+                    %% we will use a generic error reason
+                    validate(Tail, Valid, [{Txn, validation_failed} | Invalid], PType, PBuf, Chain)
             end;
         _Else ->
             Res = blockchain_utils:pmap(
@@ -277,18 +296,40 @@ separate_res([{T, ok} | Rest], Chain, V, I) ->
     case ?MODULE:absorb(T, Chain) of
         ok ->
             separate_res(Rest, Chain, [T|V], I);
-        {error, _Reason} ->
-            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), _Reason, print(T)]),
-            separate_res(Rest, Chain, V, [T | I])
+        {error, {Reason, _Details}} = Error ->
+            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), Error, print(T)]),
+            separate_res(Rest, Chain, V, [{T, Reason} | I]);
+        {error, Reason} ->
+            lager:warning("invalid txn while absorbing ~p : ~p / ~s", [type(T), Reason, print(T)]),
+            separate_res(Rest, Chain, V, [{T, Reason} | I])
     end;
+
 separate_res([{T, Err} | Rest], Chain, V, I) ->
     case Err of
         {error, {bad_nonce, {_NonceType, Nonce, LedgerNonce}}} when Nonce > LedgerNonce + 1 ->
             separate_res(Rest, Chain, V, I);
-        Error ->
+        {error, {InvalidReason, _Details}} = Error ->
             lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
             %% any other error means we drop it
-            separate_res(Rest, Chain, V, [T | I])
+            separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
+        {error, InvalidReason} = Error ->
+            lager:warning("invalid txn ~p : ~p / ~s", [type(T), Error, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, InvalidReason} | I]);
+        {'EXIT', {{_Why,{error, CrashReason}}, _Stack}} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
+        {'EXIT', CrashReason} when is_atom(CrashReason)->
+            lager:warning("crashed txn ~p : ~p / ~s", [type(T), CrashReason, print(T)]),
+            %% any other error means we drop it
+            separate_res(Rest, Chain, V, [{T, CrashReason} | I]);
+        Error->
+            %% since this is critical code, always make sure we have a catchall clause just in case
+            %% Any log events hitting here should be reviewed and considered if we need to add
+            %% specific handling for any such error msg, ensuring we return meaningful error msgs where possible
+            lager:warning("BUG: unexpected txn validation error format ~p : ~p / ~s", [type(T), Error, print(T)]),
+            separate_res(Rest, Chain, V, [{T, txn_failed} | I])
     end.
 
 maybe_log_duration(Type, Start) ->
@@ -300,7 +341,10 @@ maybe_log_duration(Type, Start) ->
     end.
 
 types(L) ->
-    L1 = lists:map(fun type/1, L),
+    L1 = lists:map(fun
+                       ({Txn, _}) when is_tuple(Txn) -> type(Txn);
+                       (Txn)-> type(Txn)
+                   end, L),
     M = lists:foldl(
           fun(T, Acc) ->
                   maps:update_with(T, fun(X) -> X + 1 end, 1, Acc)
@@ -522,7 +566,12 @@ type(#blockchain_txn_update_gateway_oui_v1_pb{}) ->
 type(#blockchain_txn_state_channel_close_v1_pb{}) ->
     blockchain_txn_state_channel_close_v1;
 type(#blockchain_txn_price_oracle_v1_pb{}) ->
-    blockchain_txn_price_oracle_v1.
+    blockchain_txn_price_oracle_v1;
+type(#blockchain_txn_gen_price_oracle_v1_pb{}) ->
+    blockchain_txn_gen_price_oracle_v1;
+type(#blockchain_txn_transfer_hotspot_v1_pb{}) ->
+    blockchain_txn_transfer_hotspot_v1.
+
 
 -spec validate_fields([{{atom(), iodata() | undefined},
                         {binary, pos_integer()} |
@@ -537,14 +586,14 @@ validate_fields([{{Name, Field}, {binary, Length}}|Tail]) when is_binary(Field) 
         true ->
             validate_fields(Tail);
         false ->
-            {error, {field_wrong_size, Name, Length, byte_size(Field)}}
+            {error, {field_wrong_size, {Name, Length, byte_size(Field)}}}
     end;
 validate_fields([{{Name, Field}, {binary, Min, Max}}|Tail]) when is_binary(Field) ->
     case byte_size(Field) =< Max andalso byte_size(Field) >= Min of
         true ->
             validate_fields(Tail);
         false ->
-            {error, {field_wrong_size, Name, {Min, Max}, byte_size(Field)}}
+            {error, {field_wrong_size, {Name, {Min, Max}, byte_size(Field)}}}
     end;
 validate_fields([{{Name, Field}, {address, libp2p}}|Tail]) when is_binary(Field) ->
     try libp2p_crypto:bin_to_pubkey(Field) of
@@ -560,16 +609,16 @@ validate_fields([{{Name, Field}, {member, List}}|Tail]) when is_list(List),
         true ->
             validate_fields(Tail);
         false ->
-            {error, {not_a_member, Name, Field, List}}
+            {error, {not_a_member, {Name, Field, List}}}
     end;
 validate_fields([{{_Name, Field}, {is_integer, Min}}|Tail]) when is_integer(Field)
                                                          andalso Field >= Min ->
     validate_fields(Tail);
 validate_fields([{{Name, Field}, {is_integer, Min}}|_Tail]) when is_integer(Field)
                                                          andalso Field < Min ->
-    {error, {integer_too_small, Name, Field, Min}};
+    {error, {integer_too_small, {Name, Field, Min}}};
 validate_fields([{{Name, Field}, {is_integer, _Min}}|_Tail]) ->
-    {error, {not_an_integer, Name, Field}};
+    {error, {not_an_integer, {Name, Field}}};
 validate_fields([{{Name, undefined}, _}|_Tail]) ->
     {error, {missing_field, Name}};
 validate_fields([{{Name, _Field}, _Validation}|_Tail]) ->

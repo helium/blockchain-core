@@ -172,7 +172,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Payer = ?MODULE:payer(Txn),
@@ -197,7 +197,7 @@ is_valid(Txn, Chain) ->
                                     ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                                     case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                         false ->
-                                            {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                            {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                         true ->
                                             blockchain_ledger_v1:check_dc_or_hnt_balance(Payer, TxnFee, Ledger, AreFeesEnabled)
                                     end;
@@ -215,7 +215,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_security_exchange(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Amount = ?MODULE:amount(Txn),

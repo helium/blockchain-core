@@ -41,7 +41,8 @@
     negative_amt_htlc_create_test/1,
     update_gateway_oui_test/1,
     max_subnet_test/1,
-    replay_oui_test/1
+    replay_oui_test/1,
+    failed_txn_error_handling/1
 ]).
 
 -import(blockchain_utils, [normalize_float/1]).
@@ -88,7 +89,8 @@ all() ->
         negative_amt_htlc_create_test,
         update_gateway_oui_test,
         max_subnet_test,
-        replay_oui_test
+        replay_oui_test,
+        failed_txn_error_handling
     ].
 
 %%--------------------------------------------------------------------
@@ -163,7 +165,8 @@ end_per_testcase(_, Config) ->
         false ->
             ok
     end,
-    ok.
+    test_utils:cleanup_tmp_dir(?config(base_dir, Config)),
+    {comment, done}.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -642,6 +645,7 @@ poc_request_test(Config) ->
     ?assertEqual(OnionKeyHash1, blockchain_ledger_gateway_v2:last_poc_onion_key_hash(GwInfo3)),
 
     ?assert(meck:validate(blockchain_txn_poc_receipts_v1)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_txn_poc_receipts_v1),
     meck:unload(blockchain_ledger_v1),
     ok.
@@ -657,7 +661,7 @@ bogus_coinbase_test(Config) ->
     BogusCoinbaseTxn = blockchain_txn_coinbase_v1:new(FirstMemberAddr, 999999),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [BogusCoinbaseTxn]),
 
     %% Check that the chain didn't grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -680,7 +684,7 @@ bogus_coinbase_with_good_payment_test(Config) ->
     SignedGoodPaymentTxn = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% This should error out cuz this is an invalid txn
-    {error, {invalid_txns, [BogusCoinbaseTxn]}} = test_utils:create_block(ConsensusMembers,
+    {error, {invalid_txns, [{BogusCoinbaseTxn, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers,
                                                                           [BogusCoinbaseTxn, SignedGoodPaymentTxn]),
     %% Check that the chain didnt' grow
     ?assertEqual({ok, 1}, blockchain:height(Chain)),
@@ -823,6 +827,7 @@ export_test(Config) ->
                       Token == Balance
               end, Securities),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -945,7 +950,9 @@ fees_since_test(Config) ->
     ?assertEqual({error, bad_height}, blockchain:fees_since(1, Chain)),
     ?assertEqual({ok, 100*10}, blockchain:fees_since(2, Chain)),
     ?assert(meck:validate(blockchain_ledger_v1)),
-    meck:unload(blockchain_ledger_v1).
+    ?assert(meck:validate(blockchain_txn_payment_v1)),
+    meck:unload(blockchain_ledger_v1),
+    meck:unload(blockchain_txn_payment_v1).
 
 security_token_test(Config) ->
     BaseDir = ?config(base_dir, Config),
@@ -1199,7 +1206,10 @@ max_subnet_test(Config) ->
 
     RoutingTxn21 = blockchain_txn_routing_v1:sign(blockchain_txn_routing_v1:request_subnet(OUI1, Payer, 32, 21), SigFun),
 
-    {error, {invalid_txns, [RoutingTxn21]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
+    {error, {invalid_txns, [{RoutingTxn21, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, RoutingTxns ++ [RoutingTxn21]),
+
+    ?assert(meck:validate(blockchain_txn_oui_v1)),
+    meck:unload(blockchain_txn_oui_v1),
 
     ok.
 
@@ -1211,7 +1221,7 @@ block_save_failed_test(Config) ->
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
 
-     % Test a payment transaction, add a block and check balances
+    % Test a payment transaction, add a block and check balances
     [_, {Payer, {_, PayerPrivKey, _}}|_] = ConsensusMembers,
     Recipient = blockchain_swarm:pubkey_bin(),
     Tx = blockchain_txn_payment_v1:new(Payer, Recipient, 2500, 1),
@@ -1229,17 +1239,17 @@ block_save_failed_test(Config) ->
     {ok, NewHeight} = blockchain:height(Chain),
     ?assert(NewHeight == OldHeight + 1),
 
-     ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, blockchain_block:hash_block(Block)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block}, blockchain:head_block(Chain)),
     ?assertEqual({ok, 2}, blockchain:height(Chain)),
 
-     ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
+    ?assertEqual({ok, Block}, blockchain:get_block(2, Chain)),
 
-     Ledger = blockchain:ledger(Chain),
+    Ledger = blockchain:ledger(Chain),
     {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Recipient, Ledger),
     ?assertEqual(Balance + 2500, blockchain_ledger_entry_v1:balance(NewEntry0)),
 
-     {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
+    {ok, NewEntry1} = blockchain_ledger_v1:find_entry(Payer, Ledger),
     ?assertEqual(Balance - 2500, blockchain_ledger_entry_v1:balance(NewEntry1)),
     ok.
 
@@ -1317,7 +1327,9 @@ missing_last_block_test(Config) ->
             ok
     end),
     blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm()),
+    ?assert(meck:validate(blockchain)),
     meck:unload(blockchain),
+
     Ledger = blockchain:ledger(Chain),
     {ok, GenesisBlock} = blockchain:genesis_block(Chain),
 
@@ -1751,7 +1763,7 @@ token_burn_test(Config) ->
     % Step 2: Token burn txn (without an oracle price set) should fail and stay at same block
     BurnTx0 = blockchain_txn_token_burn_v1:new(Payer, 10, 2),
     SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, SigFun),
-    {error, {invalid_txns, [SignedBurnTx0]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    {error, {invalid_txns, [{SignedBurnTx0, _InvalidReason}]}} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
 
     ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
     ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
@@ -1807,6 +1819,7 @@ token_burn_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, Ledger),
     TxnFee = 0, %% default fee will be zero
     ?assertEqual((10*OP)-TxnFee, blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
 
     ok.
@@ -1834,6 +1847,8 @@ payer_test(Config) ->
     meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
     meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
     meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+    meck:expect(blockchain_ledger_v1, config, fun(sc_version, _) -> {ok, 2};
+                                              (A, B) -> blockchain_ledger_v1_meck_original:config(A, B) end),
 
     Blocks = lists:map(
                fun(_) ->
@@ -1929,6 +1944,7 @@ payer_test(Config) ->
     {ok, DCEntry1} = blockchain_ledger_v1:find_dc_entry(Payer, blockchain:ledger(NewerChain)),
     ?assertEqual(10*OP-((DefaultTxnFee + DefaultStakingFee )*3), blockchain_ledger_data_credits_entry_v1:balance(DCEntry1)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2050,6 +2066,7 @@ poc_sync_interval_test(Config) ->
     {ok, AddedGw4} = blockchain_gateway_cache:get(Gateway, Ledger),
     ?assertEqual(false, blockchain_poc_path:check_sync(AddedGw4, Ledger)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2068,7 +2085,7 @@ zero_payment_v1_test(Config) ->
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
 
     ok.
 
@@ -2087,7 +2104,7 @@ negative_payment_v1_test(Config) ->
     SignedTx = blockchain_txn_payment_v1:sign(Tx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
 
     ok.
 
@@ -2111,7 +2128,7 @@ zero_amt_htlc_create_test(Config) ->
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    {[], [{SignedCreateTx, _InvalidReason}]} = blockchain_txn:validate([SignedCreateTx], Chain),
     ok.
 
 negative_amt_htlc_create_test(Config) ->
@@ -2134,7 +2151,7 @@ negative_amt_htlc_create_test(Config) ->
     SignedCreateTx = blockchain_txn_create_htlc_v1:sign(CreateTx, SigFun),
 
     %% TODO: update when dc stuff with better test_util add_block lands
-    {[], [SignedCreateTx]} = blockchain_txn:validate([SignedCreateTx], Chain),
+    {[], [{SignedCreateTx, _InvalidReason}]} = blockchain_txn:validate([SignedCreateTx], Chain),
     ok.
 
 update_gateway_oui_test(Config) ->
@@ -2205,6 +2222,7 @@ update_gateway_oui_test(Config) ->
     ?assertEqual(OUI1, blockchain_ledger_gateway_v2:oui(GwInfo)),
     ?assertEqual(1, blockchain_ledger_gateway_v2:nonce(GwInfo)),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
 
@@ -2343,8 +2361,153 @@ replay_oui_test(Config) ->
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn4]),
     {error, {invalid_txns, _}} = test_utils:create_block(ConsensusMembers, [SignedOUITxn5]),
 
+    ?assert(meck:validate(blockchain_ledger_v1)),
     meck:unload(blockchain_ledger_v1),
     ok.
+
+
+failed_txn_error_handling(Config) ->
+    ConsensusMembers = ?config(consensus_members, Config),
+    PubKey = ?config(pubkey, Config),
+    PrivKey = ?config(privkey, Config),
+    Owner = libp2p_crypto:pubkey_to_bin(PubKey),
+    Chain = ?config(chain, Config),
+    Balance = ?config(balance, Config),
+
+    Ledger = blockchain:ledger(Chain),
+    Rate = 100000000,
+    {Priv, _} = ?config(master_key, Config),
+
+    %% for this test use a poc receipt txn and push it through the validations
+    %% we want it to be a valid txn which passed all validations and, hence all this initial boilerplate
+    %% the txn will subsequently be handled by blockchain_utils:pmap/2
+    %% pmap function will be mecked to return an error, simulating a crash and other error msgs
+    %% the test will exercise the error handling in blockchain_txn:seperate_res/4
+    %% and confirm that all expected and unexpected error msgs are handled
+
+    % fake an oracle price and a burn price, these figures are not representative
+    OP = 1000,
+    meck:new(blockchain_ledger_v1, [passthrough]),
+    meck:expect(blockchain_ledger_v1, current_oracle_price, fun(_) -> {ok, OP} end),
+    meck:expect(blockchain_ledger_v1, current_oracle_price_list, fun(_) -> {ok, [OP]} end),
+    meck:expect(blockchain_ledger_v1, hnt_to_dc, fun(HNT, _) -> {ok, HNT*OP} end),
+
+    %% NOTE: the token burn exchange rate block is not required for most of this test to run
+    %% it should be removed but the POC is using it atm - needs refactored
+    Vars = #{token_burn_exchange_rate => Rate},
+    VarTxn = blockchain_txn_vars_v1:new(Vars, 3),
+    Proof = blockchain_txn_vars_v1:create_proof(Priv, VarTxn),
+    VarTxn1 = blockchain_txn_vars_v1:proof(VarTxn, Proof),
+    {ok, Block2} = test_utils:create_block(ConsensusMembers, [VarTxn1]),
+    _ = blockchain_gossip_handler:add_block(Block2, Chain, self(), blockchain_swarm:swarm()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block2)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 2}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block2}, blockchain:get_block(2, Chain)),
+    lists:foreach(
+        fun(_) ->
+                {ok, Block} = test_utils:create_block(ConsensusMembers, []),
+                _ = blockchain_gossip_handler:add_block(Block, Chain, self(), blockchain_swarm:swarm())
+        end,
+        lists:seq(1, 20)
+    ),
+    ?assertEqual({ok, OP}, blockchain_ledger_v1:current_oracle_price(Ledger)),
+
+    % Step 2: Token burn txn should pass now
+    OwnerSigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+    BurnTx0 = blockchain_txn_token_burn_v1:new(Owner, 10, 1),
+    SignedBurnTx0 = blockchain_txn_token_burn_v1:sign(BurnTx0, OwnerSigFun),
+    {ok, Block23} = test_utils:create_block(ConsensusMembers, [SignedBurnTx0]),
+    _ = blockchain_gossip_handler:add_block(Block23, Chain, self(), blockchain_swarm:swarm()),
+
+    ?assertEqual({ok, blockchain_block:hash_block(Block23)}, blockchain:head_hash(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:head_block(Chain)),
+    ?assertEqual({ok, 23}, blockchain:height(Chain)),
+    ?assertEqual({ok, Block23}, blockchain:get_block(23, Chain)),
+    {ok, NewEntry0} = blockchain_ledger_v1:find_entry(Owner, Ledger),
+    ?assertEqual(Balance - 10, blockchain_ledger_entry_v1:balance(NewEntry0)),
+    {ok, DCEntry0} = blockchain_ledger_v1:find_dc_entry(Owner, Ledger),
+    ?assertEqual(10*OP, blockchain_ledger_data_credits_entry_v1:balance(DCEntry0)),
+
+    % Create a Gateway
+    #{public := GatewayPubKey, secret := GatewayPrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+    Gateway = libp2p_crypto:pubkey_to_bin(GatewayPubKey),
+    GatewaySigFun = libp2p_crypto:mk_sig_fun(GatewayPrivKey),
+
+    % Add a Gateway
+    AddGatewayTx = blockchain_txn_add_gateway_v1:new(Owner, Gateway),
+    SignedOwnerAddGatewayTx = blockchain_txn_add_gateway_v1:sign(AddGatewayTx, OwnerSigFun),
+    SignedGatewayAddGatewayTx = blockchain_txn_add_gateway_v1:sign_request(SignedOwnerAddGatewayTx, GatewaySigFun),
+      {ok, Block24} = test_utils:create_block(ConsensusMembers, [SignedGatewayAddGatewayTx]),
+    _ = blockchain_gossip_handler:add_block(Block24, Chain, self(), blockchain_swarm:swarm()),
+
+    {ok, HeadHash} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block24), HeadHash),
+    ?assertEqual({ok, Block24}, blockchain:get_block(HeadHash, Chain)),
+    ?assertEqual({ok, 24}, blockchain:height(Chain)),
+
+    % Check that the Gateway is there
+    {ok, GwInfo} = blockchain_gateway_cache:get(Gateway, blockchain:ledger(Chain)),
+    ?assertEqual(Owner, blockchain_ledger_gateway_v2:owner_address(GwInfo)),
+
+    % Assert the Gateways location
+    AssertLocationRequestTx = blockchain_txn_assert_location_v1:new(Gateway, Owner, ?TEST_LOCATION, 1),
+    PartialAssertLocationTxn = blockchain_txn_assert_location_v1:sign_request(AssertLocationRequestTx, GatewaySigFun),
+    SignedAssertLocationTx = blockchain_txn_assert_location_v1:sign(PartialAssertLocationTxn, OwnerSigFun),
+
+    {ok, Block25} = test_utils:create_block(ConsensusMembers, [SignedAssertLocationTx]),
+    ok = blockchain_gossip_handler:add_block(Block25, Chain, self(), blockchain_swarm:swarm()),
+    timer:sleep(500),
+
+    {ok, HeadHash2} = blockchain:head_hash(Chain),
+    ?assertEqual(blockchain_block:hash_block(Block25), HeadHash2),
+    ?assertEqual({ok, Block25}, blockchain:get_block(HeadHash2, Chain)),
+    ?assertEqual({ok, 25}, blockchain:height(Chain)),
+
+    % Create the PoC challenge request txn
+    Keys0 = libp2p_crypto:generate_keys(ecc_compact),
+    Secret0 = libp2p_crypto:keys_to_bin(Keys0),
+    #{public := OnionCompactKey0} = Keys0,
+    SecretHash0 = crypto:hash(sha256, Secret0),
+    OnionKeyHash0 = crypto:hash(sha256, libp2p_crypto:pubkey_to_bin(OnionCompactKey0)),
+    PoCReqTxn0 = blockchain_txn_poc_request_v1:new(Gateway, SecretHash0, OnionKeyHash0, blockchain_block:hash_block(Block2), 1),
+    SignedPoCReqTxn0 = blockchain_txn_poc_request_v1:sign(PoCReqTxn0, GatewaySigFun),
+
+    %%
+    %% core test exercise start from here
+    %%
+    meck:new(blockchain_utils, [passthrough]),
+
+    %% meck out the pmap function to simulate it returning an error msg in the format {error, Reason}
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {error, txn_fail_reason}}] end),
+    {[], [{SignedPoCReqTxn0, txn_fail_reason}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    %% meck out the pmap function to simulate it returning an error msg in the format {error, {Reason, Details}}
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {error, {bad_nonce, {nonce_type, cur_nonce, ledger_nonce}}}}] end),
+    {[], [{SignedPoCReqTxn0, bad_nonce}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    %% meck out the pmap function to simulate it returning an exit crash msg with body formatted as an atom
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {'EXIT', exit_reason}}] end),
+    {[], [{SignedPoCReqTxn0, exit_reason}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    %% meck out the pmap function to simulate it returning an exit crash msg with body formatted as {{Error, Reason, Stack}
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {'EXIT', {{badmatch,{error, crash_in_pmap}}, []}}}] end),
+    {[], [{SignedPoCReqTxn0, crash_in_pmap}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    %% meck out the pmap function to simulate it returning an error msg in an unexpected format {error, unexpected_reason, unexpected_details}
+    %% this will default to a generic error msg
+    meck:expect(blockchain_utils, pmap, fun(_, _) -> [{SignedPoCReqTxn0, {crash, something_unexpected}}] end),
+    {[], [{SignedPoCReqTxn0, txn_failed}]} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    ?assert(meck:validate(blockchain_utils)),
+    meck:unload(blockchain_utils),
+
+    %% confirm the txn passes validation with the mecks removed
+    {[SignedPoCReqTxn0], []} = blockchain_txn:validate([SignedPoCReqTxn0], Chain),
+
+    ok.
+
 
 %%--------------------------------------------------------------------
 %% Helper functions

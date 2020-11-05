@@ -109,7 +109,7 @@ calculate_fee(Txn, Ledger, DCPayloadSize, TxnFeeMultiplier, true) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec is_valid(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 is_valid(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Redeemer = ?MODULE:payee(Txn),
@@ -143,7 +143,7 @@ is_valid(Txn, Chain) ->
                             ExpectedTxnFee = ?MODULE:calculate_fee(Txn, Chain),
                             case ExpectedTxnFee =< TxnFee orelse not AreFeesEnabled of
                                 false ->
-                                    {error, {wrong_txn_fee, ExpectedTxnFee, TxnFee}};
+                                    {error, {wrong_txn_fee, {ExpectedTxnFee, TxnFee}}};
                                 true ->
                                     case blockchain_ledger_v1:check_dc_or_hnt_balance(Redeemer, TxnFee, Ledger, AreFeesEnabled) of
                                         {error, _Reason}=Error ->
@@ -191,7 +191,7 @@ is_valid(Txn, Chain) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec absorb(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, any()}.
+-spec absorb(txn_redeem_htlc(), blockchain:blockchain()) -> ok | {error, atom()} | {error, {atom(), any()}}.
 absorb(Txn, Chain) ->
     Ledger = blockchain:ledger(Chain),
     Fee = ?MODULE:fee(Txn),
@@ -271,47 +271,51 @@ to_json_test() ->
     ?assert(lists:all(fun(K) -> maps:is_key(K, Json) end,
                       [type, hash, payee, address, preimage, fee])).
 
-is_valid_with_extended_validation_test() ->
-    BaseDir = test_utils:tmp_dir("is_valid_with_extended_validation_test"),
-    Block = blockchain_block:new_genesis_block([]),
-    {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
-    meck:new(blockchain_ledger_v1, [passthrough]),
+is_valid_with_extended_validation_test_() ->
+    {timeout,
+     30,
+     fun() ->
+             BaseDir = test_utils:tmp_dir("is_valid_with_extended_validation_test"),
+             Block = blockchain_block:new_genesis_block([]),
+             {ok, Chain} = blockchain:new(BaseDir, Block, undefined, undefined),
+             meck:new(blockchain_ledger_v1, [passthrough]),
 
-    %% These are all required
-    meck:expect(blockchain_ledger_v1, config,
-                fun(?deprecate_payment_v1, _) ->
-                        {ok, false};
-                   (?txn_field_validation_version, _) ->
-                        %% This is new
-                        {ok, 1};
-                   (?allow_zero_amount, _) ->
-                        {ok, false};
-                   (?dc_payload_size, _) ->
-                        {error, not_found};
-                   (?txn_fee_multiplier, _) ->
-                        {error, not_found}
-                end),
-    meck:expect(blockchain_ledger_v1, txn_fees_active, fun(_) -> true end),
+             %% These are all required
+             meck:expect(blockchain_ledger_v1, config,
+                         fun(?deprecate_payment_v1, _) ->
+                                 {ok, false};
+                            (?txn_field_validation_version, _) ->
+                                 %% This is new
+                                 {ok, 1};
+                            (?allow_zero_amount, _) ->
+                                 {ok, false};
+                            (?dc_payload_size, _) ->
+                                 {error, not_found};
+                            (?txn_fee_multiplier, _) ->
+                                 {error, not_found}
+                         end),
+             meck:expect(blockchain_ledger_v1, txn_fees_active, fun(_) -> true end),
 
-    #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
-    Payee = libp2p_crypto:pubkey_to_bin(PubKey),
+             #{public := PubKey, secret := PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+             SigFun = libp2p_crypto:mk_sig_fun(PrivKey),
+             Payee = libp2p_crypto:pubkey_to_bin(PubKey),
 
-    %% We don't check for {invalid_address, payee} because that blows up on line#117
-    %% regardless (that's a pubkey check)
+             %% We don't check for {invalid_address, payee} because that blows up on line#117
+             %% regardless (that's a pubkey check)
 
-    %% valid payee, invalid address
-    Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
-    ?assertEqual({error, {invalid_address, address}}, is_valid(Tx1, Chain)),
+             %% valid payee, invalid address
+             Tx1 = sign(new(Payee, <<"address">>, crypto:strong_rand_bytes(32)), SigFun),
+             ?assertEqual({error, {invalid_address, address}}, is_valid(Tx1, Chain)),
 
-    #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
-    Address = libp2p_crypto:pubkey_to_bin(PubKey2),
+             #{public := PubKey2, secret := _PrivKey} = libp2p_crypto:generate_keys(ecc_compact),
+             Address = libp2p_crypto:pubkey_to_bin(PubKey2),
 
-    %% valid payee, valid address
-    Tx2 = sign(new(Payee, Address, crypto:strong_rand_bytes(32)), SigFun),
-    ?assertEqual({error, not_found}, is_valid(Tx2, Chain)),
+             %% valid payee, valid address
+             Tx2 = sign(new(Payee, Address, crypto:strong_rand_bytes(32)), SigFun),
+             ?assertEqual({error, not_found}, is_valid(Tx2, Chain)),
 
-    meck:unload(blockchain_ledger_v1),
-    test_utils:cleanup_tmp_dir(BaseDir).
+             meck:unload(blockchain_ledger_v1),
+             test_utils:cleanup_tmp_dir(BaseDir)
+     end}.
 
 -endif.

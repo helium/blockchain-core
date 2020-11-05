@@ -83,11 +83,26 @@ print(#blockchain_poc_path_element_v1_pb{
                   ]).
 
 -spec to_json(poc_element(), blockchain_json:opts()) -> blockchain_json:json_object().
-to_json(Elem, _Opts) ->
+to_json(Elem, Opts) ->
+    ReceiptOpts =
+        case lists:keyfind(valid_receipt, 1, Opts) of
+            false -> [];
+            {valid_receipt, undefined} -> [{is_valid, false}];
+            {valid_receipt, _} -> [{is_valid, true}]
+        end,
+    Witnesses =
+        case lists:keyfind(valid_witnesses, 1, Opts) of
+            false ->
+                [{W, []} || W <- witnesses(Elem)];
+            {valid_witnesses, ValidWitnesses} ->
+                lists:map(fun(W) ->
+                                  {W, [{is_valid, lists:member(W, ValidWitnesses)}]}
+                          end, witnesses(Elem))
+        end,
     #{
       challengee => ?BIN_TO_B58(challengee(Elem)),
-      receipt => blockchain_poc_receipt_v1:to_json(receipt(Elem), []),
-      witnesses => [blockchain_poc_witness_v1:to_json(W, []) || W <- witnesses(Elem)]
+      receipt => blockchain_poc_receipt_v1:to_json(receipt(Elem), ReceiptOpts),
+      witnesses => [blockchain_poc_witness_v1:to_json(W, WOpts) || {W, WOpts} <- Witnesses]
      }.
 
 

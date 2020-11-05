@@ -295,7 +295,7 @@ maybe_update_block_height(CurBlockHeight, _BlockHeight, true = _Sync) ->
 maybe_update_block_height(_CurBlockHeight, BlockHeight, _Sync) ->
     BlockHeight.
 
--spec invoke_callback(fun(), ok | {error, invalid} | {error, rejected}) -> ok.
+-spec invoke_callback(fun(), ok | {error, {invalid, atom()}} | {error, {invalid, {any}}} | {error, rejected}) -> ok.
 invoke_callback(Callback, Msg) ->
     spawn(fun() -> Callback(Msg) end),
     ok.
@@ -344,7 +344,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
     {ValidTransactions, InvalidTransactions} = blockchain_txn:validate(Txns, Chain),
     ok = lists:foreach(
         fun({TxnKey, Txn, _TxnData} = CachedTxn) ->
-            case {lists:member(Txn, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
+            case {lists:keyfind(Txn, 1, InvalidTransactions), lists:member(Txn, ValidTransactions)} of
                 {false, false} ->
                     %% the txn is not in the valid nor the invalid list
                     %% this means the validations cannot decide as yet, such as is the case with a
@@ -354,7 +354,7 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                     %% who may not yet have responded to any previous submit
                     lager:debug("txn has undecided validations, leaving in cache: ~p", [blockchain_txn:hash(Txn)]),
                     ok;
-                {true, true} ->
+                {{Txn, InvalidReason}, true} ->
                     %% hmm we have a txn which is a member of the valid and the invalid list
                     %% this can only mean we have dup txns, like 2 payment txns submitted with same nonce and payload
                     %% During validate, the first will be rendered valid, the second will be declared invalid
@@ -374,11 +374,11 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
                                                 CurBlockHeight, IsNewElection);
                         _ ->
                             %% declare this copy as invalid
-                            process_invalid_txn(CachedTxn, {error, invalid})
+                            process_invalid_txn(CachedTxn, {error, {invalid, InvalidReason}})
                     end;
-                {true, _} ->
+                {{Txn, InvalidReason}, _} ->
                     %% the txn is invalid
-                    process_invalid_txn(CachedTxn, {error, invalid});
+                    process_invalid_txn(CachedTxn, {error, {invalid, InvalidReason}});
                 {_, true} ->
                     %% the txn is valid and a new election may or may not have occurred
                     process_valid_txn(Chain, CachedTxns, CachedTxn, SubmitF, NewGroupMembers,
@@ -386,12 +386,12 @@ process_cached_txns(Chain, CurBlockHeight, SubmitF, _Sync, IsNewElection, NewGro
             end
         end, CachedTxns).
 
--spec process_invalid_txn(cached_txn_type(), {error, atom()})-> ok.
+-spec process_invalid_txn(cached_txn_type(), {error, {invalid, atom()}} | {error, {invalid, {any}}})-> ok.
 process_invalid_txn({TxnKey, Txn, TxnData}, CallbackResponse) ->
     %% the txn is invalid, remove from cache and invoke callback
     %% any txn in the invalid list is considered unrecoverable, it will never become valid
     %% stop all existing dialers for the txn
-    lager:info("txn with key ~p declared invalid, removing from cache and invoking callback: ~p",[TxnKey, blockchain_txn:hash(Txn)]),
+    lager:info("txn declared invalid with reason ~p, removing from cache and invoking callback: ~p",[CallbackResponse, blockchain_txn:hash(Txn)]),
     #txn_data{callback = Callback, dialers = Dialers} = TxnData,
     ok = blockchain_txn_mgr_sup:stop_dialers(Dialers),
     ok = invoke_callback(Callback, CallbackResponse),

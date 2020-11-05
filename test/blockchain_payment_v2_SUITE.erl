@@ -269,7 +269,7 @@ max_payments_test(Config) ->
     SigFun = libp2p_crypto:mk_sig_fun(PayerPrivKey),
     SignedTx = blockchain_txn_payment_v2:sign(Tx, SigFun),
 
-    ?assertEqual({error, {exceeded_max_payments, length(Payments), ?MAX_PAYMENTS}},
+    ?assertEqual({error, {exceeded_max_payments, {length(Payments), ?MAX_PAYMENTS}}},
                  blockchain_txn_payment_v2:is_valid(SignedTx, Chain)),
 
     ok.
@@ -322,7 +322,7 @@ zero_amount_test(Config) ->
     %% Placeholder: update when we land a better version of add_block in test_utils
     %% which does validations, this will suffice for now
     %% NOTE: SignedTx being in the second pos implies it's invalid
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
     ok.
 
 negative_amount_test(Config) ->
@@ -346,5 +346,5 @@ negative_amount_test(Config) ->
     %% Placeholder: update when we land a better version of add_block in test_utils
     %% which does validations, this will suffice for now
     %% NOTE: SignedTx being in the second pos implies it's invalid
-    {[], [SignedTx]} = blockchain_txn:validate([SignedTx], Chain),
+    {[], [{SignedTx, _InvalidReason}]} = blockchain_txn:validate([SignedTx], Chain),
     ok.
