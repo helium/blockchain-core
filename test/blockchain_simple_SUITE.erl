@@ -1765,7 +1765,7 @@ election_v4_test(Config) ->
 
     %% seven should not have been penalized
     ?assertEqual(element(1, lists:nth(7, ScoredOldGroup)), SevenScore),
-    error(foo),
+
     ok.
 
 chain_vars_test(Config) ->
