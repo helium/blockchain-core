@@ -14,14 +14,24 @@
 ]).
 
 -export([
-    hip15_test/1,
-    non_hip15_test/1
+    lower_than_reduntant_test/1,
+    higher_than_reduntant_test/1,
+    lower_than_reduntant_no_var_test/1,
+    higher_than_reduntant_no_var_test/1,
+    compare_lower_test/1,
+    compare_higher_test/1,
+    compare_lower_higher_test/1
 ]).
 
 all() ->
     [
-        hip15_test,
-        non_hip15_test
+        lower_than_reduntant_test,
+        higher_than_reduntant_test,
+        lower_than_reduntant_no_var_test,
+        higher_than_reduntant_no_var_test,
+        compare_lower_test,
+        compare_higher_test,
+        compare_lower_higher_test
     ].
 
 %%--------------------------------------------------------------------
@@ -29,27 +39,15 @@ all() ->
 %%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    %% Using this simple gen_server to store test results for comparison in end_per_suite
-    blockchain_test_reward_store:start_link(),
-    Config.
+    {ok, StorePid} = blockchain_test_reward_store:start(),
+    [{store, StorePid} | Config].
 
 %%--------------------------------------------------------------------
 %% TEST SUITE TEARDOWN
 %%--------------------------------------------------------------------
 
-end_per_suite(Config) ->
-    ct:pal("Config: ~p", [Config]),
-    State = blockchain_test_reward_store:state(),
-    ct:pal("State: ~p", [State]),
-    Sup = ?config(sup, Config),
-    % Make sure blockchain saved on file = in memory
-    case erlang:is_process_alive(Sup) of
-        true ->
-            true = erlang:exit(Sup, normal),
-            ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end);
-        false ->
-            ok
-    end,
+end_per_suite(_Config) ->
+    blockchain_test_reward_store:stop(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -63,7 +61,11 @@ init_per_testcase(TestCase, Config) ->
 
     ExtraVars =
         case TestCase of
-            hip15_test ->
+            lower_than_reduntant_no_var_test ->
+                #{};
+            higher_than_reduntant_no_var_test ->
+                #{};
+            _ ->
                 #{
                     %% configured on chain
                     ?poc_version => 9,
@@ -71,9 +73,7 @@ init_per_testcase(TestCase, Config) ->
                     %% new vars for testing
                     ?poc_reward_decay_rate => 0.8,
                     ?witness_redundancy => 4
-                };
-            _ ->
-                #{}
+                }
         end,
 
     {ok, GenesisMembers, _GenesisBlock, ConsensusMembers, Keys} =
@@ -117,39 +117,212 @@ init_per_testcase(TestCase, Config) ->
 %% TEST CASE TEARDOWN
 %%--------------------------------------------------------------------
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, Config) ->
     meck:unload(blockchain_txn_rewards_v1),
     meck:unload(blockchain_txn_poc_receipts_v1),
     meck:unload(),
+    Sup = ?config(sup, Config),
+    % Make sure blockchain saved on file = in memory
+    case erlang:is_process_alive(Sup) of
+        true ->
+            true = erlang:exit(Sup, normal),
+            ok = test_utils:wait_until(fun() -> false =:= erlang:is_process_alive(Sup) end);
+        false ->
+            ok
+    end,
     ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
 %%--------------------------------------------------------------------
 
-non_hip15_test(Config) ->
-    run_test(Config).
+lower_than_reduntant_no_var_test(Config) ->
+    Witnesses = [i, j],
+    run_test(Witnesses, Config).
 
-hip15_test(Config) ->
-    %% - We have gateways: [A, B, C, D, E, F, G, H, I, J, K]
+higher_than_reduntant_no_var_test(Config) ->
+    Witnesses = [b, c, e, f, g],
+    run_test(Witnesses, Config).
+
+lower_than_reduntant_test(Config) ->
+    %% - We have gateways: [a, b, c, d, e, f, g, h, i, j, k]
     %% - We'll make a poc receipt txn by hand, without any validation
     %% - We'll also consider that all witnesses are legit (legit_witnesses)
-    %% - The poc transaction will have path like so: A -> D -> H
-    %% - For A -> D; J, K will be the only witnesses; no scaling should happen
-    %% - For D -> H; B, C, E, F, G, I will all be witnesses, their rewards should get scaled
-    run_test(Config).
+    %% - The poc transaction will have path like so: a -> d -> h
+    %% - For a -> d; i, j will be the only witnesses; no scaling should happen
+    %% - For d -> h; 0 witnesses
+    Witnesses = [i, j],
+    run_test(Witnesses, Config).
+
+higher_than_reduntant_test(Config) ->
+    %% - We have gateways: [a, b, c, d, e, f, g, h, i, j, k]
+    %% - We'll make a poc receipt txn by hand, without any validation
+    %% - We'll also consider that all witnesses are legit (legit_witnesses)
+    %% - The poc transaction will have path like so: a -> d -> h
+    %% - For a -> d; [b, c, e, f, g] will all be witnesses, their rewards should get scaled
+    %% - For d -> h; 0 witnesses
+    Witnesses = [b, c, e, f, g],
+    run_test(Witnesses, Config).
+
+compare_higher_test(_Config) ->
+    HigherThanReduntantWitnessRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_test_witness_rewards
+    ),
+    HigherThanReduntantChallengeeRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_test_challengee_rewards
+    ),
+    HigherThanReduntantNoVarWitnessRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_no_var_test_witness_rewards
+    ),
+    HigherThanReduntantNoVarChallengeeRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_no_var_test_challengee_rewards
+    ),
+
+    ct:pal("HigherThanReduntantWitnessRewards: ~p", [HigherThanReduntantWitnessRewards]),
+    ct:pal("HigherThanReduntantNoVarWitnessRewards: ~p", [HigherThanReduntantNoVarWitnessRewards]),
+    ct:pal("HigherThanReduntantChallengeeRewards: ~p", [HigherThanReduntantChallengeeRewards]),
+    ct:pal("HigherThanReduntantNoVarChallengeeRewards: ~p", [
+        HigherThanReduntantNoVarChallengeeRewards
+    ]),
+
+    %% we _know_ this is how it should be
+    StaticChallengees = [a, d, h],
+    StaticWitnesses = [b, c, e, f, g],
+
+    %% Check1: only a, d, h get challengee rewards
+    true =
+        lists:sort(StaticChallengees) ==
+            lists:sort(maps:keys(HigherThanReduntantChallengeeRewards)),
+    true =
+        lists:sort(StaticChallengees) ==
+            lists:sort(maps:keys(HigherThanReduntantNoVarChallengeeRewards)),
+
+    %% Check2: only i, j get witness rewards
+    true = lists:sort(StaticWitnesses) == lists:sort(maps:keys(HigherThanReduntantWitnessRewards)),
+    true =
+        lists:sort(StaticWitnesses) ==
+            lists:sort(maps:keys(HigherThanReduntantNoVarWitnessRewards)),
+
+    %% Check3: every single challengee reward for a hotspot in no_var_test is higher than with_var_test
+    true = lists:all(
+        fun(Gw) ->
+            Hip15Value = maps:get(Gw, HigherThanReduntantChallengeeRewards),
+            NonHip15Value = maps:get(Gw, HigherThanReduntantNoVarChallengeeRewards),
+            Hip15Value < NonHip15Value
+        end,
+        StaticChallengees
+    ),
+
+    %% Check4: every single witness reward for a hotspot in no_var_test is higher than with_var_test
+    true = lists:all(
+        fun(Gw) ->
+            Hip15Value = maps:get(Gw, HigherThanReduntantWitnessRewards),
+            NonHip15Value = maps:get(Gw, HigherThanReduntantNoVarWitnessRewards),
+            Hip15Value < NonHip15Value
+        end,
+        StaticWitnesses
+    ),
+
+    ok.
+
+compare_lower_higher_test(_Config) ->
+    LowerThanReduntantWitnessRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_test_witness_rewards
+    ),
+    LowerThanReduntantChallengeeRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_test_challengee_rewards
+    ),
+
+    HigherThanReduntantWitnessRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_test_witness_rewards
+    ),
+    HigherThanReduntantChallengeeRewards = blockchain_test_reward_store:fetch(
+        higher_than_reduntant_test_challengee_rewards
+    ),
+    ct:pal("LowerThanReduntantWitnessRewards: ~p", [LowerThanReduntantWitnessRewards]),
+    ct:pal("HigherThanReduntantWitnessRewards: ~p", [HigherThanReduntantWitnessRewards]),
+    ct:pal("LowerThanReduntantChallengeeRewards: ~p", [LowerThanReduntantChallengeeRewards]),
+    ct:pal("HigherThanReduntantChallengeeRewards: ~p", [HigherThanReduntantChallengeeRewards]),
+
+    true =
+        hd(maps:values(LowerThanReduntantWitnessRewards)) >
+            hd(maps:values(HigherThanReduntantWitnessRewards)),
+
+    ok.
+
+compare_lower_test(_Config) ->
+    LowerThanReduntantWitnessRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_test_witness_rewards
+    ),
+    LowerThanReduntantChallengeeRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_test_challengee_rewards
+    ),
+
+    LowerThanReduntantNoVarWitnessRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_no_var_test_witness_rewards
+    ),
+    LowerThanReduntantNoVarChallengeeRewards = blockchain_test_reward_store:fetch(
+        lower_than_reduntant_no_var_test_challengee_rewards
+    ),
+
+    ct:pal("LowerThanReduntantWitnessRewards: ~p", [LowerThanReduntantWitnessRewards]),
+    ct:pal("LowerThanReduntantNoVarWitnessRewards: ~p", [LowerThanReduntantNoVarWitnessRewards]),
+    ct:pal("LowerThanReduntantChallengeeRewards: ~p", [LowerThanReduntantChallengeeRewards]),
+    ct:pal("LowerThanReduntantNoVarChallengeeRewards: ~p", [
+        LowerThanReduntantNoVarChallengeeRewards
+    ]),
+
+    %% we _know_ this is how it should be
+    StaticChallengees = [a, d, h],
+    StaticWitnesses = [i, j],
+
+    %% Check1: only a, d, h get challengee rewards
+    true =
+        lists:sort(StaticChallengees) == lists:sort(maps:keys(LowerThanReduntantChallengeeRewards)),
+    true =
+        lists:sort(StaticChallengees) ==
+            lists:sort(maps:keys(LowerThanReduntantNoVarChallengeeRewards)),
+
+    %% Check2: only i, j get witness rewards
+    true = lists:sort(StaticWitnesses) == lists:sort(maps:keys(LowerThanReduntantWitnessRewards)),
+    true =
+        lists:sort(StaticWitnesses) == lists:sort(maps:keys(LowerThanReduntantNoVarWitnessRewards)),
+
+    %% Check3: every single challengee reward for a hotspot in no_var_test is higher than with_var_test
+    true = lists:all(
+        fun(Gw) ->
+            Hip15Value = maps:get(Gw, LowerThanReduntantChallengeeRewards),
+            NonHip15Value = maps:get(Gw, LowerThanReduntantNoVarChallengeeRewards),
+            Hip15Value < NonHip15Value
+        end,
+        StaticChallengees
+    ),
+
+    %% Check4: every single witness reward for a hotspot in no_var_test is higher than with_var_test
+    true = lists:all(
+        fun(Gw) ->
+            Hip15Value = maps:get(Gw, LowerThanReduntantWitnessRewards),
+            NonHip15Value = maps:get(Gw, LowerThanReduntantNoVarWitnessRewards),
+            Hip15Value < NonHip15Value
+        end,
+        StaticWitnesses
+    ),
+
+    ok.
 
 %%--------------------------------------------------------------------
 %% HELPER
 %%--------------------------------------------------------------------
 
-run_test(Config) ->
+run_test(Witnesses, Config) ->
     ct:pal("Config: ~p", [Config]),
     BaseDir = ?config(base_dir, Config),
     ConsensusMembers = ?config(consensus_members, Config),
     BaseDir = ?config(base_dir, Config),
     Chain = ?config(chain, Config),
     TCName = ?config(tc_name, Config),
+    Store = ?config(store, Config),
+    ct:pal("store: ~p", [Store]),
 
     Ledger = blockchain:ledger(Chain),
     Vars = blockchain_ledger_v1:snapshot_vars(Ledger),
@@ -157,20 +330,9 @@ run_test(Config) ->
 
     AG = blockchain_ledger_v1:active_gateways(Ledger),
 
-    GatewayAddrs =
-        [
-            GwA,
-            GwB,
-            GwC,
-            GwD,
-            GwE,
-            GwF,
-            GwG,
-            GwH,
-            GwI,
-            GwJ,
-            GwK
-        ] = lists:sort(maps:keys(AG)),
+    GatewayAddrs = lists:sort(maps:keys(AG)),
+
+    AllGws = [a, b, c, d, e, f, g, h, i, j, k],
 
     %% For crosscheck
     GatewayNameMap = lists:foldl(
@@ -178,65 +340,100 @@ run_test(Config) ->
             maps:put(blockchain_utils:addr2name(A), Letter, Acc)
         end,
         #{},
-        lists:zip([a, b, c, d, e, f, g, h, i, j, k], GatewayAddrs)
+        lists:zip(AllGws, GatewayAddrs)
     ),
 
-    Rx1 = blockchain_poc_receipt_v1:new(GwA, 1000, 10, "first_rx", p2p),
-    Rx2 = blockchain_poc_receipt_v1:new(GwD, 1000, 10, "second_rx", radio),
-    Rx3 = blockchain_poc_receipt_v1:new(GwH, 1000, 10, "third_rx", radio),
+    %% For crosscheck
+    GatewayLetterToAddrMap = lists:foldl(
+        fun({Letter, A}, Acc) ->
+            maps:put(Letter, A, Acc)
+        end,
+        #{},
+        lists:zip(AllGws, GatewayAddrs)
+    ),
+
+    Challenger = maps:get(k, GatewayLetterToAddrMap),
+
+    GwA = maps:get(a, GatewayLetterToAddrMap),
+    GwD = maps:get(d, GatewayLetterToAddrMap),
+    GwH = maps:get(h, GatewayLetterToAddrMap),
+
+    Rx1 = blockchain_poc_receipt_v1:new(
+        GwA,
+        1000,
+        10,
+        "first_rx",
+        p2p
+    ),
+    Rx2 = blockchain_poc_receipt_v1:new(
+        GwD,
+        1000,
+        10,
+        "second_rx",
+        radio
+    ),
+    Rx3 = blockchain_poc_receipt_v1:new(
+        GwH,
+        1000,
+        10,
+        "third_rx",
+        radio
+    ),
 
     ct:pal("Rx1: ~p", [Rx1]),
     ct:pal("Rx2: ~p", [Rx2]),
     ct:pal("Rx3: ~p", [Rx3]),
 
-    W1 = blockchain_poc_witness_v1:new(GwJ, 1001, 10, <<"hash_w1">>, 9.8, 915.2, 1, <<"dr">>),
-    W2 = blockchain_poc_witness_v1:new(GwK, 1001, 11, <<"hash_w2">>, 9.8, 915.2, 2, <<"dr">>),
+    ConstructedWitnesses = lists:foldl(
+        fun(W, Acc) ->
+            WitnessGw = maps:get(W, GatewayLetterToAddrMap),
+            Witness = blockchain_poc_witness_v1:new(
+                WitnessGw,
+                1001,
+                10,
+                crypto:strong_rand_bytes(32),
+                9.8,
+                915.2,
+                10,
+                <<"data_rate">>
+            ),
+            [Witness | Acc]
+        end,
+        [],
+        Witnesses
+    ),
 
-    ct:pal("W1: ~p", [W1]),
-    ct:pal("W2: ~p", [W2]),
-
-    W3 = blockchain_poc_witness_v1:new(GwB, 1001, 10, <<"hash_w3">>, 9.8, 915.2, 3, <<"dr">>),
-    W4 = blockchain_poc_witness_v1:new(GwC, 1002, 11, <<"hash_w4">>, 9.8, 915.2, 4, <<"dr">>),
-    W5 = blockchain_poc_witness_v1:new(GwD, 1003, 12, <<"hash_w5">>, 9.8, 915.2, 5, <<"dr">>),
-    W6 = blockchain_poc_witness_v1:new(GwE, 1004, 13, <<"hash_w6">>, 9.8, 915.2, 6, <<"dr">>),
-    W7 = blockchain_poc_witness_v1:new(GwF, 1005, 14, <<"hash_w7">>, 9.8, 915.2, 7, <<"dr">>),
-    W8 = blockchain_poc_witness_v1:new(GwG, 1006, 15, <<"hash_w8">>, 9.8, 915.2, 8, <<"dr">>),
-    W9 = blockchain_poc_witness_v1:new(GwI, 1007, 16, <<"hash_w9">>, 9.8, 915.2, 9, <<"dr">>),
+    ct:pal("ConstructedWitnesses: ~p", [ConstructedWitnesses]),
 
     %% We'll consider all the witnesses to be "good quality" for the sake of testing
-    Witnesses = [W1, W2, W3, W4, W5, W6, W7, W8, W9],
     meck:expect(
         blockchain_txn_rewards_v1,
         legit_witnesses,
         fun(_, _, _, _, _, _) ->
-            Witnesses
+            ConstructedWitnesses
         end
     ),
     meck:expect(blockchain_txn_poc_receipts_v1, absorb, fun(_, _) -> ok end),
-    meck:expect(blockchain_txn_poc_receipts_v1, valid_witnesses, fun(_, _, _) -> Witnesses end),
-    meck:expect(blockchain_txn_poc_receipts_v1, good_quality_witnesses, fun(_, _) -> Witnesses end),
+    meck:expect(blockchain_txn_poc_receipts_v1, valid_witnesses, fun(_, _, _) ->
+        ConstructedWitnesses
+    end),
+    meck:expect(blockchain_txn_poc_receipts_v1, good_quality_witnesses, fun(_, _) ->
+        ConstructedWitnesses
+    end),
     meck:expect(blockchain_txn_poc_receipts_v1, get_channels, fun(_, _) ->
         {ok, lists:seq(1, 11)}
     end),
 
-    ct:pal("W3: ~p", [W3]),
-    ct:pal("W4: ~p", [W4]),
-    ct:pal("W5: ~p", [W5]),
-    ct:pal("W6: ~p", [W6]),
-    ct:pal("W7: ~p", [W7]),
-    ct:pal("W8: ~p", [W8]),
-    ct:pal("W9: ~p", [W9]),
-
     P1 = blockchain_poc_path_element_v1:new(GwA, Rx1, []),
-    P2 = blockchain_poc_path_element_v1:new(GwD, Rx2, [W1, W2]),
-    P3 = blockchain_poc_path_element_v1:new(GwH, Rx3, [W3, W4, W5, W6, W7, W8, W9]),
+    P2 = blockchain_poc_path_element_v1:new(GwD, Rx2, ConstructedWitnesses),
+    P3 = blockchain_poc_path_element_v1:new(GwH, Rx3, []),
 
     ct:pal("P1: ~p", [P1]),
     ct:pal("P2: ~p", [P2]),
     ct:pal("P3: ~p", [P3]),
 
     Txn = blockchain_txn_poc_receipts_v1:new(
-        <<"challenger">>,
+        Challenger,
         <<"secret">>,
         <<"onion_key_hash">>,
         <<"block_hash">>,
@@ -279,7 +476,10 @@ run_test(Config) ->
         lists:foldl(
             fun(R, Acc) ->
                 maps:put(
-                    blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                    maps:get(
+                        blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                        GatewayNameMap
+                    ),
                     blockchain_txn_reward_v1:amount(R),
                     Acc
                 )
@@ -292,7 +492,10 @@ run_test(Config) ->
         lists:foldl(
             fun(R, Acc) ->
                 maps:put(
-                    blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                    maps:get(
+                        blockchain_utils:addr2name(blockchain_txn_reward_v1:gateway(R)),
+                        GatewayNameMap
+                    ),
                     blockchain_txn_reward_v1:amount(R),
                     Acc
                 )
@@ -307,12 +510,11 @@ run_test(Config) ->
     ct:pal("WitnessRewardsMap: ~p", [WitnessRewardsMap]),
 
     ok = blockchain_test_reward_store:insert(
-        list_to_atom(atom_to_list(TCName) ++ "_witness"),
+        list_to_atom(atom_to_list(TCName) ++ "_witness_rewards"),
         WitnessRewardsMap
     ),
-
     ok = blockchain_test_reward_store:insert(
-        list_to_atom(atom_to_list(TCName) ++ "_challengee"),
+        list_to_atom(atom_to_list(TCName) ++ "_challengee_rewards"),
         ChallengeesRewardsMap
     ),
 
