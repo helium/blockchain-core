@@ -635,6 +635,7 @@ add_blocks(Blocks, Chain) ->
     try
         Res = add_blocks_(Blocks, Chain),
         check_plausible_blocks(Chain),
+        lager:info("add_blocks res: ~p", [Res]),
         Res
     catch C:E:S ->
             lager:warning("crash adding blocks: ~p:~p ~p", [C, E, S]),
@@ -811,7 +812,9 @@ add_block_(Block, Blockchain, Syncing) ->
     {ok, BlockchainHeight} = blockchain:height(Blockchain),
     case LedgerHeight == BlockchainHeight of
         true ->
-            case can_add_block(Block, Blockchain) of
+            R = can_add_block(Block, Blockchain),
+            lager:info("Can add block: ~p", [R]),
+            case R of
                 {true, IsRescue} ->
                     Height = blockchain_block:height(Block),
                     Hash = blockchain_block:hash_block(Block),
@@ -2200,6 +2203,7 @@ check_plausible_blocks(#blockchain{db=DB, plausible_blocks=CF}=Chain) ->
                                           rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block));
                                       _ ->
                                           %% block has become invalid, delete it
+                                          lager:info("block invalid"),
                                           rocksdb:batch_delete(Batch, CF, blockchain_block:hash_block(Block))
                                   end;
                               plausible ->
