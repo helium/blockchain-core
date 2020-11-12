@@ -1071,9 +1071,83 @@ validate_var(?use_multi_keys, Value) ->
 validate_var(?transfer_hotspot_stale_poc_blocks, Value) ->
     validate_int(Value, "transfer_hotspot_stale_poc_blocks", 1, 50000, false);
 
+%% HIP 17 vars
+validate_var(?hip17_res_0, Value) ->
+    validate_hip17_vars(Value, "hip17_res_0");
+validate_var(?hip17_res_1, Value) ->
+    validate_hip17_vars(Value, "hip17_res_1");
+validate_var(?hip17_res_2, Value) ->
+    validate_hip17_vars(Value, "hip17_res_2");
+validate_var(?hip17_res_3, Value) ->
+    validate_hip17_vars(Value, "hip17_res_3");
+validate_var(?hip17_res_4, Value) ->
+    validate_hip17_vars(Value, "hip17_res_4");
+validate_var(?hip17_res_5, Value) ->
+    validate_hip17_vars(Value, "hip17_res_5");
+validate_var(?hip17_res_6, Value) ->
+    validate_hip17_vars(Value, "hip17_res_6");
+validate_var(?hip17_res_7, Value) ->
+    validate_hip17_vars(Value, "hip17_res_7");
+validate_var(?hip17_res_8, Value) ->
+    validate_hip17_vars(Value, "hip17_res_8");
+validate_var(?hip17_res_9, Value) ->
+    validate_hip17_vars(Value, "hip17_res_9");
+validate_var(?hip17_res_10, Value) ->
+    validate_hip17_vars(Value, "hip17_res_10");
+validate_var(?hip17_res_11, Value) ->
+    validate_hip17_vars(Value, "hip17_res_11");
+validate_var(?hip17_res_12, Value) ->
+    validate_hip17_vars(Value, "hip17_res_12");
+validate_var(?hip17_res_13, Value) ->
+    validate_hip17_vars(Value, "hip17_res_13");
+validate_var(?hip17_res_14, Value) ->
+    validate_hip17_vars(Value, "hip17_res_14");
+validate_var(?hip17_res_15, Value) ->
+    validate_hip17_vars(Value, "hip17_res_15");
+
 validate_var(Var, Value) ->
     %% something we don't understand, crash
     invalid_var(Var, Value).
+
+validate_hip17_vars(Value, Var) when is_binary(Value) ->
+    %% We expect the value of the variable to be in format: <<int, int, int>>
+    case size(Value) of
+        3 ->
+            [Siblings, DensityTgt, DensityMax] = binary:bin_to_list(Value),
+            CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 100),
+            CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 10000),
+            CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 10000),
+
+            case CheckSiblings of
+                {error, _}=E1 ->
+                    lager:error("invalid_siblings, reason: ~p", [E1]),
+                    throw({error, {invalid_siblings, Var, Value}});
+                ok ->
+                    case CheckDensityTgt of
+                        {error, _}=E2 ->
+                            lager:error("invalid_density_tgt, reason: ~p", [E2]),
+                            throw({error, {invalid_density_tgt, Var, Value}});
+                        ok ->
+                            case CheckDensityMax of
+                                {error, _}=E3 ->
+                                    lager:error("invalid_density_max, reason: ~p", [E3]),
+                                    throw({error, {invalid_density_max, Var, Value}});
+                                ok ->
+                                    ok
+                            end
+                    end
+            end;
+        _ ->
+            throw({error, {invalid_size, Var, Value}})
+    end;
+validate_hip17_vars(Value, Var) ->
+    throw({error, {invalid_format, Var, Value}}).
+
+validate_int_min_max(Value, Name, Min, Max) ->
+    case Value >= Min andalso Value =< Max of
+        false -> {error, {list_to_atom(Name ++ "_out_of_range"), Value}};
+        _ -> ok
+    end.
 
 -ifdef(TEST).
 invalid_var(Var, Value) ->
