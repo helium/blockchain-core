@@ -370,3 +370,31 @@
 %% POC challenge for X blocks would be considered stale for the purposes
 %% of a hotspot transfer. (We do not allow stale hotspots to be transferred.)
 -define(transfer_hotspot_stale_poc_blocks, transfer_hotspot_stale_poc_blocks).
+
+%% ------------------------------------------------------------------
+%% HIP 17 vars
+%%
+%% For every possible h3 resolution, we will define:
+%% - number of siblings
+%% - density_tgt
+%% - density_max
+%%
+%% So hip17_res_0 value could be: 2, 10000, 10000 for example;
+%% where num_siblings=2, density_tgt=10000, density_max=10000
+%%
+%% We'd specify any of the below variables like so: <<"2,10000,10000">>
+%% We expect the value of any of these variables to be in format: <<"int,int,int">>
+-define(hip17_res_0, hip17_res_0).
+-define(hip17_res_1, hip17_res_1).
+-define(hip17_res_2, hip17_res_2).
+-define(hip17_res_3, hip17_res_3).
+-define(hip17_res_4, hip17_res_4).
+-define(hip17_res_5, hip17_res_5).
+-define(hip17_res_6, hip17_res_6).
+-define(hip17_res_7, hip17_res_7).
+-define(hip17_res_8, hip17_res_8).
+-define(hip17_res_9, hip17_res_9).
+-define(hip17_res_10, hip17_res_10).
+-define(hip17_res_11, hip17_res_11).
+-define(hip17_res_12, hip17_res_12).
+-define(density_tgt_res, density_tgt_res).
