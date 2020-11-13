@@ -382,7 +382,8 @@
 %% So hip17_res_0 value could be: 2, 10000, 10000 for example;
 %% where num_siblings=2, density_tgt=10000, density_max=10000
 %%
-%% We'd specify any of the below variables like so: <<2, 10000, 10000>>
+%% We'd specify any of the below variables like so: <<"2,10000,10000">>
+%% We expect the value of any of these variables to be in format: <<"int,int,int">>
 -define(hip17_res_0, hip17_res_0).
 -define(hip17_res_1, hip17_res_1).
 -define(hip17_res_2, hip17_res_2).
