@@ -1110,13 +1110,13 @@ validate_var(Var, Value) ->
     invalid_var(Var, Value).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
-    %% We expect the value of the variable to be in format: <<int, int, int>>
+    %% We expect the value of the variable to be in format: <<"int,int,int">>
     case size(Value) of
         3 ->
-            [Siblings, DensityTgt, DensityMax] = binary:bin_to_list(Value),
-            CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 100),
-            CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 10000),
-            CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 10000),
+            [Siblings, DensityTgt, DensityMax] = get_density_var(Value),
+            CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
+            CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
+            CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
 
             case CheckSiblings of
                 {error, _}=E1 ->
@@ -1161,6 +1161,10 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
+
+get_density_var(Value) ->
+    [N, Tgt, Max] = [list_to_integer(I) || I <- string:tokens(binary:bin_to_list(Value), ",")],
+    [N, Tgt, Max].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

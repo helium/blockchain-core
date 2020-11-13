@@ -24,7 +24,9 @@
          create_vars/0, create_vars/1,
          raw_vars/1,
          init_base_dir_config/3,
-         join_packet/3
+         join_packet/3,
+         ledger/2,
+         destroy_ledger/0
         ]).
 
 pmap(F, L) ->
@@ -431,3 +433,73 @@ reverse_bin(Bin) -> reverse_bin(Bin, <<>>).
 reverse_bin(<<>>, Acc) -> Acc;
 reverse_bin(<<H:1/binary, Rest/binary>>, Acc) ->
     reverse_bin(Rest, <<H/binary, Acc/binary>>).
+
+ledger(ExtraVars, S3URL) ->
+    %% Ledger at height: 481929
+    %% ActiveGateway Count: 8000
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    %% Path to static ledger tar
+    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
+    %% Extract ledger tar if required
+    ok = extract_ledger_tar(PrivDir, LedgerTar, S3URL),
+    %% Get the ledger
+    Ledger = blockchain_ledger_v1:new(PrivDir),
+    %% Get current ledger vars
+    LedgerVars = ledger_vars(Ledger),
+    %% Ensure the ledger has the vars we're testing against
+    Ledger1 = blockchain_ledger_v1:new_context(Ledger),
+    blockchain_ledger_v1:vars(maps:merge(LedgerVars, ExtraVars), [], Ledger1),
+    %% If the hexes aren't on the ledger add them
+    blockchain:bootstrap_hexes(Ledger1),
+    blockchain_ledger_v1:commit_context(Ledger1),
+    Ledger.
+
+extract_ledger_tar(PrivDir, LedgerTar, S3URL) ->
+    case filelib:is_file(LedgerTar) of
+        true ->
+            %% if we have already unpacked it, no need to do it again
+            LedgerDB = filename:join([PrivDir, "ledger.db"]),
+            case filelib:is_dir(LedgerDB) of
+                true ->
+                    ok;
+                false ->
+                    %% ledger tar file present, extract
+                    erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+            end;
+        false ->
+            %% ledger tar file not found, download & extract
+            ok = ssl:start(),
+            {ok, {{_, 200, "OK"}, _, Body}} = httpc:request(S3URL),
+            ok = file:write_file(filename:join([PrivDir, "ledger.tar.gz"]), Body),
+            erl_tar:extract(LedgerTar, [compressed, {cwd, PrivDir}])
+    end.
+
+ledger_vars(Ledger) ->
+    blockchain_utils:vars_binary_keys_to_atoms(maps:from_list(blockchain_ledger_v1:snapshot_vars(Ledger))).
+
+destroy_ledger() ->
+    {ok, Dir} = file:get_cwd(),
+    %% Ensure priv dir exists
+    PrivDir = filename:join([Dir, "priv"]),
+    ok = filelib:ensure_dir(PrivDir ++ "/"),
+    LedgerTar = filename:join([PrivDir, "ledger.tar.gz"]),
+    LedgerDB = filename:join([PrivDir, "ledger.db"]),
+
+    case filelib:is_file(LedgerTar) of
+        true ->
+            %% we found a ledger tarball, remove it
+            file:delete(LedgerTar);
+        false ->
+            ok
+    end,
+    case filelib:is_dir(LedgerDB) of
+        true ->
+            %% we found a ledger.db, remove it
+            file:del_dir(LedgerDB);
+        false ->
+            %% ledger.db dir not found, don't do anything
+            ok
+    end.
