@@ -4,8 +4,11 @@
 
 -include("blockchain_vars.hrl").
 
--type densities() :: {density_map(), density_map()}.
 -type density_map() :: #{h3:h3_index() => pos_integer()}.
+-type densities() :: {density_map(), density_map()}.
+-type var_map() :: #{non_neg_integer() => map()}.
+-type hex_resolutions() :: [non_neg_integer()].
+-type locations() :: [h3:h3_index()].
 
 %%--------------------------------------------------------------------
 %% Public functions
@@ -13,14 +16,19 @@
 
 -spec densities(Ledger :: blockchain_ledger_v1:ledger()) -> densities().
 densities(Ledger) ->
+    %% build a map of required chain variables, example:
+    %% #{0 => #{n => N, density_tgt => T, density_max =M}, ....}
     VarMap = var_map(Ledger),
+    %% Filter out gateways with no location
     Locations = filtered_locations(Ledger),
+    %% Calculate clipped and unclipped densities
     densities(VarMap, Locations).
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+-spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> var_map().
 var_map(Ledger) ->
     [N0, Tgt0, Max0] = get_density_var(?hip17_res_0, Ledger),
     [N1, Tgt1, Max1] = get_density_var(?hip17_res_1, Ledger),
@@ -52,15 +60,18 @@ var_map(Ledger) ->
         12 => #{n => N12, density_tgt => Tgt12, density_max => Max12}
     }.
 
+-spec filtered_locations(Ledger :: blockchain_ledger_v1:ledger()) -> locations().
 filtered_locations(Ledger) ->
     AG = blockchain_ledger_v1:active_gateways(Ledger),
     UnfilteredLocs = [blockchain_ledger_gateway_v2:location(G) || G <- maps:values(AG)],
     lists:filter(fun(L) -> L /= undefined end, UnfilteredLocs).
 
+-spec hex_resolutions(VarMap :: var_map()) -> hex_resolutions().
 hex_resolutions(VarMap) ->
     %% [12, 11, ... 0]
     lists:reverse(lists:sort(maps:keys(VarMap))).
 
+-spec densities(VarMap :: var_map(), Locations :: locations()) -> densities().
 densities(VarMap, Locations) ->
     %% Head = 12, Tail = [11, 10, ... 0]
     [Head | Tail] = hex_resolutions(VarMap),
@@ -79,8 +90,8 @@ densities(VarMap, Locations) ->
 
     {UDensities, Densities}.
 
+-spec init_densities(ParentHexes :: locations(), Init :: density_map()) -> density_map().
 init_densities(ParentHexes, Init) ->
-    %% increment density for all parent hotspots by 1 for each hotspot in that hex
     lists:foldl(
         fun(Hex, Acc) ->
             maps:update_with(
@@ -94,27 +105,22 @@ init_densities(ParentHexes, Init) ->
         ParentHexes
     ).
 
+-spec build_densities(var_map(), locations(), densities(), [non_neg_integer()]) -> densities().
 build_densities(_VarMap, _ParentHexes, {UAcc, Acc}, []) ->
     {UAcc, Acc};
 build_densities(VarMap, ParentHexes, {UAcc, Acc}, [Res | Tail]) ->
-    %% child_hexs needs to be unique so we usort from parent_hexs list
     ChildHexes = lists:usort(ParentHexes),
 
-    %% create list of tuples of child hex and parent at this res
-    %% this avoids calling h3:parent repeatedly
     ChildToParents = [{Hex, h3:parent(Hex, Res)} || Hex <- ChildHexes],
 
-    %% calculate unclipped densities for all occupied hexs at this res
     {UM0, M0} = unclipped_densities(ChildToParents, {UAcc, Acc}),
 
-    %% clip densities based on neighbors, this should also be unique
     OccupiedHexesThisRes = lists:usort([ThisParentHex || {_, ThisParentHex} <- ChildToParents]),
 
     {UM1, M1} = lists:foldl(
         fun(ThisResHex, {UAcc3, Acc3}) ->
             OccupiedCount = occupied_count(Res, VarMap, ThisResHex, M0),
 
-            %% limit from formula in HIP
             Limit = limit(Res, VarMap, OccupiedCount),
 
             {
@@ -128,14 +134,20 @@ build_densities(VarMap, ParentHexes, {UAcc, Acc}, [Res | Tail]) ->
 
     build_densities(VarMap, OccupiedHexesThisRes, {UM1, M1}, Tail).
 
+-spec limit(Res :: non_neg_integer(),
+            VarMap :: var_map(),
+            OccupiedCount :: non_neg_integer()) -> non_neg_integer().
 limit(Res, VarMap, OccupiedCount) ->
-    %% limit from formula in HIP
     min(
         maps:get(density_max, maps:get(Res, VarMap)),
         maps:get(density_tgt, maps:get(Res, VarMap)) *
             max((OccupiedCount - maps:get(n, maps:get(Res, VarMap))), 1)
     ).
 
+-spec occupied_count(Res :: non_neg_integer(),
+                     VarMap :: var_map(),
+                     ThisResHex :: h3:h3_index(),
+                     DensityMap :: density_map()) -> non_neg_integer().
 occupied_count(Res, VarMap, ThisResHex, DensityMap) ->
     H3Neighbors = h3:k_ring(ThisResHex, 1),
     lists:foldl(
@@ -154,6 +166,7 @@ occupied_count(Res, VarMap, ThisResHex, DensityMap) ->
         H3Neighbors
     ).
 
+-spec unclipped_densities(locations(), densities()) -> densities().
 unclipped_densities(ChildToParents, {UAcc, Acc}) ->
     lists:foldl(
         fun({ChildHex, ThisParentHex}, {UAcc2, Acc2}) ->
@@ -174,6 +187,8 @@ unclipped_densities(ChildToParents, {UAcc, Acc}) ->
         ChildToParents
     ).
 
+-spec get_density_var(Var :: atom(),
+                      Ledger :: blockchain_ledger_v1:ledger()) -> [pos_integer()].
 get_density_var(Var, Ledger) ->
     {ok, Bin} = blockchain:config(Var, Ledger),
     [N, Tgt, Max] = [list_to_integer(I) || I <- string:tokens(binary:bin_to_list(Bin), ",")],

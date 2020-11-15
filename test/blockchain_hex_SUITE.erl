@@ -16,9 +16,11 @@
 -export([
     non_zero_test/1,
     known_values_test/1,
-    known_differences_test/1
+    known_differences_test/1,
+    scale_test/1
 ]).
 
+%% Values taken from python model
 -define(KNOWN, [
     {631210968849144319, 1},
     {631179325713598463, 2},
@@ -80,11 +82,15 @@
     617733269885550591 => {1, 2}
 }).
 
+%% Value taken from hip17
+-define(KNOWN_RES_FOR_SCALING, "8828361563fffff").
+
 all() ->
     [
         non_zero_test,
         known_values_test,
-        known_differences_test
+        known_differences_test,
+        scale_test
     ].
 
 %%--------------------------------------------------------------------
@@ -97,20 +103,15 @@ init_per_suite(Config) ->
     %% Check that the pinned ledger is at the height we expect it to be
     {ok, 586724} = blockchain_ledger_v1:current_height(Ledger),
 
-    %% VarMap = blockchain_hex_density:var_map(Ledger),
-
-    %% Check that the vars on the ledger have been applied, one is enough
-    %% Res4 = maps:get(4, VarMap),
-    %% 1 = maps:get(n, Res4),
-    %% 250 = maps:get(density_tgt, Res4),
-    %% 800 = maps:get(density_max, Res4),
-
     {Time, {UnclippedDensities, ClippedDensities}} = timer:tc(
         fun() ->
             blockchain_hex:densities(Ledger)
         end
     ),
-    ct:pal("time=~p milliseconds~n", [Time / 1000]),
+    ct:pal("density calculation time=~pms~n", [Time / 1000]),
+
+    %% Check that the time is less than 1000ms
+    ?assert(1000 =< Time),
 
     [{ledger, Ledger}, {clipped, ClippedDensities}, {unclipped, UnclippedDensities} | Config].
 
@@ -188,6 +189,29 @@ known_differences_test(Config) ->
     ),
 
     ok.
+
+scale_test(Config) ->
+    UnclippedDensities = ?config(unclipped, Config),
+    ClippedDensities = ?config(clipped, Config),
+
+    Res8 = h3:from_string(?KNOWN_RES_FOR_SCALING),
+
+    Res = lists:foldl(
+            fun(R, Acc) ->
+                    Hex = h3:parent(Res8, R),
+                    ClippedValue = maps:get(Hex, ClippedDensities),
+                    UnclippedValue = maps:get(Hex, UnclippedDensities),
+                    Scale = Acc * (ClippedValue / UnclippedValue),
+                    ct:pal("Hex: ~p, R: ~p, Scale: ~p", [h3:to_string(Hex), R, Scale]),
+                    Scale
+            end, 1, lists:reverse(lists:seq(1, 8))),
+
+    ct:pal("Res: ~p", [Res]),
+
+    %% TODO: Assert checks from hip or python model
+
+    ok.
+
 
 %%--------------------------------------------------------------------
 %% CHAIN VARIABLES
