@@ -524,7 +524,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+1, Acc0);
                                {ok, ToAdd} ->
-                                   lager:info("+++++++++++MARKER1"),
                                    maps:put(Challengee, I+ToAdd, Acc0)
                            end;
                        true when is_integer(Version), Version > 4, IsFirst == false ->
@@ -538,7 +537,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                    %% Old behavior
                                    maps:put(Challengee, I+2, Acc0);
                                {ok, ToAdd} ->
-                                   lager:info("+++++++++++MARKER2"),
                                    maps:put(Challengee, I+ToAdd, Acc0)
                            end;
                        _ ->
@@ -561,7 +559,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+3, Acc0);
                                        {ok, ToAdd} ->
-                                           lager:info("+++++++++++MARKER3"),
                                            maps:put(Challengee, I+ToAdd, Acc0)
                                    end;
                                false when is_integer(Version), Version > 4 ->
@@ -571,7 +568,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           lager:info("+++++++++++MARKER4"),
                                            maps:put(Challengee, I+ToAdd, Acc0)
                                    end;
                                _ ->
@@ -580,7 +576,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+1, Acc0);
                                        {ok, ToAdd} ->
-                                           lager:info("+++++++++++MARKER5"),
                                            maps:put(Challengee, I+ToAdd, Acc0)
                                    end
                            end,
@@ -602,7 +597,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+2, Acc0);
                                        {ok, ToAdd} ->
-                                           lager:info("+++++++++++MARKER6"),
                                            maps:put(Challengee, I+ToAdd, Acc0)
                                    end;
                                true ->
@@ -611,7 +605,6 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
                                            %% Old behavior
                                            maps:put(Challengee, I+1, Acc0);
                                        {ok, ToAdd} ->
-                                           lager:info("+++++++++++MARKER7"),
                                            maps:put(Challengee, I+ToAdd, Acc0)
                                    end
                            end,
