@@ -670,6 +670,11 @@ poc_witnesses_rewards(Transactions,
                                               [] ->
                                                   Acc1;
                                               ValidWitnesses ->
+                                                  %% We found some valid witnesses, we only apply the witness_redundancy and decay_rate if BOTH
+                                                  %% are set as chain variables, otherwise we default to the old behavior and set ToAdd=1
+                                                  %%
+                                                  %% If both witness_redundancy and decay_rate are set, we calculate a scaled rx unit (the value ToAdd)
+                                                  %% This is determined using the formulae mentioned in hip15
                                                   ToAdd = case {WitnessRedundancy, DecayRate} of
                                                               {undefined, _} -> 1;
                                                               {_, undefined} -> 1;
