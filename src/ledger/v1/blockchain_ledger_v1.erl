@@ -173,8 +173,16 @@
     txn_fee_multiplier/1,
 
     dc_to_hnt/2,
-    hnt_to_dc/2
+    hnt_to_dc/2,
 
+    som_cf/1,
+    datapoints_cf/1,
+    backlinks_cf/1,
+    bmu_cf/1,
+    windows_cf/1,
+    witness_of/2,
+    witness_for/2,
+    windows/1
 ]).
 
 -include("blockchain.hrl").
@@ -207,6 +215,11 @@
     routing :: rocksdb:cf_handle(),
     subnets :: rocksdb:cf_handle(),
     state_channels :: rocksdb:cf_handle(),
+    som :: rocksdb:cf_handle(),
+    bmus :: rocksdb:cf_handle(),
+    datapoints :: rocksdb:cf_handle(),
+    backlinks :: rocksdb:cf_handle(),
+    windows :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
@@ -225,7 +238,12 @@
 -define(ORACLE_PRICES, <<"oracle_prices">>). %% stores a rolling window of prices
 -define(hex_list, <<"$hex_list">>).
 -define(hex_prefix, "$hex_").
-
+-define(MAX_WINDOW_SAMPLES, 11).
+-define(WINDOW_SIZE, 25).
+-define(WINDOW_CAP, 50).
+-define(SCORE_THRESHOLD, real).
+-define(STALE_THRESHOLD, 1440).
+-define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 -define(CACHE_TOMBSTONE, '____ledger_cache_tombstone____').
 
 -define(BITS_23, 8388607). %% biggest unsigned number in 23 bits
@@ -244,15 +262,25 @@
 -type state_channel_map() ::  #{blockchain_state_channel_v1:id() =>
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
+%% Each window element is a block_height, poc_hash, score_update
+-type window_element() :: {pos_integer(), blockchain_txn:hash(), classification()}.
+%% List of window_elements
+-type window() :: [window_element()].
+%% List of windows, tagged via hotspot pubkey_bin
+-type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
+%% A class associated with hotspot trust
+-type classification() :: atom().
 
--export_type([ledger/0]).
+-export_type([ledger/0, classification/0, window/0, windows/0, window_element/0]).
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, DelayedDefaultCF, DelayedAGwsCF, DelayedEntriesCF, DelayedDCEntriesCF,
-     DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF, DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF] = CFs,
+     SubnetsCF, SCsCF, SomCF, BmuCF, WindowsCF, DatapointsCF, BacklinksCF, DelayedDefaultCF, DelayedAGwsCF,
+     DelayedEntriesCF, DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
+     DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedSomCF, DelayedBmuCF, DelayedDatapointsCF,
+     DelayedBacklinksCF, DelayedWindowsCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -268,7 +296,12 @@ new(Dir) ->
             securities=SecuritiesCF,
             routing=RoutingCF,
             subnets=SubnetsCF,
-            state_channels=SCsCF
+            state_channels=SCsCF,
+            som=SomCF,
+            bmus=BmuCF,
+            datapoints=DatapointsCF,
+            backlinks=BacklinksCF,
+            windows=WindowsCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -280,7 +313,12 @@ new(Dir) ->
             securities=DelayedSecuritiesCF,
             routing=DelayedRoutingCF,
             subnets=DelayedSubnetsCF,
-            state_channels=DelayedSCsCF
+            state_channels=DelayedSCsCF,
+            som=DelayedSomCF,
+            bmus=DelayedBmuCF,
+            datapoints=DelayedDatapointsCF,
+            backlinks=DelayedBacklinksCF,
+            windows=DelayedWindowsCF
         }
     }.
 
@@ -2795,6 +2833,36 @@ state_channels_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{state_channels=S
 state_channels_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{state_channels=SCsCF}}) ->
     SCsCF.
 
+-spec som_cf(ledger()) -> rocksdb:cf_handle().
+som_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{som=SomCF}}) ->
+    SomCF;
+som_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{som=SomCF}}) ->
+    SomCF.
+
+-spec datapoints_cf(ledger()) -> rocksdb:cf_handle().
+datapoints_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{datapoints=DatapointsCF}}) ->
+    DatapointsCF;
+datapoints_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{datapoints=DatapointsCF}}) ->
+    DatapointsCF.
+
+-spec backlinks_cf(ledger()) -> rocksdb:cf_handle().
+backlinks_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{backlinks=BacklinksCF}}) ->
+    BacklinksCF;
+backlinks_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{backlinks=BacklinksCF}}) ->
+    BacklinksCF.
+
+-spec windows_cf(ledger()) -> rocksdb:cf_handle().
+windows_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{windows=WindowsCF}}) ->
+    WindowsCF;
+windows_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{windows=WindowsCF}}) ->
+    WindowsCF.
+
+-spec bmu_cf(ledger()) -> rocksdb:cf_handle().
+bmu_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{bmus=BmuCF}}) ->
+    BmuCF;
+bmu_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{bmus=BmuCF}}) ->
+    BmuCF.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -2950,9 +3018,10 @@ open_db(Dir) ->
 
     CFOpts = GlobalOpts,
 
-    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "subnets", "state_channels",
-                  "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
-                  "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_subnets","delayed_state_channels"],
+    DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "subnets", "state_channels", "som",
+                  "bmus", "datapoints", "backlinks", "windows", "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
+                  "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_subnets","delayed_state_channels", "delayed_som", "delayed_datapoints", "delayed_bmus",
+                  "delayed_backlinks", "delayed_windows"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3462,6 +3531,49 @@ deserialize_state_channel(<<1, _/binary>> = SC) ->
     {blockchain_ledger_state_channel_v1, blockchain_ledger_state_channel_v1:deserialize(SC)};
 deserialize_state_channel(<<2, _/binary>> = SC) ->
     {blockchain_ledger_state_channel_v2, blockchain_ledger_state_channel_v2:deserialize(SC)}.
+
+%%%-------------------------------------------------------------------
+%%% SOM Database functions
+%%%-------------------------------------------------------------------
+%% TODO: Don't touch ledger directly. No clue how to use the cache interface on this one....
+-spec witness_for(list(), Ledger :: ledger()) -> term().
+witness_for(Hotspot, #ledger_v1{db=DB}=Ledger) ->
+    DatapointsCF = datapoints_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, DatapointsCF, [{iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]),
+    witness_for(Itr, rocksdb:iterator_move(Itr, {seek, <<Hotspot:32/binary>>}), []).
+
+witness_for(Itr, {error, invalid_iterator}, Acc) ->
+    catch rocksdb:iterator_close(Itr),
+    Acc;
+witness_for(Itr, {ok, _Key, ValueBin}, Acc) ->
+    witness_for(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(ValueBin) | Acc]).
+
+-spec witness_of(list(), Ledger :: ledger()) -> term().
+witness_of(Hotspot, #ledger_v1{db=DB}=Ledger) ->
+    BacklinksCF = backlinks_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, BacklinksCF, [{iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]),
+    witness_of(Itr, rocksdb:iterator_move(Itr, {seek, <<Hotspot:32/binary>>}), []).
+
+witness_of(Itr, {error, invalid_iterator}, Acc) ->
+    catch rocksdb:iterator_close(Itr),
+    Acc;
+witness_of(Itr, {ok, _Key, ValueBin}, Acc) ->
+    witness_of(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(ValueBin) | Acc]).
+
+%%%-------------------------------------------------------------------
+%%% Window manipulation
+%%%-------------------------------------------------------------------
+-spec windows(Ledger :: ledger()) -> windows().
+windows(#ledger_v1{db = DB}=Ledger) ->
+    WindowsCF = windows_cf(Ledger),
+    {ok, Itr} = rocksdb:iterator(DB, WindowsCF, []),
+    windows(Itr, rocksdb:iterator_move(Itr, first), []).
+
+windows(_Itr, {error, _}, Acc) ->
+    Acc;
+windows(Itr, {ok, Hotspot, BinRes}, Acc) ->
+    NewAcc = [{Hotspot, binary_to_term(BinRes)} | Acc],
+    windows(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
