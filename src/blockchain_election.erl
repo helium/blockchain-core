@@ -131,10 +131,10 @@ new_group_v4(Ledger, Hash, Size, Delay) ->
     {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
 
     %% remove dupes, sort
-    {OldGroupScored0, Gateways1} = dedup(OldGroup0, Gateways0, Ledger),
+    {OldGroupDeduped, Gateways1} = dedup(OldGroup0, Gateways0, Ledger),
 
     %% adjust for bbas and seen votes
-    OldGroupScored = adjust_old_group(OldGroupScored0, Ledger),
+    OldGroupAdjusted = adjust_old_group(OldGroupDeduped, Ledger),
 
     %% get the locations of the current consensus group at a particular h3 resolution
     Locations = locations(OldGroup0, Gateways0),
@@ -147,7 +147,7 @@ new_group_v4(Ledger, Hash, Size, Delay) ->
 
     %% sort low to high to prioritize low scoring and down gateways
     %% for removal from the group
-    OldGroup = lists:sort(OldGroupScored),
+    OldGroup = lists:sort(OldGroupAdjusted),
     Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
     Rem ++ New.
 
@@ -332,8 +332,8 @@ score_dedup(OldGroup0, Gateways0, Ledger) ->
                   true ->
                       OldGw =
                           case Missing of
-                              %% make sure that non-functioning
-                              %% nodes sort first regardless of score
+                              %% sub 5 to make sure that non-functioning nodes sort first regardless
+                              %% of score, making them most likely to be deselected
                               true ->
                                   {Score - 5, Loc, Addr};
                               _ ->
@@ -365,6 +365,9 @@ noscore_gateways_filter(ClusterRes, Ledger) ->
               Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
               Last = Height - Last0,
               Loc = location(ClusterRes, Gw),
+              %% instead of getting the score, start at 1.0 for all spots
+              %% we need something like a score for sorting the existing consensus group members
+              %% for performance grading
               maps:put(Addr, {Last, Loc, 1.0}, Acc)
       end,
       #{},
@@ -380,8 +383,8 @@ dedup(OldGroup0, Gateways0, Ledger) ->
                   true ->
                       OldGw =
                           case Missing of
-                              %% make sure that non-functioning
-                              %% nodes sort first regardless of score
+                              %% sub 5 to make sure that non-functioning nodes sort first regardless
+                              %% of score, making them most likely to be deselected
                               true ->
                                   {Score - 5, Loc, Addr};
                               _ ->
