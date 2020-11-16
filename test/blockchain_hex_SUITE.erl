@@ -103,17 +103,30 @@ init_per_suite(Config) ->
     %% Check that the pinned ledger is at the height we expect it to be
     {ok, 586724} = blockchain_ledger_v1:current_height(Ledger),
 
+    %% Check that the vars are correct, one is enough...
+    VarMap = blockchain_hex:var_map(Ledger),
+    Res4 = maps:get(4, VarMap),
+    1 = maps:get(n, Res4),
+    250 = maps:get(density_tgt, Res4),
+    800 = maps:get(density_max, Res4),
+
     {Time, {UnclippedDensities, ClippedDensities}} = timer:tc(
         fun() ->
             blockchain_hex:densities(Ledger)
         end
     ),
-    ct:pal("density calculation time=~pms~n", [Time / 1000]),
+    ct:pal("density calculation time: ~pms", [Time / 1000]),
 
     %% Check that the time is less than 1000ms
     ?assert(1000 =< Time),
 
-    [{ledger, Ledger}, {clipped, ClippedDensities}, {unclipped, UnclippedDensities} | Config].
+    [
+        {ledger, Ledger},
+        {clipped, ClippedDensities},
+        {unclipped, UnclippedDensities},
+        {var_map, VarMap}
+        | Config
+    ].
 
 %%--------------------------------------------------------------------
 %% TEST CASE SETUP
@@ -194,24 +207,17 @@ scale_test(Config) ->
     UnclippedDensities = ?config(unclipped, Config),
     ClippedDensities = ?config(clipped, Config),
 
-    Res8 = h3:from_string(?KNOWN_RES_FOR_SCALING),
+    ok = lists:foreach(
+        fun({Hex, _}) ->
+            Scale = blockchain_hex:scale(Hex, 8, UnclippedDensities, ClippedDensities),
+            ct:pal("Hex: ~p, Res: ~p, Scale: ~p", [Hex, h3:get_resolution(Hex), Scale])
+        end,
+        ?KNOWN
+    ),
 
-    Res = lists:foldl(
-            fun(R, Acc) ->
-                    Hex = h3:parent(Res8, R),
-                    ClippedValue = maps:get(Hex, ClippedDensities),
-                    UnclippedValue = maps:get(Hex, UnclippedDensities),
-                    Scale = Acc * (ClippedValue / UnclippedValue),
-                    ct:pal("Hex: ~p, R: ~p, Scale: ~p", [h3:to_string(Hex), R, Scale]),
-                    Scale
-            end, 1, lists:reverse(lists:seq(1, 8))),
-
-    ct:pal("Res: ~p", [Res]),
-
-    %% TODO: Assert checks from hip or python model
+    %% TODO: Assert checks from the python model
 
     ok.
-
 
 %%--------------------------------------------------------------------
 %% CHAIN VARIABLES
