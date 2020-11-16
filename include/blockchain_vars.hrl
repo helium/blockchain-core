@@ -397,6 +397,3 @@
 -define(hip17_res_10, hip17_res_10).
 -define(hip17_res_11, hip17_res_11).
 -define(hip17_res_12, hip17_res_12).
--define(hip17_res_13, hip17_res_13).
--define(hip17_res_14, hip17_res_14).
--define(hip17_res_15, hip17_res_15).

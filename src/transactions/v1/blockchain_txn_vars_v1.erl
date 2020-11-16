@@ -1098,12 +1098,6 @@ validate_var(?hip17_res_11, Value) ->
     validate_hip17_vars(Value, "hip17_res_11");
 validate_var(?hip17_res_12, Value) ->
     validate_hip17_vars(Value, "hip17_res_12");
-validate_var(?hip17_res_13, Value) ->
-    validate_hip17_vars(Value, "hip17_res_13");
-validate_var(?hip17_res_14, Value) ->
-    validate_hip17_vars(Value, "hip17_res_14");
-validate_var(?hip17_res_15, Value) ->
-    validate_hip17_vars(Value, "hip17_res_15");
 
 validate_var(Var, Value) ->
     %% something we don't understand, crash
@@ -1113,27 +1107,33 @@ validate_hip17_vars(Value, Var) when is_binary(Value) ->
     %% We expect the value of the variable to be in format: <<"int,int,int">>
     case size(Value) of
         3 ->
-            [Siblings, DensityTgt, DensityMax] = get_density_var(Value),
-            CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
-            CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
-            CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
+            case get_density_var(Value) of
+                {error, _}=E0 ->
+                    lager:error("unable to get densit var, reason: ~p", [E0]),
+                    throw({error, {invalid_density_var, Var, Value}});
+                {ok, Res} ->
+                    [Siblings, DensityTgt, DensityMax] = Res,
+                    CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
+                    CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
+                    CheckDensityMax = validate_int_min_max(DensityMax, "density_max", 1, 200000),
 
-            case CheckSiblings of
-                {error, _}=E1 ->
-                    lager:error("invalid_siblings, reason: ~p", [E1]),
-                    throw({error, {invalid_siblings, Var, Value}});
-                ok ->
-                    case CheckDensityTgt of
-                        {error, _}=E2 ->
-                            lager:error("invalid_density_tgt, reason: ~p", [E2]),
-                            throw({error, {invalid_density_tgt, Var, Value}});
+                    case CheckSiblings of
+                        {error, _}=E1 ->
+                            lager:error("invalid_siblings, reason: ~p", [E1]),
+                            throw({error, {invalid_siblings, Var, Value}});
                         ok ->
-                            case CheckDensityMax of
-                                {error, _}=E3 ->
-                                    lager:error("invalid_density_max, reason: ~p", [E3]),
-                                    throw({error, {invalid_density_max, Var, Value}});
+                            case CheckDensityTgt of
+                                {error, _}=E2 ->
+                                    lager:error("invalid_density_tgt, reason: ~p", [E2]),
+                                    throw({error, {invalid_density_tgt, Var, Value}});
                                 ok ->
-                                    ok
+                                    case CheckDensityMax of
+                                        {error, _}=E3 ->
+                                            lager:error("invalid_density_max, reason: ~p", [E3]),
+                                            throw({error, {invalid_density_max, Var, Value}});
+                                        ok ->
+                                            ok
+                                    end
                             end
                     end
             end;
@@ -1149,6 +1149,20 @@ validate_int_min_max(Value, Name, Min, Max) ->
         _ -> ok
     end.
 
+get_density_var(Value) ->
+    try
+        Res = [list_to_integer(I) || I <- string:tokens(binary:bin_to_list(Value), ",")],
+        {ok, Res}
+    catch
+        What:Why:Stack ->
+            lager:error("Unable to get_density_var, What: ~p, Why: ~p, Stack: ~p", [
+                What,
+                Why,
+                Stack
+            ]),
+            {error, {unable_to_get_density_var, Value}}
+    end.
+
 -ifdef(TEST).
 invalid_var(Var, Value) ->
     case lists:member(Var, ?exceptions) of % test only
@@ -1161,10 +1175,6 @@ invalid_var(Var, Value) ->
 invalid_var(Var, Value) ->
     throw({error, {unknown_var, Var, Value}}).
 -endif.
-
-get_density_var(Value) ->
-    [N, Tgt, Max] = [list_to_integer(I) || I <- string:tokens(binary:bin_to_list(Value), ",")],
-    [N, Tgt, Max].
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
