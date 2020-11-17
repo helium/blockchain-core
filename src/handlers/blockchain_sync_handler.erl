@@ -115,6 +115,7 @@ handle_data(client, Data0, #state{blockchain=Chain, path=Path}=State) ->
         ok ->
             {noreply, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, true}})};
         _Error ->
+            lager:info("Error adding blocks ~p", [_Error]),
             %% TODO: maybe dial for sync again?
             {stop, normal, State, blockchain_sync_handler_pb:encode_msg(#blockchain_sync_req_pb{msg={response, false}})}
     end;
