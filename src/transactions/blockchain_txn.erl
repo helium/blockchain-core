@@ -109,8 +109,9 @@
     {blockchain_txn_payment_v2, 19},
     {blockchain_txn_state_channel_open_v1, 20},
     {blockchain_txn_update_gateway_oui_v1, 21},
-    {blockchain_txn_state_channel_close_v1, 22},
-    {blockchain_txn_transfer_hotspot_v1, 23}
+    {blockchain_txn_price_oracle_v1, 22},
+    {blockchain_txn_state_channel_close_v1, 23},
+    {blockchain_txn_transfer_hotspot_v1, 24}
 ]).
 
 block_delay() ->
@@ -636,7 +637,7 @@ type_order(Txn) ->
     Type = type(Txn),
     case lists:keyfind(Type, 1, ?ORDER) of
         {Type, Index} -> Index;
-        false -> erlang:length(?ORDER)
+        false -> erlang:length(?ORDER) + 1
     end.
 
 %%--------------------------------------------------------------------
