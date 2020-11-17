@@ -179,6 +179,8 @@
 -define(poc_witnesses_percent, poc_witnesses_percent).
 -define(poc_challengers_percent, poc_challengers_percent).
 -define(dc_percent, dc_percent).
+-define(witness_redundancy, witness_redundancy).
+-define(poc_reward_decay_rate, poc_reward_decay_rate).
 
 %%%
 %%% bundle txn vars
