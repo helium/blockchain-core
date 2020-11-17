@@ -532,9 +532,9 @@ check_causality(SCSummaries, OtherSC, Init) ->
                                 %% We found summary for this client in OtherSC
                                 %% Check balances
                                 SC1NumDCs = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
-                                SC1NumPackets = blockchain_state_channel_summary_v1:num_dcs(SCSummary),
+                                SC1NumPackets = blockchain_state_channel_summary_v1:num_packets(SCSummary),
                                 OtherSCNumDCs = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
-                                OtherSCNumPackets = blockchain_state_channel_summary_v1:num_dcs(OtherSCSummary),
+                                OtherSCNumPackets = blockchain_state_channel_summary_v1:num_packets(OtherSCSummary),
                                 Check = (OtherSCNumPackets >= SC1NumPackets) andalso (OtherSCNumDCs >= SC1NumDCs),
                                 case Check of
                                     false ->
