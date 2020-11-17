@@ -3537,43 +3537,36 @@ deserialize_state_channel(<<2, _/binary>> = SC) ->
 %%%-------------------------------------------------------------------
 %% TODO: Don't touch ledger directly. No clue how to use the cache interface on this one....
 -spec witness_for(list(), Ledger :: ledger()) -> term().
-witness_for(Hotspot, #ledger_v1{db=DB}=Ledger) ->
+witness_for(Hotspot, Ledger) ->
     DatapointsCF = datapoints_cf(Ledger),
-    {ok, Itr} = rocksdb:iterator(DB, DatapointsCF, [{iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]),
-    witness_for(Itr, rocksdb:iterator_move(Itr, {seek, <<Hotspot:32/binary>>}), []).
-
-witness_for(Itr, {error, invalid_iterator}, Acc) ->
-    catch rocksdb:iterator_close(Itr),
-    Acc;
-witness_for(Itr, {ok, _Key, ValueBin}, Acc) ->
-    witness_for(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(ValueBin) | Acc]).
+    cache_fold(Ledger, DatapointsCF,
+               fun({_K, V}, Acc) ->
+                       Value = binary_to_term(V),
+                       [Value | Acc]
+               end, [],
+               [{start, {seek, <<Hotspot:32/binary>>}},
+                {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
 
 -spec witness_of(list(), Ledger :: ledger()) -> term().
-witness_of(Hotspot, #ledger_v1{db=DB}=Ledger) ->
+witness_of(Hotspot, Ledger) ->
     BacklinksCF = backlinks_cf(Ledger),
-    {ok, Itr} = rocksdb:iterator(DB, BacklinksCF, [{iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]),
-    witness_of(Itr, rocksdb:iterator_move(Itr, {seek, <<Hotspot:32/binary>>}), []).
-
-witness_of(Itr, {error, invalid_iterator}, Acc) ->
-    catch rocksdb:iterator_close(Itr),
-    Acc;
-witness_of(Itr, {ok, _Key, ValueBin}, Acc) ->
-    witness_of(Itr, rocksdb:iterator_move(Itr, next), [binary_to_term(ValueBin) | Acc]).
+    cache_fold(Ledger, BacklinksCF,
+              fun({_k, V}, Acc) ->
+                      Value = binary_to_term(V),
+                      [Value | Acc]
+              end, [],
+              [{start, {seek, <<Hotspot:32/binary>>}},
+               {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
 
 %%%-------------------------------------------------------------------
 %%% Window manipulation
 %%%-------------------------------------------------------------------
 -spec windows(Ledger :: ledger()) -> windows().
-windows(#ledger_v1{db = DB}=Ledger) ->
+windows(Ledger) ->
     WindowsCF = windows_cf(Ledger),
-    {ok, Itr} = rocksdb:iterator(DB, WindowsCF, []),
-    windows(Itr, rocksdb:iterator_move(Itr, first), []).
-
-windows(_Itr, {error, _}, Acc) ->
-    Acc;
-windows(Itr, {ok, Hotspot, BinRes}, Acc) ->
-    NewAcc = [{Hotspot, binary_to_term(BinRes)} | Acc],
-    windows(Itr, rocksdb:iterator_move(Itr, next), NewAcc).
+    cache_fold(Ledger, WindowsCF, fun({Hotspot, Res}, Acc) ->
+                                          [{Hotspot, binary_to_term(Res)} | Acc] end,
+               []).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

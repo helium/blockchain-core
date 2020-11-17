@@ -606,6 +606,15 @@ calculate_rssi_bounds_from_snr(SNR) ->
             V
     end.
 
+-spec init_trustees(Evaluations :: #som_evaluations{}) -> trustees().
+init_trustees(#som_evaluations{init_trustees=InitTrustees}) ->
+    InitTrustees.
+
+-spec promoted_trustees(Evaluations :: #som_evaluations{}) -> trustees().
+promoted_trustees(#som_evaluations{promoted_trustees=PromotedTrustees}) ->
+    PromotedTrustees.
+
+
 -spec get_channels(Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts()) -> {ok, [non_neg_integer()]} | {error, any()}.
 get_channels(Txn) ->
     Challenger = blockchain_txn_poc_receipts_v1:challenger(Txn),

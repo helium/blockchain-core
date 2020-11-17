@@ -18,25 +18,14 @@
 -define(STALE_THRESHOLD, 1440).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
-%% list of trustees
--type trustees() :: [libp2p_crypto:pubkey_bin()].
 %% {hotspot, score_update}
 -type tagged_score() :: {libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:classification()}.
+%% BMU calculation return type
+-type bmu_results() :: {{non_neg_integer(), float()}, {non_neg_integer(), float()}, {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
 -type bmu_data() :: {{{integer(), integer()}, float()}, atom()}.
 %% List of BMU data
 -type bmu_list() :: [bmu_data()].
-%% BMU calculation return type
--type bmu_results() :: {{non_neg_integer(), float()}, {non_neg_integer(), float()}, {non_neg_integer(), float()}}.
-
-
--record(som, {
-          som :: term(),
-          bmus :: bmu_list(),
-          windows :: blockchain_ledger_v1:windows(),
-          init_trustees = [] :: trustees(),
-          promoted_trustees = [] :: trustees()
-         }).
 
 -export([update_datapoints/8,
          update_bmus/3,
@@ -48,10 +37,8 @@
          retrieve_bmus/2,
          retrieve_datapoints/2,
          is_promoted/1,
-         init_trustees/1,
          maybe_phase_out/2,
          scores/1,
-         promoted_trustees/1,
          hotspot_window/2]).
 %%--------------------------------------------------------------------
 %% @doc
@@ -72,13 +59,13 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
             N = binary_to_term(Bin),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample | N]),
-            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, <<Src/binary, Dst/binary>>, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, <<Src/binary, Dst/binary>>, ToInsert);
+            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key, ToInsert),
+            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, ToInsert);
         not_found ->
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample]),
-            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, <<Src/binary, Dst/binary>>, ToInsert),
-            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, <<Src/binary, Dst/binary>>, ToInsert)
+            ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key, ToInsert),
+            ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, ToInsert)
     end.
 
 -spec retrieve_datapoints(list(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
@@ -105,7 +92,6 @@ init_som(Ledger) ->
         not_found ->
             PrivDir = code:priv_dir(miner_pro),
             File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples.csv"),
-            %File = application:get_env(miner_pro, training_csv_file, "test_training_set.csv"),
             TrainingSetFile = PrivDir ++ "/" ++ File,
             %% lager:info("TrainingSetFile: ~p", [TrainingSetFile]),
             {ok, IoDevice} = file:open(TrainingSetFile, [read]),
@@ -225,33 +211,33 @@ calculate_som(DatList, A, Ledger) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% SOM DB API (internal/console)
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec retrieve_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
+-spec retrieve_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_list()} | {error, not_found}.
 retrieve_bmus(A, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
         {ok, Bin} ->
             %%lager:info("BMUs RETRIEVED FOR: ~p", [?TO_ANIMAL_NAME(A)]),
             N = binary_to_term(Bin),
-            N;
+            {ok, N};
         not_found ->
             lager:debug("Retrieve FAIL"),
-            undefined
+            {error, not_found}
     end.
 
--spec clear_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+-spec clear_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, not_found}.
 clear_bmus(A, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
-        {ok, _Bin} ->
+        {ok, Bin} ->
             %%lager:info("Clear BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
             blockchain_ledger_v1:cache_delete(Ledger, BmuCF, <<A/binary>>),
-            ok;
+            {ok, Bin};
         not_found ->
             lager:debug("Clear BMUs FAIL"),
-            undefined
+            {error, not_found}
     end.
 
--spec retrieve_som(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, term()} | undefined.
+-spec retrieve_som(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, term()} | {error, not_found}.
 retrieve_som(Ledger) ->
      SomCF = blockchain_ledger_v1:som_cf(Ledger),
      case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
@@ -261,20 +247,20 @@ retrieve_som(Ledger) ->
              {ok, N};
          not_found ->
              lager:debug("Retrieve FAIL"),
-             undefined
+             {error, not_found}
      end.
 
--spec clear_som(Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+-spec clear_som(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, not_found}.
 clear_som(Ledger) ->
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, SomCF, term_to_binary(global), []) of
-        {ok, _Bin} ->
+        {ok, Bin} ->
             lager:info("Clear SOM"),
             blockchain_ledger_v1:cache_delete(Ledger, SomCF, term_to_binary(global)),
-            ok;
+            {ok, Bin};
         not_found ->
-            lager:debug("Clear BMUs FAIL"),
-            undefined
+            lager:debug("Clear SOM FAIL"),
+            {error, not_found}
     end.
 
 %%%-------------------------------------------------------------------
@@ -332,7 +318,6 @@ update_windows(Ledger,
                                        %% score threshold, we consider it to be pretty reliable
                                        %% and give it a bigger window_size. Essentially implying that
                                        %% they get more breathing room now that they've crossed the threshold
-
                                        case window_score(Window) of
                                            %% Check if we hit the score threshold for this hotspot
                                            S when S == ?SCORE_THRESHOLD ->
@@ -395,14 +380,6 @@ hotspot_window(Ledger, Hotspot) ->
             []
     end.
 
--spec init_trustees(Som :: #som{}) -> trustees().
-init_trustees(#som{init_trustees=InitTrustees}) ->
-    InitTrustees.
-
--spec promoted_trustees(Som :: #som{}) -> trustees().
-promoted_trustees(#som{promoted_trustees=PromotedTrustees}) ->
-    PromotedTrustees.
-
 -spec scores(Ledger :: blockchain_ledger_v1:ledger()) -> [tagged_score()].
 scores(Ledger) ->
     Windows = blockchain_ledger_v1:windows(Ledger),
@@ -422,8 +399,6 @@ maybe_phase_out(BlockHeight, Ledger) ->
                               false ->
                                   ok;
                               true ->
-                                  %% lager:info("extremely stale, hotspot: ~p, last_poc_height: ~p, block_height: ~p resetting window",
-                                  %%            [?TO_ANIMAL_NAME(Hotspot), LatestPOCTxnHeight, BlockHeight]),
                                   reset_window(Ledger, Hotspot)
                           end
                   end, Windows).
