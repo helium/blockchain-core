@@ -88,6 +88,7 @@
 
     find_routing/2, find_routing_for_packet/2,
     find_router_ouis/2,
+    find_routing_via_eui/3,
     update_routing/4,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
