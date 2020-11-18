@@ -91,6 +91,7 @@
     find_routing_via_eui/3,
     find_routing_via_devaddr/2,
     update_routing/4,
+    get_routes/1,
 
     find_state_channel/3, find_sc_ids_by_owner/2, find_scs_by_owner/2,
     add_state_channel/7,
@@ -2297,6 +2298,18 @@ add_oui(Owner, Addresses, Filter, Subnet, Ledger) ->
             ok = cache_put(Ledger, RoutingCF, <<OUI:32/integer-unsigned-big>>, Bin),
             ok = cache_put(Ledger, SubnetCF, Subnet, <<OUI:32/little-unsigned-integer>>)
     end.
+
+-spec get_routes(ledger()) -> {ok, [blockchain_ledger_routing_v1:routing()]}
+                                                   | {error, any()}.
+get_routes(Ledger) ->
+    RoutingCF = routing_cf(Ledger),
+    {ok, cache_fold(Ledger, RoutingCF,
+                     fun({<<_OUI:32/integer-unsigned-big>>, V}, Acc) ->
+                             Route = blockchain_ledger_routing_v1:deserialize(V),
+                             [Route | Acc];
+                        ({_K, _V}, Acc) ->
+                             Acc
+                     end, [], [{start, <<0:32/integer-unsigned-big>>}, {iterate_upper_bound, <<4294967295:32/integer-unsigned-big>>}])}.
 
 -spec find_routing(non_neg_integer(), ledger()) -> {ok, blockchain_ledger_routing_v1:routing()}
                                                    | {error, any()}.
