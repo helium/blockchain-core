@@ -93,13 +93,11 @@ init_som(Ledger) ->
             PrivDir = code:priv_dir(miner_pro),
             File = application:get_env(miner_pro, aggregate_samples_file, "aggregate_samples.csv"),
             TrainingSetFile = PrivDir ++ "/" ++ File,
-            %% lager:info("TrainingSetFile: ~p", [TrainingSetFile]),
             {ok, IoDevice} = file:open(TrainingSetFile, [read]),
-
             Processor = fun({newline, ["pos"|_]}, Acc) ->
                                  %% ignore header
                                  Acc;
-                           ({newline, [_Pos, _Challengee, _Witness, Signal, SNR, FSPL, Class]}, Acc) ->
+                           ({newline, [_Pos, Signal, SNR, FSPL, Class]}, Acc) ->
                                  [{[((to_num(Signal) - (-134))/(134)), ((to_num(SNR) - (-19))/(17 - (-19))), ((to_num(FSPL) - (-164))/(164))], list_to_binary(Class)} | Acc];
                             (_, Acc) ->
                                  Acc
