@@ -5,7 +5,6 @@
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
--include("helium_proto/include/blockchain_txn_poc_receipts_v1_pb.hrl").
 
 -define(DB_FILE, "levels.db").
 -define(HEIGHT_KEY, <<"height">>).
