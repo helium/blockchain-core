@@ -397,7 +397,7 @@ reset_context(Ledger) ->
 -spec commit_context(ledger()) -> ok.
 commit_context(#ledger_v1{db=DB, mode=Mode}=Ledger) ->
     {Cache, GwCache} = ?MODULE:context_cache(Ledger),
-    Context = batch_from_cache(Cache),
+    Context = batch_from_cache(Cache, Ledger),
     {ok, Height} = current_height(Ledger),
     prewarm_gateways(Mode, Height, Ledger, GwCache),
     ok = rocksdb:write_batch(DB, Context, [{sync, true}]),
@@ -3213,7 +3213,6 @@ clean_all_hexes(Ledger) ->
         _ -> ok
     end.
 
-
 -spec bootstrap_h3dex(ledger()) -> ok.
 bootstrap_h3dex(Ledger) ->
     ok = delete_h3dex(Ledger),
@@ -3363,15 +3362,72 @@ bootstrap_gw_denorm(Ledger) ->
       end,
       ignore).
 
-batch_from_cache(ETS) ->
+batch_from_cache(ETS, Ledger) ->
     {ok, Batch} = rocksdb:batch(),
-    ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, Acc) ->
-                      rocksdb:batch_delete(Acc, CF, Key),
-                      Acc;
-                 ({{CF, Key}, Value}, Acc) ->
-                      rocksdb:batch_put(Acc, CF, Key, Value),
-                      Acc
-              end, Batch, ETS).
+    case application:get_env(blockchain, commit_hook_callbacks, []) of
+        [] ->
+            ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, Acc) ->
+                              rocksdb:batch_delete(Acc, CF, Key),
+                              Acc;
+                         ({{CF, Key}, Value}, Acc) ->
+                              rocksdb:batch_put(Acc, CF, Key, Value),
+                              Acc
+                      end, Batch, ETS);
+        Hooks ->
+            %% a list is required if there are hooks defined
+            {ok, Filters0} = application:get_env(blockchain, commit_hook_filters),
+            Filters = lists:map(fun(Atom) -> atom_to_cf(Atom, Ledger) end, Filters0),
+            {Batch, FilteredChanges} =
+                ets:foldl(fun({{CF, Key}, ?CACHE_TOMBSTONE}, {B, Changes}) ->
+                                  rocksdb:batch_delete(B, CF, Key),
+                                  Changes1 = case lists:member(CF, Filters) of
+                                                 true ->
+                                                     [{CF, delete, Key} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end,
+                                  {B, Changes1};
+                             ({{CF, Key}, Value}, {B, Changes}) ->
+                                  rocksdb:batch_put(B, CF, Key, Value),
+                                  Changes1 = case lists:member(CF, Filters) of
+                                                 true ->
+                                                     [{CF, put, Key, Value} | Changes];
+                                                 false ->
+                                                     Changes
+                                             end,
+                                  {B, Changes1}
+                          end, Batch, ETS),
+            invoke_commit_hooks(Hooks, FilteredChanges, Ledger),
+            Batch
+    end.
+
+%% don't use the ledger in the closure here, if at all possible
+invoke_commit_hooks(Hooks, Changes, Ledger) ->
+    %% best effort async delivery
+    {ok, FilterAtoms} = application:get_env(blockchain, commit_hook_filters),
+    FilterCFs = lists:map(fun(Atom) -> atom_to_cf(Atom, Ledger) end, FilterAtoms),
+    FilterMap = maps:from_list(lists:zip(FilterCFs, FilterAtoms)),
+    spawn(
+      fun() ->
+              %% process the changes into CF groups
+              Groups = lists:map(
+                         fun(Change, Grps) ->
+                                 CF = element(1, Change),
+                                 Atom = maps:get(CF, FilterMap),
+                                 maps:update_with(Atom, fun(L) -> [Change | L] end,
+                                                  [Change], Grps)
+                         end,
+                         #{},
+                         Changes),
+
+              %% call each hook on each group
+              lists:foreach(
+                fun({HookAtom, HookFun}) ->
+                        HookChanges = maps:get(HookAtom, Groups),
+                        HookFun(HookChanges)
+                end,
+                Hooks)
+      end).
 
 prewarm_gateways(delayed, _Height, _Ledger, _GwCache) ->
     ok;
