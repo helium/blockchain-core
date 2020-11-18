@@ -2,8 +2,6 @@
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_classification).
 
--behavior(blockchain_json).
-
 -include("blockchain_json.hrl").
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
@@ -23,6 +21,19 @@
          }).
 
 -type evaluations() :: #som_evaluations{}.
+
+-export([process_block/3,
+         process_poc_txn/5,
+         process_poc_txns/4,
+         maybe_process_poc_txns/4,
+         maybe_process_ass_loc_txns/2,
+         process_ass_loc_txns/2,
+         assign_scores/6,
+         acc_scores/8,
+         calculate_class/8,
+         init_trustees/1,
+         promoted_trustees/1,
+         load_promoted_trustees/1]).
 
 %%%-------------------------------------------------------------------
 %%% Block processing
