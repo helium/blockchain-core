@@ -18,6 +18,8 @@
 
 new_group(Ledger, Hash, Size, Delay) ->
     case blockchain_ledger_v1:config(?election_version, Ledger) of
+        {ok, N} when N >= 4 ->
+            new_group_v4(Ledger, Hash, Size, Delay);
         {ok, N} when N >= 3 ->
             new_group_v3(Ledger, Hash, Size, Delay);
         {ok, N} when N == 2 ->
@@ -113,6 +115,39 @@ new_group_v3(Ledger, Hash, Size, Delay) ->
     %% sort low to high to prioritize low scoring and down gateways
     %% for removal from the group
     OldGroup = lists:sort(OldGroupScored),
+    Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
+    Rem ++ New.
+
+new_group_v4(Ledger, Hash, Size, Delay) ->
+    {ok, OldGroup0} = blockchain_ledger_v1:consensus_members(Ledger),
+
+    {ok, SelectPct} = blockchain_ledger_v1:config(?election_selection_pct, Ledger),
+    {ok, RemovePct} = blockchain_ledger_v1:config(?election_removal_pct, Ledger),
+    {ok, ClusterRes} = blockchain_ledger_v1:config(?election_cluster_res, Ledger),
+    %% a version of the filter that just gives everyone the same score
+    Gateways0 = noscore_gateways_filter(ClusterRes, Ledger),
+
+    OldLen = length(OldGroup0),
+    {Remove, Replace} = determine_sizes(Size, OldLen, Delay, Ledger),
+
+    %% remove dupes, sort
+    {OldGroupDeduped, Gateways1} = dedup(OldGroup0, Gateways0, Ledger),
+
+    %% adjust for bbas and seen votes
+    OldGroupAdjusted = adjust_old_group(OldGroupDeduped, Ledger),
+
+    %% get the locations of the current consensus group at a particular h3 resolution
+    Locations = locations(OldGroup0, Gateways0),
+
+    %% deterministically set the random seed
+    blockchain_utils:rand_from_hash(Hash),
+    %% random shuffle of all gateways
+    Gateways = blockchain_utils:shuffle(Gateways1),
+    New = select(Gateways, Gateways, min(Replace, length(Gateways)), SelectPct, [], Locations),
+
+    %% sort low to high to prioritize low scoring and down gateways
+    %% for removal from the group
+    OldGroup = lists:sort(OldGroupAdjusted),
     Rem = OldGroup0 -- select(OldGroup, OldGroup, min(Remove, length(New)), RemovePct, []),
     Rem ++ New.
 
@@ -297,8 +332,59 @@ score_dedup(OldGroup0, Gateways0, Ledger) ->
                   true ->
                       OldGw =
                           case Missing of
-                              %% make sure that non-functioning
-                              %% nodes sort first regardless of score
+                              %% sub 5 to make sure that non-functioning nodes sort first regardless
+                              %% of score, making them most likely to be deselected
+                              true ->
+                                  {Score - 5, Loc, Addr};
+                              _ ->
+                                  {Score, Loc, Addr}
+                          end,
+                      {[OldGw | Old], Candidates};
+                  _ ->
+                      case Missing of
+                          %% don't bother to add to the candidate list
+                          true ->
+                              Acc;
+                          _ ->
+                              {Old, [{Score, Loc, Addr} | Candidates]}
+                      end
+              end
+      end,
+      {[], []},
+      Gateways0).
+
+%% we do some duplication here because score is expensive to calculate, so write alternate code
+%% paths to avoid it
+
+noscore_gateways_filter(ClusterRes, Ledger) ->
+    {ok, Height} = blockchain_ledger_v1:current_height(Ledger),
+    blockchain_ledger_v1:cf_fold(
+      active_gateways,
+      fun({Addr, BinGw}, Acc) ->
+              Gw = blockchain_ledger_gateway_v2:deserialize(BinGw),
+              Last0 = last(blockchain_ledger_gateway_v2:last_poc_challenge(Gw)),
+              Last = Height - Last0,
+              Loc = location(ClusterRes, Gw),
+              %% instead of getting the score, start at 1.0 for all spots
+              %% we need something like a score for sorting the existing consensus group members
+              %% for performance grading
+              maps:put(Addr, {Last, Loc, 1.0}, Acc)
+      end,
+      #{},
+      Ledger).
+
+dedup(OldGroup0, Gateways0, Ledger) ->
+    PoCInterval = blockchain_utils:challenge_interval(Ledger),
+
+    maps:fold(
+      fun(Addr, {Last, Loc, Score}, {Old, Candidates} = Acc) ->
+              Missing = Last > 3 * PoCInterval,
+              case lists:member(Addr, OldGroup0) of
+                  true ->
+                      OldGw =
+                          case Missing of
+                              %% sub 5 to make sure that non-functioning nodes sort first regardless
+                              %% of score, making them most likely to be deselected
                               true ->
                                   {Score - 5, Loc, Addr};
                               _ ->
