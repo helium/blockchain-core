@@ -738,7 +738,10 @@ absorb(Txn, Chain) ->
                                 ok = insert_witnesses(Path, Lower, Upper, Ledger)
                         end
                 end,
-
+                [Evaluations|_T] = blockchain_ledger_som_v1:retrieve_trustees(Ledger),
+                ok = blockchain_poc_classification:process_poc_txn(Height, Evaluations, Ledger, Txn, ?MODULE:hash(Txn)),
+                NewTrustees = blockchain_poc_classification:load_promoted_trustees(Evaluations),
+                ok = blockchain_ledger_som_v1:update_trustees(NewTrustees, Ledger),
                 case blockchain:config(?poc_version, Ledger) of
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
@@ -1120,6 +1123,9 @@ valid_receipt(PreviousElement, Element, Channel, Ledger) ->
                     SNR = blockchain_poc_receipt_v1:snr(Receipt),
                     Freq = blockchain_poc_receipt_v1:frequency(Receipt),
                     MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
+                    Filtered = false,
+                    Reason = undefined,
+                    ok = blockchain_ledger_som_v1:update_datapoints(Source, Destination, RSSI, SNR, MinRcvSig, Filtered, Reason),
                     case RSSI < MinRcvSig of
                         false ->
                             %% RSSI is impossibly high discard this receipt
@@ -1193,7 +1199,9 @@ valid_witnesses(Element, Channel, Ledger) ->
                                  SNR = blockchain_poc_witness_v1:snr(Witness),
                                  Freq = blockchain_poc_witness_v1:frequency(Witness),
                                  MinRcvSig = blockchain_utils:min_rcv_sig(blockchain_utils:free_space_path_loss(SourceLoc, DestinationLoc, Freq)),
-
+                                 Filtered = false,
+                                 Reason = undefined,
+                                 ok = blockchain_ledger_som_v1:update_datapoints(Source, Destination, RSSI, SNR, MinRcvSig, Filtered, Reason),
                                  case RSSI < MinRcvSig of
                                      false ->
                                          %% RSSI is impossibly high discard this witness

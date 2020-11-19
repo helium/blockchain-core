@@ -19,23 +19,46 @@
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
--type tagged_score() :: {libp2p_crypto:pubkey_bin(), blockchain_ledger_v1:classification()}.
+-type tagged_score() :: {libp2p_crypto:pubkey_bin(), classification()}.
 %% BMU calculation return type
 -type bmu_results() :: {{non_neg_integer(), float()}, {non_neg_integer(), float()}, {non_neg_integer(), float()}}.
 %% A type holding BMU data from one sample
 -type bmu_data() :: {{{integer(), integer()}, float()}, atom()}.
 %% List of BMU data
 -type bmu_list() :: [bmu_data()].
+%% list of trustees
+-type trustees() :: [libp2p_crypto:pubkey_bin()].
+%% Each window element is a block_height, poc_hash, score_update
+-type window_element() :: {pos_integer(), blockchain_txn:hash(), classification()}.
+%% List of window_elements
+-type window() :: [window_element()].
+%% List of windows, tagged via hotspot pubkey_bin
+-type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
+%% A class associated with hotspot trust
+-type classification() :: atom().
+
+
+-record(som_evaluations, {
+          init_trustees = [] :: trustees(),
+          promoted_trustees = [] :: trustees()
+         }).
+
+-type evaluations() :: #som_evaluations{}.
+
 
 -export([update_datapoints/8,
          update_bmus/3,
          update_windows/4,
+         update_trustees/2,
          calculate_som/3,
          clear_som/1,
          clear_bmus/2,
          retrieve_som/1,
          retrieve_bmus/2,
          retrieve_datapoints/2,
+         retrieve_trustees/1,
+         init_trustees/1,
+         promoted_trustees/1,
          is_promoted/1,
          maybe_phase_out/2,
          scores/1,
@@ -261,9 +284,53 @@ clear_som(Ledger) ->
             {error, not_found}
     end.
 
+-spec init_trustees(Evaluations :: blockchain_ledger_v1:evaluations()) -> trustees().
+init_trustees(#som_evaluations{init_trustees=InitTrustees}) ->
+    InitTrustees.
+
+-spec promoted_trustees(Evaluations :: #som_evaluations{}) -> trustees().
+promoted_trustees(#som_evaluations{promoted_trustees=PromotedTrustees}) ->
+    PromotedTrustees.
+
+
+-spec update_trustees(Trustees :: trustees(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, not_found}.
+update_trustees(Trustees, Ledger) ->
+    TrusteesCF = blockchain_ledger_v1:trustees_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, TrusteesCF, term_to_binary(global), []) of
+        {ok, Bin} ->
+            N = binary_to_term(Bin),
+            [H|_T] = N,
+            %% TODO: Check if we are chainging the init trustees ever here
+            Evaluations = H#som_evaluations{promoted_trustees=Trustees},
+            ToInsert = [Evaluations | N],
+            ok = blockchain_ledger_v1:cache_put(Ledger, TrusteesCF, term_to_binary(global), term_to_binary([ToInsert | N])),
+            ok;
+        not_found ->
+            {error, not_found}
+    end.
+
+-spec retrieve_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [evaluations()]} | {error, not_found}.
+retrieve_trustees(Ledger) ->
+    TrusteesCF = blockchain_ledger_v1:trustees_cf(Ledger),
+    case blockchain_ledger_v1:cache_get(Ledger, TrusteesCF, term_to_binary(global), []) of
+        {ok, Bin} ->
+            N = binary_to_term(Bin),
+            {ok, N};
+        not_found ->
+            {error, not_found}
+    end.
+
+
 %%%-------------------------------------------------------------------
 %%% Window manipulation
 %%%-------------------------------------------------------------------
+-spec windows(Ledger :: blockchain_ledger_v1:ledger()) -> windows().
+windows(Ledger) ->
+    WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
+    blockchain_ledger_v1:cache_fold(Ledger, WindowsCF, fun({Hotspot, Res}, Acc) ->
+                                          [{Hotspot, binary_to_term(Res)} | Acc] end,
+               []).
+
 -spec reset_window(Ledger :: blockchain_ledger_v1:ledger(),
                    Hotspot :: libp2p_crypto:pubkey_bin()) -> ok.
 reset_window(Ledger, Hotspot) ->
@@ -271,7 +338,7 @@ reset_window(Ledger, Hotspot) ->
     blockchain_ledger_v1:cache_put(Ledger, WindowsCF, Hotspot, term_to_binary([])).
 
 -spec slide_window(Hotspot :: libp2p_crypto:pubkey_bin(),
-                   Window :: blockchain_ledger_v1:window(),
+                   Window :: window(),
                    BlockHeight :: pos_integer(),
                    POCHash :: blockchain_txn:hash(),
                    ScoreUpdate :: tagged_score(),
@@ -350,11 +417,11 @@ update_windows( _, _, _, _) ->
 
 %% TODO: Do this all different because classes are discrete
 %% Maybe incorporate the classification distance value here? Seems like an OK place to evaluate.
--spec is_promoted(Window :: blockchain_ledger_v1:window()) -> boolean().
+-spec is_promoted(Window :: window()) -> boolean().
 is_promoted(Window) ->
     window_score(Window) == ?SCORE_THRESHOLD.
 
--spec window_score(Window :: blockchain_ledger_v1:window()) -> blockchain_ledger_v1:classification().
+-spec window_score(Window :: window()) -> classification().
 window_score(Window) ->
     case Window of
         [] ->
@@ -366,7 +433,7 @@ window_score(Window) ->
     end.
 
 -spec hotspot_window(Ledger :: blockchain_ledger_v1:ledger(),
-                     Hotspot :: libp2p_crypto:pubkey_bin()) -> blockchain_ledger_v1:window().
+                     Hotspot :: libp2p_crypto:pubkey_bin()) -> window().
 hotspot_window(Ledger, Hotspot) ->
     WindowsCF = blockchain_ledger_v1:windows_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, WindowsCF, Hotspot, []) of
@@ -380,7 +447,7 @@ hotspot_window(Ledger, Hotspot) ->
 
 -spec scores(Ledger :: blockchain_ledger_v1:ledger()) -> [tagged_score()].
 scores(Ledger) ->
-    Windows = blockchain_ledger_v1:windows(Ledger),
+    Windows = windows(Ledger),
     lists:foldl(fun({Hotspot, Window}, Acc) ->
                                  Score = window_score(Window),
                                  [{Hotspot, Score} | Acc]
@@ -389,7 +456,7 @@ scores(Ledger) ->
 -spec maybe_phase_out(BlockHeight :: pos_integer(),
                       Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 maybe_phase_out(BlockHeight, Ledger) ->
-    Windows = blockchain_ledger_v1:windows(Ledger),
+    Windows = windows(Ledger),
     lists:foreach(fun({_Hotspot, []}) ->
                           ok;
                      ({Hotspot, [{LatestPOCTxnHeight, _, _} | _]}) ->

@@ -416,7 +416,9 @@ absorb(Txn, Chain) ->
                     Gw1 = blockchain_ledger_gateway_v2:neighbors(Neighbors, Gw),
                     ok = blockchain_ledger_v1:update_gateway(Gw1, Gateway, Ledger)
 
-            end
+            end,
+            %% Update PoC windows if new assert location
+            ok = blockchain_poc_classification:process_assert_loc_txn(Txn, Ledger)
     end.
 
 %%--------------------------------------------------------------------

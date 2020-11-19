@@ -180,9 +180,9 @@
     backlinks_cf/1,
     bmu_cf/1,
     windows_cf/1,
+    trustees_cf/1,
     witness_of/2,
-    witness_for/2,
-    windows/1
+    witness_for/2
 ]).
 
 -include("blockchain.hrl").
@@ -220,6 +220,7 @@
     datapoints :: rocksdb:cf_handle(),
     backlinks :: rocksdb:cf_handle(),
     windows :: rocksdb:cf_handle(),
+    trustees :: rocksdb:cf_handle(),
     cache :: undefined | ets:tid(),
     gateway_cache :: undefined | ets:tid()
 }).
@@ -262,25 +263,16 @@
 -type state_channel_map() ::  #{blockchain_state_channel_v1:id() =>
                                     blockchain_ledger_state_channel_v1:state_channel()
                                     | blockchain_ledger_state_channel_v2:state_channel_v2()}.
-%% Each window element is a block_height, poc_hash, score_update
--type window_element() :: {pos_integer(), blockchain_txn:hash(), classification()}.
-%% List of window_elements
--type window() :: [window_element()].
-%% List of windows, tagged via hotspot pubkey_bin
--type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
-%% A class associated with hotspot trust
--type classification() :: atom().
-
--export_type([ledger/0, classification/0, window/0, windows/0, window_element/0]).
+-export_type([ledger/0]).
 
 -spec new(file:filename_all()) -> ledger().
 new(Dir) ->
     {ok, DB, CFs} = open_db(Dir),
     [DefaultCF, AGwsCF, EntriesCF, DCEntriesCF, HTLCsCF, PoCsCF, SecuritiesCF, RoutingCF,
-     SubnetsCF, SCsCF, SomCF, BmuCF, WindowsCF, DatapointsCF, BacklinksCF, DelayedDefaultCF, DelayedAGwsCF,
+     SubnetsCF, SCsCF, SomCF, BmuCF, WindowsCF, DatapointsCF, BacklinksCF, TrusteesCF, DelayedDefaultCF, DelayedAGwsCF,
      DelayedEntriesCF, DelayedDCEntriesCF, DelayedHTLCsCF, DelayedPoCsCF, DelayedSecuritiesCF,
      DelayedRoutingCF, DelayedSubnetsCF, DelayedSCsCF, DelayedSomCF, DelayedBmuCF, DelayedDatapointsCF,
-     DelayedBacklinksCF, DelayedWindowsCF] = CFs,
+     DelayedBacklinksCF, DelayedWindowsCF, DelayedTrusteesCF] = CFs,
     #ledger_v1{
         dir=Dir,
         db=DB,
@@ -301,7 +293,8 @@ new(Dir) ->
             bmus=BmuCF,
             datapoints=DatapointsCF,
             backlinks=BacklinksCF,
-            windows=WindowsCF
+            windows=WindowsCF,
+            trustees=TrusteesCF
         },
         delayed= #sub_ledger_v1{
             default=DelayedDefaultCF,
@@ -318,7 +311,8 @@ new(Dir) ->
             bmus=DelayedBmuCF,
             datapoints=DelayedDatapointsCF,
             backlinks=DelayedBacklinksCF,
-            windows=DelayedWindowsCF
+            windows=DelayedWindowsCF,
+            trustees=DelayedTrusteesCF
         }
     }.
 
@@ -2863,6 +2857,12 @@ bmu_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{bmus=BmuCF}}) ->
 bmu_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{bmus=BmuCF}}) ->
     BmuCF.
 
+-spec trustees_cf(ledger()) -> rocksdb:cf_handle().
+trustees_cf(#ledger_v1{mode=active, active=#sub_ledger_v1{trustees=TrusteesCF}}) ->
+    TrusteesCF;
+trustees_cf(#ledger_v1{mode=delayed, delayed=#sub_ledger_v1{trustees=TrusteesCF}}) ->
+    TrusteesCF.
+
 -spec cache_put(ledger(), rocksdb:cf_handle(), binary(), binary()) -> ok.
 cache_put(Ledger, CF, Key, Value) ->
     {Cache, _GwCache} = context_cache(Ledger),
@@ -3019,9 +3019,9 @@ open_db(Dir) ->
     CFOpts = GlobalOpts,
 
     DefaultCFs = ["default", "active_gateways", "entries", "dc_entries", "htlcs", "pocs", "securities", "routing", "subnets", "state_channels", "som",
-                  "bmus", "datapoints", "backlinks", "windows", "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
+                  "bmus", "datapoints", "backlinks", "windows", "trustees", "delayed_default", "delayed_active_gateways", "delayed_entries", "delayed_dc_entries", "delayed_htlcs",
                   "delayed_pocs", "delayed_securities", "delayed_routing", "delayed_subnets","delayed_state_channels", "delayed_som", "delayed_datapoints", "delayed_bmus",
-                  "delayed_backlinks", "delayed_windows"],
+                  "delayed_backlinks", "delayed_windows", "delayed_trustees"],
     ExistingCFs =
         case rocksdb:list_column_families(DBDir, DBOptions) of
             {ok, CFs0} ->
@@ -3557,16 +3557,6 @@ witness_of(Hotspot, Ledger) ->
               end, [],
               [{start, {seek, <<Hotspot:32/binary>>}},
                {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
-
-%%%-------------------------------------------------------------------
-%%% Window manipulation
-%%%-------------------------------------------------------------------
--spec windows(Ledger :: ledger()) -> windows().
-windows(Ledger) ->
-    WindowsCF = windows_cf(Ledger),
-    cache_fold(Ledger, WindowsCF, fun({Hotspot, Res}, Acc) ->
-                                          [{Hotspot, binary_to_term(Res)} | Acc] end,
-               []).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
