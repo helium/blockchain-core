@@ -3112,7 +3112,7 @@ clean_all_hexes(Ledger) ->
 set_h3dex(H3Dex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     _ = maps:map(fun(Loc, Gateways) ->
-                         BinLoc = <<Loc:32/integer-unsigned-big>>,
+                         BinLoc = <<Loc:64/integer-unsigned-big>>,
                          BinGWs = term_to_binary(Gateways, [compressed]),
                          cache_put(Ledger, H3CF, BinLoc, BinGWs)
                  end, H3Dex),
@@ -3125,19 +3125,31 @@ set_h3dex(H3Dex, Ledger) ->
 lookup_gateways_from_hex(Hex, Ledger) ->
     H3CF = h3dex_cf(Ledger),
     Res = cache_fold(Ledger, H3CF,
-                     fun({<<Loc:32/integer-unsigned-big>>, GWs}, Acc) ->
-                             maps:put(Loc, term_to_binary(GWs), Acc)
+                     fun({<<Loc:64/integer-unsigned-big>>, GWs}, Acc) ->
+                             maps:put(Loc, binary_to_term(GWs), Acc)
                      end, #{}, [
-                                {start, <<Hex:32/integer-unsigned-big>>},
-                                {iterate_upper_bound, find_adjacent_hex(Hex)}
+                                {start, <<Hex:64/integer-unsigned-big>>},
+                                {iterate_upper_bound, find_upper_bound_hex(Hex)}
                                ]
                     ),
     {ok, Res}.
 
--spec find_adjacent_hex(Hex :: non_neg_integer()) -> non_neg_integer().
-find_adjacent_hex(Hex) ->
-    Hex0 = Hex + 1,
-    <<Hex0:32/unsigned-integer-big>>.
+-spec find_upper_bound_hex(Hex :: non_neg_integer()) -> non_neg_integer().
+%% @doc Let's find the nearest set of k neighbors for this hex at the
+%% same resolution and return the "highest" one. Since these numbers
+%% are actually packed binaries, we will destructure them to sort better
+%% lexically. H3 itself makes no guarantee of the ordering of the results
+%% from the `k_ring' call.
+find_upper_bound_hex(Hex) ->
+    Neighbors = h3:k_ring(Hex, 1) -- [Hex],
+    {_Parsed, Last} = lists:last(lists:keysort(1,
+                                               [ {parse_h3(H), H} || H <- Neighbors ])),
+    <<Last:64/unsigned-integer-big>>.
+
+parse_h3(H3) ->
+    <<_Reserved:1, _Mode:4, _Reserved2:3,
+      Resolution:4, BaseCell:7, Digits:45>> = <<H3:64/integer-unsigned-big>>,
+    {BaseCell, Digits, Resolution}.
 
 -spec add_gw_to_hex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
@@ -3145,7 +3157,7 @@ find_adjacent_hex(Hex) ->
 %% @doc During an assert, this function will add a gateway address to a hex
 add_gw_to_hex(Hex, GWAddr, Ledger) ->
     H3CF = h3dex_cf(Ledger),
-    BinHex = <<Hex:32/unsigned-integer-big>>,
+    BinHex = <<Hex:64/unsigned-integer-big>>,
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found ->
             cache_put(Ledger, H3CF, BinHex, term_to_binary([GWAddr], [compressed]));
@@ -3163,7 +3175,7 @@ add_gw_to_hex(Hex, GWAddr, Ledger) ->
 %% address from a hex
 remove_gw_from_hex(Hex, GWAddr, Ledger) ->
     H3CF = h3dex_cf(Ledger),
-    BinHex = <<Hex:32/unsigned-integer-big>>,
+    BinHex = <<Hex:64/unsigned-integer-big>>,
     case cache_get(Ledger, H3CF, BinHex, []) of
         not_found -> ok;
         {ok, BinGws} ->
@@ -3530,7 +3542,7 @@ snapshot_h3dex(Ledger) ->
         cache_fold(
           Ledger, H3CF,
           fun({Loc, GWs}, Acc) ->
-                  maps:put(<<Loc:32/unsigned-integer-big>>, binary_to_term(GWs), Acc)
+                  maps:put(<<Loc:64/unsigned-integer-big>>, binary_to_term(GWs), Acc)
           end, #{},
           []))).
 
