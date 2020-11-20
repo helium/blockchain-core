@@ -94,7 +94,8 @@
 
 -define(BC_UPGRADE_FUNS, [fun upgrade_gateways_v2/1,
                           fun bootstrap_hexes/1,
-                          fun upgrade_gateways_oui/1]).
+                          fun upgrade_gateways_oui/1,
+                          fun bootstrap_h3dex/1]).
 
 -type blocks() :: #{blockchain_block:hash() => blockchain_block:block()}.
 -type blockchain() :: #blockchain{}.
@@ -261,6 +262,27 @@ upgrade_gateways_oui_(Ledger) ->
               blockchain_ledger_v1:update_gateway(G, A, Ledger)
       end, Gateways),
     ok.
+
+-spec bootstrap_h3dex(blockchain_ledger_v1:ledger()) -> ok.
+%% @doc Bootstrap the H3Dex for both the active and delayed ledgers
+bootstrap_h3dex(Ledger) ->
+   ok = do_bootstrap_h3dex(Ledger),
+   Ledger1 = blockchain_ledger_v1:mode(delayed, Ledger),
+   Ledger2 = blockchain_ledger_v1:new_context(Ledger1),
+   ok = do_bootstrap_h3dex(Ledger2),
+   blockchain_ledger_v1:commit_context(Ledger2).
+
+do_bootstrap_h3dex(Ledger) ->
+   Gateways = blockchain_ledger_v1:active_gateways(Ledger),
+   H3Dex = maps:fold(
+     fun(GwAddr, GW, Acc) ->
+           case blockchain_ledger_gateway_v2:location(GW) of
+              undefined -> Acc;
+              Location ->
+                 maps:update_with(Location, fun(V) -> [GwAddr | V] end, [GwAddr], Acc)
+           end
+     end, #{}, Gateways),
+   blockchain_ledger_v1:set_h3dex(H3Dex, Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
