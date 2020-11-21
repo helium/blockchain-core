@@ -3128,28 +3128,24 @@ lookup_gateways_from_hex(Hex, Ledger) ->
                      fun({<<Loc:64/integer-unsigned-big>>, GWs}, Acc) ->
                              maps:put(Loc, binary_to_term(GWs), Acc)
                      end, #{}, [
-                                {start, <<Hex:64/integer-unsigned-big>>},
-                                {iterate_upper_bound, find_upper_bound_hex(Hex)}
+                                {start, find_lower_bound_hex(Hex)},
+                                {iterate_upper_bound, parse_h3(Hex)}
                                ]
                     ),
     {ok, Res}.
 
--spec find_upper_bound_hex(Hex :: non_neg_integer()) -> non_neg_integer().
+-spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
 %% @doc Let's find the nearest set of k neighbors for this hex at the
-%% same resolution and return the "highest" one. Since these numbers
+%% same resolution and return the "lowest" one. Since these numbers
 %% are actually packed binaries, we will destructure them to sort better
-%% lexically. H3 itself makes no guarantee of the ordering of the results
-%% from the `k_ring' call.
-find_upper_bound_hex(Hex) ->
-    Neighbors = h3:k_ring(Hex, 1) -- [Hex],
-    {_Parsed, Last} = lists:last(lists:keysort(1,
-                                               [ {parse_h3(H), H} || H <- Neighbors ])),
-    <<Last:64/unsigned-integer-big>>.
+%% lexically.
+find_lower_bound_hex(Hex) ->
+    parse_h3(hd(h3:children(Hex, 15))).
 
 parse_h3(H3) ->
     <<_Reserved:1, _Mode:4, _Reserved2:3,
       Resolution:4, BaseCell:7, Digits:45>> = <<H3:64/integer-unsigned-big>>,
-    {BaseCell, Digits, Resolution}.
+    <<BaseCell:7, Digits:45, Resolution:4>>.
 
 -spec add_gw_to_hex(Hex :: non_neg_integer(),
                     GWAddr :: libp2p_crypto:pubkey_bin(),
