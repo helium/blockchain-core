@@ -3139,7 +3139,7 @@ batch_from_cache(ETS, Ledger) ->
                                                      Changes
                                              end,
                                   {B, Changes1}
-                          end, Batch, ETS),
+                          end, {Batch, []}, ETS),
             invoke_commit_hooks(Hooks, FilteredChanges, Ledger),
             Batch
     end.
@@ -3153,7 +3153,7 @@ invoke_commit_hooks(Hooks, Changes, Ledger) ->
     spawn(
       fun() ->
               %% process the changes into CF groups
-              Groups = lists:map(
+              Groups = lists:foldl(
                          fun(Change, Grps) ->
                                  CF = element(1, Change),
                                  Atom = maps:get(CF, FilterMap),
