@@ -1,4 +1,5 @@
-%% == Blockchain Proof of Coverage Classification ==
+%%%-------------------------------------------------------------------
+%%% == Blockchain Proof of Coverage Classification ==
 %%%-------------------------------------------------------------------
 -module(blockchain_poc_classification).
 
@@ -6,8 +7,6 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 
--define(DB_FILE, "levels.db").
--define(HEIGHT_KEY, <<"height">>).
 -define(MAX_WINDOW_SAMPLES, 11).
 
 %% list of trustees
@@ -19,46 +18,6 @@
          assign_scores/5,
          calculate_class/3,
          load_promoted_trustees/1]).
-
-%%%-------------------------------------------------------------------
-%%% Block processing
-%%%-------------------------------------------------------------------
-%%%
-%%%
-%%% Move process block fns into txn modules
-%-spec process_txn(Ledger :: blockchain_ledger_v1:ledger(), SomEval :: evaluations()) -> evaluations().
-%process_txn(Ledger, SomEval) ->
-%    DefaultCF = blockchain_ledger_v1:default_cf(Ledger),
-%    case {ok, BlockHeight} = blockchain_ledger_v1:current_height(Ledger) of
-%        BlockHeight when BlockHeight >= 425525 ->
-            %% Do block txn processing
-            %%
-            %% BREAK OUT INTO ASSERT LOC TXN IN ASSERT LOC ABSORB SAME FOR POC TXN
-            %ok = process_poc_txn(, Ledger, SomEval),
-%            ok = process_ass_loc_txns(Ledger),
-
-            %% If the last poc txn for a hotspot is extremely stale (governed by ?STALE_THRESHOLD) we reset its window
-%            ok = blockchain_ledger_som_v1:maybe_phase_out(BlockHeight, Ledger),
-
-            %% Write the height for housekeeping
-%            ok = blockchain_ledger_som_v1:update_default(Ledger, DefaultCF, ?HEIGHT_KEY, <<BlockHeight:64/integer-unsigned-little>>),
-
-            %% Do all the DB operations in this batch
-            %%ok = rocksdb:write_batch(DB, Batch, [{sync, true}]),
-
-            %% Check if there are any promoted trustees
-%            NewPromotedTrustees = load_promoted_trustees(SomEval),
-%            NewSomEval = SomEval#som_evaluations{promoted_trustees=NewPromotedTrustees},
-
-            %% Export plotting data
-            %%ok = plot_every_500th_block(BlockHeight, NewState),
-
-            %% XXX: Do this better
-            %% persistent_term:put(?MODULE, NewState),
-%            NewSomEval;
-%        _ ->
-%            SomEval
-%    end.
 
 -spec process_assert_loc_txn(Txn :: blockchain_txn_assert_location_v1:txn_assert_location(),
                            Ledger :: blockchain_ledger_v1:ledger()) -> ok.
@@ -96,10 +55,6 @@ do_process_poc_txn(Txn, InitTrustees, PromotedTrustees, Ledger) ->
         L when L > 1 ->
             case assign_scores(Path, L, InitTrustees, PromotedTrustees, Ledger) of
                 [_ | _]=TaggedScores ->
-                    %% lager:info("height: ~p, poc_hash: ~p, path: ~p, process_poc_txn: ~p",
-                    %%            [BlockHeight,
-                    %%             ?TO_B58(blockchain_txn_poc_receipts_v1:hash(Txn)),
-                    %%             human_path(Path), human_scores(TaggedScores)]),
                     {ok, TaggedScores};
                 [] ->
                     %% There were no new scores, do nothing
@@ -215,7 +170,6 @@ calculate_class(_Trustees, Element, Ledger) ->
 -spec load_promoted_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:trustees().
 load_promoted_trustees(Ledger) ->
     Windows = blockchain_ledger_som_v1:windows(Ledger),
-
     lists:foldl(fun({H, Window}, Acc) ->
                         case blockchain_ledger_som_v1:is_promoted(Window) of
                             false -> Acc;

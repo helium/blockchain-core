@@ -13,9 +13,9 @@
 -endif.
 
 -define(WINDOW_SIZE, 25).
--define(WINDOW_CAP, 50).
+-define(WINDOW_CAP, 500).
 -define(SCORE_THRESHOLD, real).
--define(STALE_THRESHOLD, 1440).
+-define(STALE_THRESHOLD, 60).
 -define(MAX_NUM, 115792089237316195423570985008687907853269984665640564039457584007913129639935).
 
 %% {hotspot, score_update}
@@ -35,7 +35,7 @@
 %% List of windows, tagged via hotspot pubkey_bin
 -type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
 %% A class associated with hotspot trust
--type classification() :: atom().
+-type classification() :: {atom(), bmu_results()}.
 
 
 -record(som_evaluations, {
