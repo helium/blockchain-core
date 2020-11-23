@@ -273,16 +273,7 @@ bootstrap_h3dex(Ledger) ->
    blockchain_ledger_v1:commit_context(Ledger2).
 
 do_bootstrap_h3dex(Ledger) ->
-   Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-   H3Dex = maps:fold(
-     fun(GwAddr, GW, Acc) ->
-           case blockchain_ledger_gateway_v2:location(GW) of
-              undefined -> Acc;
-              Location ->
-                 maps:update_with(Location, fun(V) -> [GwAddr | V] end, [GwAddr], Acc)
-           end
-     end, #{}, Gateways),
-   blockchain_ledger_v1:set_h3dex(H3Dex, Ledger).
+    blockchain_ledger_v1:bootstrap_h3dex(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc
