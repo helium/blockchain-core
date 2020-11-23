@@ -135,7 +135,7 @@ acc_scores(Index, Path, InitTrustees, PromotedTrustees, Ledger, Acc) ->
 
 -spec calculate_class(Trustees :: trustees(),
                       Element :: blockchain_poc_path_element_v1:poc_element(),
-                      Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_v1:classification().
+                      Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:classification().
 calculate_class(_Trustees, Element, Ledger) ->
     Dst = blockchain_poc_path_element_v1:challengee(Element),
 
@@ -149,9 +149,9 @@ calculate_class(_Trustees, Element, Ledger) ->
     Sum = T+F+U,
     case Sum of
         S when S == 0 ->
-            undefined;
+            {undefined, Data};
         S when S =< ?MAX_WINDOW_SAMPLES ->
-            undefined;
+            {undefined, Data};
         S when S > ?MAX_WINDOW_SAMPLES ->
             Tper = T/S,
             %%_Fper = F/Total,
@@ -159,11 +159,11 @@ calculate_class(_Trustees, Element, Ledger) ->
             %lager:info("Hotspot: ~p, Classification Results: ~p", [?TO_ANIMAL_NAME(Dst), {{T, Td}, {F, Fd}, {U, Ud}}]),
             case Tper of
                 X when X > 0.65 ->
-                    real;
+                    {real, Data};
                 X when X =< 0.65 andalso X >= 0.5 ->
-                    undefined;
+                    {undefined, Data};
                 X when X < 0.5 ->
-                    fake
+                    {fake, Data}
             end
     end.
 

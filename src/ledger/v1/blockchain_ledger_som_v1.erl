@@ -416,14 +416,14 @@ update_windows( _, _, _, _) ->
 is_promoted(Window) ->
     window_score(Window) == ?SCORE_THRESHOLD.
 
--spec window_score(Window :: window()) -> classification().
+-spec window_score(Window :: window()) -> atom(). %%classification().
 window_score(Window) ->
     case Window of
         [] ->
             undefined;
         [Head | _Tail] ->
             %%lager:info("Window Head ~p", [Head]),
-            {_, _, C} = Head,
+            {_, _, {C, _}} = Head,
             C
     end.
 
