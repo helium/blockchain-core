@@ -739,8 +739,8 @@ absorb(Txn, Chain) ->
                         end
                 end,
                 ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn)),
-                NewTrustees = blockchain_poc_classification:load_promoted_trustees(Ledger),
-                ok = blockchain_ledger_som_v1:update_trustees(NewTrustees, Ledger),
+                %%NewTrustees = blockchain_poc_classification:load_promoted_trustees(Ledger),
+                %%ok = blockchain_ledger_som_v1:update_trustees(NewTrustees, Ledger),
                 case blockchain:config(?poc_version, Ledger) of
                     {ok, V} when V >= 9 ->
                         %% This isn't ideal, but we need to do delta calculation _before_ we delete the poc
