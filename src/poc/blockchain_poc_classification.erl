@@ -29,7 +29,7 @@ process_assert_loc_txn(Txn, Ledger) ->
                       Evaluations :: blockchain_ledger_som_v1:evaluations(),
                       Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
                       Ledger :: blockchain_ledger_v1:ledger(),
-                      POCHash :: list()) ->
+                      POCHash :: binary()) ->
     ok | {ok, [blockchain_ledger_som_v1:tagged_score()]} | {ok, beacon}.
 process_poc_txn(BlockHeight, Evaluations, Txn, Ledger, POCHash) ->
     InitTrustees = blockchain_ledger_som_v1:init_trustees(Evaluations),
@@ -100,11 +100,11 @@ assign_scores(Path, PathLength, InitTrustees, PromotedTrustees, Ledger) ->
                             {false, I} ->
                                 %% look at I+1 and I-1 hotspots' receipt and witnesses
                                 Acc1 = acc_scores(I + 1, Path, InitTrustees, PromotedTrustees, Ledger, Acc),
-                                acc_scores(I - 1, Path, InitTrustees, PromotedTrustees, Ledger, Acc1);
-                            _ ->
+                                acc_scores(I - 1, Path, InitTrustees, PromotedTrustees, Ledger, Acc1)
+                            %%_ ->
                                 %% trusted hotspot not in path
-                                lager:info("Skipping acc_scores for some reason here: ~p", [{IsTrusted, Index}]),
-                                Acc
+                            %%    lager:info("Skipping acc_scores for some reason here: ~p", [{IsTrusted, Index}]),
+                            %%    Acc
                         end
                 end,
                 [], lists:zip(lists:seq(1, PathLength),Path)).
@@ -139,10 +139,10 @@ acc_scores(Index, Path, InitTrustees, PromotedTrustees, Ledger, Acc) ->
 calculate_class(_Trustees, Element, Ledger) ->
     Dst = blockchain_poc_path_element_v1:challengee(Element),
 
-    DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Ledger, Dst),
+    DataPoints = blockchain_ledger_som_v1:retrieve_datapoints(Dst, Ledger),
 
     %% lager:info("Dst: ~p, DataPoints: ~p", [?TO_ANIMAL_NAME(Dst), DataPoints]),
-    Data = blockchain_ledger_som_v1:calculate_som(Ledger, DataPoints, Dst),
+    Data = blockchain_ledger_som_v1:calculate_som(DataPoints, Dst, Ledger),
 
     %% lager:info("~p", [Data]),
     {{T, _Td}, {F, _Fd}, {U, _Ud}} = Data,

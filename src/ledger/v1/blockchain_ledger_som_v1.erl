@@ -36,19 +36,13 @@
 -type windows() :: [{libp2p_crypto:pubkey_bin(), window()}].
 %% A class associated with hotspot trust
 -type classification() :: {atom(), bmu_results()}.
-
-
--record(som_evaluations, {
-          init_trustees = [] :: trustees(),
-          promoted_trustees = [] :: trustees()
-         }).
-
--type evaluations() :: #som_evaluations{}.
-
+-type evaluations() :: {trustees(), trustees()}.
 
 -export([update_datapoints/8,
          update_bmus/3,
          update_windows/4,
+         reset_window/2,
+         windows/1,
          update_trustees/2,
          calculate_som/3,
          clear_som/1,
@@ -72,7 +66,7 @@
 %%% SOM Database functions
 %%%-------------------------------------------------------------------
 
--spec update_datapoints(list(), list(), float(), float(), float(), atom(), atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
+-spec update_datapoints(binary(), binary(), any(), any(), any(), atom(), atom(), Ledger :: blockchain_ledger_v1:ledger()) -> ok.
 update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
     DatapointsCF = blockchain_ledger_v1:datapoints_cf(Ledger),
     BacklinksCF = blockchain_ledger_v1:backlinks_cf(Ledger),
@@ -91,7 +85,7 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key, ToInsert)
     end.
 
--spec retrieve_datapoints(list(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
+-spec retrieve_datapoints(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> list().
 retrieve_datapoints(Hotspot, Ledger) ->
     lists:flatten([blockchain_ledger_v1:witness_of(Hotspot, Ledger), blockchain_ledger_v1:witness_for(Hotspot, Ledger)]).
 
@@ -158,7 +152,7 @@ init_som(Ledger) ->
             SOM
     end.
 
--spec update_bmus(list(), list(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+-spec update_bmus(bmu_list(), binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
 update_bmus(BmuList, A, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
@@ -179,7 +173,7 @@ update_bmus(BmuList, A, Ledger) ->
      {{Reals, RDist}, {Fakes, FDist}, {Undefs, UDist}}.
 
 %% write update BMU samples to CF
--spec calculate_som([term()], list(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
+-spec calculate_som([term()], binary(), Ledger :: blockchain_ledger_v1:ledger()) -> bmu_results().
 calculate_som([], _A, _Ledger) -> {{0,0}, {0,0}, {0,0}};
 calculate_som(DatList, A, Ledger) ->
     SomCF = blockchain_ledger_v1:som_cf(Ledger),
@@ -232,7 +226,7 @@ calculate_som(DatList, A, Ledger) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% SOM DB API (internal/console)
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
--spec retrieve_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_list()} | {error, not_found}.
+-spec retrieve_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, bmu_list()} | {error, not_found}.
 retrieve_bmus(A, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
@@ -245,14 +239,14 @@ retrieve_bmus(A, Ledger) ->
             {error, not_found}
     end.
 
--spec clear_bmus(list(), Ledger :: blockchain_ledger_v1:ledger()) -> {ok, list()} | {error, not_found}.
+-spec clear_bmus(binary(), Ledger :: blockchain_ledger_v1:ledger()) -> ok | {error, not_found}.
 clear_bmus(A, Ledger) ->
     BmuCF = blockchain_ledger_v1:bmu_cf(Ledger),
     case blockchain_ledger_v1:cache_get(Ledger, BmuCF, <<A/binary>>, []) of
-        {ok, Bin} ->
+        {ok, _Bin} ->
             %%lager:info("Clear BMUs for: ~p", [?TO_ANIMAL_NAME(A)]),
             blockchain_ledger_v1:cache_delete(Ledger, BmuCF, <<A/binary>>),
-            {ok, Bin};
+            ok;
         not_found ->
             lager:debug("Clear BMUs FAIL"),
             {error, not_found}
@@ -285,11 +279,11 @@ clear_som(Ledger) ->
     end.
 
 -spec init_trustees(Evaluations :: evaluations()) -> trustees().
-init_trustees(#som_evaluations{init_trustees=InitTrustees}) ->
+init_trustees({InitTrustees, _}) ->
     InitTrustees.
 
 -spec promoted_trustees(Evaluations :: evaluations()) -> trustees().
-promoted_trustees(#som_evaluations{promoted_trustees=PromotedTrustees}) ->
+promoted_trustees({_, PromotedTrustees}) ->
     PromotedTrustees.
 
 
@@ -301,7 +295,8 @@ update_trustees(Trustees, Ledger) ->
             N = binary_to_term(Bin),
             [H|_T] = N,
             %% TODO: Check if we are chainging the init trustees ever here
-            Evaluations = H#som_evaluations{promoted_trustees=Trustees},
+            {InitTrustees, _} = H,
+            Evaluations = {InitTrustees, Trustees},
             ToInsert = [Evaluations | N],
             ok = blockchain_ledger_v1:cache_put(Ledger, TrusteesCF, term_to_binary(global), term_to_binary([ToInsert | N])),
             ok;

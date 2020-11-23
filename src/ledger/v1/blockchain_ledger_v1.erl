@@ -175,6 +175,11 @@
     dc_to_hnt/2,
     hnt_to_dc/2,
 
+    cache_get/4,
+    cache_put/4,
+    cache_delete/3,
+    cache_fold/4,
+
     som_cf/1,
     datapoints_cf/1,
     backlinks_cf/1,
@@ -3536,7 +3541,7 @@ deserialize_state_channel(<<2, _/binary>> = SC) ->
 %%% SOM Database functions
 %%%-------------------------------------------------------------------
 %% TODO: Don't touch ledger directly. No clue how to use the cache interface on this one....
--spec witness_for(list(), Ledger :: ledger()) -> term().
+-spec witness_for(binary(), Ledger :: ledger()) -> term().
 witness_for(Hotspot, Ledger) ->
     DatapointsCF = datapoints_cf(Ledger),
     cache_fold(Ledger, DatapointsCF,
@@ -3547,7 +3552,7 @@ witness_for(Hotspot, Ledger) ->
                [{start, {seek, <<Hotspot:32/binary>>}},
                 {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
 
--spec witness_of(list(), Ledger :: ledger()) -> term().
+-spec witness_of(binary(), Ledger :: ledger()) -> term().
 witness_of(Hotspot, Ledger) ->
     BacklinksCF = backlinks_cf(Ledger),
     cache_fold(Ledger, BacklinksCF,
