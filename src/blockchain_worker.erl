@@ -47,7 +47,10 @@
     reset_ledger_to_snap/2,
     async_reset/1,
 
-    grab_snapshot/2
+    grab_snapshot/2,
+
+    add_commit_hook/2, add_commit_hook/3,
+    remove_commit_hook/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -234,6 +237,15 @@ mismatch() ->
 async_reset(Height) ->
     gen_server:cast(?SERVER, {async_reset, Height}).
 
+add_commit_hook(CF, HookFun) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookFun}).
+
+add_commit_hook(CF, HookFun, Pred) ->
+    gen_server:call(?SERVER, {add_commit_hook, CF, HookFun, Pred}).
+
+remove_commit_hook(RefOrAtom) ->
+    gen_server:call(?SERVER, {remove_commit_hook, RefOrAtom}).
+
 signed_metadata_fun() ->
     %% cache the chain handle in the peerbook processes' dictionary
     Chain = case get(peerbook_md_fun_blockchain) of
@@ -416,6 +428,22 @@ handle_call(is_resyncing, _From, State) ->
 
 handle_call({reset_ledger_to_snap, Hash, Height}, _From, State) ->
     {reply, ok, reset_ledger_to_snap(Hash, Height, State)};
+
+handle_call({add_commit_hook, CF, HookFun} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookFun, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, Ref, State#state{blockchain = Chain1}};
+handle_call({add_commit_hook, CF, HookFun, Pred} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    {Ref, Ledger1} = blockchain_ledger_v1:add_commit_hook(CF, HookFun, Pred, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, Ref, State#state{blockchain = Chain1}};
+handle_call({remove_commit_hook, RefOrCF} , _From, #state{blockchain = Chain} = State) ->
+    Ledger = blockchain:ledger(Chain),
+    Ledger1 = blockchain_ledger_v1:remove_commit_hook(RefOrCF, Ledger),
+    Chain1 = blockchain:ledger(Ledger1, Chain),
+    {reply, ok, State#state{blockchain = Chain1}};
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
