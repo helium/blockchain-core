@@ -1106,14 +1106,15 @@ validate_var(Var, Value) ->
     invalid_var(Var, Value).
 
 validate_hip17_vars(Value, Var) when is_binary(Value) ->
-    %% We expect the value of the variable to be in format: <<"int,int,int">>
-    case size(Value) of
-        3 ->
-            case get_density_var(Value) of
-                {error, _}=E0 ->
-                    lager:error("unable to get densit var, reason: ~p", [E0]),
-                    throw({error, {invalid_density_var, Var, Value}});
-                {ok, Res} ->
+    case get_density_var(Value) of
+        {error, _}=E0 ->
+            lager:error("unable to get densit var, reason: ~p", [E0]),
+            throw({error, {invalid_density_var, Var, Value}});
+        {ok, Res} ->
+            case length(Res) == 3 of
+                false ->
+                    throw({error, {invalid_size, Var, Value}});
+                true ->
                     [Siblings, DensityTgt, DensityMax] = Res,
                     CheckSiblings = validate_int_min_max(Siblings, "siblings", 1, 1000),
                     CheckDensityTgt = validate_int_min_max(DensityTgt, "density_tgt", 1, 200000),
@@ -1138,9 +1139,7 @@ validate_hip17_vars(Value, Var) when is_binary(Value) ->
                                     end
                             end
                     end
-            end;
-        _ ->
-            throw({error, {invalid_size, Var, Value}})
+            end
     end;
 validate_hip17_vars(Value, Var) ->
     throw({error, {invalid_format, Var, Value}}).

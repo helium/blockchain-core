@@ -63,7 +63,7 @@
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1]).
+-export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1, bootstrap_h3dex/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
@@ -273,16 +273,7 @@ bootstrap_h3dex(Ledger) ->
    blockchain_ledger_v1:commit_context(Ledger2).
 
 do_bootstrap_h3dex(Ledger) ->
-   Gateways = blockchain_ledger_v1:active_gateways(Ledger),
-   H3Dex = maps:fold(
-     fun(GwAddr, GW, Acc) ->
-           case blockchain_ledger_gateway_v2:location(GW) of
-              undefined -> Acc;
-              Location ->
-                 maps:update_with(Location, fun(V) -> [GwAddr | V] end, [GwAddr], Acc)
-           end
-     end, #{}, Gateways),
-   blockchain_ledger_v1:set_h3dex(H3Dex, Ledger).
+    blockchain_ledger_v1:bootstrap_h3dex(Ledger).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -522,8 +522,12 @@ poc_challengees_rewards_(#{poc_version := Version}=Vars,
     %% check if there were any legitimate witnesses
     Witnesses = legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version),
     Challengee = blockchain_poc_path_element_v1:challengee(Elem),
-    {ok, ChallengeeGw} = blockchain_ledger_v1:find_gateway_info(Challengee, Ledger),
-    ChallengeeLoc = blockchain_ledger_gateway_v2:location(ChallengeeGw),
+    ChallengeeLoc = case blockchain_ledger_v1:find_gateway_info(Challengee, Ledger) of
+                        {ok, ChallengeeGw} ->
+                            blockchain_ledger_gateway_v2:location(ChallengeeGw);
+                        _ ->
+                            undefined
+                    end,
     I = maps:get(Challengee, Acc0, 0),
     case blockchain_poc_path_element_v1:receipt(Elem) of
         undefined ->
@@ -751,6 +755,7 @@ poc_witnesses_rewards(Transactions,
                                                           lists:foldl(
                                                             fun(WitnessRecord, Map) ->
                                                                     Witness = blockchain_poc_witness_v1:gateway(WitnessRecord),
+                                                                    %% A witness must be on the ledger AND have a location, so this should be safe
                                                                     {ok, WitnessGw} = blockchain_ledger_v1:find_gateway_info(Witness, Ledger),
                                                                     WitnessLoc = blockchain_ledger_gateway_v2:location(WitnessGw),
                                                                     RxScale = blockchain_hex:scale(WitnessLoc,
@@ -1018,6 +1023,16 @@ legit_witnesses(Txn, Chain, Ledger, Elem, StaticPath, Version) ->
             blockchain_poc_path_element_v1:witnesses(Elem)
     end.
 
+maybe_calc_tx_scale(DensityTgtRes,
+                    ChallengeeLoc,
+                    UnclippedDensities,
+                    ClippedDensities) ->
+    case {DensityTgtRes, ChallengeeLoc} of
+        {undefined, _} -> 1.0;
+        {_, undefined} -> 1.0;
+        {D, Loc} -> blockchain_hex:scale(Loc, D, UnclippedDensities, ClippedDensities)
+    end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -1210,7 +1225,7 @@ poc_challengees_rewards_1_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_2_test() ->
@@ -1269,7 +1284,7 @@ poc_challengees_rewards_2_test() ->
         {gateway, poc_challengees, <<"a">>} => 117,
         {gateway, poc_challengees, <<"b">>} => 233
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_challengees_rewards_3_test() ->
@@ -1337,7 +1352,7 @@ poc_challengees_rewards_3_test() ->
         %% c gets 2 shares
         {gateway, poc_challengees, <<"c">>} => 44
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 poc_witnesses_rewards_test() ->
@@ -1393,7 +1408,7 @@ poc_witnesses_rewards_test() ->
     Rewards = #{{gateway,poc_witnesses,<<"a">>} => 25,
                 {gateway,poc_witnesses,<<"b">>} => 25},
 
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengers_rewards_test() ->
@@ -1449,7 +1464,7 @@ old_poc_challengees_rewards_version_1_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_challengees_rewards_version_2_test() ->
@@ -1495,7 +1510,7 @@ old_poc_challengees_rewards_version_2_test() ->
         {gateway, poc_challengees, <<"1">>} => 175,
         {gateway, poc_challengees, <<"2">>} => 175
     },
-    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}), Vars)),
+    ?assertEqual(Rewards, normalize_challengee_rewards(poc_challengees_rewards(Txns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 old_poc_witnesses_rewards_test() ->
@@ -1529,7 +1544,7 @@ old_poc_witnesses_rewards_test() ->
         {gateway, poc_witnesses, <<"1">>} => 25,
         {gateway, poc_witnesses, <<"2">>} => 25
     },
-    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}), EpochVars)),
+    ?assertEqual(Rewards, normalize_witness_rewards(poc_witnesses_rewards(Txns, EpochVars, Chain, Ledger, #{}, #{}, #{}), EpochVars)),
     test_utils:cleanup_tmp_dir(BaseDir).
 
 dc_rewards_test() ->
@@ -1726,8 +1741,8 @@ dc_rewards_v3_spillover_test() ->
 
     %% compute the original rewards with no spillover
     ChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), Vars),
-    ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
-    WitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), Vars),
+    ChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars),
+    WitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), Vars),
 
     ChallengersAward = trunc(maps:get(epoch_reward, Vars) * maps:get(poc_challengers_percent, Vars)),
     ?assertEqual(#{{gateway,poc_challengers,<<"X">>} =>  ChallengersAward}, ChallengerRewards), %% entire 15% allocation
@@ -1743,8 +1758,8 @@ dc_rewards_v3_spillover_test() ->
 
     %% apply the DC remainder, if any to the other PoC categories pro rata
     SpilloverChallengerRewards = normalize_challenger_rewards(poc_challengers_rewards(AllTxns, Vars, #{}), NewVars),
-    SpilloverChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
-    SpilloverWitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}), NewVars),
+    SpilloverChallengeeRewards = normalize_challengee_rewards(poc_challengees_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), NewVars),
+    SpilloverWitnessRewards = normalize_witness_rewards(poc_witnesses_rewards(AllTxns, Vars, Chain, Ledger, #{}, #{}, #{}), NewVars),
 
     ChallengerSpilloverAward = erlang:round(DCRemainder * ((maps:get(poc_challengers_percent, Vars) / (maps:get(poc_challengees_percent, Vars) +
                                                                                                        maps:get(poc_witnesses_percent, Vars) +
@@ -1792,15 +1807,3 @@ common_poc_vars() ->
     }.
 
 -endif.
-
-maybe_calc_tx_scale(DensityTgtRes,
-                    ChallengeeLoc,
-                    UnclippedDensities,
-                    ClippedDensities) ->
-    case DensityTgtRes of
-        undefined -> 1.0;
-        D -> blockchain_hex:scale(ChallengeeLoc,
-                                  D,
-                                  UnclippedDensities,
-                                  ClippedDensities)
-    end.
