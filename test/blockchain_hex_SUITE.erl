@@ -207,13 +207,12 @@ scale_test(Config) ->
     UnclippedDensities = ?config(unclipped, Config),
     ClippedDensities = ?config(clipped, Config),
 
-    ok = lists:foreach(
-        fun({Hex, _}) ->
-            Scale = blockchain_hex:scale(Hex, 8, UnclippedDensities, ClippedDensities),
-            ct:pal("Hex: ~p, Res: ~p, Scale: ~p", [Hex, h3:get_resolution(Hex), Scale])
-        end,
-        ?KNOWN
-    ),
+    Another = h3:from_string("8c2836152804dff"),
+
+    ok = lists:foreach(fun(I) ->
+                               Scale = blockchain_hex:scale(Another, I, UnclippedDensities, ClippedDensities),
+                               ct:pal("Res: ~p, Scale: ~p", [I, Scale])
+                       end, lists:seq(12, 0, -1)),
 
     %% TODO: Assert checks from the python model
 
@@ -237,5 +236,6 @@ hip17_vars() ->
         hip17_res_9 => <<"2,1,2">>,
         hip17_res_10 => <<"2,1,1">>,
         hip17_res_11 => <<"2,100000,100000">>,
-        hip17_res_12 => <<"2,100000,100000">>
+        hip17_res_12 => <<"2,100000,100000">>,
+        density_tgt_res => 8
     }.
