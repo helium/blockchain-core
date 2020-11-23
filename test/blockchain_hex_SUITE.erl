@@ -103,6 +103,7 @@ init_per_suite(Config) ->
     Ledger1 = blockchain_ledger_v1:new_context(Ledger),
     blockchain:bootstrap_h3dex(Ledger1),
     blockchain_ledger_v1:commit_context(Ledger1),
+    blockchain_ledger_v1:compact(Ledger),
 
     %% Check that the pinned ledger is at the height we expect it to be
     {ok, 586724} = blockchain_ledger_v1:current_height(Ledger),
