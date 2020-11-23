@@ -63,7 +63,7 @@
 -include("blockchain_vars.hrl").
 
 -ifdef(TEST).
--export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1]).
+-export([bootstrap_hexes/1, can_add_block/2, get_plausible_blocks/1, bootstrap_h3dex/1]).
 %% export a macro so we can interpose block saving to test failure
 -define(save_block(Block, Chain), ?MODULE:save_block(Block, Chain)).
 -include_lib("eunit/include/eunit.hrl").
