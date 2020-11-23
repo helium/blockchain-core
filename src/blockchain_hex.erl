@@ -96,9 +96,15 @@ densities(VarMap, Locations) ->
     [Head | Tail] = hex_resolutions(VarMap),
 
     %% find parent hexs to all hotspots at highest resolution in chain variables
-    ParentHexes = [h3:parent(Hex, Head) || Hex <- lists:flatten([lists:duplicate(length(GWs), H) || {H, GWs} <- maps:to_list(Locations)]) ],
-
-    InitialDensities = init_densities(ParentHexes, #{}),
+    {ParentHexes, InitialDensities} = maps:fold(fun(Hex, GWs, {HAcc, MAcc}) ->
+                                    ParentHex = h3:parent(Hex, Head),
+                                    case maps:find(ParentHex, MAcc) of
+                                        error ->
+                                            {[ParentHex|HAcc], maps:put(ParentHex, length(GWs), MAcc)};
+                                        {ok, OldCount} ->
+                                            {HAcc, maps:put(ParentHex, OldCount + length(GWs), MAcc)}
+                                    end
+                            end, {[], #{}}, Locations),
 
     {UDensities, Densities} = build_densities(
         VarMap,
@@ -108,21 +114,6 @@ densities(VarMap, Locations) ->
     ),
 
     {UDensities, Densities}.
-
--spec init_densities(ParentHexes :: locations(), Init :: density_map()) -> density_map().
-init_densities(ParentHexes, Init) ->
-    lists:foldl(
-        fun(Hex, Acc) ->
-            maps:update_with(
-                Hex,
-                fun(V) -> V + 1 end,
-                1,
-                Acc
-            )
-        end,
-        Init,
-        ParentHexes
-    ).
 
 -spec build_densities(var_map(), locations(), densities(), [non_neg_integer()]) -> densities().
 build_densities(_VarMap, _ParentHexes, {UAcc, Acc}, []) ->
