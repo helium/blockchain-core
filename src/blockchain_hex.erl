@@ -8,7 +8,7 @@
 -type densities() :: {density_map(), density_map()}.
 -type var_map() :: #{non_neg_integer() => map()}.
 -type hex_resolutions() :: [non_neg_integer()].
--type locations() :: [h3:h3_index()].
+-type locations() :: #{h3:h3_index() => [libp2p_crypto:pubkey_bin(),...]}.
 
 %%--------------------------------------------------------------------
 %% Public functions
@@ -83,9 +83,7 @@ var_map(Ledger) ->
 
 -spec filtered_locations(Ledger :: blockchain_ledger_v1:ledger()) -> locations().
 filtered_locations(Ledger) ->
-    AG = blockchain_ledger_v1:active_gateways(Ledger),
-    UnfilteredLocs = [blockchain_ledger_gateway_v2:location(G) || G <- maps:values(AG)],
-    lists:filter(fun(L) -> L /= undefined end, UnfilteredLocs).
+    blockchain_ledger_v1:get_h3dex(Ledger).
 
 -spec hex_resolutions(VarMap :: var_map()) -> hex_resolutions().
 hex_resolutions(VarMap) ->
@@ -98,7 +96,7 @@ densities(VarMap, Locations) ->
     [Head | Tail] = hex_resolutions(VarMap),
 
     %% find parent hexs to all hotspots at highest resolution in chain variables
-    ParentHexes = [h3:parent(Hex, Head) || Hex <- Locations],
+    ParentHexes = [h3:parent(Hex, Head) || Hex <- lists:flatten([lists:duplicate(length(GWs), H) || {H, GWs} <- maps:to_list(Locations)]) ],
 
     InitialDensities = init_densities(ParentHexes, #{}),
 

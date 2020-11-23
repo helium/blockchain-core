@@ -121,6 +121,7 @@
     clean_all_hexes/1,
 
     bootstrap_h3dex/1,
+    get_h3dex/1,
     lookup_gateways_from_hex/2,
     add_gw_to_hex/3,
     remove_gw_from_hex/3,
@@ -3136,21 +3137,29 @@ set_h3dex(H3Dex, Ledger) ->
                  end, H3Dex),
     ok.
 
--spec lookup_gateways_from_hex(Hex :: non_neg_integer(),
-                               Ledger :: ledger()) -> {ok, Results :: h3dex()}.
-%% @doc Given a hex find candidate gateways in the span to the next adjacent
-%% hex. N.B. May return an empty map.
-lookup_gateways_from_hex(Hex, Ledger) ->
+-spec get_h3dex(ledger()) -> h3dex().
+get_h3dex(Ledger) ->
     H3CF = h3dex_cf(Ledger),
     Res = cache_fold(Ledger, H3CF,
                      fun({Key, GWs}, Acc) ->
                              maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
-                     end, #{}, [
-                                {start, find_lower_bound_hex(Hex)},
-                                {iterate_upper_bound, h3_to_key(Hex)}
-                               ]
-                    ),
-    {ok, Res}.
+                     end, #{}, []),
+    Res.
+
+-spec lookup_gateways_from_hex(Hex :: non_neg_integer(),
+                               Ledger :: ledger()) -> Results :: h3dex().
+%% @doc Given a hex find candidate gateways in the span to the next adjacent
+%% hex. N.B. May return an empty map.
+lookup_gateways_from_hex(Hex, Ledger) ->
+    H3CF = h3dex_cf(Ledger),
+    cache_fold(Ledger, H3CF,
+               fun({Key, GWs}, Acc) ->
+                       maps:put(key_to_h3(Key), binary_to_term(GWs), Acc)
+               end, #{}, [
+                          {start, find_lower_bound_hex(Hex)},
+                          {iterate_upper_bound, h3_to_key(Hex)}
+                         ]
+              ).
 
 -spec find_lower_bound_hex(Hex :: non_neg_integer()) -> binary().
 %% @doc Let's find the nearest set of k neighbors for this hex at the
