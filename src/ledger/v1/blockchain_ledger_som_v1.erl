@@ -293,15 +293,12 @@ update_trustees(Trustees, Ledger) ->
     case blockchain_ledger_v1:cache_get(Ledger, TrusteesCF, term_to_binary(global), []) of
         {ok, Bin} ->
             N = binary_to_term(Bin),
-            [H|_T] = N,
-            %% TODO: Check if we are chainging the init trustees ever here
-            {InitTrustees, _} = H,
-            Evaluations = {InitTrustees, Trustees},
-            ToInsert = [Evaluations | N],
+            ToInsert = [Trustees | N],
             ok = blockchain_ledger_v1:cache_put(Ledger, TrusteesCF, term_to_binary(global), term_to_binary([ToInsert | N])),
             ok;
         not_found ->
-            {error, not_found}
+            ok = blockchain_ledger_v1:cache_put(Ledger, TrusteesCF, term_to_binary(global), term_to_binary(Trustees)),
+            {ok, new_list}
     end.
 
 -spec retrieve_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> {ok, [evaluations()]} | {error, not_found}.

@@ -738,8 +738,7 @@ absorb(Txn, Chain) ->
                                 ok = insert_witnesses(Path, Lower, Upper, Ledger)
                         end
                 end,
-                {ok, [Evaluations | _T]} = blockchain_ledger_som_v1:retrieve_trustees(Ledger),
-                ok = blockchain_poc_classification:process_poc_txn(Height, Evaluations, Txn, Ledger, ?MODULE:hash(Txn)),
+                ok = blockchain_poc_classification:process_poc_txn(Height, Txn, Ledger, ?MODULE:hash(Txn)),
                 NewTrustees = blockchain_poc_classification:load_promoted_trustees(Ledger),
                 ok = blockchain_ledger_som_v1:update_trustees(NewTrustees, Ledger),
                 case blockchain:config(?poc_version, Ledger) of
