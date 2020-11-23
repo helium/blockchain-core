@@ -284,11 +284,11 @@ clear_som(Ledger) ->
             {error, not_found}
     end.
 
--spec init_trustees(Evaluations :: blockchain_ledger_v1:evaluations()) -> trustees().
+-spec init_trustees(Evaluations :: evaluations()) -> trustees().
 init_trustees(#som_evaluations{init_trustees=InitTrustees}) ->
     InitTrustees.
 
--spec promoted_trustees(Evaluations :: #som_evaluations{}) -> trustees().
+-spec promoted_trustees(Evaluations :: evaluations()) -> trustees().
 promoted_trustees(#som_evaluations{promoted_trustees=PromotedTrustees}) ->
     PromotedTrustees.
 
