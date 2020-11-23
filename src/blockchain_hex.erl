@@ -31,14 +31,19 @@ densities(Ledger) ->
     ClippedDensities :: density_map()
 ) -> float().
 scale(Location, TargetRes, UnclippedDensities, ClippedDensities) ->
-    lists:foldl(
-        fun(R, Acc) ->
-            Parent = h3:parent(Location, R),
-            Acc * (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
-        end,
-        1.0,
-        lists:seq(TargetRes, 0, -1)
-    ).
+    case TargetRes >= h3:get_resolution(Location) of
+        true ->
+            maps:get(Location, ClippedDensities) / maps:get(Location, UnclippedDensities);
+        false ->
+            lists:foldl(
+              fun(R, Acc) ->
+                      Parent = h3:parent(Location, R),
+                      Acc * (maps:get(Parent, ClippedDensities) / maps:get(Parent, UnclippedDensities))
+              end,
+              1.0,
+              lists:seq(TargetRes, 0, -1)
+             )
+    end.
 
 -spec var_map(Ledger :: blockchain_ledger_v1:ledger()) -> var_map().
 var_map(Ledger) ->
