@@ -115,7 +115,6 @@ calculate_class(Element, Ledger) ->
             lager:info("~p | classification results: ~p", [?TO_ANIMAL_NAME(Dst), R]),
             R
     end,
-    lager:info("Calculate Class Result: ~p", [Result]),
     Result.
 
 -spec load_promoted_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:trustees().

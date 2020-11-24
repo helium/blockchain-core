@@ -3550,7 +3550,7 @@ witness_for(Hotspot, Ledger) ->
                        [Value | Acc]
                end, [],
                [{start, {seek, <<Hotspot:32/binary>>}},
-                {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
+                {iterate_upper_bound, <<Hotspot:32/binary, ?MAX_NUM:256/unsigned-integer-big>>}]).
 
 -spec witness_of(binary(), Ledger :: ledger()) -> term().
 witness_of(Hotspot, Ledger) ->
@@ -3561,7 +3561,7 @@ witness_of(Hotspot, Ledger) ->
                       [Value | Acc]
               end, [],
               [{start, {seek, <<Hotspot:32/binary>>}},
-               {iterate_upper_bound, <<Hotspot:32/binary, (binary:encode_unsigned(?MAX_NUM)):32/binary>>}]).
+               {iterate_upper_bound, <<Hotspot:32/binary, ?MAX_NUM:256/unsigned-integer-big>>}]).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
