@@ -110,9 +110,9 @@ calculate_class(Element, PreviousElement, Ledger) ->
             %%_Fper = F/Total,
             %%_Uper = U/Total,
             R = case Tper of
-                X when X > 0.65 ->
+                X when X > 0.75 ->
                     {real, Data};
-                X when X =< 0.65 andalso X >= 0.5 ->
+                X when X =< 0.75 andalso X >= 0.5 ->
                     {undefined, Data};
                 X when X < 0.5 ->
                     {fake, Data}
