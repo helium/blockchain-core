@@ -74,14 +74,12 @@ update_datapoints(Src, Dst, Rssi, Snr, Fspl, Filtered, Reason, Ledger) ->
     Key2 = <<Dst/binary, Src/binary>>,
     case blockchain_ledger_v1:cache_get(Ledger, DatapointsCF, Key1, []) of
         {ok, Bin} ->
-            lager:info("Datapoints update: ~p", [Key1]),
             N = binary_to_term(Bin),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample | N]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),
             ok = blockchain_ledger_v1:cache_put(Ledger, BacklinksCF, Key2, ToInsert);
         not_found ->
-            lager:info("Datapoints not found: ~p", [Key1]),
             Sample = {{Rssi, Snr, Fspl}, {Filtered, Reason}},
             ToInsert = term_to_binary([Sample]),
             ok = blockchain_ledger_v1:cache_put(Ledger, DatapointsCF, Key1, ToInsert),

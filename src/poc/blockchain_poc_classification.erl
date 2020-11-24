@@ -7,7 +7,7 @@
 -include("blockchain_utils.hrl").
 -include("blockchain_vars.hrl").
 
--define(MAX_WINDOW_SAMPLES, 11).
+-define(MAX_WINDOW_SAMPLES, 19).
 
 -export([process_poc_txn/4,
          process_assert_loc_txn/2,
@@ -33,7 +33,6 @@ process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
         {ok, beacon} ->
             ok;
         {ok, HotspotWindowUpdates} ->
-            %POCHash = blockchain_txn_poc_receipts_v1:hash(POC),
             blockchain_ledger_som_v1:update_windows(Ledger, BlockHeight, POCHash, HotspotWindowUpdates)
     end.
 
