@@ -25,8 +25,7 @@ process_assert_loc_txn(Txn, Ledger) ->
 -spec process_poc_txn(BlockHeight :: pos_integer(),
                       Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
                       Ledger :: blockchain_ledger_v1:ledger(),
-                      POCHash :: binary()) ->
-    ok | {ok, [blockchain_ledger_som_v1:tagged_score()]} | {ok, beacon}.
+                      POCHash :: binary()) -> ok.
 process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
     case do_process_poc_txn(Txn, Ledger) of
         ok ->
@@ -35,7 +34,7 @@ process_poc_txn(BlockHeight, Txn, Ledger, POCHash) ->
             ok;
         {ok, HotspotWindowUpdates} ->
             %POCHash = blockchain_txn_poc_receipts_v1:hash(POC),
-            blockchain_ledger_som_v1:update_windows(Ledger, BlockHeight, POCHash, HotspotWindowUpdates)
+            ok = blockchain_ledger_som_v1:update_windows(Ledger, BlockHeight, POCHash, HotspotWindowUpdates)
     end.
 
 -spec do_process_poc_txn(Txn :: blockchain_txn_poc_receipts_v1:txn_poc_receipts(),
@@ -62,10 +61,10 @@ do_process_poc_txn(Txn, Ledger) ->
                     PathLength :: non_neg_integer(),
                     Ledger :: blockchain_ledger_v1:ledger()) -> [blockchain_ledger_som_v1:tagged_score()].
 assign_scores(Path, PathLength, Ledger) ->
-    lists:foldl(fun({Index, _Element}, Acc) ->
+    lists:foldl(fun(Index, Acc) ->
                         acc_scores(Index, Path, Ledger, Acc)
                 end,
-                [], lists:zip(lists:seq(1, PathLength),Path)).
+                [], lists:seq(1, PathLength)).
 
 
 -spec acc_scores(Index :: pos_integer(),
@@ -102,15 +101,16 @@ calculate_class(Element, Ledger) ->
             Tper = T/S,
             %%_Fper = F/Total,
             %%_Uper = U/Total,
-            %lager:info("Hotspot: ~p, Classification Results: ~p", [?TO_ANIMAL_NAME(Dst), {{T, Td}, {F, Fd}, {U, Ud}}]),
-            case Tper of
+            Result = case Tper of
                 X when X > 0.65 ->
                     {real, Data};
                 X when X =< 0.65 andalso X >= 0.5 ->
                     {undefined, Data};
                 X when X < 0.5 ->
                     {fake, Data}
-            end
+            end,
+            lager:info("~p | classification results: ~p", [?TO_ANIMAL_NAME(Dst), Result]),
+            Result
     end.
 
 -spec load_promoted_trustees(Ledger :: blockchain_ledger_v1:ledger()) -> blockchain_ledger_som_v1:trustees().

@@ -377,7 +377,7 @@ update_windows(Ledger,
                                        %% they get more breathing room now that they've crossed the threshold
                                        case window_score(Window) of
                                            %% Check if we hit the score threshold for this hotspot
-                                           S when S == ?SCORE_THRESHOLD ->
+                                           {C, _Data} when C == ?SCORE_THRESHOLD ->
                                                %% Check if we hit the window cap for this hotspot
                                                case length(Window) >= ?WINDOW_CAP of
                                                    true ->
@@ -407,20 +407,19 @@ update_windows(Ledger,
 update_windows( _, _, _, _) ->
     ok.
 
-%% TODO: Do this all different because classes are discrete
-%% Maybe incorporate the classification distance value here? Seems like an OK place to evaluate.
 -spec is_promoted(Window :: window()) -> boolean().
 is_promoted(Window) ->
-    window_score(Window) == ?SCORE_THRESHOLD.
+    {LatestClass, _} = window_score(Window),
+    LatestClass == ?SCORE_THRESHOLD.
 
--spec window_score(Window :: window()) -> atom(). %%classification().
+-spec window_score(Window :: window()) -> classification().
 window_score(Window) ->
     case Window of
         [] ->
             undefined;
         [Head | _Tail] ->
             %%lager:info("Window Head ~p", [Head]),
-            {_, _, {C, _}} = Head,
+            {_, _, C} = Head,
             C
     end.
 
